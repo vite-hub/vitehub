@@ -26,6 +26,27 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+// Capture the intrinsic typed-array brand getter before mutable prototype state
+// can be changed by application code. The getter itself performs the internal
+// brand check and remains valid for values from other JavaScript realms.
+// Resolve the shared %TypedArray%.prototype through a sibling typed-array
+// constructor. This avoids depending on a potentially replaced
+// Uint8Array.prototype chain during module initialization.
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype),
+  Symbol.toStringTag,
+)?.get
+
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try {
+    return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -397,7 +418,8 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {

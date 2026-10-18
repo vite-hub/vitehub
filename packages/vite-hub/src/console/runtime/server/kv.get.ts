@@ -2,7 +2,8 @@ import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleKV } from "./kv.ts"
 
-import type { KVResult, KVStorage } from "@vite-hub/kv"
+import type { KVStorage } from "@vite-hub/kv"
+import type { Result } from "@vite-hub/runtime"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -53,9 +54,10 @@ function limitParameter(value: string | null): number {
   return parsed
 }
 
-function unwrap<TResult>(result: KVResult<TResult>): TResult {
-  if (result[0]) throw requestError(502, result[0].message)
-  return result[1]
+function unwrap<TResult>(result: Result<TResult>): TResult {
+  const [error, value] = result
+  if (error) throw requestError(502, error.message)
+  return value
 }
 
 function valueType(value: unknown): string {
@@ -249,14 +251,12 @@ async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
     store: selected.name,
     stores: inspection.stores,
   }
-  if (pageResult[0]) {
-    const cause = pageResult[0].cause
-    const errorCode = cursor && cause instanceof Object && "code" in cause && cause.code === "KV_CURSOR_EXPIRED"
-      ? "cursor_expired"
-      : undefined
-    return { ...response, error: pageResult[0].message, ...(errorCode ? { errorCode } : {}) }
+  const [pageError, page] = pageResult
+  if (pageError) {
+    // An invalid or expired cursor is retryable: the Console starts the listing again.
+    const errorCode = cursor && pageError.code === "KV_INVALID_CURSOR" ? "cursor_expired" : undefined
+    return { ...response, error: pageError.message, ...(errorCode ? { errorCode } : {}) }
   }
-  const page = pageResult[1]
   const listed = { ...response, keys: page.keys }
   return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }

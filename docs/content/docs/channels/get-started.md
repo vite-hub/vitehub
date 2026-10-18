@@ -25,11 +25,10 @@ Add the Channels integration to your Vite config. ViteHub then discovers files b
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', channels: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', channels: true })],
 })
 ```
 

@@ -1,11 +1,13 @@
 ---
 title: Queue
 navigation.title: Overview
-description: Define Queue Definitions, enqueue Queue Jobs, and choose Cloudflare or Vercel Queue Providers.
+description: Send slow work to a queue so your route can reply at once, and run that work later on Cloudflare or Vercel.
 navigation.order: 1
 icon: i-lucide-list-ordered
 ---
 
+::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
+  :::product-files
 ::agent-only{skill="queue"}
 Use Queue to send work to a consumer that can run after the request ends. Queue Definitions own consumer code, retries, and concurrency.
 
@@ -16,7 +18,7 @@ Treat enqueue as a handoff. Make the job idempotent, keep payloads bounded, and 
 Use a Queue for independent background work, a Schedule for when work starts,
 and a Workflow when several durable steps must be inspected together.
 
-Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspect provider output for the target host.
+Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspect the Nitro output for the target host.
 ::
 
 ::product-hero{tagline="One runQueue() call sends a job to Cloudflare Queues or Vercel Queues, and the request returns before it runs." hosts="Cloudflare, Vercel"}
@@ -26,58 +28,97 @@ Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspe
 
   export default defineEventHandler(async (event) => {
     const { email } = await readBody<{ email: string }>(event)
-    return await runQueue('welcome-email', { email })
+    const [error, result] = await runQueue('welcome-email', { email })
+    if (error) throw error
+    return result
   })
   ```
 
   ```ts [server/queues/welcome-email.ts]
-  import { defineQueue } from '@vite-hub/queue'
+  import { defineQueue } from 'vite-hub/queue'
 
-  export default defineQueue<{ email: string }>(async ({ payload }) => {
-    await sendWelcomeEmail(payload.email)
-  })
+  // The file name is the queue name.
+  // This runs later, after the route replies.
+  export default defineQueue<{ email: string }>(
+    async ({ payload, attempts }) => {
+      // Send the email here
+      console.log(payload.email, attempts)
+    },
+  )
   ```
 
   ```ts [vite.config.ts]
-  import { hubQueue } from '@vite-hub/queue/vite'
+  import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [hubQueue({ provider: 'cloudflare' })],
+    plugins: [
+      // Jobs go to Cloudflare Queues
+      vitehub({ preset: 'cloudflare', queue: true }),
+      nitro() as never,
+    ],
   })
   ```
 
-  ```bash [Terminal]
-  pnpm add vite-hub
-  pnpm vite build
-  pnpm vitehub inspect definitions --kind queue
+  ```ts [server/api/signup.post.ts]
+  import { defineEventHandler, readBody } from 'h3'
+  import { runQueue } from 'vite-hub/queue'
+
+  // Returns { status: 'queued' } at once
+  export default defineEventHandler(async (event) => {
+    const body = await readBody<{ email: string }>(event)
+    return runQueue('welcome-email', body)
+  })
+  ```
+
+  ```ts [server/api/reminder.post.ts]
+  import { defineEventHandler, readBody } from 'h3'
+  import { runQueue } from 'vite-hub/queue'
+
+  // Run the same job in 10 minutes
+  export default defineEventHandler(async (event) => {
+    const body = await readBody<{ email: string }>(event)
+    return runQueue(
+      'welcome-email',
+      { email: body.email },
+      { delaySeconds: 600 },
+    )
+  })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="The file name is the queue name" icon="i-lucide-code-2" to="/docs/queue/configure"}
-  `server/queues/<name>.ts` defines the queue; ViteHub generates provider names.
+  :::product-feature-item{title="One file per queue" icon="i-lucide-file-code-2" to="/docs/queue/configure#define-a-queue"}
+  Add a file to `server/queues`. Its name is the queue name, and its function runs each job.
   :::
 
+  :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
+  `runQueue()` returns when the queue accepts the job. The job runs after your route replies.
+  :::
+
+  :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}
+  Set `delaySeconds` to start a job later.
   :::product-feature-item{title="Enqueue confirms acceptance, not the handler result" icon="i-lucide-list-ordered" to="/docs/queue/server-api"}
-  `runQueue()` resolves with `status: 'queued'` when the provider accepts.
+  `runQueue()` returns `[error, result]`, and `result.status` is `'queued'` when the provider accepts.
   :::
 
   :::product-feature-item{title="Typed names, payloads, and options" icon="i-lucide-shield-check" to="/docs/queue/server-api#queue-enqueue-options"}
-  Typed from Definitions; an unsupported option throws `ViteHubError`.
+  Typed from Definitions; an unsupported option returns `QUEUE_UNSUPPORTED_OPTION`.
   :::
 
-  :::product-feature-item{title="A handler must tolerate a second delivery" icon="i-lucide-circle-alert" to="/docs/queue/limits-and-errors"}
-  Providers retry failed delivery; ViteHub does not guarantee exactly once.
+  :::product-feature-item{title="Typed names and data" icon="i-lucide-shield-check" to="/docs/queue/server-api#definition-owned-dispatch-types"}
+  A wrong queue name or wrong job data is a type error in your editor.
   :::
 
-  :::product-feature-item{title="Check discovery and provider output with a build" icon="i-lucide-terminal" to="/docs/queue/hosts"}
+  :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
+  A job that fails can run again. Write each job so that a second run is safe.
+  :::product-feature-item{title="Check discovery and Nitro output with a build" icon="i-lucide-terminal" to="/docs/queue/hosts"}
   No local delivery; build and inspect the Wrangler or Vercel output.
   :::
 
-  :::product-feature-item{title="Delayed delivery stays typed" icon="i-lucide-clock-3" to="/docs/queue/server-api"}
-  Pass `delaySeconds` when the provider supports delayed jobs.
+  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
+  Jobs run on Cloudflare Queues or Vercel Queues. They do not run on your own machine.
   :::
 ::

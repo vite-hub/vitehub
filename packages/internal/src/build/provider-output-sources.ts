@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { build } from "esbuild"
 
 import { createImportPath } from "./paths.ts"
-import { createSourceScanner } from "../source-scanner.ts"
+import { maskLiterals, scanModule } from "./scan-module.ts"
 
 interface RetainProviderOutputSourcesOptions {
   artifactDir: string
@@ -297,13 +297,40 @@ function resolveComputedModuleSource(file: string, specifier: string, resolveFro
   }
 }
 
+/** The index of the delimiter that closes the one at `open`. `masked` has no literals or comments. */
+function matchingDelimiter(masked: string, open: number): number | undefined {
+  let depth = 0
+  for (let index = open; index < masked.length; index++) {
+    const char = masked[index]
+    if (char === "(" || char === "[" || char === "{") depth++
+    else if ((char === ")" || char === "]" || char === "}") && --depth === 0) return index
+  }
+}
+
+/** Splits `source.slice(start, end)` at top-level commas. */
+function splitTopLevel(source: string, masked: string, start: number, end: number): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let partStart = start
+  for (let index = start; index < end; index++) {
+    const char = masked[index]
+    if (char === "(" || char === "[" || char === "{") depth++
+    else if (char === ")" || char === "]" || char === "}") depth--
+    else if (char === "," && depth === 0) {
+      parts.push(source.slice(partStart, index).trim())
+      partStart = index + 1
+    }
+  }
+  parts.push(source.slice(partStart, end).trim())
+  return parts
+}
+
 function traceComputedModuleSources(
   file: string,
   source: string,
   onRuntimePackageRequest?: (request: RuntimeModuleRequest) => void,
 ): string[] {
-  const { findMatching, maskSourceLiterals, splitTopLevel } = createSourceScanner(file)
-  const masked = maskSourceLiterals(source)
+  const masked = maskLiterals(scanModule(source, file))
   const bindings = new Map<string, string>()
   const declarations = /\b(?:const|let|var)\s+([A-Z_$][\w$]*)\s*=\s*([`"'])(.*?)\2/gis
   for (const match of source.matchAll(declarations)) {
@@ -348,17 +375,18 @@ function traceComputedModuleSources(
     if (!literal || (literal[1] === "`" && literal[2]!.includes("${"))) return undefined
     return literal[2]!
   }
-  const createRequireBase = (expression: string): string => {
+  const createRequireBase = (start: number, end: number): string => {
+    const expression = source.slice(start, end)
     const normalized = expression.trim()
     if (normalized === "import.meta.url" || normalized === "__filename") return file
     const direct = staticModuleSpecifier(normalized)
     if (direct) return direct
     const newUrl = /^new\s+URL\s*\(/i.exec(normalized)
     if (!newUrl) return file
-    const openParen = normalized.indexOf("(", newUrl.index)
-    const closeParen = findMatching(normalized, openParen, "(", ")")
-    if (closeParen === undefined || normalized.slice(closeParen + 1).trim()) return file
-    const [relativeUrl, baseUrl] = splitTopLevel(normalized.slice(openParen + 1, closeParen))
+    const openParen = start + expression.indexOf(normalized) + normalized.indexOf("(", newUrl.index)
+    const closeParen = matchingDelimiter(masked, openParen)
+    if (closeParen === undefined || closeParen >= end || source.slice(closeParen + 1, end).trim()) return file
+    const [relativeUrl, baseUrl] = splitTopLevel(source, masked, openParen + 1, closeParen)
     const relativePath = relativeUrl ? staticModuleSpecifier(relativeUrl) : undefined
     if (!relativePath || baseUrl?.replace(/\s/g, "") !== "import.meta.url") return file
     return fileURLToPath(new URL(relativePath, pathToFileURL(file)))
@@ -368,8 +396,8 @@ function traceComputedModuleSources(
   for (const match of masked.matchAll(boundRequireDeclarations)) {
     if (!isCreateRequireExpression(match[2]!)) continue
     const openParen = match.index + match[0].lastIndexOf("(")
-    const closeParen = findMatching(masked, openParen, "(", ")")
-    const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
+    const closeParen = matchingDelimiter(masked, openParen)
+    const base = closeParen === undefined ? file : createRequireBase(openParen + 1, closeParen)
     boundRequireBases.set(match[1]!, base)
   }
   const boundResolveBases = new Map<string, string>()
@@ -384,8 +412,8 @@ function traceComputedModuleSources(
   for (const match of masked.matchAll(boundResolveDeclarations)) {
     if (!isCreateRequireExpression(match[2]!)) continue
     const openParen = match.index + match[0].lastIndexOf("(")
-    const closeParen = findMatching(masked, openParen, "(", ")")
-    const base = closeParen === undefined ? file : createRequireBase(source.slice(openParen + 1, closeParen))
+    const closeParen = matchingDelimiter(masked, openParen)
+    const base = closeParen === undefined ? file : createRequireBase(openParen + 1, closeParen)
     recordBoundResolve(match[1]!, base)
   }
   const boundRequireResolveDeclarations = /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*([A-Z_$][\w$]*)\b/gi
@@ -420,18 +448,18 @@ function traceComputedModuleSources(
   for (const match of masked.matchAll(createdRequests)) {
     if (!isCreateRequireExpression(match[1]!)) continue
     const openParen = match.index + match[0].lastIndexOf("(")
-    const closeParen = findMatching(masked, openParen, "(", ")")
+    const closeParen = matchingDelimiter(masked, openParen)
     if (closeParen === undefined) continue
     const invocation = /^\s*(?:\.\s*resolve\s*)?\(/i.exec(masked.slice(closeParen + 1))
     if (!invocation) continue
     const invocationOpenParen = closeParen + 1 + invocation[0].lastIndexOf("(")
-    const invocationCloseParen = findMatching(masked, invocationOpenParen, "(", ")")
+    const invocationCloseParen = matchingDelimiter(masked, invocationOpenParen)
     if (invocationCloseParen === undefined) continue
-    const [target] = splitTopLevel(source.slice(invocationOpenParen + 1, invocationCloseParen))
+    const [target] = splitTopLevel(source, masked, invocationOpenParen + 1, invocationCloseParen)
     const specifier = target ? staticModuleSpecifier(target) : undefined
     if (specifier) {
       const kind = /\.\s*resolve/i.test(invocation[0]) ? "require-resolve" : "require-call"
-      recordRequest(specifier, kind, createRequireBase(source.slice(openParen + 1, closeParen)))
+      recordRequest(specifier, kind, createRequireBase(openParen + 1, closeParen))
     }
   }
   const boundComputedRequests = /\b([A-Z_$][\w$]*)\s*\(\s*([A-Z_$][\w$]*)\s*\)/gi

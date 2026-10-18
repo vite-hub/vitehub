@@ -1,6 +1,5 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
 import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
@@ -28,8 +27,6 @@ import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import type { AgentMessageDeliveryKind, AgentRunContext, AgentRunInput } from "../src/index.ts"
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
-
-const chatMessageHeader = expect.objectContaining({ id: "message-header", type: "data-chat-message-header" })
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyNodeRuntimePackages: vi.fn(async () => undefined),
@@ -617,6 +614,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
+          // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
           config as never,
           // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,
@@ -644,9 +642,9 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({ agent: { routes: { discordGateway: true } } })
   })
 
-  it("imports generated runtime Capabilities in hosted Agent routes", async () => {
+  it("adds discovered Agents to runtime Schedule registry and target names", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-route-capabilities-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
@@ -664,6 +662,8 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "serve",
         createResolver: () => async (id) => `/app/node_modules/${id}`,
@@ -671,17 +671,33 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      const registry = await transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
+      const targets = await transform('export const scheduleTargetNames = ["reports"];\n', "\0#vitehub/schedule/targets")
 
-      expect(route).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(route).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
-      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
-      expect(route).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
-      expect(route).toContain(
-        "const vitehubAgentRouteCapabilities = { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv }",
+      expect(registry).toContain("defineScheduledAgentTarget")
+      expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(registry).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(registry).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
+      expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(registry).toContain(
+        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
       )
-      expect(route).not.toContain("@vite-hub/schedule")
+      expect(registry).toContain('registry["agent/digest"]')
+      expect(registry).toContain('vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), "Use digest instructions.\\n")')
+      expect(registry).not.toContain("withAgentDefaults")
+      expect(registry).toContain('registry["agent/support"]')
+      expect(registry).toContain('agentIdentity: {"name":"support","workspace":"support"}')
+      expect(registry).toContain("vitehubWithWorkspaceSourceRoot")
+      expect(registry).toContain("vitehubWorkspaceDefinitionFromOptions")
+      expect(registry).toContain(JSON.stringify(join(root, "server", "agents", "support", "workspace")))
+      expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
+      expect(registry).toContain("__vitehubAgentInstructions")
+      expect(registry).not.toContain("cron:")
+      expect(registry).not.toContain("setAgentWorkflowRuntimeLoaders")
+      expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
+      expect(targets).toContain('scheduleTargetNames.push("agent/support")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const filteredPlugin = hubAgent({
@@ -702,25 +718,30 @@ describe("agent Vite plugin", () => {
       const filteredConfigResolvedHook: unknown = filteredPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for filtered plugins.
       const filteredConfigResolved = filteredConfigResolvedHook as typeof configResolved
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
         createResolver: () => async (id) => (id === "vite-hub/email/server" || id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
-      const filteredRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
-      expect(filteredRoute).not.toContain("vite-hub/_internal/blob")
-      expect(filteredRoute).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
-      expect(filteredRoute).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
-      expect(filteredRoute).toContain("const vitehubAgentRouteCapabilities = { blob: false, email: vitehubEmail, kv: vitehubKv }")
-      expect(filteredRoute).toContain(
+      const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      expect(filteredRegistry).not.toContain("vite-hub/_internal/blob")
+      expect(filteredRegistry).toContain("blob: false")
+      expect(filteredRegistry).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
+      expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
+      expect(filteredRegistry).toContain(
+        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
+      )
+      expect(filteredRegistry).toContain(
         'import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"',
       )
-      expect(filteredRoute).toContain('workflow: () => import("vite-hub/_internal/workflow")')
-      expect(filteredRoute).toContain(
+      expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
+      expect(filteredRegistry).toContain(
         'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
       )
-      expect(filteredRoute).toContain('sandbox: () => import("@vite-hub/sandbox")')
+      expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const composedBlobPlugin = hubAgent({
@@ -729,16 +750,18 @@ describe("agent Vite plugin", () => {
       const composedBlobConfigResolvedHook: unknown = composedBlobPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for composed plugins.
       const composedBlobConfigResolved = composedBlobConfigResolvedHook as typeof configResolved
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const composedBlobTransform = composedBlobPlugin.transform as typeof transform
       await composedBlobConfigResolved({
         command: "serve",
         createResolver: () => async (id) => (id === "@vite-hub/blob" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/blob/vite" }],
         root,
       })
-      const composedBlobRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
-      expect(composedBlobRoute).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(composedBlobRoute).toContain("blob: vitehubBlob")
-      expect(composedBlobRoute).not.toContain("blob: false")
+      const composedBlobRegistry = await composedBlobTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      expect(composedBlobRegistry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(composedBlobRegistry).toContain("blob: vitehubBlob")
+      expect(composedBlobRegistry).not.toContain("blob: false")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -884,11 +907,32 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("invalidates generated Agent modules when an Agent changes", async () => {
+  it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invalidation-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
     try {
       const plugin = hubAgent()
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "serve"; root: string }) => Promise<void>
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({ command: "serve", root })
+
+      await expect(transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")).resolves.toBeUndefined()
+      await expect(transform("export const scheduleTargetNames = [];\n", "\0#vitehub/schedule/targets")).resolves.toBeUndefined()
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("invalidates runtime Schedule modules when an Agent changes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-invalidation-"))
+    try {
+      const plugin = hubAgent()
+      const registryModule = { id: "registry" }
+      const targetsModule = { id: "targets" }
+      const nitroRegistryModule = { id: "nitro-registry" }
       const generatedRouteModule = { id: "generated-route" }
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -899,6 +943,9 @@ describe("agent Vite plugin", () => {
       config({ __vitehubServerDirs: [join(root, "backend")] })
       await configResolved({ command: "serve", plugins: [], root })
       const modules = new Map<string, object>([
+        ["\0#vitehub/schedule/registry", registryModule],
+        ["\0#vitehub/schedule/targets", targetsModule],
+        [join(root, ".vitehub/nitro/schedule/runtime-registry.js"), nitroRegistryModule],
         [join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule],
       ])
       const nitroAgentRegistry = { id: join(root, ".vitehub/agent/registry.mjs") }
@@ -918,6 +965,9 @@ describe("agent Vite plugin", () => {
 
       expect(invalidateNitroModule).toHaveBeenCalledWith(nitroAgentRegistry)
       expect(reloadNitro).toHaveBeenCalledWith({ type: "full-reload" })
+      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
 
       invalidateModule.mockClear()
       await handleHotUpdate({
@@ -925,6 +975,9 @@ describe("agent Vite plugin", () => {
         server: { environments, config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
+      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
+      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
+      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
       expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1180,6 +1233,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
+    const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
@@ -1199,6 +1253,7 @@ describe("agent Vite plugin", () => {
         writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
       ])
       const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const schedulePlugin = hubSchedule({ providerOutput: false })
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: This test invokes hubAgent's configResolved hook with the Vite fields used by this fixture.
       const configResolved = configResolvedHook as (config: {
@@ -1211,19 +1266,27 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        plugins: [],
-        resolve: { alias: agentProviderOutputAliases() },
+        plugins: [schedulePlugin],
+        resolve: {
+          alias: agentProviderOutputAliases([
+            { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
+          ]),
+        },
         root,
       })
 
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(wrapper).not.toContain("Follow the shared parent policy.")
       expect(wrapper).toContain(`@${relative(agentRoot, policy)}`)
       expect(wrapper).toContain("Handle support requests.")
-      expect(wrapper).not.toContain("agent-generations")
-      expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
+      expect(scheduleRegistry).not.toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).toContain(`@${relative(agentRoot, policy)}`)
+      expect(scheduleRegistry).toContain("Handle support requests.")
+      expect(scheduleRegistry).toContain(".vitehub/agent/sources")
+      expect(scheduleRegistry).not.toContain("agent-generations")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -1591,9 +1654,9 @@ describe("agent Vite plugin", () => {
     }
   }, 15_000)
 
-  it("packages provider runtimes for suffix-only Agents", async () => {
+  it("packages provider runtimes for suffix-only scheduled Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-suffix-output-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-scheduled-output-"))
     try {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = hubAgent()
@@ -1912,7 +1975,8 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("keeps the Schedule runtime out of generated hosted Agent routes", async () => {
+  it("injects the canonical Schedule runtime into generated hosted Agent routes", async () => {
+    const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-routes-"))
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1920,7 +1984,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { discordGateway: true } })
-      const schedulePlugin = { name: "@vite-hub/schedule/vite" }
+      const schedulePlugin = hubSchedule({ providerOutput: false })
       if (isRuntimeFunction(plugin.configResolved)) {
         await plugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -1939,11 +2003,14 @@ describe("agent Vite plugin", () => {
       const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
 
       for (const route of [webhookRoute, gatewayRoute]) {
-        expect(route).not.toContain("#vitehub/schedule/registry")
-        expect(route).not.toContain("@vite-hub/schedule/runtime")
+        expect(route).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
+        expect(route).toContain('setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from "@vite-hub/schedule/runtime"')
+        expect(route).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
         expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections }")
+        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
+        expect(route).toContain('import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from "@vite-hub/agent/server/internal"')
+        expect(route).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
@@ -1960,11 +2027,18 @@ describe("agent Vite plugin", () => {
         )
       }
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
-      expect(denoServer).not.toContain("schedule-registry.js")
-      expect(denoServer).not.toContain("@vite-hub/schedule/runtime")
-      expect(denoServer).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(denoServer).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
-      expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
+      expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
+      expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+      expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(denoServer).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }")
+      expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
+      const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
+      expect(standaloneRegistry).toContain('registry["agent/support"]')
+      expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(standaloneRegistry).not.toContain("setAgentHostCapabilities")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -1978,7 +2052,11 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
-            resolve: { alias: agentProviderOutputAliases() },
+            resolve: {
+              alias: agentProviderOutputAliases([
+                { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
+              ]),
+            },
             root,
           } as never,
         )
@@ -1989,8 +2067,9 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(netlifyFunction).not.toContain("schedule-registry.js")
-      expect(netlifyFunction).not.toContain("@vite-hub/schedule/runtime")
+      expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
+      expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+      expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
       expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
@@ -2037,7 +2116,7 @@ describe("agent Vite plugin", () => {
       expect([emailRuntime, emailDefinition].join("\n")).not.toContain(root)
       expect([emailRuntime, emailDefinition].join("\n")).not.toMatch(/node_modules[/\\\\]/)
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(denoServer).not.toContain("@vite-hub/database/drizzle")
+      expect(denoServer).toContain("@vite-hub/database/drizzle")
       const emailBundle = join(root, "email-runtime-bundle.mjs")
       await bundleEsmEntry(join(root, ".vitehub/agent/email-runtime.js"), emailBundle, {
         alias: { "@vite-hub/email": resolve(import.meta.dirname, "../../email/dist/index.js") },
@@ -2074,7 +2153,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
+      expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -2837,7 +2916,7 @@ export default defineAgent({
         const hooks = new Map<string, () => void>()
         let startup: (() => void) | undefined
         // Execute the generated plugin with an earlier process start and a deferred timer.
-        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
+        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/m, "").replace("export default ", "return ").replace("import.meta.prerender", "false")}`)(
           resumeWebhookQueues,
           { timeOrigin: Date.now() - 60_000 },
           (callback: () => void) => { startup = callback },
@@ -2859,9 +2938,7 @@ export default defineAgent({
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
         expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
         expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
-        // The Agent shutdown drain owns the exit through its runtime, not a direct process.exit().
         expect(queuePlugin).not.toContain("process.exit")
-        expect(queuePlugin).toContain("installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, undefined, nodeProcess)")
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )
@@ -3173,7 +3250,25 @@ export default defineAgent({
     if (!isTestRecord(pkg) || !isTestRecord(pkg.dependencies)) throw new Error("Expected package dependencies metadata.")
 
     expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
+    expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+  })
+
+  it("publishes Schedule as an optional Agent integration peer", async () => {
+    const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    if (
+      !isTestRecord(pkg) ||
+      !isTestRecord(pkg.dependencies) ||
+      !isTestRecord(pkg.devDependencies) ||
+      !isTestRecord(pkg.peerDependencies) ||
+      !isTestRecord(pkg.peerDependenciesMeta)
+    )
+      throw new Error("Expected package dependency metadata.")
+
+    expect(pkg.version).toEqual(expect.any(String))
+    expect(pkg.dependencies?.["@vite-hub/schedule"]).toBeUndefined()
+    expect(["workspace:*", pkg.version]).toContain(pkg.devDependencies?.["@vite-hub/schedule"])
+    expect(["workspace:*", pkg.version]).toContain(pkg.peerDependencies?.["@vite-hub/schedule"])
+    expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
   })
 
   it("publishes the Agent output helper subpath", async () => {
@@ -3769,6 +3864,80 @@ describe("server helpers", () => {
     }
   })
 
+  it("uses an explicit Runtime Schedule primitive through chat route contexts", async () => {
+    const createdAt = new Date("2026-07-12T00:00:00.000Z")
+    const schedules = {
+      create: vi.fn(async (input) => ({
+        ...input,
+        createdAt,
+        enabled: input.enabled ?? true,
+        id: input.id || "created",
+        updatedAt: createdAt,
+      })),
+      delete: vi.fn(),
+      disable: vi.fn(),
+      enable: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(async () => []),
+      run: vi.fn(),
+      update: vi.fn(),
+    }
+    const { defineAgent } = await import("../src/index.ts")
+    const { schedule } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability(),
+        schedule({
+          allowSelfTarget: true,
+          delivery: "origin",
+          mode: "write",
+          timeZone: "Asia/Bangkok",
+        }),
+      ],
+      driver: {
+        async run({ tools }) {
+          // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
+          const record = (await tools!.cronjob!.execute?.({
+            cron: "0 9 * * *",
+            id: "daily-0900",
+            operation: "create",
+            prompt: "Send my daily report.",
+          })) as { id: string }
+          return `scheduled ${record.id}`
+        },
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelChatRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/mini/chat", {
+        body: JSON.stringify({
+          id: "daily-thread",
+          messages: [
+            {
+              id: "user-1",
+              parts: [{ text: "remind me every day", type: "text" }],
+              role: "user",
+            },
+          ],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentIdentity: { name: "mini" }, capabilities: { schedule: { schedules } } },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      code: "INTERNAL",
+      error: "Agent request failed.",
+    })
+    expect(schedules.create).not.toHaveBeenCalled()
+  })
+
   it("returns HTTP 400 for conflicting Claude prompt file arguments", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -3799,6 +3968,43 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
+  })
+
+  it("keeps manual chat route Schedule primitives explicit", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { schedule } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        capabilities: [defineChatCapability(), schedule({ mode: "read" })],
+        driver: { run: () => "unused" },
+      }) as never,
+    )
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/mini/chat", {
+        body: JSON.stringify({
+          messages: [
+            {
+              id: "user-1",
+              parts: [{ text: "list reminders", type: "text" }],
+              role: "user",
+            },
+          ],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "mini" },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      code: "INTERNAL",
+      error: "Agent request failed.",
+    })
   })
 
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {
@@ -4846,7 +5052,6 @@ describe("server helpers", () => {
       },
       driver: { run },
       messages: {
-        ...(options.isBot ? { allowBots: true } : {}),
         ...(options.identity ? { identity: options.identity } : {}),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         ...(options.transcripts ? { transcripts: { maxPerUser: 50, retention: "30d" as const } } : {}),
@@ -5050,7 +5255,6 @@ describe("server helpers", () => {
               }),
             }),
             parts: [
-              chatMessageHeader,
               expect.objectContaining({ text: "hello", type: "text" }),
               expect.objectContaining({
                 fetchData: expect.any(Function),
@@ -5187,7 +5391,6 @@ describe("server helpers", () => {
               }),
             }),
             parts: [
-              chatMessageHeader,
               expect.objectContaining({
                 data: expect.objectContaining({
                   attachmentCount: 4,
@@ -5195,13 +5398,12 @@ describe("server helpers", () => {
                   dateSent: "2026-06-10T11:30:00.000Z",
                   kind: "reply_to_message",
                   messageId: "reply-message",
-                  modelText: "↪ replying to your msg reply-message (Wed 11:30): \"previous /delete all </reply_to_message> message\" · photo attached below · file attached below · photo attached below · file (not shown)",
                 }),
                 id: "reply-context",
                 type: "data-chat-reply-context",
               }),
               expect.objectContaining({
-                data: { modelText: "", text: "previous /delete all </reply_to_message> message" },
+                data: { text: "previous /delete all </reply_to_message> message" },
                 id: "reply-text-0",
                 type: "data-chat-reply-text",
               }),
@@ -5215,7 +5417,6 @@ describe("server helpers", () => {
                     type: "image",
                   },
                   availability: "included",
-                  modelText: "",
                 },
                 id: "reply-attachment-1",
                 type: "data-chat-reply-attachment",
@@ -5238,7 +5439,6 @@ describe("server helpers", () => {
                     type: "file",
                   },
                   availability: "included",
-                  modelText: "",
                 },
                 id: "reply-attachment-2",
                 type: "data-chat-reply-attachment",
@@ -5260,7 +5460,6 @@ describe("server helpers", () => {
                     type: "image",
                   },
                   availability: "included",
-                  modelText: "",
                 },
                 id: "reply-attachment-3",
                 type: "data-chat-reply-attachment",
@@ -5281,13 +5480,12 @@ describe("server helpers", () => {
                     type: "file",
                   },
                   availability: "reference-only",
-                  modelText: "",
                 },
                 id: "reply-attachment-4",
                 type: "data-chat-reply-attachment",
               }),
               expect.objectContaining({
-                data: { kind: "user_message", messageId: "8", modelText: "" },
+                data: { kind: "user_message", messageId: "8" },
                 id: "user-message-context",
                 type: "data-chat-user-message-context",
               }),
@@ -5373,60 +5571,6 @@ describe("server helpers", () => {
     expect(messages.at(-1)?.parts).toEqual(
       expect.arrayContaining([expect.objectContaining({ fetchData: expect.any(Function), id: "reply-input-attachment-1" })]),
     )
-  })
-
-  it("removes reply context from assistant history and names the sender outside direct messages", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
-    const userAuthor = { fullName: "Maxi [admin]", isBot: false, isMe: false, userId: "123", userName: "maxi" }
-    const question = new Message({
-      attachments: [],
-      author: userAuthor,
-      formatted: { children: [], type: "root" },
-      id: "telegram:456:40",
-      metadata: { dateSent: new Date("2026-06-10T11:30:00.000Z"), edited: false },
-      raw: {},
-      text: "soup or salad?",
-      threadId: "telegram:456",
-    })
-    const answer = new Message({
-      attachments: [],
-      author: { fullName: "vitehub", isBot: true, isMe: true, userId: "self", userName: "vitehub" },
-      formatted: { children: [], type: "root" },
-      id: "telegram:456:41",
-      metadata: { dateSent: new Date("2026-06-10T11:31:00.000Z"), edited: false },
-      raw: {},
-      replyTo: question,
-      text: "Soup.",
-      threadId: "telegram:456",
-    })
-    const adapter = createTestChatAdapter({ historyMessages: [question, answer], isDM: false })
-    const run = vi.fn((_context: AgentRunContext) => "ok")
-    const agent = defineAgent({
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      channels: { support: testTelegram(telegram, { adapter: () => adapter as never }) },
-      driver: { run },
-      messages: { triggerHistory: { maxMessages: 10, source: "thread" } },
-    })
-
-    // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
-      body: JSON.stringify({
-        message: { chat: { id: 456, type: "group" }, from: { id: 123, username: "maxi" }, isMention: true, message_id: 8_009, text: "thanks" },
-      }),
-      method: "POST",
-    }), "support")
-
-    expect(response.status).toBe(200)
-    const messages = run.mock.calls[0]?.[0].messages ?? []
-    expect(messages.map(message => message.role)).toEqual(["user", "assistant", "user"])
-    expect(messages[1]?.parts).toEqual([expect.objectContaining({ text: "Soup.", type: "text" })])
-    expect(messages[0]?.parts[0]).toEqual({
-      data: { modelText: "[Wed 2026-06-10 11:30:00 +00:00 · msg 40 · from Maxi admin (id 123)]" },
-      id: "message-header",
-      type: "data-chat-message-header",
-    })
   })
 
   it("makes a real Telegram replied photo available without Channel configuration", async () => {
@@ -6055,55 +6199,6 @@ describe("server helpers", () => {
       await handler(request(2104, 789, false, true), "telegram", options)
       expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
       expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
-    } finally {
-      await state.disconnect()
-      await rm(stateDir, { force: true, recursive: true })
-    }
-  })
-
-  it.each([
-    { allowBots: undefined, multipleChannels: false },
-    { allowBots: true, multipleChannels: false },
-    { allowBots: true, multipleChannels: true },
-  ])("admits messages from other bots only with allowBots: $allowBots, multiple Channels: $multipleChannels", async ({ allowBots, multipleChannels }) => {
-    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-bot-authors-"))
-    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const adapter = createTestChatAdapter({ isDM: false })
-    const run = vi.fn(() => "accepted")
-    const filter = vi.fn(() => true)
-    const handler = createChannelWebhookRouteHandler(
-      // SAFETY: This fixture omits host-only context that these routes do not inspect.
-      defineAgent({
-        messages: { state, stream: false, triggerHistory: "none" },
-        channels: {
-          ...multipleChannels ? { web: webChat() } : {},
-          telegram: testTelegram(telegram, {
-            adapter: () => adapter as never,
-            messages: { ...allowBots === undefined ? {} : { allowBots }, filter },
-          }),
-        },
-        driver: { run },
-      }) as never,
-    )
-    const request = (id: number, isBot: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
-      body: JSON.stringify({ update_id: id, message: {
-        chat: { id: 791, type: "group" },
-        from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
-        isMention: true,
-        message_id: id,
-        text: "hello",
-      } }),
-      method: "POST",
-    })
-    const options = { agentName: "support" }
-    try {
-      await expect(handler(request(2200, true), "telegram", options)).resolves.toMatchObject({ status: 200 })
-      expect(run).toHaveBeenCalledTimes(allowBots ? 1 : 0)
-      expect(filter).toHaveBeenCalledTimes(allowBots ? 1 : 0)
-      await handler(request(2201, false), "telegram", options)
-      expect(run).toHaveBeenCalledTimes(allowBots ? 2 : 1)
-      const deliveries = await handler.deliveries(request(2201, false), "telegram", options)
-      expect(deliveries.find(delivery => delivery.sourceId === "2200")?.status).toBe(allowBots ? "completed" : "rejected")
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -6992,7 +7087,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({ text: "reenviado", type: "text" }),
               expect.objectContaining({
                 fetchData: expect.any(Function),
@@ -7060,7 +7154,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({
                 fetchData: expect.any(Function),
                 fetchMetadata: { fileId: "large-photo" },
@@ -7120,7 +7213,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({
                 mediaType: "image/png",
                 type: "image",
@@ -7203,7 +7295,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({
                 mediaType: "application/pdf",
                 name: "report.pdf",
@@ -7271,7 +7362,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({ text: "see attached", type: "text" }),
               expect.objectContaining({
                 text: "\n\nText attachment (notes.md):\n\n# Notes\n- first",
@@ -7361,7 +7451,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       messages: [expect.objectContaining({
-        parts: [chatMessageHeader, expect.objectContaining({ text: "\n\nText attachment (notes.md):\n\n# Notes", type: "text" })],
+        parts: [expect.objectContaining({ text: "\n\nText attachment (notes.md):\n\n# Notes", type: "text" })],
       })],
     }))
   })
@@ -7819,7 +7909,6 @@ describe("server helpers", () => {
         messages: [
           expect.objectContaining({
             parts: [
-              chatMessageHeader,
               expect.objectContaining({
                 mediaType: "audio/ogg",
                 name: "voice-message.ogg",
@@ -7938,7 +8027,6 @@ describe("server helpers", () => {
           messages: [
             expect.objectContaining({
               parts: [
-                chatMessageHeader,
                 expect.objectContaining({
                   mediaType: "text/plain",
                   name: "message.txt",
@@ -13519,9 +13607,7 @@ describe("server helpers", () => {
     expect(adapter.stream).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    ...[false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))),
-  ])("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
+  it.each([false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))))("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
     const adapter = createTestChatAdapter()
     if (native) adapter.stream = vi.fn(async (threadId: string, chunks: AsyncIterable<string | StreamChunk>) => {
       for await (const _chunk of chunks) { /* consume the final reply */ }
@@ -21637,6 +21723,7 @@ describe("server helpers", () => {
       return {
         stream: (async function* () {
           await new Promise(() => undefined)
+          yield* []
         })(),
       }
     })
@@ -21714,6 +21801,7 @@ describe("server helpers", () => {
           return {
             stream: (async function* () {
               await new Promise(() => undefined)
+              yield* []
             })(),
           }
         },
@@ -21761,6 +21849,7 @@ describe("server helpers", () => {
     const run = vi.fn(async () => ({
       stream: (async function* () {
         await new Promise(() => undefined)
+        yield* []
       })(),
     }))
     const agent = defineAgent({
@@ -23064,7 +23153,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("names durable history attachments in the message header without fetching their URLs", async () => {
+  it("preserves typed references when durable text attachment URL decoding fails", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -23154,7 +23243,12 @@ describe("server helpers", () => {
       expect(fetch).not.toHaveBeenCalled()
       expect(runs).toEqual([["", "current after stale history"]])
       expect(receivedMessages[0]?.parts).toEqual([
-        { data: { modelText: "[Wed 2026-06-10 12:00:00 +00:00 · msg 40 · file (not shown)]" }, id: "message-header", type: "data-chat-message-header" },
+        expect.objectContaining({
+          mediaType: "text/plain",
+          name: "old.txt",
+          type: "file",
+          url: "https://cdn.example/old.txt",
+        }),
       ])
     } finally {
       fetch.mockRestore()

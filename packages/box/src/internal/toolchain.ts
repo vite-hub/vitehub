@@ -199,7 +199,7 @@ export function parsePackageManager(value: string, source: string): BoxToolchain
 }
 
 /** Detect the target OS, architecture, and C library with POSIX tools. */
-async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
+export async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
   const result = await target.run([
     "uname -s",
     "uname -m",
@@ -234,7 +234,7 @@ export function nodeDistribution(
   return {
     archive: (version: string) => `node-v${version}-${suffix}.tar.gz`,
     base,
-    file: musl ? `linux-${platform.arch}-musl` : platform.os === "darwin" ? `osx-${platform.arch}-tar` : `linux-${platform.arch}`,
+    file: musl ? `linux-${platform.arch}-musl` : platform.os === "darwin" ? `darwin-${platform.arch}` : `linux-${platform.arch}`,
     key: (version: string) => `node-v${version}-${suffix}`,
     url: (version: string, file: string) => `${base}/v${version}/${file}`,
   };
@@ -476,7 +476,7 @@ async function installEntry(
  * Extract into a private staging directory, then publish with an atomic
  * symbolic link. A concurrent installer that loses the race keeps the winner.
  */
-function installScript(options: {
+export function installScript(options: {
   archive: string;
   cacheRoot: string;
   key: string;

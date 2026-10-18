@@ -19,6 +19,7 @@ The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [s
 
 Import every component from the package root. The package marks only `styles.css` as a side effect, so bundlers remove the components that you do not use.
 
+
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
 ## Nuxt

@@ -151,6 +151,14 @@ export class ProviderOutputCatalog {
     this.#runtimeContributions.clear()
   }
 
+  resetRuntimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): void {
+    if (!generation) {
+      this.#runtimeContributions.delete(product)
+      return
+    }
+    this.#runtimeContributionsByGeneration.get(generation)?.delete(product)
+  }
+
   createDeploymentGeneration(): ProviderDeploymentOutputGeneration {
     const generation = { valid: true }
     this.#trackDeploymentGeneration(generation)

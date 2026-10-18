@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
-// section manifest. The default slot renders in the right column: a `::code-group` whose tabs become
-// a file list beside the code, or an interactive component.
+// section manifest. The default slot renders in the right column: a `::product-files` file tree, a
+// `::code-group` whose tabs become a file list beside the code, or an interactive component.
+// The only action is Get started. The sidebar lists the other product pages.
 import { docsManifest, getDocsPageByPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
   getDocsSectionForPath,
   getDocsSectionSubpages,
-  getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
@@ -26,21 +26,6 @@ const subpages = computed(() => (section.value ? getDocsSectionSubpages(section.
 const getStarted = computed(
   () => subpages.value.find((candidate) => candidate.id === "get-started") ?? subpages.value[0],
 );
-const serverApi = computed(() => subpages.value.find((candidate) => candidate.id === "server-api"));
-const secondaryPage = computed(
-  () => serverApi.value ?? subpages.value.find((candidate) => candidate.id === "invocations"),
-);
-const heroPages = computed(() => {
-  if (!section.value) return [];
-  if (section.value.id !== "agents")
-    return subpages.value.filter(
-      (candidate) =>
-        candidate.path !== getStarted.value?.path && candidate.path !== secondaryPage.value?.path,
-    );
-  return getDocsSidebarGroups(section.value)
-    .map((group) => group.pages[0])
-    .filter((page): page is NonNullable<typeof page> => Boolean(page));
-});
 const hostsPage = computed(() =>
   section.value?.pages.find((candidate) => candidate.id === "hosts"),
 );
@@ -112,16 +97,7 @@ const channelPath = computed(() =>
             aria-hidden="true"
           />
         </NuxtLink>
-        <NuxtLink v-if="secondaryPage" :to="secondaryPage.path" class="vh-hero-secondary">
-          {{ secondaryPage.title }}
-        </NuxtLink>
       </div>
-
-      <nav v-if="heroPages.length" class="vh-hero-pages" aria-label="Product pages">
-        <NuxtLink v-for="heroPage in heroPages" :key="heroPage.path" :to="heroPage.path">
-          {{ heroPage.title }}
-        </NuxtLink>
-      </nav>
 
       <div v-if="channelItems.length" class="vh-hero-hosts">
         <span class="vh-hero-hosts-label">{{
@@ -168,7 +144,6 @@ const channelPath = computed(() =>
 <style scoped>
 .vh-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
   gap: 2.5rem;
   align-items: start;
   padding: 2.5rem 0 1rem;
@@ -176,16 +151,22 @@ const channelPath = computed(() =>
 
 @media (min-width: 64rem) {
   .vh-hero {
-    grid-template-columns: minmax(20rem, 0.7fr) minmax(0, 1.3fr);
-    gap: 4rem;
+    grid-template-columns: minmax(18rem, 0.65fr) minmax(0, 1.35fr);
+    gap: 2.5rem;
     padding: 4rem 0 2rem;
   }
+}
+
+/* The title scales with its column, not the viewport, so a long product name never reaches the code panel. */
+.vh-hero-copy {
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .vh-hero-title {
   margin: 0;
   color: var(--ui-text-highlighted);
-  font-size: clamp(3rem, 5vw, 4.5rem);
+  font-size: clamp(2.5rem, 17cqi, 4.5rem);
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -228,34 +209,6 @@ const channelPath = computed(() =>
 
 .vh-hero-cta:hover .landing-cta-arrow {
   transform: translateX(0.25rem);
-}
-
-.vh-hero-secondary {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  color: var(--ui-text-muted);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: color 150ms ease;
-}
-
-.vh-hero-secondary:hover {
-  color: var(--ui-text-highlighted);
-}
-
-.vh-hero-pages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin-top: 1rem;
-  color: var(--ui-text-muted);
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
-}
-
-.vh-hero-pages a:hover {
-  color: var(--ui-text-highlighted);
 }
 
 .vh-hero-hosts {
@@ -311,6 +264,7 @@ const channelPath = computed(() =>
 /*
  * The slot is a prose code group. Its tab list becomes a file list on the left and the active
  * code fills a fixed-height panel on the right, so switching files does not move the page.
+ * `::product-files` (.vh-files) styles itself, so these rules skip it.
  */
 .vh-hero-panel {
   min-width: 0;
@@ -320,14 +274,11 @@ const channelPath = computed(() =>
   margin: 0;
 }
 
-/*
- * On phones the panel takes the height of the longest file.
- * A fixed height left a large empty area under short examples.
- */
-.vh-hero-panel :deep(> div:has(> [role="tablist"])) {
+.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
   display: grid;
+  height: 28rem;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
@@ -335,15 +286,14 @@ const channelPath = computed(() =>
 }
 
 @media (min-width: 40rem) {
-  .vh-hero-panel :deep(> div:has(> [role="tablist"])) {
-    height: 28rem;
+  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
     grid-template-columns: 11rem minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 }
 
 /* The tab list is a file list: one file per row, long paths cut from the start. */
-.vh-hero-panel :deep([role="tablist"]) {
+.vh-hero-panel :deep(> div:not(.vh-files) > [role="tablist"]) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -356,21 +306,21 @@ const channelPath = computed(() =>
   padding: 0.5rem 0;
 }
 
-.vh-hero-panel :deep(> div:has(> [role="tablist"]) > [role="tablist"]) {
+.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tablist"]) {
   grid-area: 1 / 1;
 }
 
-.vh-hero-panel :deep(> div:has(> [role="tablist"]) > [role="tabpanel"]) {
+.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
   grid-area: 1 / 2;
 }
 
-.vh-hero-panel :deep(> div:has(> [role="tablist"]) > [role="tabpanel"][data-state="inactive"]),
-.vh-hero-panel :deep(> div:has(> [role="tablist"]) > [role="tabpanel"][hidden]) {
+.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"][data-state="inactive"]),
+.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"][hidden]) {
   display: block;
   visibility: hidden;
 }
 
-.vh-hero-panel :deep([role="tab"]) {
+.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"]) {
   display: flex;
   counter-increment: demo-file;
   gap: 0.625rem;
@@ -389,39 +339,39 @@ const channelPath = computed(() =>
   text-overflow: ellipsis;
 }
 
-.vh-hero-panel :deep([role="tab"])::before {
+.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"])::before {
   content: counter(demo-file) ".";
   color: var(--ui-text-dimmed);
   font-variant-numeric: tabular-nums;
 }
 
-.vh-hero-panel :deep([role="tab"] > .iconify) {
+.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"] > .iconify) {
   filter: grayscale(1);
   opacity: 0.7;
 }
 
-.vh-hero-panel :deep([role="tab"][data-state="active"]),
-.vh-hero-panel :deep([role="tab"][aria-selected="true"]) {
+.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"][data-state="active"]),
+.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"][aria-selected="true"]) {
   border-left-color: var(--ui-text-highlighted);
   background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
   color: var(--ui-text-highlighted);
 }
 
-.vh-hero-panel :deep([role="tabpanel"]) {
+.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"]) {
   min-width: 0;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.vh-hero-panel :deep([role="tabpanel"] > div),
-.vh-hero-panel :deep([role="tabpanel"] pre) {
+.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"] > div),
+.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"] pre) {
   border: 0;
   border-radius: 0;
   margin: 0;
 }
 
-.vh-hero-panel :deep(pre) {
+.vh-hero-panel :deep(> div:not(.vh-files) pre) {
   min-height: 100%;
   white-space: pre;
   font-size: 0.8125rem;
@@ -429,32 +379,20 @@ const channelPath = computed(() =>
 }
 
 @media (max-width: 39.99rem) {
-  .vh-hero-panel :deep(> div:has(> [role="tablist"])) {
-    background: var(--ui-bg-muted);
-  }
-
-  .vh-hero-panel :deep(> div:has(> [role="tablist"]) > [role="tabpanel"]) {
+  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
     grid-area: 2 / 1;
-    border-top: 1px solid var(--ui-border);
   }
 
-  /* The copy button sits at the top right of the group, which is the file row on phones. Keep the files out from under it. */
-  .vh-hero-panel :deep([role="tablist"]) {
+  .vh-hero-panel :deep(> div:not(.vh-files) > [role="tablist"]) {
     flex-direction: row;
     overflow-x: auto;
-    margin-inline-end: 3rem;
     border-right: 0;
+    border-bottom: 1px solid var(--ui-border);
   }
 
-  /* The row has an underline indicator, so the active file does not also get the left bar or a number. */
-  .vh-hero-panel :deep([role="tab"]) {
+  .vh-hero-panel :deep(> div:not(.vh-files) [role="tab"]) {
     width: auto;
     flex: 0 0 auto;
-    border-left: 0;
-  }
-
-  .vh-hero-panel :deep([role="tab"])::before {
-    content: none;
   }
 }
 

@@ -92,6 +92,12 @@
       "require": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./owned-paths": {
+      "types": "./dist/owned-paths.d.ts",
+      "import": "./dist/owned-paths.js",
+      "require": "./dist/owned-paths.js",
+      "default": "./dist/owned-paths.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",
@@ -103,12 +109,6 @@
       "import": "./dist/provision-state.js",
       "require": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
-    },
-    "./source-scanner": {
-      "types": "./dist/source-scanner.d.ts",
-      "import": "./dist/source-scanner.js",
-      "require": "./dist/source-scanner.js",
-      "default": "./dist/source-scanner.js"
     },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
@@ -230,6 +230,12 @@
       "require": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
     },
+    "./build/scan-module": {
+      "types": "./dist/build/scan-module.d.ts",
+      "import": "./dist/build/scan-module.js",
+      "require": "./dist/build/scan-module.js",
+      "default": "./dist/build/scan-module.js"
+    },
     "./build/provider-output-sources": {
       "types": "./dist/build/provider-output-sources.d.ts",
       "import": "./dist/build/provider-output-sources.js",
@@ -253,12 +259,6 @@
       "import": "./dist/build/vercel-config.js",
       "require": "./dist/build/vercel-config.js",
       "default": "./dist/build/vercel-config.js"
-    },
-    "./build/vercel-runtime-package-copy": {
-      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
-      "import": "./dist/build/vercel-runtime-package-copy.js",
-      "require": "./dist/build/vercel-runtime-package-copy.js",
-      "default": "./dist/build/vercel-runtime-package-copy.js"
     },
     "./build/vercel-runtime-packages": {
       "types": "./dist/build/vercel-runtime-packages.d.ts",
@@ -318,6 +318,7 @@
     "exsolve": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
