@@ -503,7 +503,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const tee = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "tee")?.value
     if (typeof tee !== "function") return
     const [normalizedBody, discarded] = Reflect.apply(tee, body, []) as [ReadableStream<Uint8Array>, ReadableStream<Uint8Array>]
-    await discarded.cancel()
+    // Start cleanup without delaying delivery of the live branch. If the
+    // normalized response is later canceled, tee cancellation coordinates
+    // with this discarded branch and propagates to the original source.
+    void discarded.cancel()
     return new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
 
   }
