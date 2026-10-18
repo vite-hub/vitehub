@@ -3498,7 +3498,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  executionBudget: ReturnType<typeof createExecutionBudget>
+  executionBudget?: ReturnType<typeof createExecutionBudget>
   executionBudgetActive: boolean
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
@@ -4452,11 +4452,13 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  }),
+  executionBudget: ReturnType<typeof createExecutionBudget> | undefined = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -8380,19 +8382,21 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  })
+  const executionBudget = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
   const budgetInput = {
     ...input,
-    abortSignal: !executionBudgetHasConstraints(input)
+    abortSignal: executionBudget
       ? input.abortSignal
-      : input.abortSignal
-      ? AbortSignal.any([input.abortSignal, executionBudget.signal])
-      : executionBudget.signal,
+        ? AbortSignal.any([input.abortSignal, executionBudget.signal])
+        : executionBudget.signal
+      : input.abortSignal,
   }
   markAgentInvocationCallerAbortSignal(budgetInput, callerAbortSignal)
   transferParsedAgentWorkflowInput(input, budgetInput)
