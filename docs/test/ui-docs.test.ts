@@ -119,15 +119,12 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
+  it("renders product pages through the docs layout", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
 
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
+    expect(page).toContain('layout: "docs"');
+    expect(page).toContain("<DocsArticle");
+    expect(page).toContain("<DocsProductLanding");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -143,11 +140,10 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("uses a static context link instead of a product disclosure control", () => {
+  it("keeps the docs search control in the sidebar", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain('<NuxtLink');
+    expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -155,7 +151,6 @@ describe("UI documentation", () => {
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
-    const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
