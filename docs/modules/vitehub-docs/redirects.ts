@@ -94,7 +94,6 @@ const movedLearningPages = new Map(Object.entries({
 }));
 
 export const docsPageRedirects = {
-  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",

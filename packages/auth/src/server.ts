@@ -356,7 +356,12 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       const descriptor = Object.getOwnPropertyDescriptor(current, "status")
       if (descriptor) {
         if (typeof descriptor.get !== "function") return false
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        if (typeof constructor !== "function" || constructor.name !== "Response" || constructor.prototype !== current) return false
+        const bodyUsed = Object.getOwnPropertyDescriptor(current, "bodyUsed")
+        if (typeof bodyUsed?.get !== "function") return false
         Reflect.apply(descriptor.get, value, [])
+        Reflect.apply(bodyUsed.get, value, [])
         return true
       }
       current = Object.getPrototypeOf(current)
@@ -660,7 +665,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -720,6 +725,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (value instanceof Response && status === 0 && statusText === "" && body === null
+      && headers instanceof Headers
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
@@ -962,7 +972,7 @@ export function createAuthAccessHandler(
     const pathname = new URL(request.url).pathname
     const method = request.method.toUpperCase()
     const matched = rules.filter(rule => (!rule.method || rule.method === method)
-      && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
+      && (pathname === rule.path || (rule.recursive && (rule.path === "" ? pathname.startsWith("/") : pathname.startsWith(`${rule.path}/`)))))
     if (matched.length === 0) return
 
     const { response } = await checkAuthRequest(

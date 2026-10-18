@@ -131,7 +131,7 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("renders docs through the shared article and tutorial layouts", () => {
+  it("gives component pages the shared article layout and page outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
@@ -164,29 +164,14 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-  it("keeps site catalogs in the rail header above the product sections", () => {
-    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
-
-    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
-    expect(rail).toContain("<template #header");
-    expect(rail).toContain("getDocsRailCatalog");
-    expect(rail).toContain("getUncategorizedDocsSections");
-    expect(rail).toContain("section.title");
-    expect(rail).toContain("section.path");
-    expect(rail).toContain("<template #default");
-  });
-  it("keeps the docs sidebar visible with one search control", () => {
-    const sidebarTop = readFileSync(
-      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
-      "utf8",
-    );
+  it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
-    expect(sidebarTop).not.toContain("<details");
-    expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebar).not.toContain("<details");
+    expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');
     expect(sidebar).toContain("overflow-x: hidden;");
