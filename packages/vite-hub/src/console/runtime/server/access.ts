@@ -78,6 +78,20 @@ function isResponseLike(value: unknown): value is Response {
   catch { return false }
 }
 
+function isRequestLike(value: unknown): value is Request {
+  if (value instanceof Request) return true
+  if (value === null || typeof value !== "object") return false
+  try {
+    for (const name of ["url", "method", "headers", "body", "bodyUsed"] as const) {
+      const getter = Object.getOwnPropertyDescriptor(Request.prototype, name)?.get
+      if (!getter) return false
+      getter.call(value)
+    }
+    return true
+  }
+  catch { return false }
+}
+
 /** The warning that a production server logs once when anyone can open the Console. */
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -111,7 +125,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 
 /** Rebuild the host request for runtimes that need its headers, such as Auth sessions. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+  if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)

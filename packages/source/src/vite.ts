@@ -26,6 +26,7 @@ const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
+const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
@@ -481,10 +482,11 @@ async function writeContentArtifact(
   file: string | undefined,
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, contentRouteEntry)
+  const preview = resolve(options.projectRoot, contentPreviewEntry)
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
   if (!file) {
-    await Promise.all([output, sitemap, robots].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -496,7 +498,14 @@ async function writeContentArtifact(
     "export default defineContentHandler(content)",
     "",
   ].join("\n"))
-  const handlers: GeneratedSourceHandler[] = [{ handler: output, route: "/api/content/**" }]
+  await writeFileIfChanged(preview, [
+    `import { defineContentPreviewPlugin } from ${importBase}`,
+    `import { content } from ${contentModule}`,
+    "",
+    "export default defineContentPreviewPlugin(content)",
+    "",
+  ].join("\n"))
+  const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
   // `defineContent({ seo: { sitemap, robots } })` adds the site-wide SEO routes.
   const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
   for (const [enabled, path, helper, route] of [

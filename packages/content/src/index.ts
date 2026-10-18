@@ -19,6 +19,7 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isContentCollectionDefinition } from "./documents.ts"
+import { createContentPreview } from "./preview.ts"
 import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
   AnyContentCollection,
@@ -33,6 +34,7 @@ import type {
   ContentSingleton,
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
+import type { ContentPreview } from "./preview.ts"
 import type { ContentCollectionDefinition, SingletonDefinition, DocumentsDefinition } from "./documents.ts"
 import type {
   ContentPublishDueOptions,
@@ -44,6 +46,8 @@ import type {
 } from "./schedules.ts"
 import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { contentSource } from "./content-source.ts"
+export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./schedules.ts"
 export type {
   ContentDocumentSchedule,
@@ -230,6 +234,8 @@ export type DefineContentOptions<
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
+  /** Draft preview controls for collection reads. */
+  readonly preview: ContentPreview
   /**
    * Every collection and singleton in definition order, with its `name`, `kind`, `format`, `path`, `fields`, and
    * `schema`. Narrow an entry with `kind`. Empty without `collections`.
@@ -412,6 +418,7 @@ export function defineContent<
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   const documentsApi = {
+    preview,
     seo,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
