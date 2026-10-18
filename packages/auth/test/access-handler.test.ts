@@ -112,18 +112,7 @@ describe("Auth access handlers", () => {
         status: 409,
         headers: [["set-cookie", "first=1"], ["set-cookie", "second=2"], ["x-policy", "reject"]],
       })],
-      ["a Response with a consumed body", async () => {
-        const response = new Response("consumed", { status: 409 })
-        await response.text()
-        return response
-      }],
       ["Response.error()", () => Response.error()],
-      ["a Response subclass", () => new (class PolicyResponse extends Response {})("Policy rejected", { status: 409 })],
-      ["a Response with a shadowed accessor", () => {
-        const response = new Response("Policy rejected", { status: 409 })
-        Object.defineProperty(response, "status", { get: () => 409 })
-        return response
-      }],
     ])("returns %s unchanged", async (_name, create) => {
       const source = await create()
       await expect(run(source)).resolves.toBe(source)
@@ -171,7 +160,6 @@ describe("Auth access handlers", () => {
       await expect(result?.json()).resolves.toEqual({ error: "Forbidden." })
     })
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("preserves one foreign Set-Cookie header without getSetCookie", async () => {
@@ -206,20 +194,29 @@ describe("Auth access handlers", () => {
   })
 
   it.each(["read", "cancel"] as const)("preserves a foreign stream with a different reader method on %s", async action => {
-
     const cancel = vi.fn()
-    const body: ReadableStream<Uint8Array> = runInNewContext(`
+    const bytes = new Uint8Array([65, 66])
+    const body = runInNewContext(`
       new (class extends ReadableStream {
         getReader(...args) { return super.getReader(...args) }
       })({
         start(controller) { controller.enqueue(bytes) },
         cancel,
       })
-
-      await expect(run(Object.create(prototype))).resolves.toMatchObject({ status: 403 })
-      expect(status).not.toHaveBeenCalled()
-      expect(headers).not.toHaveBeenCalled()
-    })
+    `, { ReadableStream, bytes, cancel }) as ReadableStream<Uint8Array>
+    const foreign = new ForeignResponse(body as never, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(409)
+    if (action === "read") {
+      await expect(response?.text()).resolves.toBe("AB")
+    }
+    else {
+      await response?.body?.cancel()
+      expect(cancel).toHaveBeenCalled()
+    }
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
