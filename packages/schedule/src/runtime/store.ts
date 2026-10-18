@@ -393,6 +393,11 @@ function runIndexMetadata(key: string): { id: string, scheduleId: string, schedu
   }
 }
 
+function decodeKeySegment(key: string): string {
+  const separator = Math.max(key.lastIndexOf("/"), key.lastIndexOf(":"))
+  return decodeURIComponent(key.slice(separator + 1))
+}
+
 export function createKVScheduleRunStore(options: KVScheduleStoreOptions): ScheduleRunStore {
   const prefix = options.prefix ?? "vitehub:schedule"
 
@@ -442,7 +447,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (const key of keys) {
       let id: string
       try {
-        id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+        id = decodeKeySegment(key)
       }
       catch {
         unknown.push(key)
@@ -559,7 +564,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+          const id = decodeKeySegment(key)
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }
