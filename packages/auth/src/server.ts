@@ -441,6 +441,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // from the inherited stream implementation and compare method identities.
     // Methods returned by the override must never authenticate themselves.
     let inheritedReader: object | undefined
+    let inheritedGetReader: ((...args: []) => unknown) | undefined
     let inherited = readerOwner ? Object.getPrototypeOf(readerOwner) : null
     const inheritedSeen = new Set<object>()
     while (inherited && inheritedSeen.size < authorizationResponsePrototypeLimit) {
@@ -450,11 +451,12 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       if (typeof inheritedMethod === "function") {
         try {
           const candidate = Reflect.apply(inheritedMethod, new streamConstructor(), [])
-          if (Object(candidate) === candidate) { inheritedReader = candidate as object; break }
+          if (Object(candidate) === candidate) { inheritedGetReader = inheritedMethod as (...args: []) => unknown; inheritedReader = candidate as object; break }
         } catch { /* continue to the next prototype */ }
       }
       inherited = Object.getPrototypeOf(inherited)
     }
+    if (inheritedGetReader && getReader !== inheritedGetReader) return false
     let readerPrototype: object | null = Object.getPrototypeOf(inheritedReader ?? readerObject)
     const readerSeen = new Set<object>()
     while (readerPrototype && readerSeen.size < authorizationResponsePrototypeLimit) {
