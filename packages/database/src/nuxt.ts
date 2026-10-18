@@ -60,6 +60,7 @@ type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
+    (name: "close", callback: () => Promise<void> | void): void
     (name: "prepare:types", callback: (context: { references: { path: string }[], sharedTsConfig?: { include?: string[] }, serverTsConfig?: { include?: string[] } }) => void): void
   }
   options: Record<string, unknown> & {
@@ -147,13 +148,14 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localRuntimeRefresh = Promise.resolve()
       const definitionFiles = new Set<string>()
       const definitionWatchers = new Map<string, FSWatcher>()
+      let closed = false
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
         resolve(root, "src"),
       ])
       const refreshLocalRuntime = () => {
         const refresh = async () => {
-          if (!localNitroConfig) return
+          if (closed || !localNitroConfig) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
@@ -193,6 +195,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
         })
       }
+      hook("close", () => {
+        closed = true
+        for (const watcher of definitionWatchers.values()) watcher.close()
+        definitionWatchers.clear()
+      })
       hook("nitro:config", async (config) => {
         contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins as readonly unknown[] | undefined, {
           projectRoot: root,
