@@ -728,9 +728,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@t3tools/provider-runtime':
-        specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -785,9 +782,6 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
-      forges:
-        specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -812,7 +806,10 @@ importers:
         version: 4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@github-tools/eve-extension':
         specifier: 0.8.1
-        version: 0.8.1(f105fb964ba7fd106d9ea8420a8bc20a)
+        version: 0.8.1(da058420352687aac46bbc053aaf36c6)
+      '@t3tools/provider-runtime':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -851,7 +848,10 @@ importers:
         version: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       evlog:
         specifier: ^2.32.0
-        version: 2.32.0(d9794b8fb41736c1afec8f22a0c0db85)
+        version: 2.33.0(1280fb0d1ea32b1a7b470c5e57929d20)
+      forges:
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0

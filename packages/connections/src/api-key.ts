@@ -1,6 +1,6 @@
 import { ConnectionError } from "./errors.ts"
 
-import type { ConnectionApiCatalog, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
+import type { ConnectionApiCatalog, ConnectionApiKeyFallback, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
 
 export interface ApiKeyProviderOptions<TApis extends object = object> {
   /** Provider id shown in inspection and the Console. Default: `"api-key"`. */
@@ -16,6 +16,14 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   origins: readonly string[]
   /** Typed API catalogs. Their root URLs also receive the key. */
   apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /**
+   * The key to use while no key was ever set in the Console or with `vitehub connections set-key`,
+   * for example `() => useServerEnv().example.token`. A sealed Server Env secret is unsealed. It also
+   * applies when the Connections store cannot open, such as a deployment without `VITEHUB_CONNECTIONS_KEY`.
+   * A key that an admin sets always wins, and so does a revoke: a revoked Connection stays disconnected.
+   * Set a key again to reconnect it.
+   */
+  fallback?: ConnectionApiKeyFallback
   /**
    * Check a new key before ViteHub stores it, for example with `context.fetch`.
    * Return `false` to reject the key, or `{ account }` to label the Connection.
@@ -100,6 +108,7 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
     apis: options.apis ?? ({} as ConnectionApiKeyProvider<TApis>["apis"]),
   }
   if (scheme !== undefined) Object.assign(provider, { scheme })
+  if (options.fallback) provider.fallback = options.fallback
   if (options.verify) provider.verify = options.verify
   // SAFETY: The provider API map is constrained by the generic catalog contract.
   const catalogsSafe = (Object.values(provider.apis) as ConnectionApiCatalog[]).every(catalog => {

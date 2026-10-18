@@ -38,6 +38,7 @@ const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
 const databaseDrizzleImport = "@vite-hub/database/drizzle"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
+const databaseDrizzleTypes = resolve(databaseRuntimeDir, "../../dist/drizzle.d.ts")
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -63,6 +64,7 @@ type NuxtLike = {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
     (name: "close", callback: () => Promise<void> | void): void
+    (name: "prepare:types", callback: (options: { serverTsConfig?: Record<string, unknown> }) => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
     alias?: Record<string, string>
@@ -216,6 +218,14 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           contributionWatchers.clear()
         })
       }
+      // Nuxt 5 writes each Nitro alias with its file extension into `tsconfig.server.json`. TypeScript would then read
+      // `db` from the generated runtime module, which is untyped JavaScript. Server code takes the package types instead.
+      // Nuxt keeps a path that a module set first, and a later hook replaces the Nuxt path.
+      hook("prepare:types", ({ serverTsConfig }) => {
+        if (!serverTsConfig) return
+        const paths = ensureRecord(ensureRecord(serverTsConfig, "compilerOptions"), "paths")
+        paths[databaseDrizzleImport] ??= [databaseDrizzleTypes]
+      })
       hook("nitro:config", async (config) => {
         // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
         // modules add them to `nuxt.options.vite.plugins` during setup, so this hook sees them after every module ran.
