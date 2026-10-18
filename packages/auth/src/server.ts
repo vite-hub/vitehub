@@ -2,6 +2,7 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
+import { resolveAuthMountPath } from "./application-path.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
@@ -426,10 +427,15 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: AuthorizationStreamOperations) {
+  // Acquire and release a probe reader first. If a stateful replacement
+  // returns a reader for another stream, releasing it leaves this body locked;
+  // fail closed before exposing unrelated bytes.
+  const probe = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
+  Reflect.apply(authorizationReaderReleaseLock!, probe, [])
+  if (Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
   const reader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
-  // A stateful replacement may return a reader belonging to another stream.
-  // The native locked brand check must observe the exact body as locked after
-  // acquisition; otherwise fail closed before reading unrelated data.
   if (!Reflect.apply(operations.isLocked, body, [])) {
     throw new TypeError("Authorization reader is not associated with its body")
   }
@@ -704,7 +710,7 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 
