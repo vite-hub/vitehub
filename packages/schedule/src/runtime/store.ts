@@ -56,6 +56,12 @@ function joinKey(prefix: string, ...parts: string[]): string {
 
 /** Providers may expose hierarchical keys with either slash or colon separators. */
 function keySegments(key: string, count: number): string[] {
+  const encoded = key.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/)
+  if (encoded && count >= 2) {
+    const prefix = key.slice(0, encoded.index).replace(/[/:]+$/, "")
+    const segments = prefix.split(/[/:]/).slice(-(count - 1)).map(decodeURIComponent)
+    return [...segments, encoded[1]!]
+  }
   return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
 }
 
@@ -388,7 +394,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split(/[/:]/).slice(-3).map(decodeURIComponent)
+    const parts = keySegments(key, 3)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -562,7 +568,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split(/[/:]/).slice(-2).map(decodeURIComponent)
+          const parts = keySegments(key, 2)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
