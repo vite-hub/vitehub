@@ -6,6 +6,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
@@ -316,7 +317,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     buildStart() {
       providerOutputGenerations.capture(this, providerOutput)
-      resetProviderOutputRuntime(providerOutput)
+        resetProviderOutputRuntime(providerOutput, undefined, "database")
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
@@ -344,12 +345,12 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
-        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
+        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this), "database")
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
-        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
+        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this), "database")
         await providerOutputGenerations.reset(this, providerOutput)
         return
       }
@@ -360,6 +361,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionResolved = resolved
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
+        const userAppEntry = resolveUserAppEntry(contributionResolved.root, { names: ["server.db.ts", "server.db.mts", "server.db.js", "server.db.mjs", "server.ts", "server.mts", "server.js", "server.mjs"] })
         await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig, tableNameOptions())
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
@@ -367,6 +369,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
             ...contributionRuntimeConfig.definitions.flatMap(definition => [definition.handler, ...definition.schemaSources.map(source => source.handler)]),
+            ...(userAppEntry ? [userAppEntry] : []),
             ...Object.values(contributionRuntimeConfig.generatedSchemaFilesByDatabase),
           ],
           roots: [contributionResolved.root],
@@ -409,7 +412,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
       catch (error) {
         if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
-        resetProviderOutputRuntime(providerOutput, generation)
+        resetProviderOutputRuntime(providerOutput, generation, "database")
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
@@ -432,7 +435,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     async renderError(error) {
-      resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
+      resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this), "database")
       await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
