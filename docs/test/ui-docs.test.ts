@@ -130,16 +130,6 @@ describe("UI documentation", () => {
     expect(article).toContain("min-w-0");
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
-
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
-    expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
-  });
-
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(

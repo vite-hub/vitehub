@@ -65,7 +65,9 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (source !== toValue(code)) return;
+    const latestRequested = toValue(language).toLowerCase();
+    const latestLang = aliases[latestRequested] ?? latestRequested;
+    if (source !== toValue(code) || latestLang !== lang) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 
