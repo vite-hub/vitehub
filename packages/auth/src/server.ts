@@ -299,11 +299,19 @@ function isRuntimeResponse(value: unknown): value is Response {
   if (!nativeResponseStatus || value === null || typeof value !== "object") return false
   try {
     Reflect.apply(nativeResponseStatus, value, [])
-    return true
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (prototype === Response.prototype) return true
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
-    return false
+    // Foreign responses and malformed objects fail the current-realm check.
   }
+  return false
 }
 
 /**
@@ -775,9 +783,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
 
-    // Null-body responses have no stream to validate. Only a response branded by
-    // this runtime may pass this branch; foreign null-body responses are rejected.
-    if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)) return
+    // Null-body responses have no stream to validate. Preserve the standard
+    // status-zero error response across realms, while rejecting other foreign
+    // null-body response-shaped values.
+    if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)
+      && !(status === 0 && statusText === "" && [...new Headers(headers)].length === 0)) return
 
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
