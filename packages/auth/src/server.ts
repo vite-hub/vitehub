@@ -33,19 +33,14 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 // Resolve the shared %TypedArray%.prototype through a sibling typed-array
 // constructor. This avoids depending on a potentially replaced
 // Uint8Array.prototype chain during module initialization.
-const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
-  Object.getPrototypeOf(Int8Array.prototype),
-  Symbol.toStringTag,
-)?.get
-
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
-  try {
-    return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array"
-  }
-  catch {
-    return false
-  }
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
 }
 
 export { resetAuth } from "./runtime-state.ts"
@@ -316,6 +311,7 @@ function responseMethod(value: object, property: string): ((this: object) => unk
     if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
     prototype = Object.getPrototypeOf(prototype) as object | null
   }
+  return
 }
 
 async function runAccessAuthorize(
@@ -463,6 +459,16 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
   }
 }
 
+function isNativeConstructor(value: unknown, expectedName: string): value is { name: string, prototype: object } {
+  if (typeof value !== "function") return false
+  try {
+    const prototype = (value as { prototype?: unknown }).prototype
+    return value.name === expectedName && typeof prototype === "object" && prototype !== null
+      && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value === value
+  }
+  catch { return false }
+}
+
 function readerOperation(readerPrototype: object, key: "read" | "cancel" | "releaseLock"): unknown {
   // Reader operations must be owned by the verified native prototype. Never
   // walk the reader or its prototype chain after the source-realm check.
@@ -534,8 +540,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
-  if (!isNativeFunction(streamConstructor, ReadableStream, "ReadableStream", true, false) || streamConstructor.name !== "ReadableStream"
-    || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
+  if (!isNativeConstructor(streamConstructor, "ReadableStream") || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   let readerPromise: Promise<{
     reader: ReadableStreamDefaultReader<Uint8Array>
@@ -554,8 +559,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
     const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
-    if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor, "ReadableStreamDefaultReader", true, false)
-      || readerConstructor.name !== "ReadableStreamDefaultReader"
+    if (!isNativeConstructor(readerConstructor, "ReadableStreamDefaultReader")
       || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
     // The returned reader may have a caller-controlled immediate prototype. Its
     // constructor identity and native operations are checked before invocation.
@@ -597,16 +601,19 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
           await release()
           controller.close()
         }
-        else if (!isIntrinsicUint8Array(result.value)) {
-          await release()
-          controller.error(new Error("Malformed authorization read result"))
+        else {
+          const value = result.value
+          if (!isIntrinsicUint8Array(value) || !intrinsicTypedArrayByteLengthGetter || typeof intrinsicUint8ArraySet !== "function") throw new Error("Malformed authorization read result")
+          const copy = new intrinsicUint8ArrayConstructor(Reflect.apply(intrinsicTypedArrayByteLengthGetter, value, []))
+          Reflect.apply(intrinsicUint8ArraySet, copy, [value])
+          controller.enqueue(copy)
         }
-        else controller.enqueue(result.value)
       }
       catch (error) {
         try { await release() } catch { /* best effort */ }
         controller.error(error)
       }
+
     },
     async cancel(reason) {
       try {
@@ -744,6 +751,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
+
   }
   catch {
     return
