@@ -21,7 +21,7 @@ ViteHub has no generic OAuth 2 provider yet. For another service, use `apiKey()`
 
 ## API key Connections
 
-`apiKey()` defines a Connection whose credential is a static key. An admin sets the key at runtime, so it is not in code or Server Env:
+`apiKey()` defines a Connection whose credential is a static key. An admin sets the key at runtime, so it is not in code:
 
 ```ts [server/connections/executor.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -53,6 +53,7 @@ export default defineConnection({
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `''` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs. Their root URLs also receive the key. |
 | `verify` | None | Checks a new key before ViteHub stores it. It receives the runtime `fetch` and a 30-second abort signal. |
+| `fallback` | None | Returns the key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI:
@@ -64,6 +65,24 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 The CLI reads the key only from stdin, so it does not stay in the shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
 
 ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth Connections. An API key has no scopes and no refresh: a `401` response does not change the status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking the Connection deletes the stored key; revoke the key at the provider too.
+
+### Fallback key
+
+`fallback` gives a key from Server Env until an admin sets one. A sealed Server Env secret is unsealed:
+
+```ts [server/connections/github.ts]
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineConnection({
+  provider: apiKey({
+    id: 'github',
+    origins: ['https://api.github.com'],
+    fallback: () => useServerEnv().github.token,
+  }),
+})
+```
+
+The fallback applies only when no key was ever set for the Connection, or when the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins. A revoke also wins: a revoked Connection stays disconnected. The fallback key must pass the same format check as a stored key. Requests with it use the same access rules and approvals, and ViteHub records them as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
 
 ## Access rules
 

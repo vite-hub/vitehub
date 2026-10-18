@@ -317,8 +317,6 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
   return true
 }
 
-const inferredResourceExtensions = ["json", "md", "txt", "html", "xml", "bin"] as const
-
 function isIgnoredBeforeContentRead(
   resource: McpResourceDescriptor,
   candidate: string,
@@ -328,9 +326,12 @@ function isIgnoredBeforeContentRead(
   if (options.path || resource.mimeType || candidate.split("/").at(-1)?.includes(".")) {
     return matchesAny(candidate, options.ignore)
   }
-  // The final path may gain an extension from the content MIME type. Avoid
-  // matching an exact extensionless path here, since it is only provisional.
-  return inferredResourceExtensions.some(extension => matchesAny(`${candidate}.${extension}`, options.ignore))
+  // An extensionless descriptor is only a provisional path. Its final key is
+  // determined by the content MIME type, so do not guess an extension here.
+  // A global catch-all remains conclusive, while an exact provisional match
+  // must be deferred until MIME inference determines the exposed key.
+  const patterns = Array.isArray(options.ignore) ? options.ignore : [options.ignore]
+  return patterns.some(pattern => (pattern === "**" || pattern === "**/*") && matchesAny(candidate, pattern))
 }
 
 type McpRecord = Record<PropertyKey, unknown>

@@ -220,12 +220,30 @@ describe("mcpResources", () => {
     expect(readResource).not.toHaveBeenCalled()
   })
 
-  it("checks inferred MIME extensions before reading ignored resources", async () => {
+  it("does not guess inferred MIME extensions before reading resources", async () => {
     const readResource = vi.fn(async () => ({
       contents: [{ mimeType: "application/json", text: "{}", uri: "resource://example/config" }],
     }))
     const source = mcpResources({
       ignore: "**/*.json",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "config", uri: "resource://example/config" }] }
+        },
+        readResource,
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["example/config.json"])
+    expect(readResource).toHaveBeenCalledOnce()
+  })
+
+  it("still skips extensionless resources for a global ignore", async () => {
+    const readResource = vi.fn(async () => {
+      throw new Error("excluded resource must not be read")
+    })
+    const source = mcpResources({
+      ignore: "**",
       server: {
         async listResources() {
           return { resources: [{ name: "config", uri: "resource://example/config" }] }
