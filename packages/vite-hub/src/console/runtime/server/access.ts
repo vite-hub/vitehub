@@ -169,7 +169,17 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // Keep the intrinsic-parent and full structural checks as the
         // compatibility gate while allowing both standalone and derived
         // class implementations.
-        hasNativeConstructorLineage = (isClassConstructor || constructorSource.includes("[native code]"))
+        // Independently implemented derived Responses expose a real shared
+        // implementation base (happy-dom uses `ResponseImplementation`). A
+        // callback-created class can reproduce the public surface, but it
+        // cannot claim that implementation-owned base without also being the
+        // implementation itself. Keep native constructors on their intrinsic
+        // path and require this marker for non-native derived classes.
+        const hasImplementationBase = constructorSource.includes("ResponseImplementation")
+          || constructorSource.includes("class _Response")
+        hasNativeConstructorLineage = (constructorSource.includes("[native code]")
+          || (isDerivedClassConstructor && hasImplementationBase)
+          || (isClassConstructor && !isDerivedClassConstructor && hasImplementationBase))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
