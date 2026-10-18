@@ -142,5 +142,3 @@ See the `why` and `fix` fields in the error response.
 ### CONNECTIONS_UNKNOWN_ACTION
 
 See the `why` and `fix` fields in the error response.
-
-When you change the provider of a Connection, the stored grant belongs to the old provider. The status becomes `needs-reconnect` with `lastError: 'CONNECTIONS_PROVIDER_CHANGED'`, and ViteHub never sends that grant to the new provider. Reconnect the Connection.

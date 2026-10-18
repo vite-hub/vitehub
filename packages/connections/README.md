@@ -43,12 +43,14 @@ A provider can also be an object with `id`, `authorizationEndpoint`, `tokenEndpo
 import { useConnection } from "@vite-hub/connections/server";
 
 const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
-const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
+const [error, result] = await gmail.users.labels.list({ userId: "me" });
+if (error) throw error;
+const { labels = [] } = result;
 ```
 
 Server code cannot pass an `agent:` actor. That call fails with `CONNECTIONS_ORIGIN_NOT_ALLOWED`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
 
-The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTIONS_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTIONS_APPROVAL_REQUIRED` and create an approval.
+The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Calls return `[error, data]`; `error.code` is a `ConnectionsErrorCode`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval return `CONNECTIONS_APPROVAL_REQUIRED` and create an approval.
 
 Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins, declared API key origins, or the origin of the provider's `mcp` endpoint. `mcp` is an HTTPS or loopback URL without credentials, query, or fragment, and `inspect()` reports it. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTIONS_ORIGIN_NOT_ALLOWED` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTIONS_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
 

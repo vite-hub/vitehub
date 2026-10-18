@@ -294,14 +294,14 @@ async function handleConnections(request: IncomingMessage, response: ServerRespo
   const approval = connectionApprovals.find(entry => entry.id === input.id)
   switch (input.action) {
     case "list": return json(response, { connections: [...connections.values()] })
-    case "inspect": return connection ? json(response, { connection }) : json(response, { error: { code: "CONNECTION_INVALID", message: `No Connection Definition was discovered for "${input.name}".` } }, 400)
+    case "inspect": return connection ? json(response, { connection }) : json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: `No Connection Definition was discovered for "${input.name}".` } }, 404)
     case "revoke":
-      if (!connection) return json(response, { error: { code: "CONNECTION_INVALID", message: "Unknown Connection." } }, 400)
+      if (!connection) return json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: "Unknown Connection." } }, 404)
       Object.assign(connection, { scopes: { ...connection.scopes, granted: [], missing: connection.scopes.declared }, status: "revoked" })
       return json(response, { connection })
     case "set-key":
       // The synthetic API keeps no key. It only marks the API key Connection as connected.
-      if (connection?.credential !== "api-key" || !input.key) return json(response, { error: { code: "CONNECTION_INVALID", message: "Set a key only on an API key Connection." } }, 400)
+      if (connection?.credential !== "api-key" || !input.key) return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "Set a key only on an API key Connection." } }, 400)
       Object.assign(connection, { connectedAt: new Date().toISOString(), status: "connected" })
       return json(response, { connection })
     case "activity": return json(response, { activity: input.before ? [] : connectionActivity.filter(event => event.key === `connection/${input.name}`) })
@@ -315,11 +315,11 @@ async function handleConnections(request: IncomingMessage, response: ServerRespo
     case "approve-summary":
     case "deny":
     case "deny-summary":
-      if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTION_INVALID", message: "This approval is not pending." } }, 400)
+      if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "This approval is not pending." } }, 400)
       Object.assign(approval, { decidedAt: new Date().toISOString(), decidedBy: "user:local", status: input.action === "approve" || input.action === "approve-summary" ? "executed" : "denied" })
       if (input.action === "approve-summary" || input.action === "deny-summary") return json(response, { approval: approvalView(approval) })
       return json(response, input.action === "approve" ? { approval, result: { id: "msg_synthetic" } } : { approval })
-    default: return json(response, { error: { code: "CONNECTION_INVALID", message: "Invalid Connections request." } }, 400)
+    default: return json(response, { error: { code: "CONNECTIONS_UNKNOWN_ACTION", message: "Invalid Connections request." } }, 400)
   }
 }
 

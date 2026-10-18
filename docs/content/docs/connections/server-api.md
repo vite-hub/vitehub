@@ -41,7 +41,7 @@ The action route takes only `POST`, so a `GET` of `/_vitehub/connections` reache
 
 ### Origin checks
 
-The `POST` action route accepts only `application/json` requests from the app origin. It compares the browser `Origin` header with the origin of the request URL that the server sees. A different origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`, and `details` has `expectedOrigin` and `receivedOrigin`. A request without a JSON content type returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
+The `POST` action route accepts only `application/json` requests from the app origin. It compares the browser `Origin` header with the origin of the request URL that the server sees. A different origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request without a JSON content type returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
 
 Behind a TLS-terminating proxy, the server can see `http://` while the browser sends an `https://` origin. Make the server see the public origin: trust `X-Forwarded-Proto` and `X-Forwarded-Host`, or configure the public URL. The connect route builds the OAuth `redirectUri` from the same request URL, so this also fixes an `http://` callback URL.
 
