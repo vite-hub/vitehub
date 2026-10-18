@@ -1302,8 +1302,17 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const budgetRetryLimit = context.executionBudget
+    ? Math.min(
+        typeof execution?.callSettings?.maxRetries === "number" ? execution.callSettings.maxRetries : 2,
+        context.executionBudget.snapshot().remaining.retries ?? Number.POSITIVE_INFINITY,
+      )
+    : undefined
   const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
-    ? aiSdk.wrapLanguageModel({ model: observedModel as never, middleware: executionBudgetMiddleware(context.executionBudget) })
+    ? aiSdk.wrapLanguageModel({
+        model: observedModel as never,
+        middleware: executionBudgetMiddleware(context.executionBudget, budgetRetryLimit),
+      })
     : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
@@ -1367,10 +1376,8 @@ async function createAgent(
     ? settings
     : {
         ...settings,
-        maxRetries: Math.min(
-          typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries,
-          remainingRetries,
-        ),
+        // Provider retries are charged and performed by executionBudgetMiddleware.
+        maxRetries: 0,
       }
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
