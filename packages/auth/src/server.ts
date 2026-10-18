@@ -697,12 +697,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     let body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
-    const localResponseIdentity = value instanceof Response
-      && authorizationResponseProperties.every(key =>
-        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-      && headers instanceof Headers
-      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))
-    if (localResponseIdentity) return value
     // Read the response's intrinsic bodyUsed getter as well as the ordinary
     // snapshot. A consumed stream may release its reader and shadow bodyUsed
     // with false; the source-runtime getter still reports its disturbed state
