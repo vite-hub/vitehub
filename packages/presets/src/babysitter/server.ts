@@ -138,11 +138,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   // the number of providers that may be running at once.
   let activeModelPasses = 0;
   const modelSlotWaiters = new Set<() => void>();
-  const acquireModelSlot = async () => {
-    while (activeModelPasses >= await providerQuota.modelLimit(options.concurrency, modelConcurrency)) {
-      await new Promise<void>(resolve => modelSlotWaiters.add(resolve));
+  const waitingModelOwners = new Set<string>();
+  const acquireModelSlot = async (abortSignal: AbortSignal, ownerKey: string) => {
+    waitingModelOwners.add(ownerKey);
+    try {
+      while (activeModelPasses >= await providerQuota.modelLimit(options.concurrency, modelConcurrency)) {
+        await new Promise<void>((resolve, reject) => {
+          const wake = () => { abortSignal.removeEventListener("abort", abort); resolve(); };
+          const abort = () => { modelSlotWaiters.delete(wake); reject(new DOMException("The operation was aborted.", "AbortError")); };
+          modelSlotWaiters.add(wake);
+          if (abortSignal.aborted) abort();
+          else abortSignal.addEventListener("abort", abort, { once: true });
+        });
+      }
+      activeModelPasses++;
+    } finally {
+      waitingModelOwners.delete(ownerKey);
     }
-    activeModelPasses++;
   };
   const releaseModelSlot = () => {
     activeModelPasses = Math.max(0, activeModelPasses - 1);
@@ -895,7 +907,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Claim up to the owner capacity regardless of the model cap: host-only merges and
     // stack retargets must continue while model admission is reduced or paused.
     const claimLimit = ownerLimit;
-    const remainingCapacity = Math.max(0, claimLimit - active.size);
+    // Owners waiting for model admission do not occupy host execution slots;
+    // keep those slots available for merges and stack retargets.
+    const hostActive = Math.max(0, active.size - waitingModelOwners.size);
+    const remainingCapacity = Math.max(0, claimLimit - hostActive);
     const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
       only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
       includeBlocked: true,
@@ -1595,7 +1610,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Run metadata and retry backoff can outlive a sibling admission
                 // block. Check each Sandbox dispatch immediately before runAgent.
                 if (workerSettings.sandbox && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
-                await acquireModelSlot();
+                await acquireModelSlot(abortSignal, `${repository}#${number}`);
                 try {
                   modelDispatched = true;
                   return await runAgent(
