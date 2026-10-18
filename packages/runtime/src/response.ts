@@ -62,12 +62,28 @@ const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    const readStream: (value: object) => ReadableStream = candidate => Reflect.apply(Blob.prototype.stream, candidate, []) as ReadableStream
-    if (typeof blobType !== "function") return undefined
+    let streamMethod: ((this: object) => ReadableStream) | undefined
+    let typeGetter: ((this: object) => unknown) | undefined = typeof blobType === "function" ? blobType : undefined
+    if (!typeGetter) return undefined
+    Reflect.apply(typeGetter, value, [])
+    try {
+      streamMethod = Blob.prototype.stream
+      Reflect.apply(streamMethod, value, [])
+    }
+    catch {
+      let prototype: object | null = Object.getPrototypeOf(value)
+      for (let depth = 0; prototype && depth < 8; depth++) {
+        const stream = Object.getOwnPropertyDescriptor(prototype, "stream")?.value
+        if (typeof stream === "function") streamMethod = stream
+        if (streamMethod) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    if (typeof streamMethod !== "function") return undefined
     try {
       return {
-        type: String(Reflect.apply(blobType, value, [])),
-        body: () => streamBody(() => readStream(value)),
+        type: String(Reflect.apply(typeGetter, value, [])),
+        body: () => streamBody(() => Reflect.apply(streamMethod!, value, [])),
       }
     }
     catch { return undefined }

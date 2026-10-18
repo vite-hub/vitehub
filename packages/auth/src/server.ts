@@ -444,6 +444,11 @@ function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
 async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined> {
   if (body === null || typeof body !== "object") return
   try {
+    // Let the platform perform the unforgeable ReadableStream brand check.
+    // Response keeps genuine streams as the body; lookalike objects are
+    // coerced to text and therefore fail the identity check.
+    const normalized = new Response(body as ReadableStream<Uint8Array>)
+    if (normalized.body !== body) return
     // An own reader (or a reader supplied by an intermediate prototype) is
     // caller-controlled. Resolve the first descriptor without invoking it,
     // and accept only a native ReadableStream prototype method. The
@@ -468,6 +473,8 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           && Object.getOwnPropertyDescriptor(prototype, "pipeTo")?.value
           && Object.getOwnPropertyDescriptor(prototype, "pipeThrough")?.value
         if (typeof nativeShape !== "function") return
+        const tagDescriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+        if (tagDescriptor?.value !== "ReadableStream") return
         // A reader on an intermediate prototype can shadow the stream
         // implementation. Genuine stream prototypes have no second reader
         // further up their chain, so reject shadowed methods before invoking.
