@@ -169,7 +169,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // of the response contract. Keep the intrinsic-parent check for
         // classes as well as native constructors; the complete structural
         // checks below still reject ordinary function and object spoofs.
-        hasNativeConstructorLineage = (isClassConstructor || isDerivedClassConstructor || constructorSource.includes("[native code]"))
+        // A standalone caller-created class has the same intrinsic Function
+        // parent as a genuine implementation, so the public shape alone
+        // cannot distinguish it from a forged Response. Accept class-based
+        // implementations only when their constructor is derived (as the
+        // supported independent Fetch implementations are), or native.
+        hasNativeConstructorLineage = (isDerivedClassConstructor || constructorSource.includes("[native code]"))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
