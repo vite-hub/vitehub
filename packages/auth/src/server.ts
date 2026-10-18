@@ -46,6 +46,7 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
+
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
   getAuthRuntimeState().envResolver = resolver
 }
@@ -74,6 +75,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
+
   return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).requestRuntimeOptions
 }
 
@@ -88,6 +90,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
+
   return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeState().envResolver }).providerOptions
 }
 
@@ -113,6 +116,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
+
   return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions) as ViteHubAuth
 }
 
@@ -167,6 +171,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
+
   return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions)
 }
 
@@ -257,6 +262,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
+
   const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeState().envResolver })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
@@ -384,12 +390,8 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
           }
         }
         catch {
-          // Native Web IDL accessors reject a Proxy receiver even when it
-          // wraps a real local Response. Keep the trusted constructor/prototype
-          // identity as the provenance check and let normalization snapshot
-          // the proxy's explicitly forwarded properties.
-          if (constructor === Response && value instanceof Response && current === Response.prototype) return true
-          // Continue searching for a supported response prototype.
+          // Proxies do not expose the native internal response brand.
+          // Reject them rather than trusting ordinary forwarded properties.
         }
       }
       current = Object.getPrototypeOf(current)
@@ -445,8 +447,25 @@ function isNativeUint8ArrayChunk(value: unknown): value is Uint8Array {
   }
 }
 
+function releaseAuthorizationReader(reader: unknown): void {
+  if (Object(reader) !== reader) return
+  let prototype: object | null = Object.getPrototypeOf(reader)
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+    if (typeof releaseLock === "function") {
+      try { Reflect.apply(releaseLock, reader, []) } catch { /* best effort during initialization failure */ }
+      return
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
+
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
 ) {
   // Defer acquisition until the normalized body is consumed or canceled. This
@@ -471,6 +490,7 @@ function bridgeAuthorizationBody(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
+
         const { read } = await initialize()
         const result = await Reflect.apply(read, reader!, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
@@ -496,7 +516,7 @@ function bridgeAuthorizationBody(
       finally { release() }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+  return { stream, release, ready: undefined }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -519,6 +539,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (value instanceof Response && status === 0 && statusText === "" && body === null
+      && headers instanceof Headers
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === nativeResponseDescriptors[key]?.get)
     let nativeProperties = false
@@ -545,6 +570,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+
     const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (body !== null && typeof nativeBodyReader !== "function") return
@@ -574,6 +600,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
+
       : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     if (typeof nativeBodyReader !== "function") return
