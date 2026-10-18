@@ -966,11 +966,17 @@ function isResponseLike(value: unknown): value is Response {
         // The other supported Fetch implementation may own this response.
       }
     }
-    // The supported independent ponyfill uses a distinct constructor name.
-    // Reject arbitrary caller-defined constructors in the unbranded own-tag
-    // path; accepting any caller-chosen name would make the structural checks
-    // below a spoofable escape hatch.
-    if (ownResponseTag && !trustedResponse && constructorDescriptor.value.name !== "PonyfillResponse") return false
+    // The supported independent ponyfill stores its body machinery on each
+    // instance. Require that implementation surface for unbranded own-tag
+    // responses instead of trusting caller-controlled constructor metadata.
+    if (ownResponseTag && !trustedResponse) {
+      const ownBodyFactory = Object.prototype.hasOwnProperty.call(value, "_bodyFactory")
+        && hasRuntimeType((value as Record<string, unknown>)._bodyFactory, "function")
+      const ownBodyInit = Object.prototype.hasOwnProperty.call(value, "bodyInit")
+      const ownOptions = Object.prototype.hasOwnProperty.call(value, "options")
+      const generateBody = getPrototypeMethod(value, "generateBody")
+      if (!ownBodyFactory || !ownBodyInit || !ownOptions || !generateBody) return false
+    }
     if (!trustedResponse && !ownResponseTag) return false
     const status = read("status")
     const statusText = read("statusText")
