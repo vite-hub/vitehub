@@ -199,19 +199,8 @@ describe("Schedule Run bookkeeping", () => {
   })
 
   it("returns the invalid scheduledAt diagnostic for throwing date tags", async () => {
-    const scheduledAt = new Proxy(new Date(), {
-      get(_target, property) {
-        if (property === Symbol.toStringTag) throw new Error("malicious tag")
-        return undefined
-      },
-    }) as Date
-
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "throwing-date-tag",
-      scheduledAt,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    const scheduledAt = new Proxy(new Date(), { get(_target, property) { if (property === Symbol.toStringTag) throw new Error("malicious tag"); return undefined } }) as Date
+    await expect(executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "throwing-date-tag", scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
@@ -230,12 +219,17 @@ describe("Schedule Run bookkeeping", () => {
     new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
   ])("rejects hostile scheduledAt objects through the Schedule diagnostic", async (scheduledAt) => {
     const handler = vi.fn()
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "throwing-date-tag",
-      scheduledAt,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    await expect(executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "report", scheduledAt: scheduledAt as never })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("accepts genuine Dates without consulting a caller-defined tag", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
+    const run = await executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "report", scheduledAt })
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    expect(readTag).not.toHaveBeenCalled()
   })
 
   it("rejects invalid Date values from another JavaScript realm", async () => {
@@ -274,6 +268,8 @@ describe("Schedule Run bookkeeping", () => {
     expect(handler).not.toHaveBeenCalled()
     expect(hostile).not.toHaveBeenCalled()
   })
+
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
