@@ -337,7 +337,6 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
-let undiciReadableStreamPromise: Promise<typeof ReadableStream | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
@@ -345,14 +344,6 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
     .then(module => module.Response as typeof Response)
     .catch(() => undefined)
   return undiciResponsePromise
-}
-
-async function getUndiciReadableStream(): Promise<typeof ReadableStream | undefined> {
-  if (undiciReadableStreamPromise) return undiciReadableStreamPromise
-  undiciReadableStreamPromise = import(/* @vite-ignore */ "undici")
-    .then(module => (module as unknown as { ReadableStream?: typeof ReadableStream }).ReadableStream)
-    .catch(() => undefined)
-  return undiciReadableStreamPromise
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
@@ -479,14 +470,11 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           if (Object.getOwnPropertyDescriptor(parent, "getReader")) return
           parent = Object.getPrototypeOf(parent)
         }
-        // Only the captured Web Streams constructor is trusted. A foreign
-        // constructor can reproduce every observable probe result while
-        // retaining caller-controlled reader methods.
-        const UndiciReadableStream = await getUndiciReadableStream()
-        const trustedConstructor = constructor === ReadableStream || constructor === UndiciReadableStream
-        if (!trustedConstructor) return
-        if (typeof descriptor.value === "function"
-          && constructor?.name === "ReadableStream") {
+        // The host bridge invokes only the captured host intrinsics. Foreign
+        // streams are normalized through the host Response boundary below;
+        // never cache or invoke methods obtained from a caller-controlled
+        // foreign prototype.
+        if (constructor === ReadableStream && typeof descriptor.value === "function") {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
@@ -753,10 +741,19 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
 
-    const nativeBodyReader = body === null
+    let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    // A genuine stream from an arbitrary realm cannot safely donate its
+    // reader methods across the boundary. The platform Response constructor
+    // performs the source-runtime brand check and creates a host stream whose
+    // captured intrinsics can be bridged without executing foreign methods.
+    if (!nativeBodyReader && body !== null) {
+      const converted = new Response(body as BodyInit)
+      body = converted.body
+      nativeBodyReader = nativeStreamGetReader
+    }
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
     // Reader validation yields to the event loop. Re-read the source
