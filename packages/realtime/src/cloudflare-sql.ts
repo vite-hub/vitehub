@@ -78,6 +78,18 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
       // A genuine SqlStorage getter rejects unrelated receivers.
     }
 
+    // URLSearchParams.prototype.size is another native finite-number
+    // accessor that can be copied onto a decorated carrier.
+    if (typeof URLSearchParams === "function") {
+      try {
+        const paramsSize = Reflect.apply(databaseSize, new URLSearchParams(), [])
+        if (Number.isFinite(paramsSize)) return false
+      }
+      catch {
+        // A genuine SqlStorage getter rejects unrelated receivers.
+      }
+    }
+
     // ArrayBuffer.prototype.byteLength is another finite-number native
     // accessor that can be copied onto a decorated carrier. Reject it too.
     try {

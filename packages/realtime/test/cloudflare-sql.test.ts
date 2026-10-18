@@ -180,6 +180,18 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
   })
 
+  it("rejects the URLSearchParams size accessor as a counterfeit databaseSize", () => {
+    function SqlStorage() {}
+    const prototype = Object.create(URLSearchParams.prototype)
+    Object.defineProperties(prototype, {
+      constructor: { value: SqlStorage },
+      exec: { value: function exec() { return { toArray: () => [] } } },
+      databaseSize: { get: Object.getOwnPropertyDescriptor(URLSearchParams.prototype, "size")!.get },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
   it("rejects the ArrayBuffer byteLength accessor as a counterfeit databaseSize", () => {
     const prototype = Object.create(ArrayBuffer.prototype)
     const constructor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "constructor")!.value
