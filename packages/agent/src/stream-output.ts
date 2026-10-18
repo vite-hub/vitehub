@@ -181,8 +181,11 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
   if (ownGetReader) {
     throw new TypeError("Foreign stream getReader override is not supported")
   }
-  const getReader = (registered ? Reflect.get(body, "getReader") : readableStreamDescriptor(body, "getReader")?.value) as () => ReadableStreamDefaultReader<Uint8Array>
-  const reader = Reflect.apply(getReader, body, [])
+  let getReader: unknown = readableStreamDescriptor(body, "getReader")?.value
+  if (!hasRuntimeType(getReader, "function") && registered) getReader = Reflect.get(body, "getReader")
+  if (!hasRuntimeType(getReader, "function")) throw new TypeError("Foreign stream getReader is unavailable")
+  const readerOperation = getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
+  const reader = Reflect.apply(readerOperation, body, [])
   // Some foreign implementations expose reader operations as own properties
   // (the node-fetch reader is one example). Start at the reader itself so
   // those operations are discovered, then continue through its prototypes.

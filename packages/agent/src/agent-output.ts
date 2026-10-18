@@ -23,6 +23,7 @@ const trustedResponseStatusGetter = typeof Response === "function"
 
 const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
 const validatedResponseBodies = new WeakMap<object, object | null>()
+const maxResponsePrototypeHops = 100
 
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
@@ -947,7 +948,7 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   if (!isRuntimeObject(value)) return false
   let current: object | null = value
   const visited = new Set<object>()
-  while (current && !visited.has(current)) {
+  for (let hop = 0; current && hop < maxResponsePrototypeHops && !visited.has(current); hop++) {
     visited.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor) return hasRuntimeType(descriptor.get, "function")
@@ -960,7 +961,7 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 function getPrototypeMethod(value: object, key: PropertyKey): ((...args: unknown[]) => unknown) | undefined {
   let prototype: object | null = Object.getPrototypeOf(value) as object | null
   const visited = new Set<object>()
-  while (prototype && !visited.has(prototype)) {
+  for (let hop = 0; prototype && hop < maxResponsePrototypeHops && !visited.has(prototype); hop++) {
     visited.add(prototype)
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
     if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
@@ -987,7 +988,7 @@ function isResponseLike(value: unknown): value is Response {
     let tagOwner: object | null = null
     let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
     const visitedTagPrototypes = new Set<object>()
-    while (tagPrototype && !tagDescriptor && !visitedTagPrototypes.has(tagPrototype)) {
+    for (let hop = 0; tagPrototype && !tagDescriptor && hop < maxResponsePrototypeHops && !visitedTagPrototypes.has(tagPrototype); hop++) {
       visitedTagPrototypes.add(tagPrototype)
       tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
       if (tagDescriptor) tagOwner = tagPrototype
@@ -1068,7 +1069,7 @@ function isResponseLike(value: unknown): value is Response {
     let bodyAccessor = false
     let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
     const visitedBodyPrototypes = new Set<object>()
-    while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
+    for (let hop = 0; bodyPrototype && hop < maxResponsePrototypeHops && !visitedBodyPrototypes.has(bodyPrototype); hop++) {
       visitedBodyPrototypes.add(bodyPrototype)
       const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
       if (descriptor) {
@@ -1138,7 +1139,7 @@ function isResponseLike(value: unknown): value is Response {
     let streamReader: ((...args: unknown[]) => unknown) | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
     const visitedStreamPrototypes = new Set<object>()
-    while (streamPrototype && !visitedStreamPrototypes.has(streamPrototype)) {
+    for (let hop = 0; streamPrototype && hop < maxResponsePrototypeHops && !visitedStreamPrototypes.has(streamPrototype); hop++) {
       visitedStreamPrototypes.add(streamPrototype)
       const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
       if (lockedDescriptor) {
