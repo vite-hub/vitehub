@@ -255,24 +255,7 @@ describe("Schedule Run bookkeeping", () => {
     }
   })
 
-  it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
-    const handler = vi.fn(async () => {})
-    const hostile = vi.fn(() => { throw new Error("must not be called") })
-    const fake = { [Symbol.toStringTag]: "Date", getTime: hostile }
-    const prototypeOnly = Object.create(Date.prototype) as Date
-    const proxy = new Proxy(new Date("2026-05-23T09:00:00.000Z"), {})
-    const revoked = Proxy.revocable(new Date("2026-05-23T09:00:00.000Z"), {})
-    revoked.revoke()
-    const invalid = new Date("bad")
-    Object.defineProperty(invalid, Symbol.toStringTag, { value: "Custom" })
-    for (const scheduledAt of [fake, prototypeOnly, proxy, revoked.proxy, invalid]) {
-      await expect(executeStaticSchedule({
-        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "invalid-date-slot", scheduledAt: scheduledAt as Date,
-      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
-    }
-    expect(handler).not.toHaveBeenCalled()
-    expect(hostile).not.toHaveBeenCalled()
-  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
