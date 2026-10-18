@@ -39,14 +39,13 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    console: options.console ? {
+    ...(options.console ? { console: {
       ...options.console,
       databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
-      auth: options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? {
-        ...options.console.auth,
-        databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
-      } : options.console.auth,
-    } : undefined,
+      auth: options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github"
+        ? { ...options.console.auth, databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite") }
+        : options.console.auth,
+    } } : {}),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
