@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceStore } from "../src/index.ts"
 
-import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceGrantPaths } from "../src/sources/config.ts"
 import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
@@ -1046,6 +1046,17 @@ describe("lazy sources", () => {
         cache: { maxAge: 3600 },
       }),
     ])
+  })
+
+  it("ignores inherited mounts for inferred file sources and grants", () => {
+    const options = Object.assign(Object.create({ mount: "private" }), {
+      path: "safe.md",
+      content: "safe\n",
+    })
+    const [resolved] = normalizeWorkspaceSources({ docs: options as never })
+
+    expect(resolved).toMatchObject({ mountPath: "", source: { mount: "" }, probeKeys: ["safe.md"] })
+    expect(workspaceSourceGrantPaths("docs", options as never)).toEqual(["safe.md", ".vitehub/sources/docs.json"])
   })
 
   it("materializes build sources when a path explicitly requests them", async () => {

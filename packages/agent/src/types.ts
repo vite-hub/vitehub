@@ -668,6 +668,18 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   path?: string
   provider: string
   signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+    /**
+     * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
+     * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
+     */
+    preset: "hmac-sha256"
+    /** Digest encoding in the header. Defaults to `"hex"`, compared case-insensitively. */
+    encoding?: "hex" | "base64"
+    /** Text before the digest, such as `"sha256="`. Defaults to no prefix. */
+    prefix?: string
+    /** How `secretToken` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
+    secretEncoding?: "utf8" | "base64"
+  } | {
     preset: "stripe-sha256"
     /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
     toleranceSeconds?: number
