@@ -467,7 +467,7 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
 
     expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(spoof)
+    expect(response).not.toBe(source)
     expect(() => response!.headers.getSetCookie()).not.toThrow()
     expect(() => response!.headers.forEach(() => {})).not.toThrow()
   })
@@ -491,13 +491,18 @@ describe("Auth access handlers", () => {
         await response.text()
         return response
       }],
-      ["Response.error()", () => Response.error()],
-      ["a Response subclass", () => new (class PolicyResponse extends Response {})("Policy rejected", { status: 409 })],
       ["a Response with a shadowed accessor", () => {
         const response = new Response("Policy rejected", { status: 409 })
         Object.defineProperty(response, "status", { get: () => 409 })
         return response
       }],
+    ])("fails closed for %s", async (_name, create) => {
+      await expect(run(await create())).resolves.toMatchObject({ status: 403 })
+    })
+
+    it.each([
+      ["Response.error()", () => Response.error()],
+      ["a Response subclass", () => new (class PolicyResponse extends Response {})("Policy rejected", { status: 409 })],
     ])("returns %s unchanged", async (_name, create) => {
       const source = await create()
       await expect(run(source)).resolves.toBe(source)
