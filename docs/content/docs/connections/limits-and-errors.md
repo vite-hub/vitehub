@@ -26,10 +26,18 @@ icon: i-lucide-circle-alert
 | `CONNECTIONS_NEEDS_RECONNECT` | The provider rejected the refresh token. |
 | `CONNECTIONS_KEY_MISMATCH` | The grant was sealed with a different key. |
 | `CONNECTIONS_DENIED`, `CONNECTIONS_APPROVAL_REQUIRED` | Access rules blocked the call. |
-| `CONNECTIONS_ORIGIN_NOT_ALLOWED` | The request URL is not in the provider `origins`. ViteHub did not send the credential. |
+| `CONNECTION_INVALID` | The request URL is not in the provider `origins`. ViteHub did not send the credential. |
 | `CONNECTIONS_PROVIDER_FAILED` | The provider returned an error. `details.status` has the HTTP status. |
 | `CONNECTIONS_UNAVAILABLE` | Another request holds the refresh lease. Try again. |
-| `CONNECTION_FORBIDDEN` | The management request has no authorized manager, or it is cross-origin. |
+| `CONNECTION_FORBIDDEN` | The management request has no authorized manager. |
+| `CONNECTION_ORIGIN_REJECTED` | The browser origin does not match the origin that the server sees. See [Origin checks](/docs/connections/server-api#origin-checks). |
+| `CONNECTION_CONTENT_TYPE_REJECTED` | The management request is not `application/json`. |
 | `CONNECTION_AUTH_REQUIRED` | The management routes use the `'development'` policy and the server is not a development server. |
+| `CONNECTION_AUTHORIZATION_CANCELLED` | The user declined the consent screen. The callback page shows this code. |
+| `CONNECTION_STATE_MISMATCH` | The callback has no `state` cookie of this browser, or the cookie does not match. Start the connection again. |
+
+Management routes return `{ error: { code, message, fix, docs } }`. The connect and callback routes show the same code, fix, and docs link on their HTML page. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
+
+Management routes return `{ error: { code, message, fix, docs } }`. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
 
 When you change the provider of a Connection, the stored grant belongs to the old provider. The status becomes `needs-reconnect` with `lastError: 'CONNECTIONS_PROVIDER_CHANGED'`, and ViteHub never sends that grant to the new provider. Reconnect the Connection.

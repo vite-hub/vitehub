@@ -29,6 +29,8 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
+  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
 }
@@ -136,7 +138,15 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         resources.hostAvailableMemory - memory.reserveBytes,
         Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
       )
-      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
+      const remoteActive = options.remoteActive?.()
+      // Runtime configuration is untyped at this boundary. Invalid remote
+      // counts must not poison admission arithmetic or trigger adaptive
+      // fallback; treat them as no remote work.
+      const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
+        ? remoteActive
+        : 0
+      const localActive = Math.max(0, context.active - validRemoteActive)
+      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
@@ -294,7 +304,7 @@ export { createProcessAgentHost } from './process-host.ts'
 export type { ProcessAgentHost, ProcessAgentHostOptions } from './process-host.ts'
 
 /**
- * Starts the process hosts that discovered Agents contribute, for example through the Babysitter
+ * Starts the process hosts that discovered Agents contribute, for example through a process host
  * preset. The generated Nitro plugin owns one instance per server process.
  */
 export function createAgentProcessHosts(options: {
@@ -313,7 +323,7 @@ export function createAgentProcessHosts(options: {
   status(): "starting" | "accepting" | "draining" | "drained" | "failed"
   health(): Promise<{ status: "healthy" | "degraded", agents: Record<string, unknown> }>
 } {
-  const hosts = new Map<string, import("../agent-process-host.ts").AgentProcessHostInstance>()
+  const hosts = new Map<string, import("../process-host.ts").AgentProcessHostInstance>()
   const failures = new Map<string, string>()
   let starting: Promise<void> | undefined
   let closed = false
@@ -325,7 +335,7 @@ export function createAgentProcessHosts(options: {
     retries.delete(agentName)
     if (closed) return
     const { getAgentFromRegistry } = await import("../index.ts")
-    const { getAgentProcessHostContribution } = await import("../agent-process-host.ts")
+    const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
       const agent = await getAgentFromRegistry(agentName, options.registry)

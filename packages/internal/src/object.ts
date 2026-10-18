@@ -1,6 +1,5 @@
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || Object(value) !== value || Array.isArray(value)) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary must distinguish objects from functions.
   return typeof value === "object"
 }
 

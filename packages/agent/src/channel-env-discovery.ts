@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-import { builtInChannelEnv, builtInCodeHostEnv } from "./channel-env.ts"
+import { forgeEnv } from "@vite-hub/forge"
+import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
@@ -904,7 +905,7 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
     })
     for (const use of uses) {
       const selected = use.stringOptions?.get("host") ?? (use.optionKeys && !use.optionKeys.has("host") ? "github" : undefined)
-      for (const [host, specs] of Object.entries(builtInCodeHostEnv)) {
+      for (const [host, specs] of Object.entries(forgeEnv)) {
         if (selected !== undefined && selected !== host) continue
         const group = declared[host] ??= {}
         for (const [field, spec] of Object.entries(specs)) {

@@ -1,3 +1,5 @@
+import { isVitehubOwnedPath } from "@vite-hub/internal/owned-paths"
+
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { getConsoleBlob } from "./blob.ts"
@@ -9,6 +11,8 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 const defaultLimit = 100
 const maximumLimit = 250
 const maximumParameterLength = 8_192
+// Bounds provider calls when many ViteHub-owned objects precede visible ones.
+const maximumListPages = 10
 
 interface ConsoleBlobObject {
   contentType?: string
@@ -83,9 +87,16 @@ async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBl
   const prefix = optionalParameter(url.searchParams.get("prefix"), "prefix") ?? ""
   const cursor = optionalParameter(url.searchParams.get("cursor"), "cursor")
   const limit = limitParameter(url.searchParams.get("limit"))
-  const page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
+  const showVitehub = url.searchParams.get("showVitehub") === "true"
+  let page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
+  const blobs = showVitehub ? page.blobs : page.blobs.filter(object => !isVitehubOwnedPath(object.pathname))
+  // Hidden objects can leave a page short. Fill it without passing the requested limit.
+  for (let pages = 1; !showVitehub && blobs.length < limit && page.hasMore && page.cursor && pages < maximumListPages; pages++) {
+    page = unwrap(await selected.storage.list({ cursor: page.cursor, limit: limit - blobs.length, prefix }))
+    blobs.push(...page.blobs.filter(object => !isVitehubOwnedPath(object.pathname)))
+  }
   const result: ConsoleBlobPage = {
-    blobs: page.blobs.map(serializeBlob),
+    blobs: blobs.map(serializeBlob),
     hasMore: page.hasMore,
     limit,
     prefix,

@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 import { isResponse } from "../src/internal/response.ts"
-import { isUIMessageStreamResponse } from "../src/stream-output.ts"
+import { isUIMessageStreamResponse, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationResult } from "../src/trigger-runtime.ts"
 
 const HostResponse = Response
@@ -36,10 +36,16 @@ describe("agent trigger cross realm responses", () => {
     expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
   })
 
-  it("recognizes foreign UI message stream responses", () => {
-    expect(isUIMessageStreamResponse(foreignResponse("data: [DONE]\n\n", {
+  it("recognizes and parses UI responses with an inherited global Response prototype", async () => {
+    const response = foreignResponse('data: {"type":"text-delta","delta":"foreign"}\n\ndata: [DONE]\n\n', {
       headers: { "x-vercel-ai-ui-message-stream": "v1" },
-    }))).toBe(true)
+    })
+    expect(isUIMessageStreamResponse(response)).toBe(true)
+    expect(normalizeUIMessageStreamResponse(response)).toBe(response)
+    if (!isUIMessageStreamResponse(response)) throw new Error("Expected UI response")
+    const chunks = []
+    for await (const chunk of uiMessageStreamFromResponse(response)) chunks.push(chunk)
+    expect(chunks).toEqual([{ type: "text-delta", delta: "foreign" }])
   })
 
   it("rejects a complete structural impostor", () => {

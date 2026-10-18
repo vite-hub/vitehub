@@ -102,6 +102,24 @@ const history = inputCommands({
 
 The full `vite-hub` distribution types the Console helpers. The standalone `@vite-hub/agent` package remains host-neutral.
 
+### Link the previous invocation with `/debug`
+
+When a chat answer is wrong, the user can send `/debug` to get the Console link of the Invocation that produced it. Set `debug: true` to add this command. You do not need other commands.
+
+```ts [server/agents/support.ts]
+import { inputCommands } from 'vite-hub/agent/capabilities'
+
+const commands = inputCommands({ debug: true })
+```
+
+`/debug` replies with the Console URL of the latest earlier Invocation of the same Agent. When the current Invocation has a Channel thread, it uses only Invocations of the same Channel and thread. The reply stops the invocation, so the Agent Driver does not run.
+
+- With no earlier Invocation, it replies `No previous invocation was found in the ViteHub Console.`
+- Without `vitehub({ console })`, it replies `The ViteHub Console is not enabled for this Agent.`
+- The link follows the `invocationUrl()` rules above.
+
+A `debug` entry in `commands` replaces the built-in command.
+
 ## Requirements
 
 - Command names must be lowercase stable identifiers: a letter first, then letters, digits, `_`, or `-`.
@@ -109,6 +127,7 @@ The full `vite-hub` distribution types the Console helpers. The standalone `@vit
 - `channels`, when set, must contain non-empty Channel IDs.
 - The trigger must be a non-empty string without whitespace.
 - Console helpers require the `vite-hub` import path and `vitehub({ console })`.
+- `debug`, when set, must be `true` or `false`. `commands` is required unless `debug` is `true`.
 
 Input Commands are Capability concerns.
 Host Commands that change chat, session, UI, or product state belong outside this Capability.
@@ -143,11 +162,12 @@ A handler that returns a `Response` stops the invocation before any Agent Driver
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `commands` | `Record<string, InputCommand>` | required | Command map keyed by lowercase stable command names. |
+| `commands` | `Record<string, InputCommand>` | required unless `debug` is `true` | Command map keyed by lowercase stable command names. |
 | `commands.*.call` | `(input) => Partial<AgentRunInput> \| Response \| string \| void` | remove command text | Handler that rejects, transforms, enriches, or answers the request. Receives `args`, `command`, `context`, `input`, `message`, `name`, and `text`. |
 | `commands.*.channels` | `string[]` | all Channels | Configured Channel ID allowlist. |
 | `commands.*.description` | `string` | none | Command description for metadata and inspection. |
 | `commands.*.hooks` | `{ 'agent:input'?, 'agent:finish'? }` | none | Command-scoped lifecycle hooks with `ctx.message.reply/update/react` delivery helpers. |
+| `debug` | `boolean` | `false` | Add `/debug`, which replies with the Console link of the previous Invocation. Requires the `vite-hub` import path. |
 | `id` | `string` | `"inputCommands"` | Capability id. |
 | `trigger` | `string` | `"/"` | Non-whitespace command prefix. |
 
