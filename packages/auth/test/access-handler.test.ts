@@ -64,6 +64,7 @@ describe("Auth access handlers", () => {
   })
 
   it("matches root recursive access routes at the application root", async () => {
+    provider.getSession.mockResolvedValue(null)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => true }] },
     }))
