@@ -10,7 +10,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import type { Environment, Plugin } from "vite"
+import type { Environment, Plugin, ResolvedConfig } from "vite"
 import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
@@ -412,6 +412,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let openAccessBuildWarning: string | undefined
   let baseURL = "/"
   type DeferredConsoleState = {
+    config: ResolvedConfig
     root: string
     baseURL: string
     sections: ConsoleSectionId[]
@@ -625,6 +626,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       root = config.root
       const resolvedConfigState: DeferredConsoleState | undefined = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github"
         ? {
+            config,
             root: config.root,
             baseURL: config.base,
             sections: [...sections],
@@ -648,7 +650,17 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             if (!envKey || !callbackState) return
             const resolvedAuthConfig = { ...callbackState.authConfig, developmentSecretEnvKey: envKey }
             const resolvedHandlers = await writeConsoleAuthHandlers(callbackState.root, resolvedAuthConfig, callbackState.baseURL)
-            if (callbackState.sections.includes("connections")) await writeConsoleConnectionsActor(callbackState.root, resolvedHandlers.middleware)
+            const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
+            const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers)
+            const connectionsActor = callbackState.sections.includes("connections")
+              ? await writeConsoleConnectionsActor(callbackState.root, resolvedHandlers.middleware)
+              : undefined
+            const alias = kit.config.alias ?? {}
+            ;(callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro = {
+              ...kit.config,
+              ...(connectionsActor ? { alias: { ...alias, [consoleConnectionsActorId]: connectionsActor } } : {}),
+              publicAssets,
+            }
             callbackState.authConfig = resolvedAuthConfig
             callbackState.handlers = resolvedHandlers
           })
@@ -698,9 +710,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
       const nitro = viteConfig.nitro ??= {}
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
-      const connectionsActor = sections.includes("connections")
-        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.middleware)
+      const scopedAuthHandlers = resolvedConfigState?.handlers ?? consoleAuthHandlers
+      const scopedSections = resolvedConfigState?.sections ?? sections
+      const scopedRoot = resolvedConfigState?.root ?? root
+      const scopedBaseURL = resolvedConfigState?.baseURL ?? baseURL
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, scopedBaseURL, scopedSections, scopedAuthHandlers, previousConsoleAuthHandlers)
+      const connectionsActor = scopedRoot && scopedSections.includes("connections")
+        ? await writeConsoleConnectionsActor(scopedRoot, scopedAuthHandlers?.middleware)
         : undefined
       const alias = kit.config.alias ?? {}
       viteConfig.nitro = {
