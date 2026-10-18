@@ -695,7 +695,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    const bodyReader = getNativeAuthorizationBodyReader(body)
+    const bodyReader = await getNativeAuthorizationBodyReader(body)
     if (body !== null && (bodyReader === false || bodyReader === undefined)) return
 
     // Preserve the standard error response before constructing a local response.
