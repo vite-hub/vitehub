@@ -1,3 +1,5 @@
+import { ownSourceOption } from "./runtime-options.ts"
+
 import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
@@ -893,7 +895,7 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
 }
 
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
-  if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
+  if (source.materialize || source.mount && typeof source.mount === "object" && ownSourceOption(source.mount, "materialize")) {
     return source
   }
   if (source.sync) return source
