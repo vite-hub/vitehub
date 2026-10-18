@@ -251,7 +251,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const legacyFiles = this.#legacyRoot === this.#root ? [] : await this.#listBlobs(normalizedPrefix ? `${this.#legacyFileKey(normalizedPrefix, { allowEmpty: true })}/` : legacyBase)
     const entries = new Map<string, WorkspaceEntry>()
 
-    for (const blob of [...files, ...legacyFiles]) {
+    // Process legacy entries first so entries under the current root always win
+    // when both roots contain the same workspace path during migration.
+    for (const blob of [...legacyFiles, ...files]) {
       const base = blob.key.startsWith(legacyBase) ? legacyBase : currentBase
       const path = normalizeWorkspacePath(blob.key.slice(base.length))
       if (!path) continue

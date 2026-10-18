@@ -112,7 +112,21 @@ describe("Vercel Blob workspace store", () => {
     blobMock.list.mockResolvedValueOnce({ blobs: [], cursor: "terminal", hasMore: false })
     const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
     await expect(store.list()).resolves.toEqual([])
-    expect(blobMock.list).toHaveBeenCalledTimes(1)
+    expect(blobMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("prefers current-root entries over legacy entries", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await blobMock.put(".vitehub/workspaces/docs/files/readme.md", "legacy")
+    await blobMock.put("_vitehub/workspaces/docs/files/readme.md", "current")
+
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ path: "readme.md", type: "file", size: 7 }),
+    ])
+    await expect(store.readFile("readme.md")).resolves.toMatchObject({ content: new TextEncoder().encode("current") })
   })
   it("detects equal-size content changes in snapshot diffs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
