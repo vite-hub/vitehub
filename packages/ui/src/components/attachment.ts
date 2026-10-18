@@ -67,7 +67,11 @@ export const AttachmentTrigger = defineComponent({
     return () =>
       h(
         props.as,
-        { ...attrs, "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined },
+        {
+          ...attrs,
+          "data-slot": "attachment-trigger",
+          type: props.as === "button" ? (attrs.type ?? "button") : attrs.type,
+        },
         slots.default?.(),
       );
   },
