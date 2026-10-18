@@ -400,11 +400,23 @@ type AuthorizationStreamIntrinsics = {
 
 const validatedAuthorizationReaders = new WeakMap<object, AuthorizationStreamIntrinsics>()
 
+function releaseAuthorizationReader(reader: object, releaseLock?: (this: object) => void) {
+  try {
+    if (typeof releaseLock === "function") {
+      Reflect.apply(releaseLock, reader, [])
+      return
+    }
+    const candidate = Reflect.get(reader, "releaseLock")
+    if (typeof candidate === "function") Reflect.apply(candidate, reader, [])
+  }
+  catch {}
+}
+
 function releaseValidatedAuthorizationReader(body: object) {
   const validated = validatedAuthorizationReaders.get(body)
   if (!validated) return
   validatedAuthorizationReaders.delete(body)
-  try { Reflect.apply(validated.releaseLock, validated.reader, []) } catch {}
+  releaseAuthorizationReader(validated.reader, validated.releaseLock)
 }
 
 function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefined {
@@ -431,7 +443,9 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let releaseLock: ((this: object) => void) | undefined
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
+  let fallbackReleaseLock: ((this: object) => void) | undefined
   try {
+  fallbackReleaseLock = Reflect.get(reader, "releaseLock") as typeof fallbackReleaseLock
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
   for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
     if (!read) read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as typeof read
@@ -440,23 +454,23 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
     if (read && cancel && releaseLock) break
   }
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
-    try { if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, []) } catch {}
+    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
     return
   }
   try {
     if (!Reflect.apply(locked, body, [])) {
-      Reflect.apply(releaseLock, reader, [])
+      releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
       return
     }
     // Keep this ownership-verified reader for the bridge. Acquiring again
     // later would allow a stateful getReader() to return another stream.
   }
   catch {
-    try { Reflect.apply(releaseLock, reader, []) } catch {}
+    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
     return
   }
   } catch {
-    try { if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, []) } catch {}
+    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
     return
   }
   return { locked, getReader, read, cancel, releaseLock, reader }
