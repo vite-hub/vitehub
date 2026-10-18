@@ -37,61 +37,51 @@
     "./agent-code-view": {
       "types": "./dist/agent-code-view.d.ts",
       "import": "./dist/agent-code-view.js",
-      "require": "./dist/agent-code-view.js",
       "default": "./dist/agent-code-view.js"
     },
     "./agent-file-tree": {
       "types": "./dist/agent-file-tree.d.ts",
       "import": "./dist/agent-file-tree.js",
-      "require": "./dist/agent-file-tree.js",
       "default": "./dist/agent-file-tree.js"
     },
     "./agent-tool-list": {
       "types": "./dist/agent-tool-list.d.ts",
       "import": "./dist/agent-tool-list.js",
-      "require": "./dist/agent-tool-list.js",
       "default": "./dist/agent-tool-list.js"
     },
     "./agent-trace": {
       "types": "./dist/agent-trace.d.ts",
       "import": "./dist/agent-trace.js",
-      "require": "./dist/agent-trace.js",
       "default": "./dist/agent-trace.js"
     },
     "./attachment": {
       "types": "./dist/attachment.d.ts",
       "import": "./dist/attachment.js",
-      "require": "./dist/attachment.js",
       "default": "./dist/attachment.js"
     },
     "./bubble": {
       "types": "./dist/bubble.d.ts",
       "import": "./dist/bubble.js",
-      "require": "./dist/bubble.js",
       "default": "./dist/bubble.js"
     },
     "./chat": {
       "types": "./dist/chat.d.ts",
       "import": "./dist/chat.js",
-      "require": "./dist/chat.js",
       "default": "./dist/chat.js"
     },
     "./chat-message": {
       "types": "./dist/chat-message.d.ts",
       "import": "./dist/chat-message.js",
-      "require": "./dist/chat-message.js",
       "default": "./dist/chat-message.js"
     },
     "./chat-session": {
       "types": "./dist/chat-session.d.ts",
       "import": "./dist/chat-session.js",
-      "require": "./dist/chat-session.js",
       "default": "./dist/chat-session.js"
     },
     "./code-block": {
       "types": "./dist/code-block.d.ts",
       "import": "./dist/code-block.js",
-      "require": "./dist/code-block.js",
       "default": "./dist/code-block.js"
     },
     "./headless": {
@@ -103,25 +93,21 @@
     "./marker": {
       "types": "./dist/marker.d.ts",
       "import": "./dist/marker.js",
-      "require": "./dist/marker.js",
       "default": "./dist/marker.js"
     },
     "./message": {
       "types": "./dist/message.d.ts",
       "import": "./dist/message.js",
-      "require": "./dist/message.js",
       "default": "./dist/message.js"
     },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
-      "require": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
     "./message-parts": {
       "types": "./dist/message-parts.d.ts",
       "import": "./dist/message-parts.js",
-      "require": "./dist/message-parts.js",
       "default": "./dist/message-parts.js"
     },
     "./nuxt": {
@@ -139,13 +125,11 @@
     "./trace": {
       "types": "./dist/trace.d.ts",
       "import": "./dist/trace.js",
-      "require": "./dist/trace.js",
       "default": "./dist/trace.js"
     },
     "./prompt-input": {
       "types": "./dist/prompt-input.d.ts",
       "import": "./dist/prompt-input.js",
-      "require": "./dist/prompt-input.js",
       "default": "./dist/prompt-input.js"
     },
     "./vite": {

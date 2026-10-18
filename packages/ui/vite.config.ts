@@ -55,7 +55,14 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...normalizePackageExports(publicExports), "./styles.css": "./dist/styles.css" };
+        const normalized = normalizePackageExports(publicExports);
+        for (const key of Object.keys(normalized)) {
+          if (key !== "." && key !== "./headless" && key !== "./nuxt" && key !== "./primitive-rail" && key !== "./vite") {
+            const entry = normalized[key];
+            if (entry && typeof entry === "object") delete entry.require;
+          }
+        }
+        return { ...normalized, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },
