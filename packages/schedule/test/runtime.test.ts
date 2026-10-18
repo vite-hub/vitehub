@@ -1072,7 +1072,7 @@ describe("Manual Schedule runs", () => {
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
-    expect(await schedules.listRuns()).toHaveLength(2)
+    expect(await Promise.all(runs.map(run => schedules.getRun(run.id)))).toEqual(runs)
   })
 
   it("uses the installed runtime registry when no registry is passed", async () => {
