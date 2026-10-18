@@ -182,6 +182,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
           || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function))
           && typeof parentConstructor === "function"
+          // `extends Function` can be aliased by the authorization callback.
+          // It is the intrinsic Function constructor, not an implementation-owned
+          // Response base, and must never satisfy the derived provenance gate.
+          && (constructorSource.includes("[native code]") || parentConstructor !== Function)
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
           // A caller-created derived constructor can supply a Function-shaped
