@@ -177,6 +177,20 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(hasCloudflareSqlExec(sql)).toBe(false)
   })
 
+  it("rejects the DataView byteLength accessor as a counterfeit databaseSize", () => {
+    const prototype = Object.create(DataView.prototype)
+    const constructor = Object.getOwnPropertyDescriptor(DataView.prototype, "constructor")!.value
+    const databaseSize = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get
+    Object.defineProperties(prototype, {
+      constructor: { value: constructor },
+      exec: { value: () => ({ toArray: () => [] }) },
+      databaseSize: { get: databaseSize },
+    })
+    const sql = new DataView(new ArrayBuffer(8))
+    Object.setPrototypeOf(sql, prototype)
+    expect(hasCloudflareSqlExec(sql)).toBe(false)
+  })
+
   it("returns false if proxy inspection throws", () => {
     const sql = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error("unavailable") } })
     expect(hasCloudflareSqlExec(sql)).toBe(false)
