@@ -128,6 +128,22 @@ describe("Cloudflare D1 binding projections", () => {
     ])
   })
 
+  it("does not replace an explicitly blank ID with a provisioned ID", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "blank", [
+      "    databaseId: '   ',",
+      "    databaseName: 'blank-db',",
+    ].join("\n"))
+
+    const config = resolveDBViteConfig(undefined, rootDir)!
+    const projection = resolveCloudflareD1Bindings(config, {
+      provisionState: { cloudflare: { d1: { blank: "provisioned-id" } } },
+    })
+
+    expect(projection.d1Databases).toEqual([])
+    expect(projection.unresolved).toMatchObject([{ database: "blank", reason: "missing-database-id" }])
+  })
+
   it.each([
     { field: "databaseId", form: "literal" },
     { field: "databaseName", form: "literal" },

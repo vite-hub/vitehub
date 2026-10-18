@@ -148,14 +148,6 @@ export function resolveCloudflareHyperdriveBindingName(database: string, binding
   return resolveBindingName("HYPERDRIVE", database, binding)
 }
 
-function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
-  const configured = config.databases[name]?.cloudflare?.databaseId
-  const resolved = resolveConfigValue(configured)
-  return typeof resolved !== "undefined"
-    ? (resolved.trim() ? resolved : undefined)
-    : resolveProvisionedD1Id(provisionState, name)
-}
-
 function createUnresolvedBinding(
   name: string,
   binding: string,
@@ -230,12 +222,12 @@ export function resolveCloudflareD1Bindings(
     const projection = resolveCloudflareD1Binding({
       database: name,
       binding: database.binding,
-      databaseId: resolveDatabaseId(config, name, options.provisionState),
+      databaseId: database.databaseId,
       databaseName: database.databaseName,
       migrationsDir: database.migrationsDir,
       migrationsTable: database.migrationsTable,
       previewDatabaseId: database.previewDatabaseId,
-    })
+    }, { provisionState: options.provisionState })
     if (projection.d1Database) {
       const previous = bindingDatabases.get(projection.bindingName)
       if (previous) {
