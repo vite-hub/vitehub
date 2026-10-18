@@ -556,6 +556,16 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
           const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
           if (releaseResult !== undefined || releaseStream.locked) return
+
+          // Prove that the selected getReader method returns a reader for the
+          // exact stream it was called on. A forged method can lock the body
+          // and return a reader owned by another stream; releasing that reader
+          // leaves the supplied body locked, which provides an observable
+          // ownership check before the bridge accepts the method.
+          const ownershipReader = Reflect.apply(descriptor.value, body, []) as object
+          if (!body.locked) return
+          Reflect.apply(probeMethods.releaseLock, ownershipReader, [])
+          if (body.locked) return
           foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
