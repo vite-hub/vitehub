@@ -24,10 +24,21 @@ export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Sn
     const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
     return id ? [id] : [];
   }))];
-  const started = await Promise.all(runIds.map(async (id) => {
-    const [created] = await reader.rest(`repos/${repository}/actions/runs/${id}`, ".created_at", signal);
-    return Date.parse(String(created));
+  const runs = await Promise.all(runIds.map(async (id) => {
+    const [run] = await reader.rest(`repos/${repository}/actions/runs/${id}`, "{created_at: .created_at, pull_requests: [.pull_requests[]? | .base.sha]}", signal);
+    if (isRuntimeRecord(run)) {
+      const bases = Array.isArray(run.pull_requests) ? run.pull_requests.filter((base): base is string => hasRuntimeType(base, "string")) : [];
+      return { created: Date.parse(String(run.created_at)), base: bases.length === 1 ? bases[0] : undefined, hasPullRequestMetadata: Array.isArray(run.pull_requests) };
+    }
+    // Compatibility with older readers; real GitHub responses are records above.
+    return { created: Date.parse(String(run)), base: undefined, hasPullRequestMetadata: false };
   }));
+  // A non-PR or ambiguous run is never evidence for the PR's tested base.
+  const exactBases = runs.filter(run => run.hasPullRequestMetadata).map(run => run.base);
+  if (exactBases.length && exactBases.some(base => !base)) return undefined;
+  const exact = runs.slice().sort((a, b) => a.created - b.created).find(run => run.hasPullRequestMetadata && run.base)?.base;
+  if (exact) return exact;
+  const started = runs.map(run => run.created);
   const ranAt = Math.min(...started.filter(Number.isFinite));
   if (!Number.isFinite(ranAt)) return undefined;
   const tested = await reader.page(`repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${baseRef}`)}&per_page=100`,

@@ -1051,7 +1051,7 @@ export class PullRequestInbox {
         WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
           AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
         ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND json_extract(m.value, '$.head')=p.head_sha) DESC,
-          COALESCE(json_extract(p.summary, '$.mergeReady'), 0) DESC,
+          COALESCE(CASE WHEN json_valid(p.summary) THEN json_extract(p.summary, '$.mergeReady') END, 0) DESC,
           (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
           p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
       for (const candidate of candidates) {

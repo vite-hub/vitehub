@@ -877,7 +877,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       schedulerEvent("babysitter.provider.quota.host_only", { reason, blocked_until: new Date(providerBlockedUntil).toISOString() });
     }
     // After rate limits, model passes resume at half concurrency per strike. Host-only work ignores the model cap.
-    const claimLimit = modelAdmission ? await providerQuota.modelLimit(ownerLimit, modelConcurrency) : ownerLimit + 5;
+    // Claim up to the owner capacity regardless of the model cap: host-only merges and
+    // stack retargets must continue while model admission is reduced or paused.
+    const claimLimit = ownerLimit;
     const remainingCapacity = Math.max(0, claimLimit - active.size);
     const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
       only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
@@ -1688,6 +1690,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             });
           } else if (github.isRateLimitError(error)) {
             outcome = "deferred";
+            await noteForgeQuota(error, "owner");
             await pullRequestInbox.finish(inboxClaim, {
               text: pushSucceeded
                 ? "Repair pushed; waiting for new webhook evidence."

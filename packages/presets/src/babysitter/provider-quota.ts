@@ -10,7 +10,6 @@ export const forgeBlockedKey = "forge-quota-blocked-until";
 
 /** The longest provider cooldown, and the forge cooldown. */
 export const maxQuotaCooldownMs = 60 * 60_000;
-const maxStrikes = 5;
 /** A success removes a strike only this long after the last cooldown ended. */
 const strikeRecoveryMs = 30 * 60_000;
 
@@ -34,6 +33,7 @@ export interface ProviderQuota {
  * model admission only; host work such as merges continues. Capacity returns one strike at a time.
  */
 export function createProviderQuota(store: QuotaStore, cooldownMs: number, now: () => number = Date.now): ProviderQuota {
+  const maxStrikes = Math.max(1, Math.ceil(Math.log2(maxQuotaCooldownMs / Math.max(1, cooldownMs))) + 1);
   const blockedUntil = async () => await store.metaNumber(providerBlockedKey) ?? 0;
   const strikes = async () => await store.metaNumber(providerStrikesKey) ?? 0;
   return {
