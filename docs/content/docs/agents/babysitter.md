@@ -27,7 +27,7 @@ Select the preset in a discovered Agent. The repository filter is required: the 
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { babysitter } from 'vite-hub/agent/presets/babysitter'
+import { babysitter } from 'vite-hub/presets/babysitter'
 
 export default defineAgent({
   extends: babysitter,
@@ -193,6 +193,8 @@ To replace the process, send SIGUSR2, wait until the drain route reports `draine
 5. With `merge: 'direct'`, passing required checks also wake it. The host merges when every check passed, every review thread is resolved, and GitHub reports the pull request as clean on the default branch. It never merges into another branch.
 
 Feedback that a pass assessed, or answered with a repair push, stays assessed on later heads. A later head needs a model pass only for new feedback, so a pull request whose push satisfied every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment does not cause a pass. Without required checks on the base branch, the newest run of every current-head check must finish before a merge. An earlier run of a rerun check is ignored.
+
+A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
 
 A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. Stack parents are claimed before other work, and a restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
 

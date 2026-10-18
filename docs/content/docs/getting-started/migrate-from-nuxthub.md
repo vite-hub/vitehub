@@ -41,23 +41,22 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-Replace the `hub` key with the ViteHub module and a
-[deployment preset](/docs/frameworks-hosts#choose-a-preset). Each feature is off
-until you enable it.
+Replace the NuxtHub module with `vite-hub/nuxt`, and rename the `hub` key to
+`vitehub`. Add a [deployment preset](/docs/frameworks-hosts#choose-a-preset).
+Each feature is off until you enable it.
 
 ```diff [nuxt.config.ts]
-+import viteHubNuxt from "vite-hub/nuxt"
-+
  export default defineNuxtConfig({
 -  modules: ["@nuxthub/core"],
 -  hub: {
 -    db: "sqlite",
--    kv: true,
--    blob: true,
--  },
-+  modules: [
-+    [viteHubNuxt, { preset: "cloudflare", database: true, kv: true, blob: true }],
-+  ],
++  modules: ["vite-hub/nuxt"],
++  vitehub: {
++    preset: "cloudflare",
++    database: true,
+     kv: true,
+     blob: true,
+   },
  })
 ```
 

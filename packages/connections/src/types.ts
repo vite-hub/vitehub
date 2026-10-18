@@ -168,6 +168,17 @@ export type ConnectionDefinitionRegistry = Record<string, () => Promise<unknown>
 /** Loads the ViteHub Database that the default store uses. */
 export type ConnectionsDatabaseLoader = () => Promise<EnvDatabase>
 
+/**
+ * How long the database keeps Connection activity. Connections write one activity event per
+ * provider request. Each limit is a positive integer.
+ */
+export interface ConnectionActivityRetention {
+  /** Delete events older than this many milliseconds. Defaults to 14 days. */
+  maxAgeMs?: number
+  /** Keep at most this many events, the newest first. Defaults to 10,000. */
+  maxRecords?: number
+}
+
 export interface DiscoveredConnectionDefinition {
   handler: string
   name: string
