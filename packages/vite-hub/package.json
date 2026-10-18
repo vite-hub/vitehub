@@ -1035,6 +1035,12 @@
       "require": "./dist/ui/trace.js",
       "default": "./dist/ui/trace.js"
     },
+    "./ui/trace-run": {
+      "types": "./dist/ui/trace-run.d.ts",
+      "import": "./dist/ui/trace-run.js",
+      "require": "./dist/ui/trace-run.js",
+      "default": "./dist/ui/trace-run.js"
+    },
     "./ui/marker": {
       "types": "./dist/ui/marker.d.ts",
       "import": "./dist/ui/marker.js",
