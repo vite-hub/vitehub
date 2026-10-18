@@ -4,19 +4,17 @@ import { createBabysitterPreflight } from "../src/babysitter/preflight.ts";
 afterEach(() => vi.restoreAllMocks());
 
 describe("Babysitter host prerequisites", () => {
-  it("coalesces concurrent checks and rechecks missing Corepack after repair", async () => {
+  it("coalesces concurrent checks and caches successful automatic checks", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
-    let missing = true;
-    const command = vi.fn(async (program: string) => { if (program === "corepack" && missing) throw new Error("missing"); });
+    const command = vi.fn(async () => {});
     const check = createBabysitterPreflight(true, command);
     const [first, second] = await Promise.all([check(), check()]);
     expect(second).toBe(first);
     expect(command.mock.calls).toEqual([["git", "version"]]);
     expect(first.pause).toBeUndefined();
-    missing = false;
     await check();
     expect(command).toHaveBeenCalledTimes(1);
-    clock.mockReturnValue(31001);
+    clock.mockReturnValue(301001);
     expect((await check()).pause).toBeUndefined();
     expect(command).toHaveBeenCalledTimes(2);
   });
