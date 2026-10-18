@@ -2,6 +2,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
+import { validateScheduledAt } from "./date.ts"
 import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -42,7 +43,7 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-export { isScheduleDate, validateScheduledAt } from "./date.ts"
+export { isScheduleDate } from "./date.ts"
 
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {
