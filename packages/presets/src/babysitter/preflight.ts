@@ -3,7 +3,7 @@ import { access, open, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import type { AgentHealthDiagnostic } from "../../server/health.ts";
+import type { AgentHealthDiagnostic } from "@vite-hub/agent/server";
 import type { BabysitterInstall } from "../babysitter.ts";
 import type { BabysitterAdmissionPause } from "./admission.ts";
 import { isRuntimeRecord } from "../internal/runtime-type.ts";

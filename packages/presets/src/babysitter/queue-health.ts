@@ -1,4 +1,4 @@
-import type { GitHubInboxSummary } from "../../server/github-inbox.ts";
+import type { GitHubInboxSummary } from "./inbox/store.ts";
 
 /** Derive bounded operational counters from the durable queue, including scheduled retries. */
 export function babysitterQueueHealth(items: readonly GitHubInboxSummary[], now = Date.now()) {

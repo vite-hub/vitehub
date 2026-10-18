@@ -1,7 +1,7 @@
-import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "../index.ts"
-import { gmail } from "../channels.ts"
-import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "../channels.ts"
-import { channelMessageContextKey } from "../internal/channel-delivery-handlers.ts"
+import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
+import { gmail } from "@vite-hub/agent/channels"
+import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
+import { channelMessageContextKey } from "@vite-hub/agent/channels"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface LabellerLabel extends GmailLabelSettings {}
