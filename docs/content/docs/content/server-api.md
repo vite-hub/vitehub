@@ -42,7 +42,7 @@ await content.navigation(['docs'])
 await content.search(['docs'], 'runtime')
 ```
 
-Methods that plugins add, such as SQL queries, stay available on the returned runtime. A collection instance serves its published documents at public paths that follow the Workspace path, so `posts/hello.md` is `/posts/hello`. `get`, `list`, `navigation`, `search`, and `handler` first check the `published` head and refresh collection instances that are behind. Plugin methods read the last refreshed state.
+Methods that plugins add, such as SQL queries, stay available on the returned runtime. A collection instance serves its published documents at public paths that follow the Workspace path, so `posts/hello.md` is `/posts/hello`. `get`, `list`, `navigation`, `search`, and `handler` first check the `published` head and refresh collection instances that are behind. In a [preview request](/docs/content/preview) they read the `draft` head instead. Plugin methods read the last refreshed published state.
 
 ### Cache
 
@@ -140,7 +140,7 @@ const next = page.nextCursor
 
 | Option | Behavior |
 | --- | --- |
-| `ref` | `published` (default) or `draft`. |
+| `ref` | `published` or `draft`. Defaults to `draft` in a [preview request](/docs/content/preview) and `published` otherwise. |
 | `filter` | Field values, matched case-insensitively. An array matches any of its values, and an array field matches when any element matches. A `Date` matches its ISO string. `id` filters by document id. `empty: ['summary']` matches documents without a value. |
 | `search` | Case-insensitive substring over the collection's `search` fields. |
 | `sort` | `{ field, direction? }`. Dates and numbers sort by value, other values as strings. Without `sort`, documents are in id order. |
@@ -262,3 +262,14 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 ### Comark refs
 
 `content.getSource('posts')` is the collection's Comark Source over `published`. `getSource('posts').withRef('draft')` reads the draft. Content accepts only `draft` and `published`.
+
+### Preview
+
+```ts
+await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
+content.preview.disable(event)                       // clears it
+await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie
+content.preview.active()                             // true inside a preview request
+```
+
+A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.

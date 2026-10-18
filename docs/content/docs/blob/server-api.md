@@ -16,7 +16,7 @@ icon: i-lucide-code-2
 | `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Browser-safe image helpers. `@vite-hub/blob` re-exports them for server code. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
-| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
+| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
 | `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 

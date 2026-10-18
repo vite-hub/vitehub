@@ -24,7 +24,6 @@ export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
-const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
@@ -35,10 +34,22 @@ const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
 const hostRestartOwnerSettlementTimeout = 30_000
 
-export interface GeneratedSourceHandler {
+/** A file ViteHub generates for Nitro: a route handler, or a Nitro plugin such as the Content preview scope. */
+export type GeneratedSourceHandler = GeneratedSourceRoute | GeneratedSourcePlugin
+
+export interface GeneratedSourceRoute {
   handler: string
   method?: "get"
+  plugin?: never
   route: string
+}
+
+/** A generated Nitro plugin. It registers no route, so it never conflicts with one. */
+export interface GeneratedSourcePlugin {
+  handler: string
+  method?: never
+  plugin: true
+  route?: never
 }
 
 export interface SourceGenerationOptions {
@@ -65,8 +76,9 @@ export interface GeneratedSourceHandlersListenerOptions {
 }
 
 interface NitroGeneratedConfig {
-  handlers?: Array<{ handler: string, method?: string, route?: string }>
+  handlers?: Array<{ handler: string, method?: string, middleware?: boolean, route?: string }>
   modules?: unknown[]
+  plugins?: unknown[]
 }
 
 interface SourceNitroHost extends NitroRouteGuard {
@@ -76,7 +88,7 @@ interface SourceNitroHost extends NitroRouteGuard {
 
 interface NitroRouteGuard {
   hooks: { hook(name: "build:before", callback: () => void): void }
-  scannedHandlers: Array<{ method?: string, route?: string }>
+  scannedHandlers: Array<{ method?: string, middleware?: boolean, route?: string }>
 }
 
 interface SourcePluginConfig {
@@ -107,7 +119,6 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   const fixedEntries = [
     collectionTypesEntry,
     collectionTypesPackageEntry,
-    legacyCollectionTypesEntry,
     contentRouteEntry,
     contentSitemapEntry,
     contentRobotsEntry,
@@ -140,7 +151,6 @@ async function restoreGeneratedSourceArtifacts(
   for (const entry of [
     collectionTypesEntry,
     collectionTypesPackageEntry,
-    legacyCollectionTypesEntry,
     contentRouteEntry,
     contentSitemapEntry,
     contentRobotsEntry,
@@ -162,14 +172,16 @@ function generatedRouteOwner(handler: GeneratedSourceHandler): "Collection" | "C
   return handler.route === "/api/content/**" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" ? "Content" : "Collection"
 }
 
-function generatedRouteDescription(handler: GeneratedSourceHandler): string {
+function generatedRouteDescription(handler: GeneratedSourceRoute): string {
   return handler.method ? `${handler.method.toUpperCase()} handler` : "handler"
 }
 
 function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
   for (const generatedHandler of generatedHandlers) {
+    if (generatedHandler.plugin) continue
     const duplicate = nitro.scannedHandlers.some(candidate =>
-      candidate.route === generatedHandler.route
+      !candidate.middleware
+      && candidate.route === generatedHandler.route
       && methodsOverlap(candidate.method, generatedHandler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
@@ -194,17 +206,21 @@ export function mergeGeneratedSourceNitroConfig(
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (generatedHandlers.length === 0) return nitro
   const kit = createNitroServerKit(nitro)
-  // SAFETY: The kit materializes Nitro handler entries as the generated source handler shape.
-  const handlers = kit.config.handlers as Array<GeneratedSourceHandler>
+  // SAFETY: The kit materializes Nitro handler entries as the generated route shape, plus Nitro's middleware flag.
+  const handlers = kit.config.handlers as Array<GeneratedSourceRoute & { middleware?: boolean }>
 
   for (const handler of generatedHandlers) {
+    if (handler.plugin) {
+      kit.addPlugin(handler.handler)
+      continue
+    }
     const exact = handlers.some(candidate =>
       candidate.handler === handler.handler
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
     const duplicate = handlers.some(candidate =>
-      candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
+      !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
@@ -248,7 +264,6 @@ async function writeCollectionArtifacts(
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
   const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
-  await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   if (collections.length === 0) {
     await Promise.all([
@@ -511,7 +526,8 @@ export async function prepareSourceGeneration(options: SourceGenerationOptions):
   return [
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
-  ].sort((left, right) => left.route.localeCompare(right.route))
+  // Plugins have no route and sort first.
+  ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
 }
 
 function applicationBaseURL(base: string | undefined): string {
@@ -537,11 +553,13 @@ function generatedSourceNitroContribution(
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
-  if (!handlers?.length && !modules?.length) return
-  return {
-    ...(handlers?.length ? { handlers } : {}),
-    ...(modules?.length ? { modules } : {}),
-  }
+  const plugins = merged.plugins?.slice(Array.isArray(existing.plugins) ? existing.plugins.length : 0)
+  if (!handlers?.length && !modules?.length && !plugins?.length) return
+  const contribution: NitroGeneratedConfig = {}
+  if (handlers?.length) contribution.handlers = handlers
+  if (modules?.length) contribution.modules = modules
+  if (plugins?.length) contribution.plugins = plugins
+  return contribution
 }
 
 function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
@@ -603,7 +621,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const resolvedConfiguredAuth = configuredAuth === undefined
         ? configuredState?.configuredAuth
         : configuredAuth
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Auth option is an untagged boolean-or-callback union; callability selects the callback.
       const auth = typeof options.auth === "function"
         ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
         : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
@@ -669,6 +686,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     const contributedModules = configuredNitroContribution?.modules ?? []
     if (Array.isArray(nitro.modules) && contributedModules.length > 0) {
       nitro.modules = nitro.modules.filter(module => !contributedModules.includes(module))
+    }
+    const contributedPlugins = configuredNitroContribution?.plugins ?? []
+    if (Array.isArray(nitro.plugins) && contributedPlugins.length > 0) {
+      nitro.plugins = nitro.plugins.filter(plugin => !contributedPlugins.includes(plugin))
     }
     return mergeGeneratedSourceNitroConfig(nitro, handlers)
   }
@@ -780,9 +801,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const nitro = replaceConfiguredNitroContribution(nitroHost.options, handlers, nitroHostContribution)
           nitroHostContribution = {
             handlers: nitro.handlers?.filter(handler => handlers.some(generated =>
-              handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+              !generated.plugin && handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+            plugins: handlers.flatMap(generated => generated.plugin ? [generated.handler] : []),
           }
           nitroHost.options.handlers = nitro.handlers
+          nitroHost.options.plugins = nitro.plugins
           nitroHandlers.splice(0, nitroHandlers.length, ...handlers)
           nitroHost.routing.sync()
         }

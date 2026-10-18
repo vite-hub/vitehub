@@ -98,13 +98,11 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
   let bytes = 0
   // SAFETY: The iterator presence check above proves this H3 v1 request can be consumed as an async byte stream.
   for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
     const chunkBytes = typeof chunk === "string" ? stringByteLength(chunk) : chunk.byteLength
     bytes += chunkBytes
     if (bytes > maximumBytes) {
       throw consoleRequestError(413, "Console request body exceeds the byte limit.")
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
     body += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true })
   }
   body += decoder.decode()

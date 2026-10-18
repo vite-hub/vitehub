@@ -148,9 +148,7 @@ async function loadAccessIdentity(): Promise<void> {
     if (!response.ok) throw new Error("Identity request failed");
     // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
     const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate the same-origin sign-out path.
     if (typeof identity?.signOutURL !== "string" || !identity.signOutURL.startsWith("/") || identity.signOutURL.startsWith("//")) throw new Error("Invalid identity");
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate each label before rendering it.
     const label = typeof identity.email === "string" ? identity.email : typeof identity.commonName === "string" ? identity.commonName : undefined;
     accessIdentity.value = { label, signOutURL: identity.signOutURL };
     signedIn.value = true;
@@ -272,7 +270,7 @@ onBeforeUnmount(() => {
     <template #footer="{ expanded }">
       <!--
         The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
-        Its slots give it the same icon box and label as a rail item.
+        Its slots give it the same icon sandbox and label as a rail item.
       -->
       <UTooltip text="Search" :kbds="['meta', 'k']" :content="{ side: 'right' }" :disabled="expanded">
         <UDashboardSearchButton class="vh-primitive-rail__item vitehub-console__rail-search" collapsed label="Search">
@@ -312,7 +310,7 @@ onBeforeUnmount(() => {
   color: var(--ui-text-highlighted);
 }
 
-/* The search button is a Nuxt UI button. The rail item class sets its size and states, and its slots set the icon box and label. */
+/* The search button is a Nuxt UI button. The rail item class sets its size and states, and its slots set the icon sandbox and label. */
 .vitehub-console .vitehub-console__rail-search {
   box-shadow: none !important;
   gap: 0 !important;

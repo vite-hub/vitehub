@@ -1,50 +1,23 @@
 ---
 title: Blob
 navigation.title: Overview
-description: Store uploads, generated files, binary objects, and metadata with one object-storage API.
+description: Save uploads and other files from your server, then read or serve them with the same code on every host.
 navigation.order: 1
 icon: i-lucide-files
 ---
 
-::product-hero{tagline="One object-storage import for uploads and generated files across local and hosted object stores." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
-  ```ts [server/api/upload.post.ts]
-  import { blob } from '@vite-hub/blob'
-
-  export default defineEventHandler(async (event) => {
-    // Authorize the request here. The route decides who may upload.
-    const [error, objects] = await blob.handleUpload(event, {
-      formKey: 'files',
-      ensure: { maxSize: '8MB', types: ['image'] },
-      put: { prefix: 'avatars', addRandomSuffix: true },
-    })
-    if (error) throw error
-    return objects
-  })
-  ```
-
+::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
   ```ts [vite.config.ts]
-  import { hubBlob } from '@vite-hub/blob/vite'
+  import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [hubBlob()],
-    blob: {
-      stores: {
-        default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
-      },
-    },
-  })
-  ```
-
-  ```ts [server/agents/publisher.ts]
-  import { defineAgent } from 'vite-hub/agent'
-  import { blob } from 'vite-hub/agent/capabilities'
-
-  export default defineAgent({
-    capabilities: [
-      blob({ assetPaths: ['artifacts'], mode: 'write', policy: 'deny' }),
+    plugins: [
+      // On Node, files are saved in .vitehub/data/blob
+      vitehub({ preset: 'node', blob: true }),
+      nitro() as never,
     ],
   })
   ```
@@ -60,26 +33,25 @@ icon: i-lucide-files
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Every method returns an error and a value" icon="i-lucide-code-2" to="/docs/blob/server-api"}
-  `put`, `get`, `head`, `list`, `del`, and `sign` return `[error, value]`.
+  :::product-feature-item{title="Save any file" icon="i-lucide-file-up" to="/docs/blob/server-api#use-it-at-runtime"}
+  Save text, bytes, or streams with `blob.put()`. Add a content type and your own metadata.
   :::
 
-  :::product-feature-item{title="Validate and store uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
-  `blob.handleUpload()` checks size and type before anything is stored.
+  :::product-feature-item{title="Uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
+  `blob.handleUpload()` checks the size and type of each file before it saves anything.
   :::
 
-  :::product-feature-item{title="Pick a driver per store, keep the import" icon="i-lucide-sliders-horizontal" to="/docs/blob/configure"}
-  Set `driver` for S3 or Azure; otherwise the host selects it.
+  :::product-feature-item{title="Upload from a Vue page" icon="i-lucide-upload" to="/docs/blob/server-api#upload-files"}
+  `useUpload()` sends the files from an input to your upload route.
   :::
 
-  :::product-feature-item{title="An Agent can publish the files it creates" icon="i-lucide-bot" to="/docs/blob/agent-capability"}
-  `assetPaths` publishes linked files and rewrites the links to public URLs.
+  :::product-feature-item{title="Large files in parts" icon="i-lucide-layers" to="/docs/blob/server-api#multipart-uploads"}
+  Send a big file in parts. The server joins them when the upload is complete.
   :::
 
-  :::product-feature-item{title="Objects from a terminal" icon="i-lucide-terminal" to="/docs/blob/hosts"}
-  Run Blob commands against the Vite Development Server.
+  :::product-feature-item{title="Links that expire" icon="i-lucide-link" to="/docs/blob/server-api#signed-requests"}
+  `blob.sign()` makes a short-lived link to read or upload one private file.
   :::
 
   :::product-feature-item{title="Images with alt text, crops, and variants" icon="i-lucide-image" to="/docs/blob/media"}

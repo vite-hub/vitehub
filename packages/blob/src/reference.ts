@@ -80,12 +80,10 @@ const jsonSchemaTargets = new Set<string>(["draft-07", "draft-2020-12", "openapi
 const mimePattern = /^(?:\*\/\*|[a-z0-9!#$&^_.+-]+\/(?:\*|[a-z0-9!#$&^_.+-]+))$/
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reference values come from documents, forms, and request bodies.
   return typeof value === "string"
 }
 
 function isNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reference values come from documents, forms, and request bodies.
   return typeof value === "number"
 }
 

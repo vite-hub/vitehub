@@ -40,6 +40,7 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubBlob } from "@vite-hub/blob/vite"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -47,13 +48,13 @@ export default defineConfig({
     driver: "fs",
     base: ".vitehub/data/blob",
   },
-  plugins: [hubBlob()],
+  plugins: [hubBlob(), nitro()],
 })
 ```
 
 ## Vite Integration
 
-Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code.
+Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each preset. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.

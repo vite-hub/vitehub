@@ -289,7 +289,7 @@ function isSupportedHistoryRef(name: string): boolean {
 
 /** A read-through view of GitHub branches and commits using the retained Workspace history contract. */
 export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): WorkspaceStoreHistory {
-  const { owner, repo } = splitGitHubRepository(options.repository, "store")
+  const { owner, repo } = splitGitHubRepository(options.repository)
   const commitCache = new Map<string, GitHubCommit>()
   const treeCache = new Map<string, GitHubHistoryEntry[]>()
   const commitRefs = new Map<string, string>()
@@ -555,7 +555,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const commit = async (commitOptions: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision> => {
     const ref = normalizeHistoryRef(commitOptions.ref)
     if (commitOptions.ifHead !== null && !nonEmptyString(commitOptions.ifHead)) throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
-    const state = await readGitHubBranchState({ branch: ref, kind: "store", repository: options.repository, root: options.root, token: options.token })
+    const state = await readGitHubBranchState({ branch: ref, repository: options.repository, root: options.root, token: options.token })
     const actual = state.branchExists ? state.refSha : null
     if (actual !== commitOptions.ifHead) throw historyConflict(ref, commitOptions.ifHead, actual)
     const updates: Array<{ bytes: Uint8Array, fullPath: string, gitSha: string, mode?: string }> = []

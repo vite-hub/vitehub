@@ -48,6 +48,8 @@ export type ConsoleRpcResult =
     code?: string
     /** JSON-safe failure details from an owner action, such as per-field issues. */
     details?: Record<string, unknown>
+    docs?: string
+    fix?: string
     message: string
     ok: false
     status: number

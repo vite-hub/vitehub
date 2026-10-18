@@ -27,6 +27,7 @@ import type {
   ContentHistorySource,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
   ContentSingleton,
@@ -314,6 +315,7 @@ export function defineContent<
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
+  const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
     // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
     ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
@@ -333,23 +335,43 @@ export function defineContent<
   }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
 
-  // Published collections are refreshed when another writer, process, or host moved the `published` head.
-  let syncing: Promise<void> | undefined
-  async function syncPublished(): Promise<void> {
-    if (!documentsRuntime) return
-    syncing ??= (async () => {
-      const loaded = collectionInstances.filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
-      if (!loaded.length) return
-      const head = await documentsRuntime.publishedHead()
-      const stale: Array<Promise<unknown>> = []
-      for (const { instance, source } of loaded) {
-        if (source.loadedRevision !== head) stale.push(instance.refresh())
+  // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
+  let draft: { hub: ContentHub<ComarkContent[]>, instances: Array<{ instance: ComarkContent, source: ContentHistorySource }> } | undefined
+  function draftHub() {
+    if (!draft) {
+      const pinned = hub.withRefs(Object.fromEntries(collectionEntries.map(([name]) => [name, "draft"])))
+      const names = new Set(collectionEntries.map(([name]) => name))
+      draft = {
+        hub: pinned,
+        // SAFETY: Collection instances read a ContentHistorySource, and withRef() pins it through comarkSource().
+        instances: pinned.instances.filter(instance => names.has(instance.name)).map(instance => ({ instance, source: instance.getSource(instance.name) as ContentHistorySource })),
       }
-      await Promise.all(stale)
-    })().finally(() => {
-      syncing = undefined
-    })
-    await syncing
+    }
+    return draft
+  }
+
+  // Loaded collection instances are refreshed when another writer, process, or host moved the head of their ref.
+  const syncing = new Map<ContentRef, Promise<void>>()
+  async function sync(ref: ContentRef): Promise<void> {
+    if (!documentsRuntime) return
+    let pending = syncing.get(ref)
+    if (!pending) {
+      pending = (async () => {
+        const loaded = (ref === "draft" ? draftHub().instances : collectionInstances)
+          .filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
+        if (!loaded.length) return
+        const head = await documentsRuntime.head(ref)
+        const stale: Array<Promise<unknown>> = []
+        for (const { instance, source } of loaded) {
+          if (source.loadedRevision !== head) stale.push(instance.refresh())
+        }
+        await Promise.all(stale)
+      })().finally(() => {
+        syncing.delete(ref)
+      })
+      syncing.set(ref, pending)
+    }
+    await pending
   }
   documentsRuntime?.onPublish(async (names) => {
     const refreshes: Array<Promise<unknown>> = []
@@ -358,10 +380,15 @@ export function defineContent<
     }
     await Promise.all(refreshes)
   })
-  function fresh<TArgs extends unknown[], TResult>(method: (...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  /** Run a read on the hub of the current request's ref after refreshing stale instances. */
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
-      await syncPublished()
-      return await method(...args)
+      if (documentsRuntime && preview.active()) {
+        await sync("draft")
+        return await method(draftHub().hub, ...args)
+      }
+      await sync("published")
+      return await method(hub, ...args)
     }
   }
   function requireDocuments(): ContentCollectionsRuntime {
@@ -431,14 +458,15 @@ export function defineContent<
     ...hub,
     ...documentsApi,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh(hub.get.bind(hub)) as ContentHub["get"],
-    navigation: fresh(hub.navigation.bind(hub)),
-    handler: fresh(hub.handler.bind(hub)),
-    list: fresh((names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined)),
-    search: fresh((names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names })),
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
+    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
+    handler: fresh((target, request: Request) => target.handler(request)),
+    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
-      await hub.dispose()
+      // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
+      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
@@ -471,9 +499,12 @@ export function defineContent<
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
 }
 
-/** Adapt a Comark Content Web handler to an H3/Nitro route. */
+/**
+ * Adapt a Comark Content Web handler to an H3/Nitro route. With a Content runtime, a request with a valid preview
+ * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
+ */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler">,
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview },
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => await serveContent(content, event)) as ContentHandler

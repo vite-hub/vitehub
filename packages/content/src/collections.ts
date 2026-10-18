@@ -91,7 +91,7 @@ export interface ContentRawDocument {
 }
 
 export interface ContentReadOptions {
-  /** `published` (default) or `draft`. */
+  /** `published` or `draft`. Defaults to `draft` inside a preview request and `published` otherwise. */
   ref?: ContentRef
   /** Read from one history revision instead of a ref head, for example one returned by `revisions()`. */
   revision?: string
@@ -102,7 +102,7 @@ type FilterValue = string | number | boolean | Date
 type FieldName<TData> = Extract<keyof TData, string> | "id"
 
 export interface ContentListOptions<TData = Record<string, unknown>> {
-  /** `published` (default) or `draft`. */
+  /** `published` or `draft`. Defaults to `draft` inside a preview request and `published` otherwise. */
   ref?: ContentRef
   /**
    * Match field values case-insensitively. An array matches any of its values; array fields match when any element
@@ -430,8 +430,8 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   comarkSource(name: string): ContentHistorySource
   /** Called after `publish()` changes the `published` ref, with the affected collection names. */
   onPublish(listener: (collections: string[]) => Promise<void> | void): void
-  /** The current `published` head revision id, or null before the first publish. */
-  publishedHead(): Promise<string | null>
+  /** The revision a Comark Source of `ref` reads: its head, or the `published` head for an empty draft. Null before any. */
+  head(ref: ContentRef): Promise<string | null>
   /** Remove the Workspace validation plugin. */
   dispose(): void
 }
@@ -485,6 +485,7 @@ function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
 /** Create the document runtime for every collection and install validation on their Workspace paths. */
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
   const workspaceName = options.workspace
+  const defaultRef = options.defaultRef ?? (() => "published" as const)
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
@@ -772,7 +773,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
-      const state = await refState(assertRef(options.ref, "published"))
+      const state = await refState(assertRef(options.ref, defaultRef()))
       const items = state.opened ? await index(state.opened) : []
       const digest = `${name}:${state.revision?.id ?? "empty"}`
       const listed = defineCollection({
@@ -798,7 +799,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       return options.revision !== undefined
         ? await openRevision(String(options.revision))
-        : (await refState(assertRef(options.ref, "published"))).opened
+        : (await refState(assertRef(options.ref, defaultRef()))).opened
     }
 
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
@@ -1271,7 +1272,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     onPublish: listener => {
       publishListeners.push(listener)
     },
-    publishedHead: async () => (await (await history()).head({ ref: "published" }))?.id ?? null,
+    head: async (ref) => {
+      const retained = await history()
+      return (await retained.head({ ref }) ?? (ref === "draft" ? await retained.head({ ref: "published" }) : null))?.id ?? null
+    },
     dispose: plugin,
   }
 }

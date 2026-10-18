@@ -3,7 +3,6 @@
   "version": "0.0.4",
   "description": "Unified shell runtimes for ViteHub.",
   "keywords": [
-    "cloudflare",
     "just-bash",
     "shell",
     "vitehub"
@@ -30,12 +29,6 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./providers/cloudflare": {
-      "types": "./dist/providers/cloudflare.d.ts",
-      "import": "./dist/providers/cloudflare.js",
-      "require": "./dist/providers/cloudflare.js",
-      "default": "./dist/providers/cloudflare.js"
     },
     "./providers/just-bash": {
       "types": "./dist/providers/just-bash.d.ts",

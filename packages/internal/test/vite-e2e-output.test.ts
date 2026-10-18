@@ -12,7 +12,7 @@ import { collectViteHubCliContribution } from "../src/cli.ts"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "auth", "blob", "cli", "database", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "source", "sandbox-task", "workspace", "agent", "auth", "blob", "cli", "database", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
 

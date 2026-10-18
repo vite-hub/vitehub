@@ -227,6 +227,18 @@
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
+  "vitehub": {
+    "agent": {
+      "processHost": [
+        "./presets/babysitter"
+      ],
+      "providerDriver": [
+        "./presets/babysitter",
+        "./presets/babysitter/server",
+        "./presets/workspace"
+      ]
+    }
+  },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
@@ -234,26 +246,15 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "catalog:storage",
-    "@aws-sdk/lib-storage": "catalog:storage",
-    "@aws-sdk/s3-presigned-post": "catalog:storage",
-    "@aws-sdk/s3-request-presigner": "catalog:storage",
-    "@azure/identity": "catalog:storage",
-    "@azure/storage-blob": "catalog:storage",
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261003.1",
-    "@google-cloud/storage": "catalog:storage",
-    "@googleapis/drive": "catalog:storage",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@libsql/client": "catalog:database",
-    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@standard-schema/spec": "catalog:runtime",
-    "@supabase/storage-js": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
@@ -264,11 +265,13 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -277,23 +280,18 @@
     "@vite-hub/workspace": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
-    "box-typescript-sdk-gen": "catalog:storage",
-    "devframe": "catalog:runtime",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
-    "dropbox": "catalog:storage",
     "esbuild": "catalog:tooling",
-    "google-auth-library": "catalog:storage",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
-    "katex": "^0.17.0",
+    "katex": "^0.19.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
-    "uploadthing": "catalog:storage",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow"
   },
@@ -318,35 +316,74 @@
     "comark": "catalog:markdown",
     "comark-tiptap": "catalog:markdown",
     "h3-v1": "npm:h3@^1.15.11",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.3",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.4.0"
   },
   "peerDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/lib-storage": "^3.700.0",
+    "@aws-sdk/s3-presigned-post": "^3.700.0",
+    "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "^4.11.0",
     "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
     "comark-tiptap": "catalog:markdown",
     "evalite": "catalog:ai",
     "evlog": "^2.28.1",
+    "google-auth-library": "catalog:storage",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/lib-storage": {
+      "optional": true
+    },
+    "@aws-sdk/s3-presigned-post": {
+      "optional": true
+    },
+    "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
+    "@azure/identity": {
+      "optional": true
+    },
+    "@azure/storage-blob": {
+      "optional": true
+    },
+    "@google-cloud/storage": {
+      "optional": true
+    },
+    "@googleapis/drive": {
+      "optional": true
+    },
+    "@microsoft/microsoft-graph-client": {
+      "optional": true
+    },
     "@nuxt/ui": {
       "optional": true
     },
@@ -365,6 +402,9 @@
     "evlog": {
       "optional": true
     },
+    "google-auth-library": {
+      "optional": true
+    },
     "playwright-core": {
       "optional": true
     },
@@ -372,6 +412,9 @@
       "optional": true
     },
     "reka-ui": {
+      "optional": true
+    },
+    "uploadthing": {
       "optional": true
     },
     "vite": {

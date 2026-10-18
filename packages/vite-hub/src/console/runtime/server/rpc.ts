@@ -30,6 +30,7 @@ import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../rpc
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
 /** Media library uploads: one file per `multipart/form-data` request, so the browser can report progress. */
@@ -99,14 +100,24 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
-  const failure: ConsoleRpcResult = { message, ok: false, status }
-  // Only owner action failures carry a code and details. See consoleActionError().
-  const code: unknown = Reflect.get(value, "consoleCode")
+  // Preserve the diagnostic catalog fields attached by consoleRequestError().
+  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
+  const diagnosticCode = Reflect.get(value, "code")
+  const code = typeof diagnosticCode === "string" && diagnosticCode ? diagnosticCode : consoleStatusDiagnosticCode(status)
+  const catalog = isConsoleDiagnosticCode(code)
+    ? consoleDiagnosticBody(code, message)
+    : {
+        code,
+        docs: typeof Reflect.get(value, "docs") === "string" ? Reflect.get(value, "docs") : undefined,
+        fix: typeof Reflect.get(value, "fix") === "string" ? Reflect.get(value, "fix") : undefined,
+        message: message ?? "Console request failed.",
+      }
+  const failure: ConsoleRpcResult = { ...catalog, ok: false, status }
+  // Document actions add a separate stable code and JSON-safe details.
+  const actionCode: unknown = Reflect.get(value, "consoleCode")
   const details: unknown = Reflect.get(value, "consoleDetails")
-  if (String(code) === code) Object.assign(failure, { code })
-  if (String(code) === code && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
+  if (typeof actionCode === "string" && actionCode) Object.assign(failure, { code: actionCode })
+  if (typeof actionCode === "string" && actionCode && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
   return failure
 }
 
@@ -299,7 +310,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
-  return operation.run(input.output, context)
+  const value = await operation.run(input.output, context)
+  // A guarded route returns its rejection as a Response. It is a failure, not an operation value.
+  if (value instanceof Response) throw consoleRequestError(value.status, "Console access rejected the request.")
+  return value
 }
 
 /** Run one Console operation from one checked request, so any host instance can serve any call. */

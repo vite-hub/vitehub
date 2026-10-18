@@ -24,7 +24,7 @@ describe("libSQL runtime credentials", () => {
       name: "test",
     }, {}, {
       libsql: { createClient, drizzle },
-      missingConnectionMessage: () => "missing connection",
+      missingConnection: "a connection",
       requireRemoteUrl,
     })
 
