@@ -212,6 +212,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await github.command(["api", "-X", "PUT", `repos/${repository}/pulls/${number}/update-branch`, "-f", `expected_head_sha=${head}`], { repository, timeout: 60_000, signal });
       return true;
     } catch (error) {
+      await noteForgeQuota(error, "update-branch");
       schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
       return false;
     }
@@ -407,6 +408,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           return "blocked";
         }
       } catch (error) {
+        await noteForgeQuota(error, "merge-reconcile");
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `merge outcome unknown: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}` });
         return await parkMerge("GitHub merge outcome could not be reconciled; retrying the provider read.");
       }
@@ -489,6 +491,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         return await parkMerge(response.status === "failed" ? `GitHub merge failed: ${response.details.message}` : "GitHub enqueued the pull request; waiting for its merge webhook.");
       }
     } catch (error) {
+      await noteForgeQuota(error, "direct-merge");
       schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
       // Definite HTTP rejections did not enqueue a merge. Keep the fence for
       // timeouts and transport failures, which may have delivered the request.
@@ -1707,6 +1710,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // The repair reached GitHub. Its checks and reviews resume the PR.
             outcome = "waiting";
             await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
+            await noteForgeQuota(error, "owner-pushed");
             const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || github.isRateLimitError(error);
             if (!expected) schedulerError("babysitter.owner.failed", error, owner);
           } else if (isAbortError(error)) {
