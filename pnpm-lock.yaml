@@ -496,6 +496,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
+      '@shikijs/langs':
+        specifier: 4.5.0
+        version: 4.5.0
       '@vercel/blob':
         specifier: catalog:storage
         version: 2.8.2(patch_hash=7db2e11e23fa7dc8684790de4335388d84d5926b1dc2a33f08a78ac4585e2fa3)
