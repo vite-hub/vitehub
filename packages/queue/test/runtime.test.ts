@@ -517,7 +517,7 @@ describe("cloudflare queue runtime", () => {
       messages: [{ ack: vi.fn(), attempts: 1, body: "x", id: "1", retry: vi.fn() }],
       queue: "evil",
       retryAll: vi.fn(),
-    }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_R0005" })
+    }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     expect(handler).not.toHaveBeenCalled()
   })
 

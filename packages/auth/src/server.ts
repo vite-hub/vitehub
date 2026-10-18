@@ -497,12 +497,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    // Tee through the platform's native stream operation. This creates a
-    // fresh stream whose methods cannot be replaced by an inherited accessor
-    // on the caller's original stream.
+    // Tee through the platform's native stream operation. Cancel the unused
+    // branch immediately so it cannot retain queued data after the response
+    // branch is consumed.
     const tee = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "tee")?.value
     if (typeof tee !== "function") return
-    const [normalizedBody] = Reflect.apply(tee, body, []) as [ReadableStream<Uint8Array>, ReadableStream<Uint8Array>]
+    const [normalizedBody, discarded] = Reflect.apply(tee, body, []) as [ReadableStream<Uint8Array>, ReadableStream<Uint8Array>]
+    await discarded.cancel()
     return new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
 
   }
