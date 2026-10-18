@@ -36,7 +36,6 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
-  const maxPrototypeDepth = 32
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -47,10 +46,15 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
-      let depth = 0
-      while (prototype !== null && depth++ < maxPrototypeDepth) {
+      while (prototype !== null) {
         if (visited.has(prototype)) return false
         visited.add(prototype)
+        // Every ordinary class prototype, including arbitrarily deep Request
+        // subclasses, owns its constructor. A proxy that manufactures a new
+        // empty prototype on each step has no such boundary and is rejected
+        // without imposing a depth limit on valid subclass chains.
+        if (prototype !== value
+          && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
         if (prototype === Request.prototype) return false
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
