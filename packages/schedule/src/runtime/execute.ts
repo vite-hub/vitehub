@@ -1,7 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
-import { createScheduleError } from "../errors.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
