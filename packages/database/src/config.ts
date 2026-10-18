@@ -50,9 +50,9 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 function readDefinitionObjectBody(file: string) {
   const source = readFileSync(file, "utf8")
   const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)|\()*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
+  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*(?:[\r\n\u2028\u2029]|$)|\()*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
     || calls[0]
-  const argument = call?.arguments[0]?.trim()
+  const argument = call?.arguments[0] ? stripLeadingEntryComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)
 }
 
@@ -130,8 +130,10 @@ function findAngleAssertionClose(source: string): number | undefined {
         for (;;) {
           while (/\s/.test(source[nextIndex] || "")) nextIndex++
           if (source.startsWith("//", nextIndex)) {
-            const end = source.indexOf("\n", nextIndex + 2)
-            nextIndex = end === -1 ? source.length : end + 1
+            const terminator = /[\r\n\u2028\u2029]/g
+            terminator.lastIndex = nextIndex + 2
+            const match = terminator.exec(source)
+            nextIndex = match ? match.index + 1 : source.length
             continue
           }
           if (source.startsWith("/*", nextIndex)) {
@@ -870,12 +872,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const sameLayer = ordered.find((entry, index) => index > 0 && entry.layer === ordered[index - 1]!.layer)
   if (sameLayer) {
     const duplicates = ordered.filter(entry => entry.layer === sameLayer.layer).map(entry => entry.definition)
-    throw databaseErrorDiagnostics.DATABASE_C0003({ message: [
-      name === "default"
-        ? "[vitehub] Only one default database definition is allowed."
-        : `[vitehub] Only one definition is allowed for database "${name}".`,
-      ...listDefinitionFiles(duplicates),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: name, files: duplicates.map(definition => definition.handler) })
   }
 
   const app = ordered[0]!.layer === 0 ? ordered[0]!.definition : undefined
