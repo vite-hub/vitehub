@@ -1,7 +1,6 @@
 import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
-import { runInNewContext } from "node:vm"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -360,7 +359,6 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
-  it("rejects a forged Response-shaped prototype even when clone is self-linked", async () => {
   it("rejects a serializable Response-shaped prototype", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
