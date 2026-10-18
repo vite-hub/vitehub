@@ -408,15 +408,18 @@ async function validateAuthorizationBody(
 ): Promise<ReadableStream<Uint8Array> | null | undefined> {
   if (body === null) return null;
   if (!isSerializableAuthorizationBody(body)) return;
-  const source = new Response(body).body;
-  if (!source) return;
+  let source: ReadableStream<unknown> | undefined;
+  const ensureSource = () => {
+    source ??= new Response(body).body as ReadableStream<unknown> | null ?? undefined;
+    return source;
+  };
   type Chunk = { done: false; value: unknown } | { done: true; value?: undefined };
   let reader: ReadableStreamDefaultReader<unknown> | undefined;
   const cleanupReader = async (reason?: unknown, cancel = true) => {
     const currentReader = reader;
     reader = undefined;
     if (!currentReader) {
-      if (cancel) await ReadableStream.prototype.cancel.call(source, reason);
+      if (cancel) await ensureSource()?.cancel(reason);
       return;
     }
     let cancellationError: unknown;
@@ -440,7 +443,9 @@ async function validateAuthorizationBody(
         // Acquire only when the returned response starts consuming. This keeps
         // authorization from blocking on a producer that waits for downstream
         // consumption and leaves the source unlocked while the response is idle.
-        reader ??= (ReadableStream.prototype.getReader.call(source) as unknown) as ReadableStreamDefaultReader<unknown>;
+        const currentSource = ensureSource();
+        if (!currentSource) throw new TypeError("Authorization body has no readable stream");
+        reader ??= (ReadableStream.prototype.getReader.call(currentSource) as unknown) as ReadableStreamDefaultReader<unknown>;
         const currentReader = reader;
         const result = (await currentReader.read()) as Chunk;
         if (result.done) {
