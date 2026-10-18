@@ -78,14 +78,16 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
     if (options.signal.aborted) abortFromExternal()
     else {
       options.signal.addEventListener("abort", abortFromExternal, { once: true })
-      controller.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortFromExternal), { once: true })
+      const removeExternalListener = () => options.signal?.removeEventListener("abort", abortFromExternal)
+      controller.signal.addEventListener("abort", removeExternalListener, { once: true })
+      state.sharedController.signal.addEventListener("abort", removeExternalListener, { once: true })
     }
   }
-  if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt)
-  return createBudget(state, limits, controller)
+  if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt, state.sharedController.signal)
+  return createBudget(state, limits, controller, options.signal)
 }
 
-function scheduleDeadline(controller: AbortController, deadlineAt: number) {
+function scheduleDeadline(controller: AbortController, deadlineAt: number, sharedSignal?: AbortSignal) {
   let timer: ReturnType<typeof setTimeout> | undefined
   const schedule = () => {
     if (controller.signal.aborted) return
@@ -96,17 +98,20 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number) {
       if (typeof timer === "object" && timer !== null && "unref" in timer && typeof timer.unref === "function") timer.unref()
     }
   }
-  controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true })
+  const clear = () => clearTimeout(timer)
+  controller.signal.addEventListener("abort", clear, { once: true })
+  sharedSignal?.addEventListener("abort", clear, { once: true })
   schedule()
 }
 
-function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController): ExecutionBudget {
+function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, externalSignal?: AbortSignal): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
     const sharedReason = state.sharedController.signal.reason
     if (state.controller.signal.aborted && !(stateReason instanceof ExecutionBudgetExceededError)) state.controller.signal.throwIfAborted()
     if (controller.signal.aborted && !(controllerReason instanceof ExecutionBudgetExceededError)) controller.signal.throwIfAborted()
+    if (externalSignal?.aborted && !(externalSignal.reason instanceof ExecutionBudgetExceededError)) externalSignal.throwIfAborted()
     if (state.sharedController.signal.aborted) {
       if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
       state.sharedController.signal.throwIfAborted()
@@ -145,18 +150,20 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         if (options.signal.aborted) abortExternal()
         else {
           options.signal.addEventListener("abort", abortExternal, { once: true })
-          childController.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortExternal), { once: true })
+          const removeExternalListener = () => options.signal?.removeEventListener("abort", abortExternal)
+          childController.signal.addEventListener("abort", removeExternalListener, { once: true })
+          state.sharedController.signal.addEventListener("abort", removeExternalListener, { once: true })
         }
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
-      if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt)
+      if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, state.sharedController.signal)
       return createBudget(state, {
         deadlineAt,
         maxInputBytes: minDefined(limits.maxInputBytes, childLimits.maxInputBytes),
         maxOutputBytes: minDefined(limits.maxOutputBytes, childLimits.maxOutputBytes),
         maxRetries: minDefined(limits.maxRetries, childLimits.maxRetries),
         maxToolCalls: minDefined(limits.maxToolCalls, childLimits.maxToolCalls),
-      }, childController)
+      }, childController, options.signal)
     },
     consume(counter, amount = 1) {
       consume(counter, amount)
