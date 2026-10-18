@@ -112,12 +112,18 @@ describe("Workspace Source runtime options", () => {
   })
 
   it("keeps the original receiver for fetch option getters", () => {
+    let reads = 0
     const options = {
       url: "https://status.example.com/health",
-      get workspacePath() {
-        return this.url.endsWith("/health") ? "health.json" : "wrong.json"
+      workspacePath: "health.json",
+      get transform(): (data: unknown) => unknown {
+        reads++
+        return (data: unknown) => this.url.endsWith("/health") ? data : "wrong"
       },
     }
-    expect(fetch(options)).toMatchObject({ materialize: "lazy" })
+    const source = fetch(options)
+    expect(reads).toBe(0)
+    expect(source).toMatchObject({ materialize: "lazy" })
+    expect(reads).toBe(0)
   })
 })

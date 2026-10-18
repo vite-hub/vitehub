@@ -205,13 +205,14 @@ function normalizeFetchSourceOptions<TResponse, TOutput>(options: FetchSourceOpt
       Object.defineProperty(normalized, key, descriptor)
       continue
     }
-    // Evaluate accessors against the caller's options object. Defining the
-    // original accessor on `normalized` would change its `this` receiver.
+    // Forward accessors to the caller's options object. Defining the original
+    // accessor on `normalized` would change its `this` receiver, while
+    // evaluating it here would change its lazy and repeated-read behavior.
     Object.defineProperty(normalized, key, {
       configurable: descriptor.configurable,
       enumerable: descriptor.enumerable,
-      value: Reflect.get(options, key, options),
-      writable: true,
+      get: descriptor.get ? () => Reflect.get(options, key, options) : undefined,
+      set: descriptor.set ? (value: unknown) => Reflect.set(options, key, value, options) : undefined,
     })
   }
   for (const key of fetchRuntimeOptionKeys) {
