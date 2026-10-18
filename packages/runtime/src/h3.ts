@@ -37,8 +37,10 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 
 function isRequest(value: unknown): value is Request {
   // Prototype traversal is synchronous and can be intercepted by proxies.
-  // Keep a generous ceiling for legitimate subclass chains while ensuring a
-  // hostile proxy cannot block the request path forever.
+  // Foreign-realm subclass chains are supported up to this documented ceiling.
+  // A finite ceiling is required because proxies can manufacture a fresh,
+  // constructor-bearing prototype on every lookup, making identity tracking
+  // insufficient to guarantee termination.
   const maxPrototypeDepth = 16_384
   try {
     if (value === null || typeof value !== "object") return false
@@ -55,10 +57,9 @@ function isRequest(value: unknown): value is Request {
         if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
-        // Every ordinary class prototype, including arbitrarily deep Request
-        // subclasses, owns its constructor. A proxy that manufactures a new
-        // empty prototype on each step has no such boundary and is rejected
-        // without imposing a depth limit on valid subclass chains.
+        // Every ordinary class prototype owns its constructor. A proxy that
+        // manufactures a new prototype on each step is still bounded by the
+        // ceiling above.
         if (prototype !== value
           && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
         if (prototype === Request.prototype) return false

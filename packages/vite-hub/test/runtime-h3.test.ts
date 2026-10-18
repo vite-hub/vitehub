@@ -180,6 +180,18 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects a request proxy with an unbounded fresh prototype chain", () => {
+    const request = new Proxy({}, {
+      getPrototypeOf() {
+        const prototype = {}
+        Object.defineProperty(prototype, "constructor", { value: function ProxyPrototype() {} })
+        return prototype
+      },
+    })
+
+    expect(getRuntimeContext({ context: {}, req: request }).request).toBeUndefined()
+  })
+
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
     const host = { waitUntil: vi.fn() }
     const event = new H3Event(new Request("https://example.test"))
