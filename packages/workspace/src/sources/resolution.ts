@@ -895,10 +895,10 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
 }
 
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
-  if (source.materialize || source.mount && typeof source.mount === "object" && ownSourceOption(source.mount, "materialize")) {
+  if (ownSourceOption(source, "materialize") || source.mount && typeof source.mount === "object" && ownSourceOption(source.mount, "materialize")) {
     return source
   }
-  if (source.sync) return source
+  if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
 }
 

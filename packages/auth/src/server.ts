@@ -296,7 +296,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   // realm accept this call, while tag-spoofed lookalikes do not.
   let body: BodyInit | null = null
   try {
-    body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+    // Calling clone is an internal-slot check that works across realms while
+    // rejecting objects that merely spoof the Response shape.
+    const cloned = typeof value.clone === "function" ? value.clone() : undefined
+    if (!cloned || typeof cloned.arrayBuffer !== "function") return
+    body = value.body === null ? null : new Uint8Array(await cloned.arrayBuffer())
   } catch {
     return
   }
@@ -315,12 +319,12 @@ function isResponseLike(value: unknown): value is Response {
   if (value instanceof Response) return true
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown, arrayBuffer?: unknown }
+    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown, arrayBuffer?: unknown, clone?: unknown }
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
     if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-    return typeof response.arrayBuffer === "function"
+    return typeof response.arrayBuffer === "function" && typeof response.clone === "function"
   }
   catch {
     return false
