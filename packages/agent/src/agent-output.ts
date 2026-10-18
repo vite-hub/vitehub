@@ -1163,10 +1163,10 @@ function isResponseLike(value: unknown): value is Response {
       // Registered foreign responses may expose a proxy-backed reader, but an
       // own or accessor-backed reader operation is caller-controlled and must
       // not run merely because the response constructor was registered.
-      if (registeredResponse) {
-        const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-        if (ownReader) return false
-      }
+      if (!registeredResponse) return false
+      const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
+      const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+      if (ownLocked || ownReader) return false
       const directLocked = (body as { locked?: unknown }).locked
       const directReader = (body as { getReader?: unknown }).getReader
       if (!hasRuntimeType(directReader, "function")) return false
