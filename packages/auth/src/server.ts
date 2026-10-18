@@ -417,7 +417,14 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   }
 }
 
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value)
+    && Object.prototype.toString.call(value) === "[object Uint8Array]"
+    && (value as Uint8Array).BYTES_PER_ELEMENT === 1
+}
+
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
   let prototype: object | null = Object.getPrototypeOf(body)
   const seen = new Set<object>()
   let lockedOwner: object | undefined
@@ -425,11 +432,13 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
     if (seen.has(prototype)) return
     seen.add(prototype)
     if (!lockedOwner && typeof Object.getOwnPropertyDescriptor(prototype, "locked")?.get === "function") lockedOwner = prototype
-    if (lockedOwner === prototype) {
-      const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
-      return typeof reader === "function" ? reader : undefined
-    }
     prototype = Object.getPrototypeOf(prototype)
+  }
+  if (!lockedOwner) return
+  prototype = lockedOwner
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++, prototype = Object.getPrototypeOf(prototype)) {
+    const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
+    if (typeof reader === "function") return reader
   }
 }
 
@@ -508,6 +517,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    if (body !== null) {
+      const bodyUsedGetter = responsePropertyDescriptor(candidate, "bodyUsed")?.get
+      if (typeof bodyUsedGetter !== "function" || Reflect.apply(bodyUsedGetter, candidate, [])) return
+    }
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
