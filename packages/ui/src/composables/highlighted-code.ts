@@ -49,7 +49,10 @@ function plainLines(code: string): VNode[] {
 export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: MaybeRefOrGetter<string>): ShallowRef<VNode[]> {
   const lines = shallowRef(plainLines(toValue(code)));
 
+  let generation = 0;
+
   async function highlight() {
+    const request = ++generation
     const source = toValue(code);
     const requested = toValue(language).toLowerCase();
     const lang = aliases[requested] ?? requested;
@@ -65,7 +68,7 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (source !== toValue(code)) return;
+    if (request !== generation || source !== toValue(code) || lang !== (aliases[toValue(language).toLowerCase()] ?? toValue(language).toLowerCase())) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 
