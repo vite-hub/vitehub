@@ -179,7 +179,10 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
   // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
   const getReader = (registered ? Reflect.get(body, "getReader") : readableStreamDescriptor(body, "getReader")?.value) as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  // Some foreign implementations expose reader operations as own properties
+  // (the node-fetch reader is one example). Start at the reader itself so
+  // those operations are discovered, then continue through its prototypes.
+  let readerPrototype: object | null = reader as unknown as object
   let read: ReadableStreamDefaultReader<Uint8Array>["read"] | undefined
   let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"] | undefined
   let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"] | undefined
