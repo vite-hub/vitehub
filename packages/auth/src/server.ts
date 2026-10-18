@@ -180,8 +180,9 @@ function isRequestLike(value: AuthRequest): value is Request {
             const requestState = privateState.get("state")
             const privateSignal = privateState.get("signal")
             const privateHeaders = privateState.get("headers")
-            if (!dispatcher || typeof dispatcher !== "object" || typeof Reflect.get(dispatcher, "dispatch") !== "function"
-              || !requestState || typeof requestState !== "object"
+            const hasValidDispatcher = dispatcher === undefined
+              || (typeof dispatcher === "object" && dispatcher !== null && typeof Reflect.get(dispatcher, "dispatch") === "function")
+            if (!hasValidDispatcher || !requestState || typeof requestState !== "object"
               || !privateSignal || typeof privateSignal !== "object"
               || !privateHeaders || typeof privateHeaders !== "object") return false
             // A genuine Web IDL accessor checks its internal slot even when
