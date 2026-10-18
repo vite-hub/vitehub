@@ -19,19 +19,15 @@ interface CloudflareKVListPage {
 }
 
 function isCloudflareKVString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare list fields cross an untyped provider boundary.
   return typeof value === "string"
 }
 
 function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare bindings return unknown JavaScript values at this provider boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   // SAFETY: The guard reads only unknown properties and validates every field before returning true.
   const page = value as { cursor?: unknown; keys?: unknown; list_complete?: unknown }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The provider page must expose a boolean completion marker before use.
   if (typeof page.list_complete !== "boolean" || !Array.isArray(page.keys)) return false
   if (!page.keys.every(key => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each provider key is untyped JavaScript data at the Cloudflare binding boundary.
     if (!key || typeof key !== "object" || Array.isArray(key)) return false
     return isCloudflareKVString(Reflect.get(key, "name"))
   })) return false
@@ -59,7 +55,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const namespaceId = options.namespaceId
   // unstorage reads `binding` on every operation and finds a binding name only on globals.
   // Resolve it from the active Cloudflare env first, because ViteHub workers scope env per request without the global `__env__`.
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The resolved store config crosses an untyped driver boundary.
   const driverOptions = typeof bindingName === "string"
     ? { ...options, get binding() { return getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) ?? bindingName } }
     : options
@@ -96,16 +91,16 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       const cursors = continuation.history
       const page = await driver.getInstance().list(listOptions)
       if (!isCloudflareKVListPage(page)) {
-        throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
+        throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV list returned an invalid page." })
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(page.cursor!)) {
-          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, page.cursor!)) {
-          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected pagination after the cursor history limit was reached." })
         }
         result.cursor = cursorHistories.store(page.cursor!, cursors, requestNamespace)
       }

@@ -450,4 +450,117 @@ describe("createConnectionsHandler", () => {
       actor: { id: "owner", kind: "user" },
     });
   });
+
+  describe("result page", () => {
+    function cookies(response: Response): string[] {
+      return response.headers.getSetCookie();
+    }
+
+    async function start(handler: ReturnType<typeof createConnectionsHandler>, query = "") {
+      const response = await handler(new Request(`${origin}/_vitehub/connections/connect/mail${query}`));
+      expect(response.status).toBe(302);
+      const state = new URL(response.headers.get("location")!).searchParams.get("state")!;
+      const returnCookie = cookies(response).find((cookie) => cookie.startsWith("vitehub_connection_return="))!;
+      return { cookie: `vitehub_connection_state=${state}; ${returnCookie.split(";")[0]}`, returnCookie, state };
+    }
+
+    it("returns to the Console page that started the flow", async () => {
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      const flow = await start(handler, "?return=%2F_vitehub%2Fconnections");
+      expect(flow.returnCookie).toContain("vitehub_connection_return=%2F_vitehub%2Fconnections;");
+      expect(flow.returnCookie).toContain("HttpOnly");
+      test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, id_token: "account-1", refresh_token: REFRESH_TOKEN } });
+      const callback = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
+        headers: { cookie: flow.cookie },
+      }));
+      const html = await callback.text();
+      expect(callback.status).toBe(200);
+      expect(html).toContain("<h1>Connected</h1>");
+      expect(html).toContain("mail is connected as owner@example.com.");
+      expect(html).toContain('<meta http-equiv="refresh" content="2;url=/_vitehub/connections">');
+      expect(html).toContain('<a class="button" href="/_vitehub/connections">Back to Connections</a>');
+      expect(html).toContain("prefers-color-scheme:dark");
+      // The page is self-contained: no scripts, no stylesheets, no images.
+      expect(html).not.toMatch(/<script|<link|<img|src=/);
+      expect(callback.headers.get("content-security-policy")).toContain("default-src 'none'");
+      expect(cookies(callback)).toEqual([
+        expect.stringMatching(/^vitehub_connection_state=; .*Max-Age=0/),
+        expect.stringMatching(/^vitehub_connection_return=; .*Max-Age=0/),
+      ]);
+    });
+
+    it("asks to close the tab when no Console page started the flow", async () => {
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      const flow = await start(handler);
+      expect(flow.returnCookie).toContain("Max-Age=0");
+      test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN } });
+      const html = await (await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=${flow.state}`, {
+        headers: { cookie: `vitehub_connection_state=${flow.state}` },
+      }))).text();
+      expect(html).toContain("You can close this tab.");
+      expect(html).not.toContain("http-equiv");
+      expect(html).not.toContain("Back to Connections");
+    });
+
+    it.each(["//evil.example/x", "https://evil.example/", "/\\evil.example", "_vitehub/connections", `/${"a".repeat(2048)}`])(
+      "keeps only a same-origin return path (%s)",
+      async (target) => {
+        const test = createTestRuntime();
+        const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+        const flow = await start(handler, `?return=${encodeURIComponent(target)}`);
+        expect(flow.returnCookie).toMatch(/^vitehub_connection_return=; .*Max-Age=0/);
+        const forged = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied`, {
+          headers: { cookie: `vitehub_connection_return=${encodeURIComponent(target)}` },
+        }));
+        expect(await forged.text()).not.toContain("Back to Connections");
+      },
+    );
+
+    it("explains a cancelled authorization with its code, fix, and a way back", async () => {
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
+      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied&error_description=Call%20us`, {
+        headers: { cookie: "vitehub_connection_return=%2Fportal%2F_vitehub%2Fconnections" },
+      }));
+      const html = await response.text();
+      expect(response.status).toBe(400);
+      expect(html).toContain('role="alert"');
+      expect(html).toContain("<h1>Connection cancelled</h1>");
+      expect(html).toContain("Connect again and approve the access that the Connection asks for.");
+      expect(html).toContain("CONNECTION_AUTHORIZATION_CANCELLED · 400");
+      expect(html).toContain('href="https://vitehub.dev/docs/connections/server-api#management-routes"');
+      expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
+      // A failure waits for the user and never shows the provider's free text.
+      expect(html).not.toContain("http-equiv");
+      expect(html).not.toContain("Call us");
+    });
+
+    it("names a provider error code and a state mismatch", async () => {
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
+      const provider = await handler(new Request(`${origin}/_vitehub/connections/callback?error=invalid_scope`));
+      expect(provider.status).toBe(502);
+      expect(await provider.text()).toContain("The provider stopped the authorization with invalid_scope.");
+      const crafted = await handler(new Request(`${origin}/_vitehub/connections/callback?error=${encodeURIComponent("<b>call</b>")}`));
+      const craftedHtml = await crafted.text();
+      expect(craftedHtml).toContain("The provider stopped the authorization.");
+      expect(craftedHtml).not.toMatch(/<b>|&#60;b/);
+      const mismatch = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=state`));
+      expect(mismatch.status).toBe(400);
+      const html = await mismatch.text();
+      expect(html).toContain("CONNECTION_STATE_MISMATCH · 400");
+      expect(html).toContain("Start the connection again in this browser.");
+    });
+
+    it("explains an expired authorization with the runtime code", async () => {
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
+      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=unknown`, {
+        headers: { cookie: "vitehub_connection_state=unknown" },
+      }));
+      expect(response.status).toBe(400);
+      const html = await response.text();
+      expect(html).toContain("The authorization request is unknown or expired. Start the connection again.");
+      expect(html).toContain("CONNECTION_INVALID · 400");
+    });
+  });
 });

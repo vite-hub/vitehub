@@ -6,7 +6,7 @@ import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
 import { isConnectionDefinition } from "./definition.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
-import { callerActor, decide, envActor } from "./policy.ts"
+import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
@@ -60,6 +60,8 @@ interface CallContext {
   approved?: boolean
   approvedGrantId?: string
   definition: ConnectionDefinition
+  /** The `agent:` actors whose rules an Agent actor inherits through `extends`, nearest first. */
+  inherited?: readonly string[]
   name: string
   options: UseConnectionOptions
   providerExecution?: { dispatched: boolean, rejected: boolean }
@@ -133,9 +135,11 @@ const apiKeyVerificationSchema = v.union([
   v.object({ account: v.optional(v.object({ email: v.optional(v.string()), id: v.pipe(v.string(), v.minLength(1)) })) }),
 ])
 const sealedValueSchema = v.object({ unseal: v.function() })
+// A replayed approval decides with the inherited actors that the Agent runtime vouched for when it was requested.
+const inheritedActorsSchema = v.optional(v.array(v.pipe(v.string(), v.startsWith("agent:"), v.minLength(7), v.maxLength(518))))
 const approvalInputSchema = v.variant("kind", [
-  v.object({ grantId: v.optional(v.string()), input: v.unknown(), kind: v.literal("method") }),
-  v.object({ grantId: v.optional(v.string()), body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
+  v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
+  v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
@@ -550,6 +554,16 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   /** Send with the provider `fallback` key. Activity is recorded like an Env Bridge use while the store is open. */
   async function sendWithFallback(context: CallContext, providerRequest: ProviderRequest, init: SendInit, fallback: { connections?: ConnectionStore, key: string }): Promise<Response> {
+    // Serialize fallback dispatch with token mutations. Recheck state after claiming the lease
+    // so a revoke that completed while the fallback was resolving always wins.
+    let owner: string | undefined
+    if (fallback.connections?.refreshLeases) {
+      owner = await claimMutationLease(context.name)
+      if (await fallback.connections.state.get(context.name) !== undefined) {
+        await fallback.connections.refreshLeases.release(context.name, owner).catch(() => undefined)
+        throw new ConnectionError("reauth_required", `Connection "${context.name}" must be connected again before requesting access.`, { details: { connection: context.name } })
+      }
+    }
     const operationId = crypto.randomUUID()
     const record = async (outcome: EnvActivity["outcome"]) => {
       await fallback.connections?.access.append({
@@ -566,16 +580,24 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         invocationId: context.options.invocationId,
       })
     }
-    await record("started")
+    try {
+      await record("started")
+    }
+    catch (error) {
+      if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
+      throw error
+    }
     let response: Response
     try {
       response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
     }
     catch (error) {
       await record("failed").catch(() => undefined)
+      if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
       throw error
     }
     await record("succeeded")
+    if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
     return response
   }
 
@@ -638,16 +660,18 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   /** Apply policy, dry run, and approval, then send. Returns `undefined` when dry run skips a write. */
   async function governed(context: CallContext, providerRequest: ProviderRequest, approvalInput: ApprovalInput, init: SendInit = {}): Promise<Response | undefined> {
     envActor(context.actor)
+    for (const parent of context.inherited ?? []) envActor(parent)
     const decision = decide({
       action: providerRequest.action,
       actor: context.actor,
       approved: context.approved,
       definition: context.definition,
       highRisk: providerRequest.highRisk,
+      inherited: context.inherited,
       write: providerRequest.write,
     })
     if (decision === "deny") {
-      await recordDenied(context.name, context.actor, providerRequest.action, context.options)
+      await recordDenied(context.name, context.actor, providerRequest.action, context.options).catch(() => undefined)
       throw new ConnectionError("denied", `Actor "${context.actor}" may not call ${providerRequest.action} on Connection "${context.name}".`, {
         details: { action: providerRequest.action, connection: context.name },
       })
@@ -668,7 +692,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
     if (decision === "approve") {
       if (context.options.rejectApprovals) {
-        await recordDenied(context.name, context.actor, providerRequest.action, context.options)
+        await recordDenied(context.name, context.actor, providerRequest.action, context.options).catch(() => undefined)
         throw new ConnectionError("denied", `Connection "${context.name}" requires immediate access for ${providerRequest.action}. Set approve: false on the actor's access rule.`, {
           details: { action: providerRequest.action, connection: context.name },
         })
@@ -679,7 +703,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         actor: context.actor,
         createdAt: new Date(now()).toISOString(),
         id: `approval_${randomToken().slice(0, 20)}`,
-        input: { ...approvalInput, grantId },
+        input: { ...approvalInput, grantId, ...(context.inherited?.length ? { inherited: [...context.inherited] } : {}) },
         name: context.name,
         status: "pending",
         traceId: context.options.traceId,
@@ -722,8 +746,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let context: Promise<CallContext> | undefined
     const resolveContext = () => (context ??= (async () => {
       const actor = callerActor(options)
+      const inherited = callerInheritedActors(options)
       const loaded = await definition(name)
-      return { actor, definition: loaded, name, options, transport: createConnectionTransport(name, loaded, request) }
+      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, request) }
     })())
     return {
       async call(action: string, input?: unknown, callOptions?: { signal?: AbortSignal }): Promise<unknown> {
@@ -1003,7 +1028,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (connectionError) {
         const details: Record<string, string | number | undefined> = {}
         for (const [detailKey, value] of Object.entries(connectionError.details ?? {})) {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Filter untrusted provider details before exposing verification errors.
           if (detailKey.includes(key) || (typeof value === "string" && value.includes(key))) continue
           details[detailKey] = value
         }
@@ -1122,6 +1146,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         actor: approval.actor,
         approved: true,
         approvedGrantId: stored.grantId,
+        inherited: stored.inherited,
         providerExecution,
         definition: loaded,
         name: approval.name,

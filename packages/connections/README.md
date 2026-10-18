@@ -44,7 +44,7 @@ const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
 const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
 ```
 
-Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`.
+Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
 
 The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
 
@@ -105,6 +105,8 @@ An expired unresolved lease blocks every token revision. A replacement token can
 
 Custom stores must implement atomic `refreshLeases.claim()` and owner-fenced `refreshLeases.release()`. The name remains for compatibility, but the lease covers all token mutations. `claim()` returns `acquired`, `busy`, or `expired`; it must never replace an expired unresolved lease, even when the token revision changed. A lost refresh response or failed token write requires reconnecting rather than reusing the old grant. An unconfirmed callback exchange or revoke keeps its lease until the provider outcome is confirmed and the store is repaired. A successful callback exchange stays fenced through account extraction and token/state persistence. Failures during those steps quarantine the current token revision as `reauth_required`.
 
+The default store prunes activity in the `connections` namespace of `vitehub_env_activity` after each event. One `DELETE` drops events older than `maxAgeMs` and events past the newest `maxRecords`. A failed prune logs a warning and does not fail the request. Pass `activityRetention` to `createDatabaseConnectionStore()` to change the limits, or `false` to keep all activity.
+
 A custom Connections store must supply the token revision as the second `bridge.use()` callback argument. Revocation requires a provider `revocationEndpoint` and uses that revision to replace the token with a revoked marker. A provider without that endpoint rejects revocation and keeps the stored grant. The default Env Bridge supplies it. Connections has no standing administrator access to its bridge. For each call, Env gives it a context for one Connection token and one permission.
 
 ## Vite integration
@@ -113,6 +115,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity, one event per provider request: 14 days and 10,000 events. Each limit is a positive integer. `false` keeps all activity. |
 | `actor` | none | Module whose default export is the access policy of the management API, in development and production. `vite-hub` sets it to the Console actor module when the Console shows Connections. |
 | `database` | `false` | Module that exports the SQLite Drizzle database as `db`. |
 | `management` | `false` | Mount the management API in production. Production requires an actor module, from `actor` or `management: { actor }`. |
@@ -132,7 +135,7 @@ With `vite-hub` and the Console, the policy is the Console access policy of the 
 | Console Auth (`console: { auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
 | App Auth (`console: { auth: "app" }`) | The app Auth session and the access routes that protect the Console. | The signed-in user, `user:<id>`. |
 | Cloudflare Access (`console: { auth: { provider: "cloudflare-access" } }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
-| No sign-in (`console: { auth: false }`) | None. | `user:open`. |
+| No sign-in (`console: { auth: false }`) | None. | `user:host-managed` (stable actor for upgrades). |
 
 `console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 

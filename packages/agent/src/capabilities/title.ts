@@ -108,7 +108,7 @@ export interface TitleExecuteInput {
   text: string
 }
 
-export type TitleSource = "input" | "response"
+type TitleSource = "input" | "response"
 
 export type TitleExecuteResult = string | { title?: string }
 

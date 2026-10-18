@@ -40,7 +40,7 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Normalize an API key origin. Returns `undefined` for a URL with a path, query, credentials, or plain `http` to a remote host. */
-export function apiKeyOrigin(value: string): string | undefined {
+function apiKeyOrigin(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)
@@ -56,12 +56,10 @@ export function apiKeyOrigin(value: string): string | undefined {
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
   try {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider shapes at the boundary.
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
     const header = provider.header
     const candidateOrigins = provider.origins
     const scheme = provider.scheme
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider fields at the boundary.
     if (typeof header !== "string" || !Array.isArray(candidateOrigins)) return false
     // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
     const origins = structuredClone(candidateOrigins)
@@ -72,7 +70,6 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     })
     if (originIndexes.length !== origins.length) return false
     for (const key of originIndexes) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each untrusted origin must be a string before URL policy validation.
       if (typeof origins[Number(key)] !== "string") return false
     }
     for (const key of originIndexes) {
@@ -82,7 +79,6 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     return tokenPattern.test(header)
       && header === header.toLowerCase()
       && (scheme === undefined || (() => {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-string authentication schemes at the validation boundary.
         if (typeof scheme !== "string") return false
         return tokenPattern.test(scheme)
       })())
