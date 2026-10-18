@@ -105,9 +105,10 @@ function renderAuthServerModule(options: { importBase?: string, serverEnv: boole
   return [
     ...(options.serverEnv
       ? [
+          `import definition from ${JSON.stringify(AUTH_DEFINITION_ID)}`,
           `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(serverImport)}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
-          "setAuthRuntimeEnvResolver(useServerEnv)",
+          "setAuthRuntimeEnvResolver(useServerEnv, definition)",
           "",
         ]
       : []),

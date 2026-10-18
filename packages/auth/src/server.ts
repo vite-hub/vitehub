@@ -48,12 +48,19 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  getAuthRuntimeState().envResolver = resolver
+export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
+  const state = getAuthRuntimeState()
+  if (definition) {
+    if (resolver) state.envResolvers?.set(definition, resolver)
+    else state.envResolvers?.delete(definition)
+    return
+  }
+  state.envResolver = resolver
 }
 
-function getRuntimeEnvResolver(): AuthRuntimeEnvResolver | undefined {
-  return getAuthRuntimeState().envResolver
+function getRuntimeEnvResolver(definition?: AuthDefinition): AuthRuntimeEnvResolver | undefined {
+  const state = getAuthRuntimeState()
+  return (definition && state.envResolvers?.get(definition)) ?? state.envResolver
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -80,7 +87,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -94,7 +101,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver() }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver(definition) }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -173,7 +180,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).providerOptions)
 }
 
 export async function assertAuthOrigin(
