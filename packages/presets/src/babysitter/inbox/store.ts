@@ -1353,7 +1353,7 @@ export class PullRequestInbox {
     const rows = await this.read(`SELECT p.repository, p.number, p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
+        AND json_extract(CASE WHEN json_valid(parent.value) THEN parent.value ELSE '{}' END, '$.pr.head.repo.full_name') = COALESCE(json_extract(CASE WHEN json_valid(p.value) THEN p.value ELSE '{}' END, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.flatMap(row => {
       const summary = this.parseRow(row, parseSummary, 'summary')
