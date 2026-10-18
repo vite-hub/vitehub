@@ -469,40 +469,57 @@ function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
 ) {
-  // Use the already validated intrinsic method so shadowed stream properties cannot
-  // dispatch caller-controlled code during authorization response normalization.
-  const reader = Reflect.apply(getReader, body, [])
-  const methods = getNativeAuthorizationReaderMethods(reader)
-  if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
-  const { read, cancel, releaseLock } = methods
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
+  let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
+  let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
+  let releaseLock: (() => void) | undefined
   let released = false
+  const acquire = async () => {
+    initializing ??= Promise.resolve().then(() => {
+      const acquired = Reflect.apply(getReader, body, [])
+      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+      let prototype: object | null = Object.getPrototypeOf(acquired)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+        if (read && cancel && releaseLock) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+      return acquired as ReadableStreamDefaultReader<Uint8Array>
+    })
+    reader = await initializing
+    return reader
+  }
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
-        if (result.done) {
-          release()
-          controller.close()
-        }
-        else controller.enqueue(result.value as Uint8Array)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
+        const sourceReader = await acquire()
+        const result = await Reflect.apply(read!, sourceReader, [])
+        if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
+        if (result.done) { release(); controller.close() }
+        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
+        else controller.enqueue(result.value)
+      } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+        const sourceReader = reader ?? await acquire()
+        await Reflect.apply(cancel!, sourceReader, [reason])
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
@@ -621,7 +638,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
       const mergedCookie = /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
-        || /;\s*expires\s*=\s*[A-Za-z]{3},\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT(?:\s*;\s*(?:path|domain|max-age|samesite|secure|httponly|partitioned|priority)\s*(?:=\s*[^,;]*)?)*\s*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)
+        || /;\s*expires\s*=\s*[A-Za-z]{3},\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT(?:\s*;\s*[^,;]+(?:=\s*[^,;]*)?)*\s*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)
       if (mergedCookie) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
