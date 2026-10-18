@@ -37,6 +37,7 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Int8Array.prototype),
   Symbol.toStringTag,
 )?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
 
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
@@ -640,7 +641,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(new Uint8Array(result.value))
+        else controller.enqueue(Reflect.construct(intrinsicUint8ArrayConstructor, [result.value.buffer, result.value.byteOffset, result.value.byteLength]))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
@@ -650,7 +651,7 @@ function bridgeAuthorizationBody(
       } finally { release() }
     },
   }, { highWaterMark: 0 })
-  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
+  return { stream, release }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -719,8 +720,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       // A proxy can expose native descriptors without owning native response state.
     }
     const UndiciResponse = await getUndiciResponse()
-    if (status === 0 && body === null && (value instanceof Response || Boolean(UndiciResponse && value instanceof UndiciResponse))) return value as Response
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    if (status === 0 && body === null) return value as Response
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!await isSerializableAuthorizationBody(body)) return
     const serializableBody = body as ReadableStream<Uint8Array>
     const forEach = Reflect.get(headerCarrier, "forEach")
@@ -754,13 +755,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         ? new Response(null, { status, statusText, headers: normalizedHeaders })
         : (() => {
             const bodyReader = authorizationBodyReader(Object(serializableBody)) ?? (() => undefined)
-            const initialReader = bodyReader !== ReadableStream.prototype.getReader
-              ? Reflect.apply(bodyReader, serializableBody, []) as ReadableStreamDefaultReader<Uint8Array>
-              : undefined
-            // Keep foreign stream ownership visible immediately; local streams
-            // stay unlocked until the normalized response is consumed.
-            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader, initialReader)
-            void bridge.ready
+            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader)
             try {
               return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
             }
