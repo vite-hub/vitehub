@@ -629,30 +629,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     throw error
   }
   let released = false
-  const acquire = async () => {
-    initializing ??= Promise.resolve().then(() => {
-      const acquired = Reflect.apply(getReader, body, [])
-      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
-      let prototype: object | null = Object.getPrototypeOf(acquired)
-      const seen = new Set<object>()
-      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-        if (seen.has(prototype)) break
-        seen.add(prototype)
-        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
-        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
-        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
-        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
-        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
-        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
-        if (read && cancel && releaseLock) break
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
-      return acquired as ReadableStreamDefaultReader<Uint8Array>
-    })
-    reader = await initializing
-    return reader
-  }
+  const acquire = async () => reader
   const release = () => {
     if (released || !reader || !releaseLock) return
     released = true
@@ -662,11 +639,13 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     async pull(controller) {
       try {
         const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+        if (typeof result?.done !== "boolean") throw new Error("Malformed authorization response reader result")
         if (result.done) {
           release()
           controller.close()
-        }
-        else controller.enqueue(result.value as Uint8Array)
+        } else if (!result.value || !ArrayBuffer.isView(result.value) || result.value.BYTES_PER_ELEMENT !== 1) {
+          throw new Error("Malformed authorization response reader chunk")
+        } else controller.enqueue(result.value)
       }
       catch (error) {
         release()
