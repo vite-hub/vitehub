@@ -38,6 +38,16 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
   Symbol.toStringTag,
 )?.get
 
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try {
+    return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -474,15 +484,7 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     // The intrinsic %TypedArray%.prototype @@toStringTag getter performs a
     // cross-realm internal-brand check without consulting the value's mutable
     // prototype, so it distinguishes Uint8Array from clamped/other views.
-    const probeValue = probeResult.value
-    let probeValueTag: unknown
-    try {
-      probeValueTag = intrinsicTypedArrayTagGetter ? Reflect.apply(intrinsicTypedArrayTagGetter, probeValue, []) : undefined
-    }
-    catch {
-      probeValueTag = undefined
-    }
-    if (probeResult.done || probeValueTag !== "Uint8Array") return false
+    if (probeResult.done || !isIntrinsicUint8Array(probeResult.value)) return false
     let canceled = false
     const cancelStream = new streamConstructor({
       cancel() {
@@ -591,11 +593,14 @@ function bridgeAuthorizationBody(
     async pull(controller) {
       try {
         const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+        if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) {
           release()
           controller.close()
-        }
-        else controller.enqueue(result.value as Uint8Array)
+        } else if (!isIntrinsicUint8Array(result.value)) {
+          release()
+          controller.error(new Error("Malformed authorization read result"))
+        } else controller.enqueue(result.value)
       }
       catch (error) {
         release()
