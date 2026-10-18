@@ -305,6 +305,11 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
+const nativeResponseDescriptors = Object.fromEntries(authorizationResponseProperties.map(key => [
+  key,
+  Object.getOwnPropertyDescriptor(Response.prototype, key),
+])) as Record<typeof authorizationResponseProperties[number], PropertyDescriptor | undefined>
+
 const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -352,6 +357,8 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         // native-looking source text alone are forgeable.
         try {
           for (const getter of accessors) Reflect.apply(getter!, value, [])
+          const localAccessors = authorizationResponseProperties.map(key => nativeResponseDescriptors[key]?.get)
+          if (constructor === Response && accessors.some((getter, index) => getter !== localAccessors[index])) continue
           if (constructor === Response || constructor === UndiciResponse) {
             // A subclass may override response accessors while inheriting the
             // native prototype. Reject any such intermediate descriptor before
@@ -473,12 +480,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
-      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      responsePropertyDescriptor(candidate, key)?.get === nativeResponseDescriptors[key]?.get)
     let nativeProperties = false
     let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
-        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        const getter = nativeResponseDescriptors[key]?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
       const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get

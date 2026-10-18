@@ -142,7 +142,18 @@ function payloadText(value: unknown): string {
       return item;
     }, 2) ?? String(value);
   } catch (error) {
-    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+    try {
+      if (error instanceof Error) {
+        try {
+          return `[Unable to display payload: ${String(error.message)}]`;
+        } catch {
+          return "[Unable to display payload]";
+        }
+      }
+    } catch {
+      // Hostile values can throw during prototype inspection.
+    }
+    return "[Unable to display payload]";
   }
 }
 

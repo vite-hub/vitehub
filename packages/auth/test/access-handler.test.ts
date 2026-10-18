@@ -1,4 +1,4 @@
-import { runInNewContext } from "node:vm"
+import * as vm from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
@@ -142,7 +142,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects incomplete spoofed authorization responses", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+    const foreignResponse = vm.runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return { get() { return null } } }
@@ -156,7 +156,7 @@ describe("Auth access handlers", () => {
   })
 
   it("does not expose a tag-only response shape to adapters", async () => {
-    const spoof = runInNewContext(`({
+    const spoof = vm.runInNewContext(`({
       [Symbol.toStringTag]: "Response",
       status: 409,
       statusText: "Conflict",
@@ -475,9 +475,17 @@ describe("Auth access handlers", () => {
   it("fails closed for a response spoof with an unusable body", async () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => ({
-        [Symbol.toStringTag]: "Response",        status: 409,
-        headers: [["set-cookie", "first=1"], ["set-cookie", "second=2"], ["x-policy", "reject"]],
-      })],
+        [Symbol.toStringTag]: "Response",
+        status: 409,
+        statusText: "Conflict",
+        headers: {},
+        body: {},
+      }) as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
+    it.each([
       ["a Response with a consumed body", async () => {
         const response = new Response("consumed", { status: 409 })
         await response.text()
@@ -514,11 +522,11 @@ describe("Auth access handlers", () => {
         Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
         return response
       }],
-      ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
+      ["a Response created in another realm", () => vm.runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
       ["a proxy around a Response", () => new Proxy(new Response("Policy rejected", { status: 409 }), {})],
       ["an object created from Response.prototype", () => Object.create(Response.prototype)],
       ["an object tagged Response", () => ({ status: 409, statusText: "Conflict", headers: new Headers(), [Symbol.toStringTag]: "Response" })],
-      ["an instance of a class named Response", () => runInNewContext(`new (class Response {
+      ["an instance of a class named Response", () => vm.runInNewContext(`new (class Response {
         get status() { return 409 }
         get headers() { return new Headers({ "x-policy": "forged" }) }
         get body() { return null }
