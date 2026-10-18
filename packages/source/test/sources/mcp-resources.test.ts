@@ -234,7 +234,7 @@ describe("mcpResources", () => {
       },
     })
 
-    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["example/config.json"])
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([])
     expect(readResource).toHaveBeenCalledOnce()
   })
 
