@@ -119,6 +119,9 @@ function findAngleAssertionClose(source: string): number | undefined {
     }
     if (char === "<") depth++
     else if (char === ">") {
+      // The `>` in an arrow return type is not the assertion delimiter.
+      // This matters when that return type starts with an object literal.
+      if (source[index - 1] === "=") continue
       depth--
       if (depth === 0) {
         let nextIndex = index + 1
@@ -320,7 +323,7 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
 const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"]])
 
 function readStaticStringLiteral(expression: string): string | undefined {
-  const normalized = stripStaticTypeAssertions(expression)
+  const normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
   const quote = normalized[0]
   if (normalized.length < 2 || (quote !== "'" && quote !== '"') || normalized.at(-1) !== quote) return
   let value = ""
@@ -360,6 +363,39 @@ function readStaticStringLiteral(expression: string): string | undefined {
   return value
 }
 
+/** Remove comments while preserving quoted literal contents. */
+function stripExpressionComments(expression: string): string {
+  let result = ""
+  let quote: string | undefined
+  for (let index = 0; index < expression.length; index++) {
+    const char = expression[index]!
+    const next = expression[index + 1]
+    if (quote) {
+      result += char
+      if (char === "\\" && next !== undefined) result += expression[++index]!
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      index += 1
+      while (index + 1 < expression.length && expression[index + 1] !== "\n") index++
+      result += " "
+    }
+    else if (char === "/" && next === "*") {
+      index += 2
+      while (index < expression.length && !(expression[index] === "*" && expression[index + 1] === "/")) index++
+      if (index < expression.length) index++
+      result += " "
+    }
+    else result += char
+  }
+  return result.trim()
+}
+
 function stripStaticTypeAssertions(expression: string): string {
   let value = expression.trim()
   for (;;) {
@@ -390,7 +426,7 @@ function stripStaticTypeAssertions(expression: string): string {
 }
 
 function readProcessEnvName(expression: string) {
-  const normalized = expression.trim()
+  const normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
   return /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(normalized)?.[1]
     ?? (() => {
       const match = /^process\.env\[([\s\S]+)\]$/.exec(normalized)
