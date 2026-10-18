@@ -30,7 +30,16 @@ describe("UI types", () => {
       { fileDiff, id: "diff", type: "diff" },
     ];
 
-declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
+    void AgentCodeView;
+    void AgentFile;
+    void AgentFileDiff;
+    void AgentMultiFileDiff;
+    void AgentPatchDiff;
+    void AgentUnresolvedFile;
+    void codeViewItems;
+  });
+});
+
 const compatible: UIMessage = message;
 const session: ViteHubUISession<typeof message> = { id: "session-1", messages: [message] };
 
