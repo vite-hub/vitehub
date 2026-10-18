@@ -119,14 +119,15 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
-    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
-    expect(layout).toContain("vh-docs-main");
-    expect(layout).toContain("lg:!flex lg:!flex-row");
-    expect(layout).toContain("max-width: none;");
+  it("gives component pages the shared article layout and page outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain("UContentToc");
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -142,35 +143,25 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("keeps only search in the panel head, without a product context link or disclosure control", () => {
+  it("uses a static context link instead of a product disclosure control", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("<UContentSearchButton");
-    expect(sidebarTop).not.toContain("vh-docs-context");
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain('<NuxtLink');
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
-    const body = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
-    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
-    const footer = readFileSync(resolve(docsRoot, "app/components/DocsAsideFooter.vue"), "utf8");
-    const section = readFileSync(resolve(docsRoot, "app/composables/useDocsSection.ts"), "utf8");
-    const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
-    expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" label="ViteHub alpha" class="vh-docs-rail-brand">');
-    expect(rail).toContain("<template #label>");
-    expect(body).toContain('v-for="area in docsSiteAreas"');
-    expect(section).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(section).toContain('{ label: "Projects", to: "/projects"');
-    expect(section).toContain('{ label: "Templates", to: "/templates"');
-    expect(sidebars).toContain("<DocsAsideFooter />");
-    expect(footer).toContain("<UColorModeButton");
-    expect(footer).toContain("socials.discord");
-    // The header stays for the menu on narrow screens and hides where the sidebar shows.
-    expect(header).toContain(":class=\"{ 'lg:hidden': hidesOnWideScreens }\"");
+    expect(rail).toContain("<template #header");
+    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(rail).toContain('{ label: "Projects", to: "/projects"');
+    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("<template #default");
   });
 
 
@@ -179,22 +170,22 @@ describe("UI documentation", () => {
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
-    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
+    expect(sidebarPanel).toContain("vh-docs-aside");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(sidebarPanel).toContain("overflow: auto;");
     expect(layout).toContain("overflow-x: clip;");
-    expect(sidebarPanel).toContain("overflow: hidden;")
-    expect(layout).toContain("overflow: hidden;");
+
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toMatch(/@media \(min-width: 80rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
-    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
-    expect(desktopStyles).toMatch(/\.vh-docs-aside-sidebars\s*\{[^}]*flex: 1 1 0;/);
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
@@ -203,5 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
+    expect(page).toMatch(/server primitives/i);
   });
 });

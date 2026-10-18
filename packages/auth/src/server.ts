@@ -546,7 +546,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const cancelStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const cancelReader = Reflect.apply(descriptor.value, cancelStream, []) as object
           const cancelResult = await Promise.resolve(Reflect.apply(probeMethods.cancel, cancelReader, []))
-          if (cancelResult !== undefined || cancelStream.locked) return
+          if (cancelResult !== undefined) return
+          Reflect.apply(probeMethods.releaseLock, cancelReader, [])
+          if (cancelStream.locked) return
           const releaseStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
           const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
@@ -794,7 +796,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
-    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -812,7 +813,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (combinedCookies !== undefined) {
       if (
         /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
-        || /;\s*(?:Domain|Expires|HttpOnly|Max-Age|Partitioned|Path|SameSite|Secure)\s*=.*,[\s]*[^;=,\s]+\s*=\s*/i.test(combinedCookies)
       ) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }

@@ -110,12 +110,6 @@
       "require": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
     },
-    "./source-scanner": {
-      "types": "./dist/source-scanner.d.ts",
-      "import": "./dist/source-scanner.js",
-      "require": "./dist/source-scanner.js",
-      "default": "./dist/source-scanner.js"
-    },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
       "import": "./dist/standard-schema.js",
@@ -236,6 +230,12 @@
       "require": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
     },
+    "./build/scan-module": {
+      "types": "./dist/build/scan-module.d.ts",
+      "import": "./dist/build/scan-module.js",
+      "require": "./dist/build/scan-module.js",
+      "default": "./dist/build/scan-module.js"
+    },
     "./build/provider-output-sources": {
       "types": "./dist/build/provider-output-sources.d.ts",
       "import": "./dist/build/provider-output-sources.js",
@@ -318,6 +318,7 @@
     "exsolve": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
