@@ -36,6 +36,10 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
+  // Prototype traversal is synchronous and can be intercepted by proxies.
+  // Keep a generous ceiling for legitimate subclass chains while ensuring a
+  // hostile proxy cannot block the request path forever.
+  const maxPrototypeDepth = 16_384
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -46,7 +50,9 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
+      let depth = 0
       while (prototype !== null) {
+        if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
         // Every ordinary class prototype, including arbitrarily deep Request
@@ -93,7 +99,6 @@ function isRequest(value: unknown): value is Request {
         // class chains are stable, so reject a changing successor before the
         // walk can become unbounded without imposing a depth limit.
         const nextPrototype = Object.getPrototypeOf(prototype)
-        if (Object.getPrototypeOf(prototype) !== nextPrototype) return false
         prototype = nextPrototype
       }
       return false
