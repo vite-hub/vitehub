@@ -14,6 +14,7 @@ const collectionSchema = {
     kind: text("kind").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     publishedAt: text("published_at", { mode: "timestamp" }).notNull(),
+    publishedAtDate: integer("published_at_date", { mode: "timestamp_ms" }).notNull(),
     published: integer("published", { mode: "boolean" }).notNull(),
   }),
 }
@@ -61,14 +62,15 @@ describe("table Collection source", () => {
         kind text not null,
         created_at integer not null,
         published_at text not null,
+        published_at_date integer not null,
         published integer not null
       )
     `)
     await db.insert(schema.meals).values([
-      { createdAt: new Date(3_000), publishedAt: new Date(3_000), id: "c", kind: "dinner", published: true },
-      { createdAt: new Date(3_000), publishedAt: new Date(3_000), id: "b", kind: "lunch", published: false },
-      { createdAt: new Date(3_000), publishedAt: new Date(3_000), id: "a", kind: "dinner", published: true },
-      { createdAt: new Date(2_000), publishedAt: new Date(2_000), id: "z", kind: "dinner", published: false },
+      { createdAt: new Date(3_000), publishedAt: new Date(3_000), publishedAtDate: new Date(3_000), id: "c", kind: "dinner", published: true },
+      { createdAt: new Date(3_000), publishedAt: new Date(3_000), publishedAtDate: new Date(3_000), id: "b", kind: "lunch", published: false },
+      { createdAt: new Date(3_000), publishedAt: new Date(3_000), publishedAtDate: new Date(3_000), id: "a", kind: "dinner", published: true },
+      { createdAt: new Date(2_000), publishedAt: new Date(2_000), publishedAtDate: new Date(2_000), id: "z", kind: "dinner", published: false },
     ])
 
     const meals = defineCollection({
@@ -107,6 +109,16 @@ describe("table Collection source", () => {
     })
     const datePage = await publishedAt.page({ query: {} })
     await expect(publishedAt.page({ cursor: datePage.nextCursor!, query: {} })).resolves.toBeDefined()
+
+    const publishedAtDate = defineCollection({
+      source: table({
+        db,
+        orderBy: { column: schema.meals.publishedAtDate, direction: "asc", tieBreaker: schema.meals.id },
+        table: schema.meals,
+      }),
+    })
+    const dateColumnPage = await publishedAtDate.page({ query: {} })
+    await expect(publishedAtDate.page({ cursor: dateColumnPage.nextCursor!, query: {} })).resolves.toBeDefined()
 
     const nullableCursor = btoa(JSON.stringify([3_000, null])).replaceAll("=", "")
     await expect(meals.page({ cursor: nullableCursor, query: {} })).rejects.toMatchObject({

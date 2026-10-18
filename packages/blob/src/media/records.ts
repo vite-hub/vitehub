@@ -476,9 +476,15 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (alt !== undefined) record.alt = alt
     if (caption !== undefined) record.caption = caption
     if (focal) record.focal = { x: focal.x, y: focal.y }
-    if (crops) record.crops = applyCropPatch(record.crops, crops).crops
+    let removedReplacements: MediaCropReplacement[] = []
+    if (crops) {
+      const applied = applyCropPatch(record.crops, crops)
+      record.crops = applied.crops
+      removedReplacements = applied.removed
+    }
     if (previous) await context.clearDerived(object.pathname)
     await writeRecord(record)
+    for (const replacement of removedReplacements) await removeReplacement(replacement)
     await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
     return record
   }

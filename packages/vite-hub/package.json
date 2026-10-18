@@ -225,7 +225,11 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./sandbox-task": "./dist/sandbox-task.js",
+    "./agent/process-host": "./dist/agent/process-host.js",
+    "./presets/babysitter": "./dist/presets/babysitter.js",
+    "./presets/babysitter/server": "./dist/presets/babysitter/server.js"
   },
   "vitehub": {
     "agent": {
