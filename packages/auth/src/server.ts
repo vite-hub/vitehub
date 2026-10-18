@@ -428,13 +428,12 @@ function getNativeAuthorizationReaderMethods(reader: object) {
   return { read, cancel, releaseLock }
 }
 
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
 function isNativeUint8ArrayChunk(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value) || Object.prototype.toString.call(value) !== "[object Uint8Array]") return false
+  if (!ArrayBuffer.isView(value) || typeof typedArrayTagGetter !== "function") return false
   try {
-    const byteLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")?.get
-    if (typeof byteLength !== "function") return false
-    Reflect.apply(byteLength, value, [])
-    return true
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
   }
   catch {
     return false
@@ -453,7 +452,7 @@ function bridgeAuthorizationBody(
   const { read, cancel, releaseLock } = methods
   let released = false
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
@@ -479,10 +478,7 @@ function bridgeAuthorizationBody(
     async cancel(reason) {
       try {
         await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
