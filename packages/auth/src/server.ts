@@ -621,7 +621,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
       const mergedCookie = /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
-        || /;\s*expires\s*=\s*[A-Za-z]{3},\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT\s*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)
+        || /;\s*expires\s*=\s*[A-Za-z]{3},\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT(?:\s*;\s*(?:path|domain|max-age|samesite|secure|httponly|partitioned)\s*(?:=\s*[^,;]*)?)*\s*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)
       if (mergedCookie) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
