@@ -40,8 +40,8 @@ function isRequest(value: unknown): value is Request {
   // Keep the validator bounded while leaving ample room for ordinary derived
   // Request chains. This is the documented maximum supported foreign-chain
   // depth; it keeps hostile self-consistent proxy chains finite while allowing
-  // substantially deeper inheritance than the regression suite exercises.
-  const maxPrototypeDepth = 1_048_576
+  // the supported deep-subclass cases while bounding hostile proxy work.
+  const maxPrototypeDepth = 131_072
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
