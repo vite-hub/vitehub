@@ -428,6 +428,19 @@ function getNativeAuthorizationReaderMethods(reader: object) {
   return { read, cancel, releaseLock }
 }
 
+function isNativeUint8ArrayChunk(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value) || Object.prototype.toString.call(value) !== "[object Uint8Array]") return false
+  try {
+    const byteLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")?.get
+    if (typeof byteLength !== "function") return false
+    Reflect.apply(byteLength, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
@@ -454,7 +467,7 @@ function bridgeAuthorizationBody(
         }
         else {
           const chunk = result.value
-          if (!(chunk instanceof Uint8Array)) throw new TypeError("Invalid authorization body chunk")
+          if (!isNativeUint8ArrayChunk(chunk)) throw new TypeError("Invalid authorization body chunk")
           controller.enqueue(chunk)
         }
       }
@@ -538,17 +551,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       }
       normalizedHeaders.append(key, value)
     }])
-    // Preserve one cookie when the fallback exposes only a combined value. A comma
-    // followed by another cookie assignment at the cookie-pair boundary proves that
-    // multiple values were merged. Assignment-like text after an extension attribute
-    // can still be part of that attribute's value, so do not reject it as a merge.
+    // A fallback Set-Cookie header cannot safely represent multiple cookies.
+    // Reject any comma followed by a cookie assignment; this also covers boundaries
+    // after Expires, Path, and extension attributes.
     if (combinedCookies !== undefined) {
-      const cookiePair = /,\s*[^;=,\s]+\s*=/.exec(combinedCookies)
-      if (cookiePair) {
-        const prefix = combinedCookies.slice(0, cookiePair.index)
-        const attribute = prefix.match(/(?:^|;)\s*([^=;\s]+)\s*=[^;]*$/)?.[1]?.toLowerCase()
-        if (!prefix.includes(";") || (attribute && attribute !== "extension" && attribute !== "expires" && attribute !== "max-age" && attribute !== "domain" && attribute !== "path" && attribute !== "secure" && attribute !== "httponly" && attribute !== "samesite" && attribute !== "partitioned")) return
-      }
+      if (/,\s*[^;=,\s]+\s*=/.test(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
