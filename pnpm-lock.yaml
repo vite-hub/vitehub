@@ -1098,6 +1098,52 @@ importers:
         specifier: catalog:tooling
         version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
 
+  packages/box:
+    dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
+    devDependencies:
+      '@cloudflare/sandbox':
+        specifier: catalog:sandbox
+        version: 0.12.10
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.2
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
+      '@types/ssh2':
+        specifier: ^1.15.6
+        version: 1.15.6
+      '@vercel/sandbox':
+        specifier: catalog:sandbox
+        version: 3.8.0
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+
   packages/browser:
     dependencies:
       '@cloudflare/playwright':
