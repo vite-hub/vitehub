@@ -160,13 +160,17 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
-  const preflight = createBabysitterPreflight(agent.options.install ?? true);
+  // Placement may move every pass into a Sandbox, where the host installer is
+  // deliberately skipped. Do not park the whole host on a Corepack check that
+  // those passes can never use; host installs still validate at dispatch time.
+  const preflight = createBabysitterPreflight(agent.options.placement ? false : agent.options.install ?? true);
   const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),
     check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
+  let admissionPrerequisiteSample: string | undefined;
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
     extends: agent,
@@ -221,7 +225,11 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
       const queue = await inbox.summary();
       // Refresh prerequisites before admission so both health surfaces describe one sample.
       const prerequisites = await preflight();
-      const guard = await admission();
+      if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
+        admissionPrerequisiteSample = prerequisites.checkedAt;
+        admission.invalidate();
+      }
+      const guard = await admission.health();
       const lastSkip = await inbox.meta("admission-skipped");
       return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: babysitterQueueHealth(queue), admission: {
         accepting: guard.accepting,

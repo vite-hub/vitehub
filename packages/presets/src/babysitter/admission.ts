@@ -178,6 +178,7 @@ function normalizeAdmissionPause(value: unknown): BabysitterAdmissionPause | und
 export interface CoalescedBabysitterAdmission<T extends object> {
   (now?: number): Promise<T & { observedAt: number }>;
   health(): Promise<T & { observedAt: number }>;
+  invalidate(): void;
 }
 
 export function coalesceBabysitterAdmission<T extends object>(read: (now?: number) => Promise<T>, clock: () => number = Date.now): CoalescedBabysitterAdmission<T> {
@@ -190,7 +191,10 @@ export function coalesceBabysitterAdmission<T extends object>(read: (now?: numbe
     }).finally(() => { pending = undefined; });
     return pending;
   }
-  return Object.assign(check, { health: () => latest && clock() - latest.observedAt <= 120_000 ? Promise.resolve(latest) : check() });
+  return Object.assign(check, {
+    health: () => latest && clock() - latest.observedAt <= 120_000 ? Promise.resolve(latest) : check(),
+    invalidate: () => { latest = undefined; },
+  });
 }
 
 export function createBabysitterAdmission(options: { invocations?: Pick<AgentInvocations, "list" | "get">; limits: BabysitterAdmissionLimits; check?: BabysitterAdmissionOptions["check"] }): CoalescedBabysitterAdmission<BabysitterAdmissionResult> {
