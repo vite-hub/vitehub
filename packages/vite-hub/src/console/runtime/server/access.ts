@@ -180,12 +180,18 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
+          // Standalone class implementations are valid Fetch implementations
+          // (for example happy-dom). Apply the intrinsic-Function exclusion
+          // only to derived classes, where an aliased Function base is a spoof.
+          || (isClassConstructor && !isDerivedClassConstructor)
           || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function))
           && typeof parentConstructor === "function"
           // `extends Function` can be aliased by the authorization callback.
           // It is the intrinsic Function constructor, not an implementation-owned
           // Response base, and must never satisfy the derived provenance gate.
-          && (constructorSource.includes("[native code]") || parentConstructor !== Function)
+          && (constructorSource.includes("[native code]")
+            || !isDerivedClassConstructor
+            || parentConstructor !== Function)
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
           // A caller-created derived constructor can supply a Function-shaped
