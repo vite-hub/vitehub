@@ -8,9 +8,10 @@ import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
 import type { AnyExtension } from "@tiptap/core"
+import type { Result } from "@vite-hub/runtime"
 import type { MaybeRefOrGetter, Ref } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeRequestErrorCode, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
@@ -26,7 +27,9 @@ import {
   messageWorkspaceChange,
   workspaceRoomId,
 } from "./protocol.ts"
-import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { realtimeErrorDiagnostics, type RealtimeRequestAction } from "./error-diagnostics.ts"
+
+export type { RealtimeRequestErrorCode } from "./types.ts"
 
 export { RealtimeCaret } from "./caret.ts"
 export type { RealtimeCaretOptions, RealtimeCaretUser } from "./caret.ts"
@@ -286,17 +289,14 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return () => resetListeners.delete(listener)
   }
 
-  function disconnected(): never {
-    throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is no longer connected to this request." })
-  }
-
-  async function request(action: "checkpoint" | "refresh" | "save"): Promise<unknown> {
+  async function request(action: RealtimeRequestAction): Promise<Result<unknown, Exclude<RealtimeRequestErrorCode, "REALTIME_DISABLED" | "REALTIME_INVALID_RESPONSE">>> {
+    const disconnected = (): Result<never, "REALTIME_DISCONNECTED"> => [realtimeErrorDiagnostics.REALTIME_DISCONNECTED({ action }), undefined]
     const controller = new AbortController()
     requestControllers.add(controller)
     if (action === "refresh") refreshControllers.add(controller)
     try {
       const id = toValue(documentId)
-      if (!id) throw realtimeErrorDiagnostics.REALTIME_R0010({ message: "A realtime document is required for this request." })
+      if (!id) return [realtimeErrorDiagnostics.REALTIME_MISSING_DOCUMENT({ action }), undefined]
       const room = id.split("/").map(encodeURIComponent).join("/")
       const current = document.value
       const query = action === "checkpoint" ? "history=checkpoint" : `document=${action}`
@@ -305,7 +305,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         // A refresh may intentionally re-seed the room and replace `document`
         // before its HTTP response arrives. The successful response remains
         // valid even though that reset makes the old document non-current.
-        if (action !== "refresh" && !stillCurrent()) disconnected()
+        if (action !== "refresh" && !stillCurrent()) return disconnected()
         let response: Response
         try {
           response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?${query}`), {
@@ -314,19 +314,19 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
             signal: controller.signal,
           })
         }
-        catch (error) {
-          if (controller.signal.aborted) disconnected()
-          throw error
+        catch (cause) {
+          if (controller.signal.aborted) return disconnected()
+          return [realtimeErrorDiagnostics.REALTIME_REQUEST_FAILED({ action, cause }), undefined]
         }
         let data: unknown
         try {
           data = await response.json()
         }
         catch {
-          if (controller.signal.aborted) disconnected()
+          if (controller.signal.aborted) return disconnected()
         }
-        if (action !== "refresh" && !stillCurrent()) disconnected()
-        if (response.ok) return data
+        if (action !== "refresh" && !stillCurrent()) return disconnected()
+        if (response.ok) return [undefined, data]
         const errorData = isRecord(data) ? data : undefined
         const nestedData = isRecord(errorData?.data) ? errorData.data : undefined
         const message = isString(errorData?.statusMessage) && errorData.statusMessage
@@ -336,10 +336,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
-        throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: message || "The realtime request failed." }), {
-          data,
-          statusCode: response.status,
-        })
+        return [realtimeErrorDiagnostics.REALTIME_REQUEST_FAILED({ action, message, status: response.status }), undefined]
       }
     }
     finally {
@@ -348,41 +345,49 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     }
   }
 
-  function invalidResponse(data: unknown): never {
-    throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: "The realtime response was invalid." }), { data, statusCode: 200 })
+  async function requestResult<TData>(action: RealtimeRequestAction, accepts: (data: unknown) => data is TData): Promise<Result<TData, RealtimeRequestErrorCode>> {
+    if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action }), undefined]
+    const [error, data] = await request(action)
+    if (error) return [error, undefined]
+    return accepts(data) ? [undefined, data] : [realtimeErrorDiagnostics.REALTIME_INVALID_RESPONSE({ action }), undefined]
   }
 
-  /** Saves the room through its document adapter now, including every edit this client has sent. */
-  async function save(): Promise<RealtimeSaved> {
-    if (!enabled()) throw realtimeErrorDiagnostics.REALTIME_R0009({ message: "Realtime is disabled." })
+  /**
+   * Saves the room through its document adapter now, including every edit this client has sent.
+   * Returns `[error, saved]`; `error.code` is a `RealtimeRequestErrorCode`.
+   */
+  async function save(): Promise<Result<RealtimeSaved, RealtimeRequestErrorCode>> {
+    if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "save" }), undefined]
     saveRequests.value++
     try {
-      const data = await request("save")
-      return isRealtimeSaved(data) ? data : invalidResponse(data)
+      return await requestResult("save", isRealtimeSaved)
     }
     finally {
       saveRequests.value--
     }
   }
 
-  /** Saves the room and records a durable history entry through the document adapter. */
-  async function checkpoint(): Promise<RealtimeCheckpoint> {
-    if (!enabled()) throw realtimeErrorDiagnostics.REALTIME_R0009({ message: "Realtime is disabled." })
+  /**
+   * Saves the room and records a durable history entry through the document adapter.
+   * Returns `[error, checkpoint]`; `error.code` is a `RealtimeRequestErrorCode`.
+   */
+  async function checkpoint(): Promise<Result<RealtimeCheckpoint, RealtimeRequestErrorCode>> {
+    if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "checkpoint" }), undefined]
     checkpointRequests.value++
     try {
-      const data = await request("checkpoint")
-      return isRealtimeCheckpoint(data) ? data : invalidResponse(data)
+      return await requestResult("checkpoint", isRealtimeCheckpoint)
     }
     finally {
       checkpointRequests.value--
     }
   }
 
-  /** Asks the room to compare its seed with the stored document. A changed source resets every client. */
-  async function refresh(): Promise<{ digest: string | null, reseeded: boolean }> {
-    if (!enabled()) throw realtimeErrorDiagnostics.REALTIME_R0009({ message: "Realtime is disabled." })
-    const data = await request("refresh")
-    return isRefreshResult(data) ? data : invalidResponse(data)
+  /**
+   * Asks the room to compare its seed with the stored document. A changed source resets every client.
+   * Returns `[error, result]`; `error.code` is a `RealtimeRequestErrorCode`.
+   */
+  async function refresh(): Promise<Result<{ digest: string | null, reseeded: boolean }, RealtimeRequestErrorCode>> {
+    return await requestResult("refresh", isRefreshResult)
   }
 
   watch([() => toValue(documentId), enabled], ([id, active]) => {

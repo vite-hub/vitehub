@@ -271,25 +271,9 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function responseGetter(value: object, property: string): (() => unknown) | undefined {
-  let prototype: object | null = value
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (descriptor?.get) return descriptor.get
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-}
-
-function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
-  if (Object.prototype.hasOwnProperty.call(value, property)) return
-  let prototype: object | null = Object.getPrototypeOf(value) as object | null
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-}
-
+/**
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ */
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -593,29 +577,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   }
 }
 
-function isNativeResponseShape(value: unknown): value is {
-  headers: Headers
-  body: unknown
-  arrayBuffer: () => Promise<ArrayBuffer>
-  status: number
-  statusText: string
-} {
-  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
-  const findDescriptor = (name: string) => {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype) {
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
-      if (descriptor) return descriptor
-      prototype = Object.getPrototypeOf(prototype)
-    }
-  }
-  const status = findDescriptor("status")
-  const statusText = findDescriptor("statusText")
-  const headers = findDescriptor("headers")
-  const body = findDescriptor("body")
-  if (typeof status?.get !== "function" || typeof statusText?.get !== "function" || typeof headers?.get !== "function" || typeof body?.get !== "function") return false
-  return typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function"
-}
 
 async function checkAuthRequest(
   input: AuthRequestInput,

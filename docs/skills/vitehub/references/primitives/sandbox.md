@@ -1,13 +1,13 @@
-# Sandbox
+# Sandboxes
 
-<!-- Generated from docs/content/docs/sandbox/index.md. Edit the agent-only block there. -->
+<!-- Generated from docs/content/docs/agents/sandboxes.md. Edit the agent-only block there. -->
 
-Source page: https://vitehub.dev/raw/docs/sandbox.md
+Source page: https://vitehub.dev/raw/docs/agents/sandboxes.md
 
-Use Sandbox to run a named project in an isolated Cloudflare or Vercel environment. A Sandbox Run is an execution boundary, not a general-purpose local shell.
+Use Sandboxes for trusted-host or provider-backed execution sessions. Sandboxes provide the execution boundary used by provider Agents and application code that needs an isolated project environment.
 
-Read [Get started](https://vitehub.dev/raw/docs/sandbox/get-started.md), [Configure](https://vitehub.dev/raw/docs/sandbox/configure.md), [Server API](https://vitehub.dev/raw/docs/sandbox/server-api.md), [Agent Capability](https://vitehub.dev/raw/docs/sandbox/agent-capability.md), or [Hosts](https://vitehub.dev/raw/docs/sandbox/hosts.md).
+Read [Run your first Sandbox](https://vitehub.dev/raw/docs/agents/sandbox-tutorial.md) and [Choose a runtime](https://vitehub.dev/raw/docs/agents/sandboxes.md#choose-a-runtime).
 
-Keep images, mounts, network access, timeouts, and resource bounds explicit. Pass only the files and secrets the run needs.
+Choose the provider and image, mounts, environment, commands, network, and resource bounds explicitly. A Sandbox is not a permission bypass. Keep credentials and Workspace access scoped to the run.
 
-Prove successful execution, cancellation, timeout, and cleanup on the selected provider. Verify result-size limits only when the provider documents them. Inspect generated bindings and provider output.
+Prove command execution, cancellation, timeout, cleanup, and provider output for the target host.

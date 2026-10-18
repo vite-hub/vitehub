@@ -15,6 +15,11 @@ export default defineAppConfig({
     fts: true,
   },
   ui: {
+    // Thin Phosphor icons for the color mode control, like the rest of the sidebar.
+    icons: {
+      light: "i-ph-sun-light",
+      dark: "i-ph-moon-light",
+    },
     colors: {
       primary: "neutral",
       neutral: "zinc",
@@ -147,7 +152,7 @@ export default defineAppConfig({
         txt: "i-vscode-icons-file-type-text",
       },
       a: {
-        base: "font-medium underline underline-offset-4 text-default hover:text-primary transition-colors",
+        base: "font-medium underline underline-offset-4 decoration-(--ui-border-accented) text-default hover:text-highlighted hover:decoration-current transition-colors",
       },
       callout: {
         slots: {
@@ -165,14 +170,14 @@ export default defineAppConfig({
       },
       h2: {
         slots: {
-          base: "relative text-[22px] leading-8 text-highlighted font-semibold mt-6 mb-4 scroll-mt-[calc(48px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          base: "relative text-2xl/8 tracking-[-0.015em] text-highlighted font-semibold mt-12 mb-3 scroll-mt-[calc(48px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
           leading: "hidden",
           link: "group",
         },
       },
       h3: {
         slots: {
-          base: "relative text-xl leading-7 text-highlighted font-semibold mt-8 mb-3 scroll-mt-[calc(32px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          base: "relative text-lg/7 tracking-[-0.01em] text-highlighted font-semibold mt-8 mb-2 scroll-mt-[calc(32px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
           leading: "hidden",
           link: "group",
         },

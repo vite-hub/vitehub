@@ -5,6 +5,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -488,6 +489,7 @@ export type {
   AgentRegistry,
   AgentRegistryModule,
   AgentRunContext,
+  AgentRunActivity,
   AgentRunCallbackContext,
   AgentRunDriver,
   AgentRunHandler,
@@ -496,7 +498,7 @@ export type {
   AgentRunMetadata,
   AgentRunResult,
   AgentRuntime,
-  AgentBoxDefinition,
+  AgentSandboxDefinition,
   AgentGitHub,
   AgentGitHubAccess,
   AgentRuntimeBinding,
@@ -827,7 +829,11 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
-  /** Runtime context values supplied by trusted standalone callers, such as generated host capabilities. */
+  /**
+   * Runtime context values supplied by trusted standalone callers. Inside a running host, a standalone run
+   * already gets the runtime capabilities that the generated routes give Agents; `runtimeContext.capabilities`
+   * overrides them key by key.
+   */
   runtimeContext?: Partial<AgentRuntimeContext>
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
@@ -2191,34 +2197,34 @@ function agentRequiresWritableWorkspace(options: {
     .some(channel => capabilitiesRequireWritableWorkspace(channel.capabilities))
 }
 
-/** Check Agent Box combinations that cannot run the provider inside the Box. */
-function validateAgentBox(
-  box: unknown,
+/** Check Agent Sandbox combinations that cannot run the provider inside the Sandbox. */
+function validateAgentSandbox(
+  sandbox: unknown,
   driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly launch?: unknown, readonly toolchain?: unknown },
   options: { hasWorkspace: boolean },
 ) {
-  if (!hasRuntimeType(box, "object") || box === null || !("runtime" in box) || box.runtime === undefined) {
-    throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ box }) requires a Box definition with a runtime." })
+  if (!hasRuntimeType(sandbox, "object") || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
+    throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ sandbox }) requires a Sandbox definition with a runtime." })
   }
   if (driver.kind !== "provider") {
-    throw agentDiagnostics.AGENT_R0955({ message: "[vitehub] defineAgent({ box }) requires a built-in provider Driver such as { kind: \"codex\" } or { kind: \"claude-code\" }." })
+    throw agentDiagnostics.AGENT_R0955({ message: "[vitehub] defineAgent({ sandbox }) requires a built-in provider Driver such as { kind: \"codex\" } or { kind: \"claude-code\" }." })
   }
   if (driver.launch !== undefined) {
-    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.launch. The Box starts the provider." })
+    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.launch. The Sandbox starts the provider." })
   }
   if (driver.credentials !== undefined || driver.credentialProfile !== undefined) {
-    throw agentDiagnostics.AGENT_R0957({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.credentials or driver.credentialProfile. Write provider credentials with box.home.files or box.env." })
+    throw agentDiagnostics.AGENT_R0957({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.credentials or driver.credentialProfile. Write provider credentials with sandbox.home.files or sandbox.env." })
   }
   if (driver.toolchain !== undefined) {
-    throw agentDiagnostics.AGENT_R0972({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.toolchain. Declare box.toolchain so the Box provisions it." })
+    throw agentDiagnostics.AGENT_R0972({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.toolchain. Declare sandbox.toolchain so the Sandbox provisions it." })
   }
   if (options.hasWorkspace) {
-    throw agentDiagnostics.AGENT_R0958({ message: "[vitehub] defineAgent({ box }) cannot be combined with an Agent Workspace. Use box.checkout or box.cwd for the provider working tree." })
+    throw agentDiagnostics.AGENT_R0958({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with an Agent Workspace. Use sandbox.checkout or sandbox.cwd for the provider working tree." })
   }
   const navigator: unknown = Reflect.get(globalThis, "navigator")
   const userAgent = isRuntimeObject(navigator) ? Reflect.get(navigator, "userAgent") : undefined
   if (Reflect.get(globalThis, "Deno") !== undefined || userAgent === "Cloudflare-Workers") {
-    throw agentDiagnostics.AGENT_R0959({ message: "[vitehub] defineAgent({ box }) requires a Node.js host. Workers and Deno hosts cannot start provider Drivers." })
+    throw agentDiagnostics.AGENT_R0959({ message: "[vitehub] defineAgent({ sandbox }) requires a Node.js host. Workers and Deno hosts cannot start provider Drivers." })
   }
 }
 
@@ -2231,7 +2237,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const github = options.github ?? githubChannelIdentity(channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
@@ -2265,7 +2271,7 @@ function defineBaseAgent<
     hasWorkspace: false,
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
-  if (box !== undefined) validateAgentBox(box, driver, { hasWorkspace: Boolean(workspace) })
+  if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
@@ -2277,7 +2283,7 @@ function defineBaseAgent<
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
           ? await (providerAdapter ??= import("#vitehub/agent/provider-agent").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
-            box,
+            sandbox,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             cwd: driver.cwd,
@@ -2318,7 +2324,7 @@ function defineBaseAgent<
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
-    box,
+    sandbox,
     ...(options.budget ? { budget: options.budget } : {}),
     ...(github ? { github } : {}),
     channels,
@@ -2340,7 +2346,7 @@ function defineBaseAgent<
     async status(context, statusOptions) {
       const checkedAt = new Date().toISOString()
       if (driver.kind !== "provider") return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported" }
-      if (box) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Box is not supported." }
+      if (sandbox) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Sandbox is not supported." }
       const { inspectAgentProvider } = await import("#vitehub/agent/provider-agent")
       return inspectAgentProvider(driver, {
         ...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
@@ -8791,7 +8797,13 @@ export async function runAgent<
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
   // Preserve the caller's runtime-config subtype through standalone context creation.
-  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
+  // that the generated routes give Agents. Capabilities from the caller override them key by key.
+  const hostCapabilities = agentHostCapabilities()
+  const runtimeContext = hostCapabilities
+    ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
+    : callerContext
   const runtime = createRuntimeContext({
     ...runtimeContext,
     runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,

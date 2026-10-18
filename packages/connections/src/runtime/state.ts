@@ -1,4 +1,4 @@
-import discoveredRegistry, { database } from "#vitehub/connections/registry"
+import discoveredRegistry, { activityRetention, database } from "#vitehub/connections/registry"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
@@ -45,7 +45,7 @@ async function defaultStore(): Promise<ConnectionStore> {
     throw new ConnectionError("invalid", "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store.")
   }
   const { createDatabaseConnectionStore } = await import("../store.ts")
-  return createDatabaseConnectionStore({ db: await database(), encryptionKey: readEncryptionKey() })
+  return createDatabaseConnectionStore({ activityRetention, db: await database(), encryptionKey: readEncryptionKey() })
 }
 
 /** The active Connections runtime. */

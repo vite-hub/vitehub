@@ -1,9 +1,12 @@
 import {
   createExecutionContext,
+  defineErrors,
   formatRuntimeDiagnosticError,
   normalizeRuntimeDiagnosticError,
   ViteHubError,
   type ExecutionContext,
+  type Result,
+  type ResultError,
   type RuntimeCapabilities,
   type ViteHubErrorShape,
 } from "@vite-hub/runtime"
@@ -122,3 +125,14 @@ new ViteHubError("CAPABILITY_NOT_FOUND", "Capability was not found.").code satis
 new ViteHubError("APPROVAL_REQUIRED", "Approval is required.", {
   details: { id: "approval-1", state: "awaiting-approval" },
 }).toJSON() satisfies ViteHubErrorShape<"APPROVAL_REQUIRED", { id: string, state: string }>
+
+const errors = defineErrors({
+  docs: "https://vitehub.dev/docs/example/limits-and-errors",
+  codes: { EXAMPLE_FAILED: { why: "The example failed.", fix: "Retry the example." } },
+})
+const failed: Result<string, "EXAMPLE_FAILED"> = [errors.EXAMPLE_FAILED(), undefined]
+if (failed[0]) {
+  failed[0] satisfies ResultError<"EXAMPLE_FAILED">
+  failed[0].code satisfies "EXAMPLE_FAILED"
+  failed[0].why satisfies string
+}
