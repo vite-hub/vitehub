@@ -39,9 +39,11 @@ icon: i-lucide-plug
   // Gmail labels of the connected account
   export default defineEventHandler(async () => {
     const google = useConnection('google')
-    return google.gmail.users.labels.list({
+    const [error, data] = await google.gmail.users.labels.list({
       userId: 'me',
     })
+    if (error) throw error
+    return data
   })
   ```
 
@@ -76,7 +78,8 @@ icon: i-lucide-plug
     const response = await crm.fetch(
       'https://api.crm.example.com/contacts',
     )
-    return response.json()
+    if (response[0]) throw response[0]
+    return response[1].json()
   })
   ```
   :::

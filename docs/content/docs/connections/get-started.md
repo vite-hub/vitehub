@@ -118,7 +118,9 @@ import { useConnection } from 'vite-hub/connections/server'
 
 export default defineEventHandler(async (event) => {
   const connection = useConnection('google', { event })
-  return await connection.gmail.users.labels.list({ userId: 'me' })
+  const [error, data] = await connection.gmail.users.labels.list({ userId: 'me' })
+  if (error) throw error
+  return data
 })
 ```
 
