@@ -500,7 +500,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
-        if (cookies.length === 0) combinedCookies = value
+        if (combinedCookies === undefined) combinedCookies = value
         return
       }
       normalizedHeaders.append(key, value)
