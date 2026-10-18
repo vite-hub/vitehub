@@ -301,6 +301,12 @@
       "import": "./dist/source-scanner.js",
       "require": "./dist/source-scanner.js",
       "default": "./dist/source-scanner.js"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js",
+      "require": "./dist/presets.js",
+      "default": "./dist/presets.js"
     }
   },
   "scripts": {

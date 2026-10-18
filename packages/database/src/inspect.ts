@@ -42,10 +42,14 @@ async function describeContributedTables(contribution: ResolvedDatabaseContribut
  * contribute. Definitions are read from source without loading them.
  */
 export async function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
-  const definitions = discoverDatabaseDefinitions(options.rootDir, { implicitDefault: options.implicitDefault, serverDirs: options.serverDirs })
   const contributions = await collectDatabaseContributions(options.plugins, {
     projectRoot: options.projectRoot,
     root: options.viteRoot ?? options.rootDir,
+    serverDirs: options.serverDirs,
+  })
+  const definitions = discoverDatabaseDefinitions(options.rootDir, {
+    definitions: contributions.definitions,
+    implicitDefault: options.implicitDefault,
     serverDirs: options.serverDirs,
   })
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
@@ -60,6 +64,8 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub uses an empty default Database. Add `server/databases/config.ts` to declare tables." }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(definition.contributor ? [{ label: "Contributed by", value: definition.contributor }] : []),
+      ...(definition.reason ? [{ label: "Reason", value: definition.reason }] : []),
       ...definition.schemaSources.length > 1
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
         : [],

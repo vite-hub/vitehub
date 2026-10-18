@@ -212,9 +212,11 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const names = typeof singleName !== "undefined"
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ?.split(",")
-        .filter(value => value.trim())
-        .map(value => readStaticStringLiteral(value.trim()))
+        ? splitTopLevel(/^\[(.*)\]$/s.exec(sourceValue)![1]!)
+            .map(value => stripLeadingComments(value).trim())
+            .filter(value => value)
+            .map(value => readStaticStringLiteral(value))
+        : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
   return createRuntimeEnvConfigValue(names as string[], defaultValue)
