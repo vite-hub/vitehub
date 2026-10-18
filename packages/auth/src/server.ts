@@ -346,17 +346,29 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
+function isNativeGetter(value: unknown): value is (this: object) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return Function.prototype.toString.call(value).includes("[native code]")
+  }
+  catch {
+    return false
+  }
+}
+
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  const targets = new Set<object>([Response.prototype])
-  const UndiciResponse = await getUndiciResponse()
-  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true
       if (seen.has(current)) return false
       seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, "status")
+      if (descriptor) {
+        if (!isNativeGetter(descriptor.get)) return false
+        Reflect.apply(descriptor.get, value, [])
+        return true
+      }
       current = Object.getPrototypeOf(current)
     }
     return false
@@ -688,12 +700,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // without acquiring the body stream's reader.
     let intrinsicBodyUsed: unknown
     try {
-      const trustedBodyUsedGetters = new Set<unknown>()
-      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
-      const UndiciResponse = await getUndiciResponse()
-      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
-      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
       let prototype: object | null = Object.getPrototypeOf(candidate)
       const seen = new Set<object>()
       for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
@@ -701,7 +707,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
+          if (!isNativeGetter(descriptor.get)) return
           intrinsicBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
@@ -766,12 +772,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // bridge reader so a body consumed during validation cannot be admitted
     // after its reader is released and `locked` becomes false again.
     try {
-      const trustedBodyUsedGetters = new Set<unknown>()
-      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
-      const UndiciResponse = await getUndiciResponse()
-      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
-      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
       let prototype: object | null = Object.getPrototypeOf(candidate)
       const seen = new Set<object>()
       let currentBodyUsed: unknown
@@ -780,7 +780,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
+          if (!isNativeGetter(descriptor.get)) return
           currentBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
