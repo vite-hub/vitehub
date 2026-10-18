@@ -180,7 +180,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
-          || (isDerivedClassConstructor && hasImplementationBase))
+          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
