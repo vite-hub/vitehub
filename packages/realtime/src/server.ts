@@ -196,7 +196,7 @@ export function realtimeRoomKey(definitionName: string, documentId: string): str
   return JSON.stringify([definitionName, documentId])
 }
 
-export async function restoreRealtimeDocument(
+export function restoreRealtimeDocument(
   markdown: string,
   baselineDigest: string | undefined,
   stored: Record<string, unknown> | undefined,
@@ -204,12 +204,12 @@ export async function restoreRealtimeDocument(
   const update = storedUpdate(stored?.update_blob)
   const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
   if (!update || storedDigest !== baselineDigest) {
-    return await createRealtimeYDoc(realtimeMarkdownEditor, { body: markdown })
+    return createRealtimeYDoc(realtimeMarkdownEditor, { body: markdown })
   }
   const document = new Y.Doc()
   try {
     Y.applyUpdate(document, update)
-    return document
+    return Promise.resolve(document)
   }
   catch (error) {
     document.destroy()
