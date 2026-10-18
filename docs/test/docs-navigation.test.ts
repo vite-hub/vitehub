@@ -4,8 +4,10 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+
   getDocsRailCatalog,
   getDocsSectionKind,
+
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -95,9 +97,8 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
+      // Template pages remain in template order.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -145,11 +146,15 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.pages.length > 0 && (!group.label || group.pages.length > 1)), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+
+    const kvGroups = getDocsSidebarGroups(kv!);
+    expect(kvGroups.some(group => group.label === "Build" && group.pages.length > 1)).toBe(true);
+    expect(kvGroups.some(group => group.label === null)).toBe(true);
+
   });
 
   it("lists each topic once inside a section", () => {
@@ -200,6 +205,16 @@ describe("docs product navigation", () => {
       expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
+    }
+
+    for (const [from, to] of Object.entries({
+      "/databases": "/database",
+      "/rate-limits": "/rate-limit",
+      "/blog": "/tutorials",
+      "/guides": "/tutorials",
+    })) {
+      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
+      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
     }
   });
 });

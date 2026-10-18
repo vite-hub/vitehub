@@ -18,6 +18,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 
 Component entries use kebab-case and export the same component object as the package root. Use them when a development import should stay out of the root barrel; the root remains the default for applications that use several components.
 
+
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
 ## Nuxt
