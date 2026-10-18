@@ -82,6 +82,11 @@ and `exists()`. File readers also expose `read()` and `list()`. Built-in `file`,
 Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
 
+`github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
+callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
+`FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
+`auth: false` reads without a token.
+
 ## Reuse a definition
 
 Content accepts Source definitions directly. It opens a new reader on each

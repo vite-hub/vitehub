@@ -3,13 +3,11 @@ import { computed, onMounted } from "vue";
 
 import type { AgentInvocationView } from "@vite-hub/ui";
 
-
 const now = useState("ui-running-clock", () => Date.now());
+const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 onMounted(() => {
   now.value = Date.now();
 });
-const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
-
 
 const invocation = computed<AgentInvocationView>(() => ({
   agentName: "interface-engineer",

@@ -1,6 +1,9 @@
 import { Buffer } from "node:buffer"
 import { devNull } from "node:os"
 
+import { forgeGitAuthHeader } from "@vite-hub/forge"
+import type { ForgeGitCredentials } from "@vite-hub/forge"
+
 import { normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 
@@ -15,18 +18,17 @@ interface GitOptions {
 type GitRunner = (args: string[], options?: GitOptions) => Promise<string | Uint8Array>
 
 interface GitArchiveInput<TKey extends string> {
+  /** Remote URL and the basic auth pair from `forgeGitCredentials()`. */
+  credentials: ForgeGitCredentials
   env?: NodeJS.ProcessEnv
   keyForRepoPath: (path: string) => TKey | undefined
   ref: string
-  repo: string
-  repositoryUrl?: string
   shouldInclude: (key: TKey) => boolean
   signal?: AbortSignal
   sparsePatterns: string[]
-  token?: string
 }
 
-function createGitEnv(home: string, token?: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+function createGitEnv(home: string, credentials: ForgeGitCredentials, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
   for (const key of [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -51,10 +53,11 @@ function createGitEnv(home: string, token?: string, baseEnv: NodeJS.ProcessEnv =
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key]
   }
 
+  const authHeader = forgeGitAuthHeader(credentials)
   Object.assign(env, {
     GCM_INTERACTIVE: "Never",
     GIT_ASKPASS: "",
-    GIT_CONFIG_COUNT: token ? "1" : "0",
+    GIT_CONFIG_COUNT: authHeader ? "1" : "0",
     GIT_CONFIG_GLOBAL: devNull,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
@@ -64,10 +67,9 @@ function createGitEnv(home: string, token?: string, baseEnv: NodeJS.ProcessEnv =
     XDG_CONFIG_HOME: home,
   })
 
-  if (!token) return env
-  const credential = Buffer.from(`x-access-token:${token}`).toString("base64")
-  env.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader"
-  env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${credential}`
+  if (!authHeader) return env
+  env.GIT_CONFIG_KEY_0 = authHeader.key
+  env.GIT_CONFIG_VALUE_0 = authHeader.value
   return env
 }
 
@@ -171,7 +173,7 @@ export async function loadGitArchiveFiles<TKey extends string>(
   ])
   const dir = await mkdtemp(join(tmpdir(), "vitehub-github-"))
   try {
-    const env = createGitEnv(dir, input.token, input.env)
+    const env = createGitEnv(dir, input.credentials, input.env)
     const options = { env, signal: input.signal }
     await executeGit(["init", "--quiet", dir], options)
     await executeGit([
@@ -180,7 +182,7 @@ export async function loadGitArchiveFiles<TKey extends string>(
       "remote",
       "add",
       "origin",
-      input.repositoryUrl || `https://github.com/${input.repo}.git`,
+      input.credentials.url,
     ], options)
     await executeGit(["-C", dir, "config", "remote.origin.promisor", "true"], options)
     await executeGit(["-C", dir, "config", "remote.origin.partialclonefilter", "blob:none"], options)

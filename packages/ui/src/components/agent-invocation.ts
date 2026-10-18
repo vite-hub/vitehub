@@ -1209,8 +1209,8 @@ function inspectorDisclosure(
 function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
-  showCapabilities: boolean,
   showSources: boolean,
+  showCapabilities: boolean,
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
@@ -1626,10 +1626,10 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
-    showCapabilities: { default: false, type: Boolean },
+    showCapabilities: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
-    showError: { default: true, type: Boolean },
     showSources: { default: true, type: Boolean },
+    showError: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1806,8 +1806,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showSources, props.showCapabilities, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
