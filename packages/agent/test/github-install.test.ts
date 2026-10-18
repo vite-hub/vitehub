@@ -119,7 +119,7 @@ it("reports the trusted host Corepack prerequisite when Node does not provide it
   const root = await fixture();
   vi.stubEnv("PATH", join(root, "missing-host-tools"));
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/requires Corepack in PATH/);
-  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ retryable: false, kind: "prerequisite" });
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toMatchObject({ retryable: true, kind: "prerequisite" });
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-install.json"), "utf8"))).toMatchObject({ status: "failed" });
 });
 
