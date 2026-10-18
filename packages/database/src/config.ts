@@ -59,6 +59,22 @@ function readDefinitionObjectBody(file: string) {
 function objectLiteralBody(value: string | undefined) {
   let trimmed = value?.trim()
   for (;;) {
+    if (trimmed?.startsWith("<")) {
+      let depth = 0
+      let closeIndex: number | undefined
+      for (let index = 0; index < trimmed.length; index++) {
+        const char = trimmed[index]!
+        if (char === "<") depth++
+        else if (char === ">" && --depth === 0) {
+          closeIndex = index
+          break
+        }
+      }
+      if (closeIndex !== undefined) {
+        trimmed = trimmed.slice(closeIndex + 1).trim()
+        continue
+      }
+    }
     if (trimmed?.startsWith("(")) {
       const closeIndex = findMatching(trimmed, 0, "(", ")")
       if (closeIndex !== undefined) {
@@ -268,7 +284,7 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const names = typeof singleName !== "undefined"
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ? splitTopLevel(sourceValue.slice(1, -1)).map(value => readStaticStringLiteral(value.trim()))
+        ? splitTopLevel(sourceValue.slice(1, -1)).filter(value => value.trim()).map(value => readStaticStringLiteral(value.trim()))
         : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
@@ -318,8 +334,13 @@ function readStaticStringLiteral(expression: string): string | undefined {
 }
 
 function readProcessEnvName(expression: string) {
-  return /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(expression)?.[1]
-    ?? /^process\.env\[['"]([A-Za-z_$][\w$]*)['"]\]$/.exec(expression)?.[1]
+  const normalized = expression.trim()
+  return /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(normalized)?.[1]
+    ?? (() => {
+      const match = /^process\.env\[([\s\S]+)\]$/.exec(normalized)
+      const value = match ? readStaticStringLiteral(match[1]!.trim()) : undefined
+      return typeof value === "string" && /^[A-Za-z_$][\w$]*$/.test(value) ? value : undefined
+    })()
 }
 
 function readStringValue(body: string | undefined, property: string): string | undefined {
@@ -437,7 +458,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
         const spreadExpression = normalized.slice(3)
         const spread = readOpaqueResourceOwnership(spreadExpression, source, seen)
         if (opaqueObjectContainsKey(spreadExpression, source, "databaseId") || opaqueObjectContainsKey(spreadExpression, source, "databaseName")) {
-          ownership = spread
+          if (spread !== undefined) ownership = ownership === true || spread
         }
         continue
       }
@@ -445,7 +466,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       if (key !== "databaseId" && key !== "databaseName") continue
       const rawValue = readEntryValue(normalized)?.trim()
       if (rawValue === "undefined") {
-        ownership = false
+        ownership = ownership === true
         continue
       }
       if (rawValue === undefined) {
@@ -455,7 +476,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
           continue
         }
         if (referenced === "undefined") {
-          ownership = false
+          ownership = ownership === true
           continue
         }
         ownership = true
