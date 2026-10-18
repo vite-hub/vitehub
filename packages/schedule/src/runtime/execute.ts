@@ -312,7 +312,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", runtimeOptions.id, scheduledAt))
-  if (existingRun && runtimeOptions.intent === "provider") return existingRun
+  if (existingRun && runtimeOptions.intent !== "provider") return existingRun
   const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
   if (schedule && !schedule.enabled) throw createScheduleError("SCHEDULE_DISABLED")
   if (existingRun) return existingRun
