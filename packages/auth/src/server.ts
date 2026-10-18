@@ -315,8 +315,11 @@ const nativeUint8ArraySlice = Uint8Array.prototype.slice
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false
   try {
-    Reflect.apply(nativeUint8ArraySlice, value, [0, 0])
-    return Object.prototype.toString.call(value) === "[object Uint8Array]"
+    // Slice creates a result with the source view's intrinsic typed-array brand.
+    // Check that result rather than a caller-controlled tag on the input.
+    const probe = Reflect.apply(nativeUint8ArraySlice, value, [0, 1]) as ArrayBufferView
+    return probe.byteLength === 1
+      && Object.prototype.toString.call(probe) === "[object Uint8Array]"
   }
   catch {
     return false
@@ -973,8 +976,11 @@ export function createAuthAccessHandler(
     method: route.method?.toUpperCase(),
     // Request URLs keep the application base path, so match each route below it.
     path: (() => {
-      const resolved = resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route)
-      return resolved.length > 1 ? resolved.replace(/\/$/, "") : resolved
+      const recursive = route.route.endsWith("/**")
+      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      // Recursive roots match both the mount itself and descendants. Preserve
+      // an explicit trailing slash for exact routes.
+      return recursive && resolved.length > 1 ? resolved.replace(/\/$/, "") : resolved
     })(),
     recursive: route.route.endsWith("/**"),
   }))
