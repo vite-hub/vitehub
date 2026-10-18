@@ -80,7 +80,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands,
           cwd,
           networkGrants,
-          signal: execOptions.signal,
+          signal: runOptions.signal,
         })
         if (curlResult) return curlResult
 

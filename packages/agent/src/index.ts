@@ -2401,20 +2401,21 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    let release = await acquireAgentCapacity(definition, context.input.abortSignal)
     const executionBudget = createExecutionBudget({
       ...(context.input.executionBudget || {}),
       ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
       signal: context.input.abortSignal,
     })
+    const invocationInput = {
+      ...context.input,
+      abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+    }
+    let release: (() => void) | undefined
     let budgetDeferred = false
     const disposeBudget = () => executionBudget.dispose()
     try {
-      const invocationInput = {
-        ...context.input,
-        abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
-      }
       context = { ...context, input: invocationInput }
+      release = await acquireAgentCapacity(definition, invocationInput.abortSignal)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2438,12 +2439,11 @@ function createSyntheticWorkspaceRun<
         await Promise.allSettled([...new Set(eagerStreams)].map(stream => cancellableAsyncIterableSource(stream).cancel()))
       }
       const output = textOutput ?? result
-      if (!release) return output
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
         budgetDeferred = true
-        const response = await withResponseCleanup(output, async () => { disposeBudget(); finish() }, { abortSignal: context.input.abortSignal })
+        const response = await withResponseCleanup(output, async () => { disposeBudget(); finish?.() }, { abortSignal: context.input.abortSignal })
         release = undefined
         return response
       }
@@ -2451,7 +2451,7 @@ function createSyntheticWorkspaceRun<
         const finish = release
         const source = cancellableAsyncIterableSource(output)
         budgetDeferred = true
-        const streamed = withCapabilityCleanup(source.stream, async () => { disposeBudget(); finish() }, {
+        const streamed = withCapabilityCleanup(source.stream, async () => { disposeBudget(); finish?.() }, {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
@@ -2471,7 +2471,7 @@ function createSyntheticWorkspaceRun<
           finished = true
           context.input.abortSignal?.removeEventListener("abort", onAbort)
           await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
-          capacityRelease()
+          capacityRelease?.()
           disposeBudget()
         }
         const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
@@ -4449,7 +4449,9 @@ async function parseAgentInputData<TInput extends AgentRunInput<unknown>>(
 ): Promise<TInput> {
   const schema = definition?.[baseAgentData]
   if (!schema) return input
-  return copyAgentInvocationCallerAbortSignal(input, { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") })
+  const parsed = { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") }
+  transferParsedAgentWorkflowInput(input, parsed)
+  return copyAgentInvocationCallerAbortSignal(input, parsed)
 }
 
 // Controller cancellation is internal unless the caller supplied its own signal.
