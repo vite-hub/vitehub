@@ -69,9 +69,16 @@ function toConfigPath(rootDir: string, file: string): string {
 function withProjectBinPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") || "PATH"
   const processPathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") || "PATH"
+  const invokingRoot = process.cwd()
+  const bins = [
+    join(rootDir, "node_modules", ".bin"),
+    join(invokingRoot, "node_modules", ".bin"),
+    env[pathKey],
+    process.env[processPathKey],
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
   return {
     ...env,
-    [pathKey]: [join(rootDir, "node_modules", ".bin"), env[pathKey] ?? process.env[processPathKey]].filter(Boolean).join(delimiter),
+    [pathKey]: bins.join(delimiter),
   }
 }
 

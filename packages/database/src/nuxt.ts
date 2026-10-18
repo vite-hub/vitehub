@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, readdir, readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -22,6 +22,7 @@ import { renderPostgresDatabaseExpression } from "./internal/runtime-config-expr
 import { hubDb as hubDbVite } from "./vite.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import type { CollectedDatabaseContribution } from "./contributions.ts"
+import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
@@ -159,7 +160,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           for (const contribution of contributions) {
             const module = contribution.definition.module.split("#", 1)[0]!
             try {
-              definitionFiles.add(createRequire(pathToFileURL(resolve(root, "package.json"))).resolve(module))
+              await collectWatchedModuleFiles(createRequire(pathToFileURL(resolve(root, "package.json"))).resolve(module), createRequire(pathToFileURL(resolve(root, "package.json"))), definitionFiles)
             }
             catch {
               definitionFiles.add(resolve(root, module))
@@ -255,6 +256,24 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
   module.getModuleDependencies = nuxt => resolveNuxtContentModuleDependencies(options, nuxt)
 
   return module
+}
+
+async function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = resolve(file)
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  for (const child of require.cache?.[file]?.children ?? []) await collectWatchedModuleFiles(child.filename, require, files, seen)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectWatchedModuleFiles(resolved, require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by Nuxt */ }
+  }
 }
 
 function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof readProvisionStateSync>, databaseName: unknown) {
