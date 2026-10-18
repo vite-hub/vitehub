@@ -1,6 +1,6 @@
 import { ConnectionError } from "./errors.ts"
 
-import type { ConnectionApiCatalog, ConnectionApiKeyFallback, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
+import type { ConnectionApiCatalog, ConnectionApiKeyFallback, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition, ConnectionRequestPolicy } from "./types.ts"
 
 export interface ApiKeyProviderOptions<TApis extends object = object> {
   /** Provider id shown in inspection and the Console. Default: `"api-key"`. */
@@ -16,6 +16,10 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   origins: readonly string[]
   /** Typed API catalogs. Their root URLs also receive the key. */
   apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The key is also sent there. */
+  mcp?: string
+  /** Pacing, retries, and a timeout for provider requests. */
+  requests?: ConnectionRequestPolicy
   /**
    * The key to use while no key was ever set in the Console or with `vitehub connections set-key`,
    * for example `() => useServerEnv().example.token`. A sealed Server Env secret is unsealed. It also
@@ -51,6 +55,17 @@ function apiKeyOrigin(value: string): string | undefined {
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/") return undefined
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname))) return undefined
   return url.origin
+}
+
+/** Whether a credential may go to this endpoint URL: HTTPS or loopback, without credentials, query, or fragment. */
+export function isSafeEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password && !url.search && !url.hash && apiKeyOrigin(url.origin) !== undefined
+  }
+  catch {
+    return false
+  }
 }
 
 /** Whether the provider header and origins can carry a key safely. */
@@ -108,6 +123,8 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
     apis: options.apis ?? ({} as ConnectionApiKeyProvider<TApis>["apis"]),
   }
   if (scheme !== undefined) Object.assign(provider, { scheme })
+  if (options.mcp !== undefined) Object.assign(provider, { mcp: options.mcp })
+  if (options.requests !== undefined) Object.assign(provider, { requests: options.requests })
   if (options.fallback) provider.fallback = options.fallback
   if (options.verify) provider.verify = options.verify
   // SAFETY: The provider API map is constrained by the generic catalog contract.
@@ -122,6 +139,9 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
   })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {
     throw new ConnectionError("invalid", "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.")
+  }
+  if (options.mcp !== undefined && !isSafeEndpoint(options.mcp)) {
+    throw new ConnectionError("invalid", "The API key provider mcp endpoint must be an HTTPS or loopback URL without credentials, query, or fragment.")
   }
   return provider
 }

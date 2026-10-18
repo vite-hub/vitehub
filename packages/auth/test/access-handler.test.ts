@@ -59,7 +59,7 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("preserves foreign cookie methods that require their Headers receiver", async () => {
+  it("rejects carrier-owned cookie accessors before invoking them", async () => {
     const source = new ForeignResponse("Policy rejected", {
       status: 409,
       headers: [["x-policy", "custom"], ["set-cookie", "first=1"], ["set-cookie", "second=2"]],
@@ -75,12 +75,8 @@ describe("Auth access handlers", () => {
     }))
 
     const result = await handler(new Request("https://app.example/"))
-    expect(result).toBeInstanceOf(Response)
-    expect(result?.status).toBe(409)
-    expect(result?.headers.get("x-policy")).toBe("custom")
-    expect(result?.headers.getSetCookie()).toEqual(["first=1", "second=2"])
-    await expect(result?.text()).resolves.toBe("Policy rejected")
-    expect(getSetCookie).toHaveBeenCalledOnce()
+    expect(result).toMatchObject({ status: 403 })
+    expect(getSetCookie).not.toHaveBeenCalled()
   })
 
   it("rejects foreign cookie headers without a separate cookie accessor", async () => {
