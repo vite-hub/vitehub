@@ -17,6 +17,7 @@ import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
+import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
@@ -212,6 +213,9 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
+  if (options.extends !== undefined && options.workspace !== undefined) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
+  }
   const { source, sources, collections, authorize, ...sharedOptions } = options
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace

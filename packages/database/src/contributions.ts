@@ -118,7 +118,7 @@ function flattenPluginOptions(value: unknown, plugins: object[], seen: Set<unkno
     return
   }
   // Vite resolves promised plugin options before `configResolved`; unresolved promises cannot contribute.
-  if (!isPlainObject(value) || seen.has(value) || value.then instanceof Function) return
+  if (!isPlainObject(value) || seen.has(value) || typeof Reflect.get(value, "then") === "function") return
   seen.add(value)
   plugins.push(value)
 }
@@ -199,7 +199,7 @@ export async function collectDatabaseContributions(
     if (!value) continue
     const pluginName: unknown = Reflect.get(plugin, "name")
     const contributor = isNonEmptyString(pluginName) ? pluginName : "unnamed plugin"
-    const entries: unknown = value instanceof Function ? await Reflect.apply(value, undefined, [context]) : value
+    const entries: unknown = typeof value === "function" ? await Reflect.apply(value, undefined, [context]) : value
     if (!entries) continue
     if (!Array.isArray(entries)) throw invalidContribution(contributor, "`vitehub.databases` must be an array or return one.")
     for (const entry of entries) {
