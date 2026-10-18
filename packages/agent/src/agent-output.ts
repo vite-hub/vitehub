@@ -1054,7 +1054,9 @@ function isResponseLike(value: unknown): value is Response {
     // accessor contract before accepting an output as a byte stream.
     const read = (key: string): unknown => {
       let prototype: object | null = value
-      while (prototype) {
+      const visited = new Set<object>()
+      for (let hop = 0; prototype && hop < 100 && !visited.has(prototype); hop++) {
+        visited.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
         if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
         prototype = Object.getPrototypeOf(prototype) as object | null
@@ -1098,12 +1100,13 @@ function isResponseLike(value: unknown): value is Response {
     // The supported independent ponyfill stores its body machinery on each
     // instance. Require that implementation surface for unbranded own-tag
     // responses instead of trusting caller-controlled constructor metadata.
+    const registeredResponse = isTrustedResponseConstructor(constructorDescriptor.value)
     if (ownResponseTag && !trustedResponse) {
       // Foreign Fetch implementations must opt in at their adapter boundary.
       // Public fields such as `_bodyFactory` are copyable and do not establish provenance.
-      if (!isTrustedResponseConstructor(constructorDescriptor.value)) return false
+      if (!registeredResponse) return false
     }
-    if (!trustedResponse && !ownResponseTag) return false
+    if (!trustedResponse && !registeredResponse && !ownResponseTag) return false
     const status = read("status")
     const statusText = read("statusText")
     const headers = read("headers")
