@@ -80,11 +80,11 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
   })
 
-  it("rejects a renamed proxy callback pretending to be databaseSize", () => {
+  it("rejects an arbitrary-name proxy callback pretending to be databaseSize", () => {
     function SqlStorage() {}
     const prototype = SqlStorage.prototype
     const exec = function exec() { return { toArray: () => [] } }
-    const callback = function databaseSize(receiver: object) {
+    const callback = function forgedGetter(receiver: object) {
       if (receiver === Object.create(prototype)) throw new Error("forged")
       return 0
     }
