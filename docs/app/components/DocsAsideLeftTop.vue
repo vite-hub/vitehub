@@ -8,7 +8,8 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  return category || "Getting started";
+
+  return category && category !== currentSection.value?.title ? category : "Getting started";
 });
 const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
@@ -20,8 +21,7 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
       class="vh-sidebar-search"
       :ui="{
         base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        // Touch screens have no keyboard shortcut to show.
-        trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
+        trailing: 'ms-auto flex items-center gap-1',
       }"
     />
 
@@ -36,7 +36,7 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
         class="size-4 shrink-0 text-muted"
       />
       <span class="vh-docs-context-copy">
-        <span v-if="sectionCategory" class="vh-docs-context-category">{{ sectionCategory }}</span>
+        <span class="vh-docs-context-category">{{ sectionCategory }}</span>
         <span class="vh-docs-context-title">{{ sectionTitle }}</span>
       </span>
       <UIcon name="i-lucide-arrow-up-right" class="vh-docs-context-arrow size-3.5 shrink-0" aria-hidden="true" />
@@ -122,6 +122,16 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
   font-size: 0.625rem;
   font-weight: 600;
 
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.vh-docs-context-title {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;

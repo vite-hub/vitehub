@@ -82,6 +82,11 @@ describe("apiKey()", () => {
     { id: "has space", origins: ["https://api.example.com"] },
     { apis: { items: { methods: {}, rootUrl: "http://api.example.com" } }, origins: ["https://api.example.com"] },
     { apis: { items: { methods: {}, rootUrl: "https://api.example.com/v1" } }, origins: ["https://api.example.com"] },
+    { mcp: "http://mcp.example.com/mcp", origins: ["https://api.example.com"] },
+    { mcp: "https://user:pass@mcp.example.com/mcp", origins: ["https://api.example.com"] },
+    { mcp: "https://mcp.example.com/mcp?key=1", origins: ["https://api.example.com"] },
+    { mcp: "https://mcp.example.com/mcp#tools", origins: ["https://api.example.com"] },
+    { mcp: "not a url", origins: ["https://api.example.com"] },
   ])("rejects an unsafe provider (%o)", (options) => {
     expect(() => apiKey(options)).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
   })
@@ -94,6 +99,18 @@ describe("apiKey()", () => {
 })
 
 describe("API key Connections", () => {
+  it("sends the key to the provider mcp endpoint and reports it", async () => {
+    const test = harness(apiKey({ mcp: "https://mcp.example.com/mcp", origins: ["https://api.example.com"] }), { server: { read: true, write: ["fetch"] } })
+    expect(await test.runtime.inspect("executor")).toMatchObject({ mcp: "https://mcp.example.com/mcp" })
+    await test.runtime.setKey({ key: KEY, name: "executor" })
+
+    await test.runtime.client("executor", {}).fetch("https://mcp.example.com/mcp", { body: "{}", method: "POST" })
+    expect(test.calls.at(-1)).toMatchObject({ body: "{}", method: "POST", url: "https://mcp.example.com/mcp" })
+    expect(test.calls.at(-1)!.headers.get("authorization")).toBe(`Bearer ${KEY}`)
+    expect(apiKey({ mcp: "http://127.0.0.1:8787/mcp", origins: ["https://api.example.com"] })).toMatchObject({ mcp: "http://127.0.0.1:8787/mcp" })
+    expect(apiKey({ origins: ["https://api.example.com"] })).not.toHaveProperty("mcp")
+  })
+
   it("stores a key, sends it only in the provider header, and never returns it", async () => {
     const test = harness(apiKey({ header: "x-api-key", origins: ["https://api.example.com"] }))
     expect(await test.runtime.inspect("executor")).toMatchObject({ credential: "api-key", scopes: { declared: [], missing: [] }, status: "disconnected" })

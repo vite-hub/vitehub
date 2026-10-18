@@ -14,7 +14,7 @@ const allowedPostgresKeys = {
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isPlainObject(value)) {
-    throw databaseErrorDiagnostics.DATABASE_C0004({ message: `\`${label}\` must be a plain object.` })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_OPTIONS({ path: label })
   }
 }
 
@@ -33,12 +33,12 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
 
   const unknownKey = Object.keys(options).find(key => !allowedOptionKeys.has(key))
   if (unknownKey) {
-    throw databaseErrorDiagnostics.DATABASE_C0005({ message: `\`defineDatabase()\` does not support the "${unknownKey}" option.` })
+    throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ option: unknownKey })
   }
 
   const dialect = options.dialect ?? "sqlite"
   if (dialect !== "sqlite" && dialect !== "postgresql") {
-    throw databaseErrorDiagnostics.DATABASE_C0011({ message: "`defineDatabase().dialect` must be `sqlite` or `postgresql`." })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_DIALECT({})
   }
 
   assertPlainObject(options.schema, "defineDatabase().schema")
@@ -58,12 +58,12 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
 
   const casing = options.drizzle?.casing
   if (typeof casing !== "undefined" && casing !== "snake_case" && casing !== "camelCase") {
-    throw databaseErrorDiagnostics.DATABASE_C0006({ message: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`." })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_CASING()
   }
 
   const name = options.name?.trim() || "default"
   if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(name)) {
-    throw databaseErrorDiagnostics.DATABASE_C0007({ message: "`defineDatabase().name` must be a normalized path using letters, numbers, dots, underscores, or dashes." })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_NAME()
   }
 
   if (options.dialect === "postgresql") {
@@ -72,7 +72,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
       ...Object.keys(options.connection ?? {}).filter(key => !allowedPostgresKeys.connection.has(key)).map(key => `connection.${key}`),
     ][0]
     if (unsupported) {
-      throw databaseErrorDiagnostics.DATABASE_C0012({ message: `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${unsupported}\`.` })
+      throw databaseErrorDiagnostics.DATABASE_UNKNOWN_OPTION({ dialect: "postgresql", option: unsupported })
     }
     const postgresDefinition: PostgresDatabaseDefinition<TSchema> = {
       dialect: "postgresql",

@@ -82,8 +82,8 @@ export function describeDatabaseContribution(contribution: CollectedDatabaseCont
 }
 
 /**
- * Collects `vitehub.databases` contributions from Vite plugins. Invalid entries fail with `DATABASE_B0012`. Two
- * contributions with one name fail with `DATABASE_B0010`.
+ * Collects `vitehub.databases` contributions from Vite plugins. Invalid entries and two
+ * contributions with one name fail with `DATABASE_INVALID_CONTRIBUTION`.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
@@ -91,9 +91,9 @@ export async function collectDatabaseContributions(
 ): Promise<CollectedDatabaseContribution[]> {
   return await collectContributions(plugins, {
     context,
-    duplicate: message => databaseErrorDiagnostics.DATABASE_B0010({ message }),
+    duplicate: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
     fields: readDatabaseFields,
-    invalid: message => databaseErrorDiagnostics.DATABASE_B0012({ message }),
+    invalid: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
     key: "databases",
     kind: "Database tables",
   })
@@ -101,8 +101,8 @@ export async function collectDatabaseContributions(
 
 /**
  * Assigns each contribution to a Database Definition. A contribution without `database` targets the default or only
- * Database. A missing, ambiguous, or absent target, or a target with another dialect, fails with `DATABASE_B0011` and
- * names the choices.
+ * Database. A missing, ambiguous, or absent target, or a target with another dialect, fails with
+ * `DATABASE_INVALID_CONTRIBUTION_TARGET` and names the choices.
  */
 export function resolveDatabaseContributionTargets(
   databaseNames: readonly string[],
@@ -110,26 +110,26 @@ export function resolveDatabaseContributionTargets(
   dialects: Readonly<Record<string, DatabaseDialect>> = {},
 ): Record<string, ResolvedDatabaseContribution[]> {
   const byDatabase: Record<string, ResolvedDatabaseContribution[]> = Object.create(null)
-  const choices = databaseNames.length ? [...databaseNames].sort().map(name => JSON.stringify(name)).join(", ") : "none"
+  const choices = [...databaseNames].sort()
   for (const contribution of contributions) {
     const source = `Tables ${describeDatabaseContribution(contribution)}`
     let database = contribution.database
     if (database === undefined) {
       const resolution = resolveDefaultDatabase(databaseNames)
       if (resolution.status === "none") {
-        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} need a Database, but the app has no Database Definition. Add \`server/databases/config.ts\` with \`defineDatabase({ schema: {} })\`.` })
+        throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ reason: "none", source })
       }
       if (resolution.status === "ambiguous") {
-        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} target the default or only Database, but the app has several Database Definitions and none is named "default": ${choices}. Choose one with the contribution's \`database\` option.` })
+        throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ choices, reason: "ambiguous", source })
       }
       database = resolution.name
     }
     else if (!databaseNames.includes(database)) {
-      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} target Database ${JSON.stringify(database)}, which has no Database Definition. Database Definitions: ${choices}.` })
+      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ choices, database, reason: "missing", source })
     }
     const targetDialect = dialects[database]
     if (contribution.dialect && targetDialect && contribution.dialect !== targetDialect) {
-      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} use the ${JSON.stringify(contribution.dialect)} dialect, but Database ${JSON.stringify(database)} uses ${JSON.stringify(targetDialect)}.` })
+      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ database, dialect: contribution.dialect, reason: "dialect", source, targetDialect })
     }
     ;(byDatabase[database] ??= []).push({ ...contribution, database })
   }

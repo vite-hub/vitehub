@@ -486,14 +486,17 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
         const value = rawValue === key
           ? readOpaqueDeclarationExpression(key, source)?.trim()
           : rawValue
-        if (value === "true") httpOnly = true
+        if (value === "true" || objectLiteralBody(value) !== undefined) httpOnly = true
         else if (value === "false") httpOnly = false
         else httpOnly = undefined
         continue
       }
       if (normalized.startsWith("...")) {
         const spreadExpression = normalized.slice(3)
-        const spread = readOpaqueHttpOnly(spreadExpression, source, seen)
+        // Each sibling spread is an independent object traversal. Reusing the
+        // visited set can turn a previously proven HTTP-only value into an
+        // unresolved result when both paths reference the same nested object.
+        const spread = readOpaqueHttpOnly(spreadExpression, source, new Set(seen))
         if (opaqueObjectContainsKey(spreadExpression, source, "http")) httpOnly = spread
       }
     }

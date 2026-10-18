@@ -20,9 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) =>
-    !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) &&
-    !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -121,15 +119,15 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
 
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
+  it("gives component pages the shared article layout and page outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain("UContentToc");
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -154,6 +152,7 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -165,18 +164,25 @@ describe("UI documentation", () => {
     expect(rail).toContain("<template #default");
   });
 
+
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
+    expect(sidebarPanel).toContain("vh-docs-aside");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(sidebarPanel).toContain("overflow: auto;");
+    expect(layout).toContain("overflow-x: clip;");
+
+    expect(layout).toContain("overflow: visible;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
@@ -188,6 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toMatch(/server primitives/i);
   });
 });

@@ -96,7 +96,7 @@ describe("discoverDatabaseDefinitions", () => {
       "",
     ].join("\n"))
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow('must set `name: "analytics"`')
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_NAME_MISMATCH", why: expect.stringContaining('must set `name: "analytics"`') }))
   })
 
   it("decodes a static escaped Definition name", async () => {
@@ -155,7 +155,7 @@ describe("discoverDatabaseDefinitions", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
     await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow("either one default database or all named databases")
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_MIXED_DEFINITIONS" }))
   })
 })
 
@@ -462,6 +462,37 @@ describe("resolveDBViteConfig", () => {
         "import { defineDatabase } from '@vite-hub/database'",
         "const cloudflare = { http: true }",
         `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
+  it("preserves HTTP-only state across repeated sibling spreads", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const http = { http: true }",
+        "const first = { ...http }",
+        "const second = { ...http }",
+        `export default defineDatabase({ name: '${name}', cloudflare: { ...first, ...second, binding: 'DB_SHARED' }, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
+  it("treats static HTTP configuration objects as HTTP-only", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `export default defineDatabase({ name: '${name}', cloudflare: { binding: 'DB_SHARED', http: { url: 'https://proxy.example' } }, schema: {} })`,
       ].join("\n"))
     }
 

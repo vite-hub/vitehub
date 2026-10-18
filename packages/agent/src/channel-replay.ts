@@ -23,11 +23,6 @@ import type {
 
 export { channelMessageRunId }
 
-/** @deprecated Use channelMessageRunId. */
-export function channelReplayRunId(channel: string, key: string, options: { dryRun?: boolean } = {}): string {
-  return channelMessageRunId(channel, key, options)
-}
-
 export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Actor supplied by a verified host entry point. */
   actor?: AgentActor
