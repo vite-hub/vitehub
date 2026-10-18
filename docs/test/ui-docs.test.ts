@@ -163,7 +163,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -188,7 +187,7 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toMatch(/<UPageAside class="vh-docs-aside(?: hidden lg:block)?">/);
+    expect(layout).toMatch(/<UPageAside class="vh-docs-aside">/);
     expect(layout).toContain("flex-direction: column;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
     expect(layout).toContain("flex: 1;");
