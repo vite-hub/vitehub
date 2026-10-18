@@ -18,10 +18,10 @@ const hasPanel = computed(
     <DocsSidebars v-if="!isSupportMatrix" class="vh-docs-desktop-nav" :panel="hasPanel" />
 
     <div class="vh-docs-content">
-      <UContainer v-if="isSupportMatrix">
+      <template v-if="isSupportMatrix">
         <AnnouncementBanner />
         <slot />
-      </UContainer>
+      </template>
 
       <template v-else-if="isLanding">
         <AnnouncementBanner />
