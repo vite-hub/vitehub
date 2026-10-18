@@ -559,46 +559,42 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let owner: string | undefined
     if (fallback.connections?.refreshLeases) {
       owner = await claimMutationLease(context.name)
-      if (await fallback.connections.state.get(context.name) !== undefined) {
-        await fallback.connections.refreshLeases.release(context.name, owner).catch(() => undefined)
+    }
+    try {
+      if (owner && await fallback.connections!.state.get(context.name) !== undefined) {
         throw new ConnectionError("reauth_required", `Connection "${context.name}" must be connected again before requesting access.`, { details: { connection: context.name } })
       }
-    }
-    const operationId = crypto.randomUUID()
-    const record = async (outcome: EnvActivity["outcome"]) => {
-      await fallback.connections?.access.append({
-        action: "use",
-        actor: envActor(context.actor),
-        id: crypto.randomUUID(),
-        key: tokenKey(context.name),
-        operation: providerRequest.action,
-        operationId,
-        outcome,
-        revision: FALLBACK_GRANT,
-        timestamp: new Date(now()).toISOString(),
-        traceId: context.options.traceId,
-        invocationId: context.options.invocationId,
-      })
-    }
-    try {
+      const operationId = crypto.randomUUID()
+      const record = async (outcome: EnvActivity["outcome"]) => {
+        await fallback.connections?.access.append({
+          action: "use",
+          actor: envActor(context.actor),
+          id: crypto.randomUUID(),
+          key: tokenKey(context.name),
+          operation: providerRequest.action,
+          operationId,
+          outcome,
+          revision: FALLBACK_GRANT,
+          timestamp: new Date(now()).toISOString(),
+          traceId: context.options.traceId,
+          invocationId: context.options.invocationId,
+        })
+      }
       await record("started")
+      let response: Response
+      try {
+        response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+      }
+      catch (error) {
+        await record("failed").catch(() => undefined)
+        throw error
+      }
+      await record("succeeded")
+      return response
     }
-    catch (error) {
+    finally {
       if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
-      throw error
     }
-    let response: Response
-    try {
-      response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
-    }
-    catch (error) {
-      await record("failed").catch(() => undefined)
-      if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
-      throw error
-    }
-    await record("succeeded")
-    if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
-    return response
   }
 
   /** Send one provider request with the Connection token inside an audited Env Bridge use. */
