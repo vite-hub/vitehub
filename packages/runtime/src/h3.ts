@@ -70,6 +70,11 @@ function isRequest(value: unknown): value is Request {
             const descriptor = descriptors[name]
             return !descriptor || typeof descriptor.get !== "function"
           })) return false
+          // Request's body operations are part of the host-provided Fetch
+          // surface. Requiring the complete method set prevents a plain
+          // object from passing solely by imitating a handful of accessors.
+          const bodyMethodNames = ["arrayBuffer", "blob", "formData", "json", "text", "clone"] as const
+          if (bodyMethodNames.some(name => typeof descriptors[name]?.value !== "function")) return false
           // A foreign Request must not merely inherit this realm's methods on a
           // caller-controlled prototype. Such copied methods brand-check the
           // receiver against this realm's internal slots and identify a spoof,
