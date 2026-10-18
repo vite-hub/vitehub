@@ -19,7 +19,9 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   if (!isRuntimeObject(value)) return false
   try {
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get?.call(value)
+    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (typeof getter !== "function") return false
+    getter.call(value)
     return true
   }
   catch {
