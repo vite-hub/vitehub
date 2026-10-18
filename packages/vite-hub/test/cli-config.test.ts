@@ -51,6 +51,15 @@ describe("ViteHub CLI config loading", () => {
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
 
+  it("handles regular expression braces before the Agent CLI opt-out", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      export default { vitehub: { pattern: /}/, agent: { cli: false } } }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
   it("does not treat unrelated agent options in a plugin call as ViteHub config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)
@@ -237,6 +246,46 @@ export default ({ command, mode }) => ({
       ]),
     );
   });
+
+  it("keeps Nitro config logs out of JSON output", async () => {
+    // The app stays inside the package so its config resolves the installed Nitro, Blob, and Env packages.
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-json-nitro-"));
+    roots.push(root);
+    await writeFile(join(root, "index.html"), "<!doctype html><html><body></body></html>\n");
+    await writeFile(
+      join(root, "vite.config.ts"),
+      `
+import { hubBlob } from "@vite-hub/blob/vite"
+import { hubEnv } from "@vite-hub/env/vite"
+import { nitro } from "nitro/vite"
+export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), nitro()] }
+`,
+    );
+    const run = (args: string[]) => execFileAsync(
+      process.execPath,
+      [bin, ...args],
+      // Consola hides info logs under Vitest, so restore the level a developer sees.
+      { cwd: root, env: { ...process.env, CONSOLA_LEVEL: "3" } },
+    ).then(
+      result => ({ code: 0, ...result }),
+      (error: { code: number, stderr: string, stdout: string }) => error,
+    );
+
+    // The CLI loads the project config before every project command.
+    const blob = await run(["blob", "list", "--json", "--url", "http://127.0.0.1:1"]);
+    expect(blob).toMatchObject({ code: 1, stderr: expect.stringContaining("as renderer template") });
+    // JSON.parse fails when any log line comes before the payload.
+    expect(JSON.parse(blob.stdout)).toEqual({
+      error: { message: expect.stringContaining("No Compatible Vite Development Server found at http://127.0.0.1:1.") },
+    });
+
+    // `env check` also starts a stage Development Server, which loads the config again.
+    const env = await run(["env", "check", "--json"]);
+    expect(env).toMatchObject({ code: 0, stderr: expect.stringContaining("as renderer template") });
+    expect(env.stdout).toBe(`${JSON.stringify({ entries: [], ok: true, stage: "development" }, null, 2)}\n`);
+  }, 60_000);
 
   it("cancels an Agent Invocation through a deployed Console without loading the project config", async () => {
     const root = await createProject("vite");

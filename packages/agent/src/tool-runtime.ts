@@ -18,6 +18,7 @@ import type {
 } from "./types.ts"
 
 const approvalPreservingExecutorOwners = new WeakMap<Function, AgentToolPolicyOwner | null>()
+const budgetWrappedExecutors = new WeakMap<object, (...args: unknown[]) => unknown>()
 
 function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
   const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
@@ -121,7 +122,8 @@ export async function executeApprovedAgentTool(
     })
   }
   const approvedContext: AgentToolApprovalExecutionContext = { ...context, [toolApprovalGrantContextKey]: grant }
-  return await tool.execute(binding.input, approvedContext)
+  const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+  return await execute.call(tool, binding.input, approvedContext)
 }
 
 function consumeToolApprovalGrant(policy: AgentToolPolicyOwner, toolName: string, input: unknown, context: AgentToolApprovalExecutionContext | undefined): boolean {
@@ -260,7 +262,9 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
       return await execute.call(tool, input, executionContext)
     }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
-    return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
+    const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })
+    budgetWrappedExecutors.set(wrappedTool, execute)
+    return [name, wrappedTool]
   })) as TTools
 }
 

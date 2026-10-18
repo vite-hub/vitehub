@@ -79,7 +79,9 @@ export function createSourceContext(input: {
       tag: async () => {
         const tag = envValue(input.env, ["GIT_TAG"])
         if (tag) return tag
-        if (input.env.GITHUB_REF_TYPE === "tag") return envValue(input.env, ["GITHUB_REF_NAME"])
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "tag") {
+          return envValue(input.env, ["GITHUB_REF_NAME"])
+        }
         return await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined)
       },
     },
@@ -91,7 +93,7 @@ export function createSourceContext(input: {
 
 function envValue(env: Record<string, string | undefined>, names: string[]): string | undefined {
   for (const name of names) {
-    const value = env[name]
+    const value = Object.hasOwn(env, name) ? env[name] : undefined
     if (value) return value
   }
 }
@@ -112,7 +114,7 @@ export async function resolveBuildConfig(
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    values[key] = result.value
+    setOwnValue(values, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -302,7 +304,7 @@ async function resolveBuildConfigValue(
   const diagnostics: EnvDiagnosticEntry[] = []
   for (const [key, child] of Object.entries(declaration)) {
     const result = await resolveBuildConfigValue(child, `${path}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    value[key] = result.value
+    setOwnValue(value, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -364,6 +366,10 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   }))
 }
 
+function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
+}
+
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
   const typed = schema.kind === "boolean" || schema.kind === "number" ? hasRuntimeType(value, schema.kind) : true
@@ -375,13 +381,13 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
 }
 
 /** The default prefix of canonical variable names. */
-export const defaultEnvPrefix = "VITEHUB_"
+const defaultEnvPrefix = "VITEHUB_"
 
 /**
  * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
  * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
  */
-export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
 
@@ -423,7 +429,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await source.resolver(context) }
     case "env":
       for (const name of source.names || [source.name]) {
-        const value = context.env[name]
+        const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
         if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
           return { label: `env:${name}`, value }
         }
@@ -458,24 +464,37 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
   }
 }
 
-function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+function validateBuildDeclarations(
+  declarations: EnvBuildConfigOptions | undefined,
+  path: string,
+  ancestors: Set<object> = new Set(),
+): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (isEnvVariableDeclaration(declaration)) {
-      if (declaration.mode !== "build") {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+  if (ancestors.has(declarations)) {
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Nested environment declarations cannot contain cycles.`)
+  }
+  ancestors.add(declarations)
+  try {
+    for (const [key, declaration] of Object.entries(declarations)) {
+      const valuePath = `${path}.${key}`
+      if (isEnvVariableDeclaration(declaration)) {
+        if (declaration.mode !== "build") {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+        }
+        if (declaration.secret) {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        }
+        continue
       }
-      if (declaration.secret) {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
-      }
-      continue
+      if (isBuildStaticValue(declaration)) continue
+      validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath, ancestors)
     }
-    if (isBuildStaticValue(declaration)) continue
-    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
+  }
+  finally {
+    ancestors.delete(declarations)
   }
 }
 
@@ -531,7 +550,7 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   return isBuildStaticValue(value)
 }
 
-function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
+function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
   if (value === null) {
     return true
   }
@@ -545,12 +564,21 @@ function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
       if (!Array.isArray(value)) {
         return false
       }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
-          return false
-        }
+      if (ancestors.has(value)) {
+        return false
       }
-      return true
+      ancestors.add(value)
+      try {
+        for (let index = 0; index < value.length; index += 1) {
+          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+            return false
+          }
+        }
+        return true
+      }
+      finally {
+        ancestors.delete(value)
+      }
     default:
       return false
   }

@@ -2,7 +2,7 @@ import { defu } from "defu"
 import { createHash } from "node:crypto"
 
 import { workspaceError } from "../core/errors.ts"
-import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { decodeFile, isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
@@ -334,12 +334,12 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
   if (family === "file" && isPlainRecord(input)) {
     const options: Record<string, unknown> = input
-    if (options.content instanceof Uint8Array) {
+    if (hasOwn(options, "content") && isWorkspaceBytes(options.content)) {
       return {
         ...options,
         get content() {
           const content = options.content
-          return content instanceof Uint8Array ? { sha256: createHash("sha256").update(content).digest("hex") } : content
+          return isWorkspaceBytes(content) ? { sha256: createHash("sha256").update(content).digest("hex") } : content
         },
       }
     }
@@ -368,9 +368,10 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
   }
 
   if (family === "file") {
-    const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
-      ? { ...input.mount, path: "" }
-      : input.mount ?? ""
+    const mountInput = hasOwn(input, "mount") ? input.mount : undefined
+    const mount = typeof mountInput === "object" && mountInput && !Object.hasOwn(mountInput, "path")
+      ? { ...mountInput, path: "" }
+      : mountInput ?? ""
     return copySourceRuntimeOptions(input, {
       mount,
       probeKeys: [inferredFileSourceKey(input)],
@@ -403,20 +404,20 @@ function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceS
 function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Partial<WorkspaceSource> = {}): Partial<WorkspaceSource> {
   return {
     ...defaults,
-    cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
-    materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
-    mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
-    probeKeys: input.probeKeys as WorkspaceSource["probeKeys"] ?? defaults.probeKeys,
-    sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
-    validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
+    cache: hasOwn(input, "cache") ? input.cache as WorkspaceSource["cache"] ?? defaults.cache : defaults.cache,
+    materialize: hasOwn(input, "materialize") ? input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize : defaults.materialize,
+    mount: hasOwn(input, "mount") ? input.mount as WorkspaceSource["mount"] ?? defaults.mount : defaults.mount,
+    probeKeys: hasOwn(input, "probeKeys") ? input.probeKeys as WorkspaceSource["probeKeys"] ?? defaults.probeKeys : defaults.probeKeys,
+    sync: hasOwn(input, "sync") ? input.sync as WorkspaceSource["sync"] ?? defaults.sync : defaults.sync,
+    validate: hasOwn(input, "validate") ? input.validate as WorkspaceSource["validate"] ?? defaults.validate : defaults.validate,
   }
 }
 
 function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   if (typeof input === "string") return normalizeSafeWorkspacePath(input)
   const options = input as Record<string, unknown>
-  if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
-  if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
+  if (hasOwn(options, "workspacePath") && typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
+  if (hasOwn(options, "path") && typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
   throw workspaceErrorDiagnostics.WORKSPACE_C0006({ message: "[vitehub] file requires a path or workspacePath." })
 }
 
@@ -498,7 +499,7 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
   input: Record<string, unknown>,
   key: TKey,
 ) {
-  if (input[key] !== undefined) {
+  if (hasOwn(input, key) && input[key] !== undefined) {
     target[key] = input[key] as never
   }
 }

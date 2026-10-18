@@ -14,18 +14,25 @@ import type {
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
-  if (!maxLength) return result
-  const next = { ...result, maxOutputLength: maxLength }
+  const limit = normalizeOutputLength(maxLength)
+  if (limit === undefined) return result
+  const next = { ...result, maxOutputLength: limit }
   let truncated = false
-  if (next.stdout.length > maxLength) {
-    next.stdout = `${next.stdout.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
+  if (next.stdout.length > limit) {
+    next.stdout = `${next.stdout.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
     truncated = true
   }
-  if (next.stderr.length > maxLength) {
-    next.stderr = `${next.stderr.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
+  if (next.stderr.length > limit) {
+    next.stderr = `${next.stderr.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
     truncated = true
   }
   return truncated ? { ...next, outputTruncated: true } : next
+}
+
+function normalizeOutputLength(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (value === Number.POSITIVE_INFINITY) return undefined
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function createPolicyObservation(command: string, cwd: string | undefined, message: string): ShellObservation {
@@ -67,6 +74,11 @@ class RuntimeShellSession implements ShellSession {
     if (this.#disposed) {
       return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
+    // Count every attempted shell invocation against the shared Invocation budget,
+    // including calls rejected by the per-session shell cap below.
+    if (options.recordInputBytes !== false) {
+      options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+    }
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
         command,
@@ -76,16 +88,36 @@ class RuntimeShellSession implements ShellSession {
     }
 
     this.#shellCalls += 1
-    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const started = Date.now()
-    const signal = options.budget && options.signal
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
+    const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
+    const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
+    const maxOutputLength = requestedOutputLength === undefined
+      ? policyOutputLength
+      : policyOutputLength === undefined
+        ? requestedOutputLength
+        : Math.min(requestedOutputLength, policyOutputLength)
+    let stdoutRemaining = maxOutputLength
+    let stderrRemaining = maxOutputLength
+    const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
+      callback && ((data: string) => {
+        const limit = remaining()
+        if (limit === undefined) return callback(data)
+        if (limit <= 0) return
+        const chunk = data.slice(0, limit)
+        consume(chunk.length)
+        if (chunk) callback(chunk)
+      })
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
+      maxOutputLength,
       signal,
       timeout: options.timeout ?? this.policy.timeout,
+      onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
+      onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
     })
     options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
@@ -102,7 +134,7 @@ class RuntimeShellSession implements ShellSession {
       stdout: result.stdout,
       timedOut,
       workspaceGuardrail: result.workspaceGuardrail,
-    }, this.policy.maxOutputLength)
+    }, maxOutputLength)
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
@@ -213,7 +245,7 @@ class RuntimeShellSession implements ShellSession {
 
 export function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime {
   const { provider } = options
-  const policy = options.policy ?? {}
+  const policy = { ...(options.policy ?? {}) }
   return {
     boundary: provider.boundary,
     createSession(sessionOptions: CreateShellSessionOptions = {}) {

@@ -1,17 +1,10 @@
-import { assertRuntimeScheduleId, createScheduleError } from "../errors.ts"
-
-import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunListOptions, ScheduleRunStore } from "../types.ts"
+import type { ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunListOptions, ScheduleRunStore } from "../types.ts"
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface KVScheduleStoreOptions {
   kvStore: ScheduleKVStorage
   prefix?: string
-}
-
-type StoredRuntimeScheduleRecord = Omit<RuntimeScheduleRecord, "createdAt" | "updatedAt"> & {
-  createdAt: string
-  updatedAt: string
 }
 
 type StoredScheduleRunRecord = Omit<ScheduleRunRecord, "completedAt" | "createdAt" | "scheduledAt" | "startedAt" | "updatedAt"> & {
@@ -48,14 +41,18 @@ function trimPrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "")
 }
 
+/**
+ * Decoded trailing segments of a listed key. Some KV stores, such as unstorage, list keys with `:` instead of `/`.
+ * Encoded parts contain neither, so both separators are safe to split on.
+ */
+function keySegments(key: string, count: number): string[] {
+  return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
+}
+
 function joinKey(prefix: string, ...parts: string[]): string {
   const base = trimPrefix(prefix)
   const suffix = parts.map(encodeURIComponent).join("/")
   return base ? `${base}/${suffix}` : suffix
-}
-
-function runtimeScheduleKey(prefix: string, id: string): string {
-  return joinKey(prefix, "runtime-schedules", id)
 }
 
 function scheduleRunKey(prefix: string, id: string): string {
@@ -66,57 +63,12 @@ function scheduleRunAttemptKey(prefix: string, id: string): string {
   return joinKey(prefix, "schedule-run-attempts", id)
 }
 
-function runtimeScheduleBase(prefix: string): string {
-  return joinKey(prefix, "runtime-schedules")
-}
-
 function scheduleRunBase(prefix: string): string {
   return joinKey(prefix, "schedule-runs")
 }
 
 function scheduleRunAttemptBase(prefix: string): string {
   return joinKey(prefix, "schedule-run-attempts")
-}
-
-function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {
-  return {
-    ...record,
-    createdAt: new Date(record.createdAt),
-    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
-    updatedAt: new Date(record.updatedAt),
-  }
-}
-
-function serializeRuntimeSchedule(record: RuntimeScheduleRecord): StoredRuntimeScheduleRecord {
-  return {
-    ...record,
-    createdAt: record.createdAt.toISOString(),
-    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
-    updatedAt: record.updatedAt.toISOString(),
-  }
-}
-
-function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): RuntimeScheduleRecord {
-  return {
-    ...record,
-    createdAt: new Date(record.createdAt),
-    ...(record.input !== undefined ? { input: structuredClone(record.input) } : {}),
-    updatedAt: new Date(record.updatedAt),
-  }
-}
-
-function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
-  const result: RuntimeScheduleUpdateInput = {
-    ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
-    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-    ...(Object.hasOwn(patch, "input") ? { input: structuredClone(patch.input) } : {}),
-    ...(patch.target !== undefined ? { target: patch.target } : {}),
-    ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
-  }
-  if (Object.hasOwn(patch, "console")) {
-    result.console = patch.console ? { ...patch.console } : patch.console
-  }
-  return result
 }
 
 const keyLocks = new Map<string, Promise<void>>()
@@ -139,101 +91,6 @@ async function withKVKeyLock<T>(key: string, operation: () => Promise<T>): Promi
     if (keyLocks.get(key) === queued) {
       keyLocks.delete(key)
     }
-  }
-}
-
-export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
-  const records = new Map<string, RuntimeScheduleRecord>()
-
-  return {
-    create(record) {
-      assertRuntimeScheduleId(record.id)
-      if (records.has(record.id)) {
-        throw createScheduleError("SCHEDULE_ALREADY_EXISTS")
-      }
-      records.set(record.id, cloneRuntimeSchedule(record))
-      return cloneRuntimeSchedule(record)
-    },
-    delete(id) {
-      return records.delete(id)
-    },
-    get(id) {
-      const record = records.get(id)
-      return record ? cloneRuntimeSchedule(record) : undefined
-    },
-    list() {
-      return [...records.values()].map(cloneRuntimeSchedule)
-    },
-    update(id: string, patch: RuntimeScheduleUpdateInput & { updatedAt: Date }) {
-      const existing = records.get(id)
-      if (!existing) {
-        return undefined
-      }
-
-      const next = cloneRuntimeSchedule({
-        ...existing,
-        ...omitUndefinedPatch(patch),
-        updatedAt: patch.updatedAt,
-      })
-      records.set(id, next)
-      return cloneRuntimeSchedule(next)
-    },
-  }
-}
-
-export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions): RuntimeScheduleStore {
-  const prefix = options.prefix ?? "vitehub:schedule"
-
-  const store = options.kvStore
-
-  return {
-    async create(record) {
-      assertRuntimeScheduleId(record.id)
-      const key = runtimeScheduleKey(prefix, record.id)
-      return await withKVKeyLock(key, async () => {
-        if (await store.has(key)) {
-          throw createScheduleError("SCHEDULE_ALREADY_EXISTS")
-        }
-        await store.set(key, serializeRuntimeSchedule(record))
-        return cloneRuntimeSchedule(record)
-      })
-    },
-    async delete(id) {
-      const key = runtimeScheduleKey(prefix, id)
-      return await withKVKeyLock(key, async () => {
-        const exists = await store.has(key)
-        if (!exists) {
-          return false
-        }
-        await store.del(key)
-        return true
-      })
-    },
-    async get(id) {
-      const record = await store.get<StoredRuntimeScheduleRecord>(runtimeScheduleKey(prefix, id))
-      return record ? deserializeRuntimeSchedule(record) : undefined
-    },
-    async list() {
-      const keys = await store.keys(runtimeScheduleBase(prefix))
-      const records = await Promise.all(keys.map(key => store.get<StoredRuntimeScheduleRecord>(key)))
-      return records.flatMap(record => record ? [deserializeRuntimeSchedule(record)] : [])
-    },
-    async update(id, patch) {
-      const key = runtimeScheduleKey(prefix, id)
-      return await withKVKeyLock(key, async () => {
-        const existing = await store.get<StoredRuntimeScheduleRecord>(key)
-        if (!existing) {
-          return undefined
-        }
-        const next = cloneRuntimeSchedule({
-          ...deserializeRuntimeSchedule(existing),
-          ...omitUndefinedPatch(patch),
-          updatedAt: patch.updatedAt,
-        })
-        await store.set(key, serializeRuntimeSchedule(next))
-        return cloneRuntimeSchedule(next)
-      })
-    },
   }
 }
 
@@ -374,16 +231,15 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
 }
 
 function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions = {}): ScheduleRunRecord[] {
-  const selected = runs.filter(run => (options.scheduleId === undefined || run.scheduleId === options.scheduleId)
-    && (!options.runtimeOnly || run.id.startsWith("srun_runtime_")))
-  if (options.limit === undefined) return selected
-  return selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime()).slice(0, options.limit)
+  const selected = runs.filter(run => options.scheduleId === undefined || run.scheduleId === options.scheduleId)
+  selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime())
+  return options.limit === undefined ? selected : selected.slice(0, options.limit)
 }
 
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split("/").slice(-3).map(decodeURIComponent)
+    const parts = keySegments(key, 3)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -424,25 +280,20 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     }))
     type IndexedRun = { key: string, scheduledAt: number }
     const known: IndexedRun[] = []
-    const runtime: IndexedRun[] = []
-    const bySchedule = new Map<string, { all: IndexedRun[], runtime: IndexedRun[] }>()
+    const bySchedule = new Map<string, IndexedRun[]>()
     const unknown: string[] = []
     const recordsByKey = new Map<string, ScheduleRunRecord | undefined>()
     function groupRun(key: string, metadata: { id: string, scheduleId: string, scheduledAt: number }) {
       const entry = { key, scheduledAt: metadata.scheduledAt }
       known.push(entry)
-      const group = bySchedule.get(metadata.scheduleId) ?? { all: [], runtime: [] }
+      const group = bySchedule.get(metadata.scheduleId) ?? []
       bySchedule.set(metadata.scheduleId, group)
-      group.all.push(entry)
-      if (metadata.id.startsWith("srun_runtime_")) {
-        runtime.push(entry)
-        group.runtime.push(entry)
-      }
+      group.push(entry)
     }
     for (const key of keys) {
       let id: string
       try {
-        id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+        id = keySegments(key, 1)[0]!
       }
       catch {
         unknown.push(key)
@@ -459,7 +310,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     // ordered prefix. Callers receive an explicit incomplete-history result,
     // so no partial set can be mistaken for the newest or complete history.
     if (unknown.length > maxLegacyHistoryRecords) {
-      return { keys, known, runtime, bySchedule, recordsByKey, unknown }
+      return { keys, known, bySchedule, recordsByKey, unknown }
     }
     // Group legacy records once per snapshot, even when their index cannot be published.
     // The over-cap case returned above, so every remaining legacy key is read.
@@ -477,10 +328,10 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
         if (run) groupRun(key, { id: run.id, scheduleId: run.scheduleId, scheduledAt: run.scheduledAt.getTime() })
       }
     }
-    for (const entries of [known, runtime, ...[...bySchedule.values()].flatMap(group => [group.all, group.runtime])]) {
+    for (const entries of [known, ...bySchedule.values()]) {
       entries.sort((left, right) => right.scheduledAt - left.scheduledAt)
     }
-    return { keys, known, runtime, bySchedule, recordsByKey, unknown }
+    return { keys, known, bySchedule, recordsByKey, unknown }
   }
 
   async function listRuns(options: ScheduleRunListOptions, snapshot: Awaited<ReturnType<typeof readSnapshot>>) {
@@ -491,13 +342,12 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       throw new ScheduleHistoryIncompleteError(snapshot.unknown.length, maxLegacyHistoryRecords)
     }
     const { keys, recordsByKey } = snapshot
-    const group = options.scheduleId === undefined ? undefined : snapshot.bySchedule.get(options.scheduleId)
     const known = options.scheduleId === undefined
-      ? (options.runtimeOnly ? snapshot.runtime : snapshot.known)
-      : (options.runtimeOnly ? group?.runtime : group?.all) ?? []
+      ? snapshot.known
+      : snapshot.bySchedule.get(options.scheduleId) ?? []
     // Read selected indexed records with bounded concurrency; legacy records are already cached.
     const records: ScheduleRunRecord[] = []
-    const selectedKeys = options.scheduleId === undefined && options.limit === undefined && !options.runtimeOnly
+    const selectedKeys = options.scheduleId === undefined && options.limit === undefined
       ? keys
       : known.slice(0, options.limit ?? known.length).map(entry => entry.key)
     for (let index = 0; index < selectedKeys.length; index += 16) {
@@ -552,14 +402,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split("/").slice(-2).map(decodeURIComponent)
+          const parts = keySegments(key, 2)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+          const id = keySegments(key, 1)[0]!
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }

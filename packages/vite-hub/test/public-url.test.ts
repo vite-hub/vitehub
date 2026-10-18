@@ -36,6 +36,9 @@ describe("vitehub({ publicUrl })", () => {
       expect(define(byAgent, root, "serve")).toBeUndefined()
       expect(() => define(publicUrlPlugin("https://agents.example.com/app"), root, "build")).toThrow("publicUrl must be an http(s) origin")
       expect(() => define(publicUrlPlugin(""), root, "build")).toThrow("publicUrl must be an http(s) origin")
+      expect(() => define(publicUrlPlugin("https://user:secret@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
+      expect(() => define(publicUrlPlugin("https://@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
+      expect(() => define(publicUrlPlugin("https://:@agents.example.com"), root, "build")).toThrow("publicUrl must be an http(s) origin")
     }
     finally {
       await rm(root, { force: true, recursive: true })

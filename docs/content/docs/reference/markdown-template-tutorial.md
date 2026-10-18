@@ -4,7 +4,7 @@ description: "Install the Markdown Template package, bind data, and return rende
 layout: tutorial
 navigation.title: Tutorial
 navigation.order: 52
-navigation.group: Tutorial
+navigation.group: Application APIs
 icon: i-lucide-rocket
 ---
 
