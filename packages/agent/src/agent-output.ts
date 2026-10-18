@@ -958,8 +958,8 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
-function getPrototypeMethod(value: object, key: PropertyKey): ((...args: unknown[]) => unknown) | undefined {
-  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+function getPrototypeMethod(value: object, key: PropertyKey, startPrototype?: object): ((...args: unknown[]) => unknown) | undefined {
+  let prototype: object | null = startPrototype ?? Object.getPrototypeOf(value) as object | null
   const visited = new Set<object>()
   for (let hop = 0; prototype && hop < maxResponsePrototypeHops && !visited.has(prototype); hop++) {
     visited.add(prototype)
@@ -1137,6 +1137,7 @@ function isResponseLike(value: unknown): value is Response {
     // accepting a failed reader probe as the already-locked case.
     let lockedAccessor: (() => unknown) | undefined
     let streamReader: ((...args: unknown[]) => unknown) | undefined
+    let validatedStreamPrototype: object | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
     const visitedStreamPrototypes = new Set<object>()
     for (let hop = 0; streamPrototype && hop < maxResponsePrototypeHops && !visitedStreamPrototypes.has(streamPrototype); hop++) {
@@ -1150,6 +1151,7 @@ function isResponseLike(value: unknown): value is Response {
         if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
           streamReader = readerDescriptor.value as (...args: unknown[]) => unknown
         }
+        validatedStreamPrototype = streamPrototype
         break
       }
       streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
@@ -1163,7 +1165,7 @@ function isResponseLike(value: unknown): value is Response {
       // because the response constructor was registered.
       if (registeredResponse) {
         const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-        if (ownReader && !ownReader.get) return false
+        if (ownReader) return false
       }
       const directLocked = (body as { locked?: unknown }).locked
       const directReader = (body as { getReader?: unknown }).getReader
@@ -1187,7 +1189,7 @@ function isResponseLike(value: unknown): value is Response {
       // object cannot establish the Response classification.
       if (lockedAccessor() !== true) return false
     }
-    const pipeThrough = getPrototypeMethod(body, "pipeThrough")
+    const pipeThrough = getPrototypeMethod(body, "pipeThrough", validatedStreamPrototype)
     if (!pipeThrough) return false
     validatedResponseBodies.set(value, body)
     validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
