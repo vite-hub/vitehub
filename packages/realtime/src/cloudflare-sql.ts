@@ -51,7 +51,11 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
     // Test doubles and ordinary proxied callbacks expose the native proxy
     // source but retain a mock-specific name; workerd accessors do not.
-    if (/^(?:mock|spy)/i.test(databaseSize.name)) return false
+    // A user-defined callback can be wrapped in a Proxy and renamed to look
+    // native. Workerd exposes the anonymous getter (or the `get databaseSize`
+    // form), while a plain callback named `databaseSize` is not a platform
+    // accessor and must not be trusted as one.
+    if (/^(?:mock|spy|databaseSize)$/i.test(databaseSize.name)) return false
     // Reject unrelated native accessors that accept their own built-in brand.
     // Workerd's getter must reject a Map receiver, while Map.prototype.size
     // (including a proxy around it) succeeds. This keeps the check independent
