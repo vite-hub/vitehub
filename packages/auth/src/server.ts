@@ -563,14 +563,16 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: () => unknown,
+  initialReader?: ReadableStreamDefaultReader<Uint8Array>,
 ) {
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = initialReader
   let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
   let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
   let released = false
   const acquire = async () => {
+    if (reader) return reader
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
       if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
@@ -607,7 +609,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(result.value)
+        else controller.enqueue(new Uint8Array(result.value))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
@@ -617,7 +619,7 @@ function bridgeAuthorizationBody(
       } finally { release() }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -680,6 +682,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
+    const UndiciResponse = await getUndiciResponse()
+    if (status === 0 && body === null && (value instanceof Response || Boolean(UndiciResponse && value instanceof UndiciResponse))) return value as Response
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
     if (!await isSerializableAuthorizationBody(body)) return
     const serializableBody = body as ReadableStream<Uint8Array>
@@ -713,7 +717,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       : body === null
         ? new Response(null, { status, statusText, headers: normalizedHeaders })
         : (() => {
-            const bridge = bridgeAuthorizationBody(serializableBody, authorizationBodyReader(Object(serializableBody)) ?? (() => undefined))
+            const bodyReader = authorizationBodyReader(Object(serializableBody)) ?? (() => undefined)
+            const initialReader = bodyReader !== ReadableStream.prototype.getReader
+              ? Reflect.apply(bodyReader, serializableBody, []) as ReadableStreamDefaultReader<Uint8Array>
+              : undefined
+            // Keep foreign stream ownership visible immediately; local streams
+            // stay unlocked until the normalized response is consumed.
+            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader, initialReader)
+            void bridge.ready
             try {
               return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
             }
