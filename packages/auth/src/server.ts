@@ -485,7 +485,6 @@ function releaseAuthorizationReader(reader: unknown): void {
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
-  getReader: () => unknown,
   initialReader?: ReadableStreamDefaultReader<Uint8Array>,
 ) {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = initialReader
@@ -682,6 +681,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
+    const bodyReader = getNativeAuthorizationBodyReader(body)
+    if (body !== null && (bodyReader === false || bodyReader === undefined)) return
 
     // Preserve the standard error response before constructing a local response.
     if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) {
@@ -689,7 +690,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       return Response.error()
     }
     if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
-    if (typeof bodyReader !== "function") return
+    if (body === null || typeof bodyReader !== "function") return
     const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
@@ -698,30 +699,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
-    // Foreign and shadowed values require a serializable local snapshot.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : body === null
-        ? new Response(null, { status, statusText, headers: normalizedHeaders })
-        : (() => {
-            const bodyReader = authorizationBodyReader(Object(serializableBody)) ?? (() => undefined)
-            const initialReader = bodyReader !== ReadableStream.prototype.getReader
-              ? Reflect.apply(bodyReader, serializableBody, []) as ReadableStreamDefaultReader<Uint8Array>
-              : undefined
-            // Keep foreign stream ownership visible immediately; local streams
-            // stay unlocked until the normalized response is consumed.
-            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader, initialReader)
-            void bridge.ready
-            try {
-              return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
-            }
-            catch (error) {
-              bridge.release()
-              throw error
-            }
-          })()
-    // Foreign implementations and shadowed native values become stable local responses.
-    return normalizedResponse
   }
   catch {
     return
