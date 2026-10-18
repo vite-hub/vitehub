@@ -1345,12 +1345,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+                  let refreshed = false;
                   if (hostInstall() && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
                     await installDependencies(providerDirectory, abortSignal, owner, undefined);
+                    refreshed = true;
                   }
                   // A successful refresh rebuilt the dependency graph, so the
                   // recovery pass can verify it before committing repaired inputs.
-                  installDefect = undefined;
+                  if (refreshed) installDefect = undefined;
                   await assertLease();
                 },
                 commitRepair: async (input) => {
