@@ -416,6 +416,7 @@ function collectPages(rootDir: string, sectionId: string) {
       description: optionalString(meta.description),
       icon: optionalString(meta.icon),
       layout: pageLayout(meta.layout),
+      ...(meta.codePanel === true ? { codePanel: true } : {}),
       kind: optionalString(meta["navigation.kind"]),
       group: optionalString(meta["navigation.group"]),
       navigation: meta.navigation !== false,

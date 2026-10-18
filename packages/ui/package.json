@@ -34,131 +34,11 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./agent-chat": {
-      "types": "./dist/agent-chat.d.ts",
-      "import": "./dist/agent-chat.js",
-      "require": "./dist/agent-chat.js",
-      "default": "./dist/agent-chat.js"
-    },
-    "./agent-chat-message": {
-      "types": "./dist/agent-chat-message.d.ts",
-      "import": "./dist/agent-chat-message.js",
-      "require": "./dist/agent-chat-message.js",
-      "default": "./dist/agent-chat-message.js"
-    },
-    "./agent-chat-prompt": {
-      "types": "./dist/agent-chat-prompt.d.ts",
-      "import": "./dist/agent-chat-prompt.js",
-      "require": "./dist/agent-chat-prompt.js",
-      "default": "./dist/agent-chat-prompt.js"
-    },
-    "./agent-code-view": {
-      "types": "./dist/agent-code-view.d.ts",
-      "import": "./dist/agent-code-view.js",
-      "require": "./dist/agent-code-view.js",
-      "default": "./dist/agent-code-view.js"
-    },
-    "./agent-file": {
-      "types": "./dist/agent-file.d.ts",
-      "import": "./dist/agent-file.js",
-      "require": "./dist/agent-file.js",
-      "default": "./dist/agent-file.js"
-    },
-    "./agent-file-diff": {
-      "types": "./dist/agent-file-diff.d.ts",
-      "import": "./dist/agent-file-diff.js",
-      "require": "./dist/agent-file-diff.js",
-      "default": "./dist/agent-file-diff.js"
-    },
-    "./agent-file-tree": {
-      "types": "./dist/agent-file-tree.d.ts",
-      "import": "./dist/agent-file-tree.js",
-      "require": "./dist/agent-file-tree.js",
-      "default": "./dist/agent-file-tree.js"
-    },
-    "./agent-markdown": {
-      "types": "./dist/agent-markdown.d.ts",
-      "import": "./dist/agent-markdown.js",
-      "require": "./dist/agent-markdown.js",
-      "default": "./dist/agent-markdown.js"
-    },
-    "./agent-message-parts": {
-      "types": "./dist/agent-message-parts.d.ts",
-      "import": "./dist/agent-message-parts.js",
-      "require": "./dist/agent-message-parts.js",
-      "default": "./dist/agent-message-parts.js"
-    },
-    "./agent-multi-file-diff": {
-      "types": "./dist/agent-multi-file-diff.d.ts",
-      "import": "./dist/agent-multi-file-diff.js",
-      "require": "./dist/agent-multi-file-diff.js",
-      "default": "./dist/agent-multi-file-diff.js"
-    },
-    "./agent-patch-diff": {
-      "types": "./dist/agent-patch-diff.d.ts",
-      "import": "./dist/agent-patch-diff.js",
-      "require": "./dist/agent-patch-diff.js",
-      "default": "./dist/agent-patch-diff.js"
-    },
-    "./agent-session": {
-      "types": "./dist/agent-session.d.ts",
-      "import": "./dist/agent-session.js",
-      "require": "./dist/agent-session.js",
-      "default": "./dist/agent-session.js"
-    },
-    "./agent-tool-list": {
-      "types": "./dist/agent-tool-list.d.ts",
-      "import": "./dist/agent-tool-list.js",
-      "require": "./dist/agent-tool-list.js",
-      "default": "./dist/agent-tool-list.js"
-    },
-    "./agent-trace": {
-      "types": "./dist/agent-trace.d.ts",
-      "import": "./dist/agent-trace.js",
-      "require": "./dist/agent-trace.js",
-      "default": "./dist/agent-trace.js"
-    },
-    "./agent-unresolved-file": {
-      "types": "./dist/agent-unresolved-file.d.ts",
-      "import": "./dist/agent-unresolved-file.js",
-      "require": "./dist/agent-unresolved-file.js",
-      "default": "./dist/agent-unresolved-file.js"
-    },
-    "./attachment": {
-      "types": "./dist/attachment.d.ts",
-      "import": "./dist/attachment.js",
-      "require": "./dist/attachment.js",
-      "default": "./dist/attachment.js"
-    },
-    "./bubble": {
-      "types": "./dist/bubble.d.ts",
-      "import": "./dist/bubble.js",
-      "require": "./dist/bubble.js",
-      "default": "./dist/bubble.js"
-    },
-    "./code-block": {
-      "types": "./dist/code-block.d.ts",
-      "import": "./dist/code-block.js",
-      "require": "./dist/code-block.js",
-      "default": "./dist/code-block.js"
-    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
       "require": "./dist/headless.js",
       "default": "./dist/headless.js"
-    },
-    "./marker": {
-      "types": "./dist/marker.d.ts",
-      "import": "./dist/marker.js",
-      "require": "./dist/marker.js",
-      "default": "./dist/marker.js"
-    },
-    "./message": {
-      "types": "./dist/message.d.ts",
-      "import": "./dist/message.js",
-      "require": "./dist/message.js",
-      "default": "./dist/message.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -171,12 +51,6 @@
       "import": "./dist/primitive-rail.js",
       "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
-    },
-    "./trace": {
-      "types": "./dist/trace.d.ts",
-      "import": "./dist/trace.js",
-      "require": "./dist/trace.js",
-      "default": "./dist/trace.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -196,7 +70,7 @@
   "dependencies": {
     "@comark/vue": "0.7.0",
     "@iconify-json/ph": "catalog:ui",
-    "@nuxt/kit": "4.5.2",
+    "@nuxt/kit": "4.6.2",
     "@types/node": "catalog:tooling",
     "nostics": "catalog:runtime",
     "katex": "^0.17.0",
@@ -205,15 +79,15 @@
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
-    "@pierre/diffs": "1.5.1",
-    "@pierre/theme": "1.1.0",
+    "@pierre/diffs": "1.5.2",
+    "@pierre/theme": "2.0.0",
     "@pierre/trees": "1.0.0-beta.6",
-    "@vitejs/plugin-vue": "^6.0.9",
+    "@vitejs/plugin-vue": "^6.0.10",
     "@vite-hub/runtime": "workspace:*",
-    "@vue/server-renderer": "3.5.43",
+    "@vue/server-renderer": "3.5.44",
     "@vue/test-utils": "2.5.1",
     "ai": "catalog:ai",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

@@ -24,9 +24,13 @@ export type { GitHubWorkspaceRevision, GitHubWorkspaceInspector } from "./github
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState, parseRequiredChecks } from './github-pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
 
-export { createGitHubPullRequestOperations } from './github-auto-merge.ts'
+export { createGitHubPullRequestOperations, normalizeGitHubMentionAllowlist } from './github-auto-merge.ts'
 export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 
 export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './github-required-checks.ts'
 export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadCheckPolicy, GitHubCheckPolicyResponse, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './github-required-checks.ts'
+
+export { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "./github-install.ts"
+export { GitHubDependencyConflictError } from "./github-install-inputs.ts"
+export { prepareGitHubRepairBase } from "./github-repair.ts"
