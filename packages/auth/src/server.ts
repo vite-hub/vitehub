@@ -370,6 +370,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 
 function hasNativeStreamBrand(body: object): boolean {
   try {
+    // A stream's reader acquisition is an internal capability. An own
+    // property shadows the native operation and must fail closed; native
+    // tee() can otherwise accept the stream without ever exercising it.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
     // Response's BodyInit conversion performs the platform ReadableStream brand
     // check, including for streams created in another realm. A spoofed object is
     // converted to a new stream, so identity distinguishes it from a real stream.
@@ -403,7 +407,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // A proxy around a local Response still passes `instanceof Response`, but
     // native accessors reject the proxy. Reject that path before trusting any
     // proxy-trapped fields in the foreign-response normalization below.
-    if (!localResponse && value instanceof Response) return
+    const localProxy = !localResponse && value instanceof Response
     if (localResponse) {
       try {
         const nativeStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
@@ -443,9 +447,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
-    if (!nativeField("status", status) || !nativeField("statusText", statusText)
+    if (!localProxy && (!nativeField("status", status) || !nativeField("statusText", statusText)
       || !nativeField("headers", headers) || !nativeField("body", body)
-      || !nativeField("bodyUsed", bodyUsed)) return
+      || !nativeField("bodyUsed", bodyUsed))) return
     if (bodyUsed !== false) return
     if (typeof status !== "number" || !Number.isInteger(status)
       || (status !== 0 && (status < 200 || status > 599))) return
@@ -459,7 +463,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headerCarrier = Object(headers)
     // Local Response values were returned above after native slot validation;
     // an instanceof value that failed that validation is a proxy or malformed wrapper.
-    if (value instanceof Response) return
+    // A proxy around a local Response cannot pass native accessors directly,
+    // but its ordinary reads still provide a stable snapshot for normalization.
 
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       typeof responsePropertyDescriptor(headerCarrier, key)?.value === "function")
