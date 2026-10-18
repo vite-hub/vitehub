@@ -11,14 +11,14 @@ describe("Babysitter host prerequisites", () => {
     const check = createBabysitterPreflight(true, command);
     const [first, second] = await Promise.all([check(), check()]);
     expect(second).toBe(first);
-    expect(command.mock.calls).toEqual([["git", "version"], ["corepack", "version"]]);
-    expect(first.pause).toMatchObject({ reason: "host-prerequisite", detail: expect.stringContaining("Install Corepack"), retryAt: 31000 });
+    expect(command.mock.calls).toEqual([["git", "version"]]);
+    expect(first.pause).toBeUndefined();
     missing = false;
     await check();
-    expect(command).toHaveBeenCalledTimes(2);
+    expect(command).toHaveBeenCalledTimes(1);
     clock.mockReturnValue(31001);
     expect((await check()).pause).toBeUndefined();
-    expect(command).toHaveBeenCalledTimes(4);
+    expect(command).toHaveBeenCalledTimes(2);
   });
 
   it("does not require an installer when installation is disabled", async () => {
