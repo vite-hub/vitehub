@@ -17,6 +17,7 @@ import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { renderPostgresDatabaseExpression } from "./internal/runtime-config-expression.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
@@ -54,6 +55,7 @@ type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
+    (name: "prepare:types", callback: (context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void): void
   }
   options: Record<string, unknown> & {
     alias?: Record<string, string>
@@ -187,12 +189,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             const alias = ensureRecord(config, "alias")
             alias["#vitehub/database/definition-runtime"] ??= resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/d1")
           }
-          if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
-            if (runtime) {
-              await writeGeneratedDatabaseArtifacts(runtime, {
-                alias: nuxtOptions.alias,
-                onFallback: message => console.warn(message),
-              })
+          if (runtime) {
+            await writeGeneratedDatabaseArtifacts(runtime, {
+              alias: nuxtOptions.alias,
+              onFallback: message => console.warn(message),
+            })
+            if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
               await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
             }
           }
@@ -208,6 +210,16 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
         }
+      })
+      hook("prepare:types", (context) => {
+        const generated = resolve(root, ".vitehub/types/database.d.ts")
+        context.references.push({ path: generated })
+        const include = (target: "sharedTsConfig" | "serverTsConfig") => {
+          const list = context[target].include ??= []
+          if (!list.includes(generated)) list.push(generated)
+        }
+        include("sharedTsConfig")
+        include("serverTsConfig")
       })
     }
 
@@ -278,9 +290,11 @@ async function installNitroLocalDatabaseRuntime(
     : [])
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
-    merged(definition)
-      ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-      : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+    runtime.databases[definition.name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(definition) ? `schema_${index}` : `definition_${index}.schema`)},`
+      : merged(definition)
+        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
+        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
     `    schema: ${merged(definition) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
@@ -289,6 +303,9 @@ async function installNitroLocalDatabaseRuntime(
     databaseEntries: entries,
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      ...(runtime.databaseNames.some(name => runtime.databases[name]?.dialect === "postgresql")
+        ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`]
+        : []),
       ...imports,
       "",
       `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,

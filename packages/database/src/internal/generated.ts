@@ -69,7 +69,7 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
   return [
     ...definition.schemaSources.flatMap((source, index) => sourceSchemas[index]?.loaded
       ? [`import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`]
-      : [`const ${sourceVariables[index]} = { ${sourceSchemas[index]?.keys.map(key => `${JSON.stringify(key)}: undefined`).join(", ")} }`]),
+      : [`const ${sourceVariables[index]} = { schema: { ${sourceSchemas[index]?.keys.map(key => `${JSON.stringify(key)}: undefined`).join(", ")} } }`]),
     ...contributions.map((contribution, index) => renderContributionImport(file, contribution, `contributedSchema_${index}`)),
     "",
     // Nuxt layers merge in order, so the application wins a key.
