@@ -1,97 +1,111 @@
 ---
 title: Blob
 navigation.title: Overview
-description: Store uploads, generated files, binary objects, and metadata with one object-storage API.
+description: Save uploads and other files from your server, then read or serve them with the same code on every host.
 navigation.order: 1
 icon: i-lucide-files
 ---
 
-::agent-only{skill="blob"}
-Use Blob for binary objects such as uploads, generated files, images, and exports. Choose a driver in Vite config and use the same Blob handle in application code when moving between local and hosted storage.
-
-Read [Get started](/docs/blob/get-started), [Configure](/docs/blob/configure), [Server API](/docs/blob/server-api), or [Hosts](/docs/blob/hosts).
-
-Keep object keys and authorization in application code. Enabling `serve` exposes served objects through a public route by default; set `serve.authorize: true` to require an authenticated session. Treat filesystem Blob storage as one-host storage.
-
-Prove upload, read, list, and delete with the selected driver. For hosted output, inspect the generated binding and verify access rules with a real request.
-::
-
-::product-hero{tagline="One object-storage import for uploads and generated files across local and hosted object stores." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
-  ```ts [server/api/upload.post.ts]
-  import { blob } from '@vite-hub/blob'
-
-  export default defineEventHandler(async (event) => {
-    // Authorize the request here. The route decides who may upload.
-    const [error, objects] = await blob.handleUpload(event, {
-      formKey: 'files',
-      ensure: { maxSize: '8MB', types: ['image'] },
-      put: { prefix: 'avatars', addRandomSuffix: true },
-    })
-    if (error) throw error
-    return objects
-  })
-  ```
-
+::product-hero{tagline="Save uploads and other files from your server, then read or serve them on any host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
   ```ts [vite.config.ts]
-  import { hubBlob } from '@vite-hub/blob/vite'
+  import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [hubBlob()],
-    blob: {
-      stores: {
-        default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
-      },
-    },
-  })
-  ```
-
-  ```ts [server/agents/publisher.ts]
-  import { defineAgent } from 'vite-hub/agent'
-  import { blob } from 'vite-hub/agent/capabilities'
-
-  export default defineAgent({
-    capabilities: [
-      blob({ assetPaths: ['artifacts'], mode: 'write', policy: 'deny' }),
+    plugins: [
+      // On Node, files are saved in .vitehub/data/blob
+      vitehub({ preset: 'node', blob: true }),
+      nitro() as never,
     ],
   })
   ```
 
-  ```bash [Terminal]
-  pnpm vitehub blob list --prefix avatars/
-  pnpm vitehub blob head avatars/ada.png --json
-  pnpm vitehub blob put avatars/ada.png ./ada.png
-  pnpm vitehub blob get avatars/ada.png --output ./copy.png
-  pnpm vitehub blob del avatars/ada.png
+  ```ts [server/api/avatars.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { blob } from 'vite-hub/blob'
+
+  // Check who may upload before this call
+  export default defineEventHandler(async (event) => {
+    const [error, files] = await blob.handleUpload(
+      event,
+      {
+        formKey: 'files',
+        ensure: { maxSize: '8MB', types: ['image'] },
+        put: { prefix: 'avatars', addRandomSuffix: true },
+      },
+    )
+    if (error) throw error
+    return files
+  })
+  ```
+
+  ```vue [app/pages/upload.vue]
+  <script setup lang="ts">
+  import { useUpload } from 'vite-hub/blob/vue'
+
+  // Send one file to the upload route
+  const upload = useUpload('/api/avatars', {
+    multiple: false,
+  })
+
+  async function onChange(event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = await upload(input)
+    console.log(file?.pathname)
+  }
+  </script>
+
+  <template>
+    <input
+      type="file"
+      accept="image/*"
+      @change="onChange"
+    >
+  </template>
+  ```
+
+  ```ts [server/api/notes.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { blob } from 'vite-hub/blob'
+
+  // Save text as a file and return its details
+  export default defineEventHandler(async () => {
+    const [error, file] = await blob.put(
+      'notes/hello.txt',
+      'Hello from ViteHub',
+      { contentType: 'text/plain' },
+    )
+    if (error) throw error
+    return file
+  })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Every method returns an error and a value" icon="i-lucide-code-2" to="/docs/blob/server-api"}
-  `put`, `get`, `head`, `list`, `del`, and `sign` return `[error, value]`.
+  :::product-feature-item{title="Save any file" icon="i-lucide-file-up" to="/docs/blob/server-api#use-it-at-runtime"}
+  Save text, bytes, or streams with `blob.put()`. Add a content type and your own metadata.
   :::
 
-  :::product-feature-item{title="Validate and store uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
-  `blob.handleUpload()` checks size and type before anything is stored.
+  :::product-feature-item{title="Uploads in one call" icon="i-lucide-shield-check" to="/docs/blob/server-api#upload-files"}
+  `blob.handleUpload()` checks the size and type of each file before it saves anything.
   :::
 
-  :::product-feature-item{title="Pick a driver per store, keep the import" icon="i-lucide-sliders-horizontal" to="/docs/blob/configure"}
-  Set `driver` for S3 or Azure; otherwise the host selects it.
+  :::product-feature-item{title="Upload from a Vue page" icon="i-lucide-upload" to="/docs/blob/server-api#upload-files"}
+  `useUpload()` sends the files from an input to your upload route.
   :::
 
-  :::product-feature-item{title="An Agent can publish the files it creates" icon="i-lucide-bot" to="/docs/blob/agent-capability"}
-  `assetPaths` publishes linked files and rewrites the links to public URLs.
+  :::product-feature-item{title="Large files in parts" icon="i-lucide-layers" to="/docs/blob/server-api#multipart-uploads"}
+  Send a big file in parts. The server joins them when the upload is complete.
   :::
 
-  :::product-feature-item{title="Objects from a terminal" icon="i-lucide-terminal" to="/docs/blob/hosts"}
-  Run Blob commands against the Vite Development Server.
+  :::product-feature-item{title="Links that expire" icon="i-lucide-link" to="/docs/blob/server-api#signed-requests"}
+  `blob.sign()` makes a short-lived link to read or upload one private file.
   :::
 
-  :::product-feature-item{title="Metadata travels with objects" icon="i-lucide-tag" to="/docs/blob/server-api"}
-  Set content type and custom metadata while storing the object.
+  :::product-feature-item{title="Many storage services" icon="i-lucide-server" to="/docs/blob/configure#provider-options"}
+  Use your disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more. Your routes do not change.
   :::
 ::

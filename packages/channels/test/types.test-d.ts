@@ -1,3 +1,5 @@
+import { describe, it } from "vitest"
+
 import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
 import type { ChannelSendOptions } from "../src/index.ts"
 
@@ -28,212 +30,216 @@ const definition = defineOutboundChannel({
   },
 })
 
-const channel = createChannel("alerts", definition)
+describe("Channel types", () => {
+  it("checks send options, receipts, and Channel names", () => {
+    const channel = createChannel("alerts", definition)
 
-const arrayOptions = Object.assign([], { connector: "telegram" as const, chatId: "chat-1" })
-// @ts-expect-error Send options cannot be arrays, even when they carry a connector property.
-channel.send("Build finished.", arrayOptions)
-const readonlyArrayOptions = Object.assign([] as const, { connector: "telegram" as const, chatId: "chat-1" })
-// @ts-expect-error Readonly tuples are also invalid send options.
-channel.send("Build finished.", readonlyArrayOptions)
+    const arrayOptions = Object.assign([], { connector: "telegram" as const, chatId: "chat-1" })
+    // @ts-expect-error Send options cannot be arrays, even when they carry a connector property.
+    channel.send("Build finished.", arrayOptions)
+    const readonlyArrayOptions = Object.assign([] as const, { connector: "telegram" as const, chatId: "chat-1" })
+    // @ts-expect-error Readonly tuples are also invalid send options.
+    channel.send("Build finished.", readonlyArrayOptions)
 
-const namedInterfaceChannel = createChannel("named-interface", defineOutboundChannel({
-  connectors: {
-    webhook: {
-      send: async (_text: string, options: NamedConnectorOptions) => ({ id: options.destination }),
-    },
-  },
-}))
+    const namedInterfaceChannel = createChannel("named-interface", defineOutboundChannel({
+      connectors: {
+        webhook: {
+          send: async (_text: string, options: NamedConnectorOptions) => ({ id: options.destination }),
+        },
+      },
+    }))
 
-namedInterfaceChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1" })
+    namedInterfaceChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1" })
 
-const optionalOptionsChannel = createChannel("optional-options", defineOutboundChannel({
-  connectors: {
-    webhook: {
-      send: async (_text: string, options?: NamedConnectorOptions) => ({ id: options?.destination }),
-    },
-  },
-}))
-optionalOptionsChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1" })
-// @ts-expect-error Supplied options still need the connector's required properties.
-optionalOptionsChannel.send("Build finished.", { connector: "webhook" })
-// @ts-expect-error Optional parameters must retain known-connector excess-property checks.
-optionalOptionsChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1", destinaton: "typo" })
+    const optionalOptionsChannel = createChannel("optional-options", defineOutboundChannel({
+      connectors: {
+        webhook: {
+          send: async (_text: string, options?: NamedConnectorOptions) => ({ id: options?.destination }),
+        },
+      },
+    }))
+    optionalOptionsChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1" })
+    // @ts-expect-error Supplied options still need the connector's required properties.
+    optionalOptionsChannel.send("Build finished.", { connector: "webhook" })
+    // @ts-expect-error Optional parameters must retain known-connector excess-property checks.
+    optionalOptionsChannel.send("Build finished.", { connector: "webhook", destination: "endpoint-1", destinaton: "typo" })
 
-const metadataChannel = createChannel("metadata-only", defineOutboundChannel({
-  connectors: {
-    webhook: {
-      send: async () => ({ status: "accepted" }),
-    },
-  },
-}))
+    const metadataChannel = createChannel("metadata-only", defineOutboundChannel({
+      connectors: {
+        webhook: {
+          send: async () => ({ status: "accepted" }),
+        },
+      },
+    }))
 
-metadataChannel.send("Build finished.", { connector: "webhook" })
+    metadataChannel.send("Build finished.", { connector: "webhook" })
 
-defineOutboundChannel({
-  connectors: {
-    pingOnly: {
-      // @ts-expect-error Connectors must accept every string exposed by Channel.send().
-      send: (_text: "ping", _options: NamedConnectorOptions) => ({ status: "accepted" }),
-    },
-  },
+    defineOutboundChannel({
+      connectors: {
+        pingOnly: {
+          // @ts-expect-error Connectors must accept every string exposed by Channel.send().
+          send: (_text: "ping", _options: NamedConnectorOptions) => ({ status: "accepted" }),
+        },
+      },
+    })
+
+    defineOutboundChannel({
+      connectors: {
+        // @ts-expect-error Array-only connector options cannot be supplied by channel dispatch.
+        arrayOptions: {
+          send: (_text: string, _options: readonly string[]) => ({ status: "accepted" }),
+        },
+        // @ts-expect-error Connector options must be objects because send passes an options object.
+        primitiveOptions: {
+          send: (_text: string, _options: string) => ({ status: "accepted" }),
+        },
+      },
+    })
+
+    defineOutboundChannel({
+      connectors: {
+        // @ts-expect-error Connector options must be non-callable objects accepted by runtime dispatch.
+        callableOptions: {
+          send: (_text: string, _options: () => void) => ({ status: "accepted" }),
+        },
+        // @ts-expect-error Constructor functions are also rejected by runtime dispatch.
+        constructorOptions: {
+          send: (_text: string, _options: typeof ConstructorOptions) => ({ status: "accepted" }),
+        },
+      },
+    })
+
+    defineOutboundChannel({
+      connectors: {
+        // @ts-expect-error Callable receipts are rejected by runtime dispatch after delivery.
+        callableResult: { send: (_text: string) => () => {} },
+        // @ts-expect-error Async callable receipts must also be rejected statically.
+        asyncCallableResult: { send: async (_text: string) => () => {} },
+        // @ts-expect-error Constructor-function receipts are rejected by runtime dispatch.
+        constructorResult: { send: (_text: string) => ConstructorOptions },
+        // @ts-expect-error Unions containing callable receipts cannot guarantee an object receipt.
+        unionResult: { send: (_text: string): { id: string } | (() => void) => ({ id: "accepted" }) },
+        // @ts-expect-error Broad standard function annotations are still callable receipts.
+        functionResult: { send: (_text: string): Function => () => {} },
+        // @ts-expect-error CallableFunction annotations are rejected like concrete functions.
+        broadCallableResult: { send: async (_text: string): Promise<CallableFunction> => () => {} },
+        // @ts-expect-error NewableFunction annotations are rejected like concrete constructors.
+        broadConstructorResult: { send: (_text: string): NewableFunction => ConstructorOptions },
+      },
+    })
+
+    const dynamicCallableConnectors: Record<string, { send: (text: string) => () => void }> = {
+      webhook: { send: (_text: string) => () => {} },
+    }
+    // @ts-expect-error Dynamic maps must reject statically known callable receipts.
+    defineOutboundChannel({ connectors: dynamicCallableConnectors })
+
+    async function checkSendTuple() {
+      const [error, receipt] = await channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+      if (error) {
+        const absent: null = receipt
+        return absent
+      }
+      const noError: null = error
+      const deliveryId: string = receipt.deliveryId
+      return { noError, deliveryId }
+    }
+    void checkSendTuple
+
+    channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+    channel.send("Build finished.", { connector: "slack", channelId: "channel-1" })
+
+    // @ts-expect-error Known connectors reject misspelled option properties.
+    channel.send("Build finished.", { connector: "telegram", chatId: "chat-1", slient: true })
+
+    const defaultChannel = createChannel("defaults", defineOutboundChannel({
+      connectors: definition.connectors,
+      defaultConnector: "telegram",
+    }))
+    defaultChannel.send("Build finished.", { chatId: "chat-1" })
+    // @ts-expect-error Default connector selection cannot make array options valid.
+    defaultChannel.send("Build finished.", Object.assign([], { chatId: "chat-1" }))
+
+    // @ts-expect-error Default connectors reject misspelled option properties.
+    defaultChannel.send("Build finished.", { chatId: "chat-1", slient: true })
+
+    // @ts-expect-error Connector options remain specific to the selected connector.
+    channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+    // @ts-expect-error Connector options must not mix fields from different connectors.
+    channel.send("Build finished.", { connector: "telegram", chatId: "chat-1", channelId: "channel-1" })
+
+    const discovered = useChannel("alerts")
+    discovered.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
+
+    // @ts-expect-error Generated Channel names reject unknown literals.
+    useChannel("alrets")
+
+    const runtimeName: string = "runtime-channel"
+    const dynamic = useChannel(runtimeName)
+    dynamic.send("Build finished.", { connector: "runtime", destination: "room-1" })
+    dynamic.send("Build finished.", {})
+    const dynamicOptions: DynamicConnectorOptions = { connector: "runtime", destination: "room-1" }
+    dynamic.send("Build finished.", dynamicOptions)
+    const dynamicDefaultOptions: NamedConnectorOptions = { destination: "room-1" }
+    dynamic.send("Build finished.", dynamicDefaultOptions)
+    dynamic.send("Build finished.", { destination: "room-1" })
+    // @ts-expect-error Dynamic channels also reject arrays with a connector property.
+    dynamic.send("Build finished.", arrayOptions)
+    // @ts-expect-error Dynamic default options cannot be arrays.
+    dynamic.send("Build finished.", [])
+
+    // @ts-expect-error Dynamic channel options cannot be callable.
+    dynamic.send("Build finished.", Object.assign(() => {}, { connector: "runtime" }))
+
+    // @ts-expect-error Dynamic channel options cannot be constructor functions.
+    dynamic.send("Build finished.", Object.assign(ConstructorOptions, { connector: "runtime" }))
+
+    // @ts-expect-error Dynamic connector selectors must be strings when present.
+    dynamic.send("Build finished.", { connector: 42 })
+
+    // @ts-expect-error Dynamic channel options must be objects.
+    dynamic.send("Build finished.", "room-1")
+
+    // @ts-expect-error Discovered Channel names retain connector-specific options.
+    discovered.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+
+    // Non-array options retain all property names, including length and array method names.
+    interface LengthOptions { destination: string, length: number, map: string }
+    const lengthDefinition = defineOutboundChannel({
+      connectors: { webhook: { send: (_text: string, options: LengthOptions) => ({ id: options.destination }) } },
+      defaultConnector: "webhook",
+    })
+    const lengthChannel = createChannel("length", lengthDefinition)
+    lengthChannel.send("message", { destination: "room", length: 1, map: "valid" })
+    lengthChannel.send("message", { connector: "webhook", destination: "room", length: 1, map: "valid" })
+    const publicLengthOptions: ChannelSendOptions<typeof lengthDefinition.connectors> = { connector: "webhook", destination: "room", length: 1, map: "valid" }
+    void publicLengthOptions
+    dynamic.send("message", { length: 1, map: "valid" })
+
+    const unionDefinition = defineOutboundChannel({
+      connectors: { webhook: { send: (_text: string, _options: LengthOptions | readonly string[]) => ({ id: "accepted" }) } },
+      defaultConnector: "webhook",
+    })
+    const unionChannel = createChannel("union", unionDefinition)
+    unionChannel.send("message", { destination: "room", length: 1, map: "valid" })
+    const unionTypedOptions: { destination: string, length: number } | readonly string[] = { destination: "room", length: 1 }
+    // @ts-expect-error Union-typed options containing an array branch are not dispatchable.
+    unionChannel.send("message", unionTypedOptions)
+    // @ts-expect-error The array branch of a connector's options union is not dispatchable.
+    unionChannel.send("message", ["room"])
+    // @ts-expect-error Public options filter out the connector's array branch.
+    const publicUnionArray: ChannelSendOptions<typeof unionDefinition.connectors> = Object.assign(["room"], { connector: "webhook" as const })
+    void publicUnionArray
+
+    const objectUnionDefinition = defineOutboundChannel({
+      connectors: {
+        webhook: {
+          send: (_text: string, options: { destination: string } | { roomId: string }) => ({ id: "destination" in options ? options.destination : options.roomId }),
+        },
+      },
+    })
+    const objectUnionChannel = createChannel("object-union", objectUnionDefinition)
+    objectUnionChannel.send("message", { connector: "webhook", destination: "room" })
+    objectUnionChannel.send("message", { connector: "webhook", roomId: "room" })
+  })
 })
-
-defineOutboundChannel({
-  connectors: {
-    // @ts-expect-error Array-only connector options cannot be supplied by channel dispatch.
-    arrayOptions: {
-      send: (_text: string, _options: readonly string[]) => ({ status: "accepted" }),
-    },
-    // @ts-expect-error Connector options must be objects because send passes an options object.
-    primitiveOptions: {
-      send: (_text: string, _options: string) => ({ status: "accepted" }),
-    },
-  },
-})
-
-defineOutboundChannel({
-  connectors: {
-    // @ts-expect-error Connector options must be non-callable objects accepted by runtime dispatch.
-    callableOptions: {
-      send: (_text: string, _options: () => void) => ({ status: "accepted" }),
-    },
-    // @ts-expect-error Constructor functions are also rejected by runtime dispatch.
-    constructorOptions: {
-      send: (_text: string, _options: typeof ConstructorOptions) => ({ status: "accepted" }),
-    },
-  },
-})
-
-defineOutboundChannel({
-  connectors: {
-    // @ts-expect-error Callable receipts are rejected by runtime dispatch after delivery.
-    callableResult: { send: (_text: string) => () => {} },
-    // @ts-expect-error Async callable receipts must also be rejected statically.
-    asyncCallableResult: { send: async (_text: string) => () => {} },
-    // @ts-expect-error Constructor-function receipts are rejected by runtime dispatch.
-    constructorResult: { send: (_text: string) => ConstructorOptions },
-    // @ts-expect-error Unions containing callable receipts cannot guarantee an object receipt.
-    unionResult: { send: (_text: string): { id: string } | (() => void) => ({ id: "accepted" }) },
-    // @ts-expect-error Broad standard function annotations are still callable receipts.
-    functionResult: { send: (_text: string): Function => () => {} },
-    // @ts-expect-error CallableFunction annotations are rejected like concrete functions.
-    broadCallableResult: { send: async (_text: string): Promise<CallableFunction> => () => {} },
-    // @ts-expect-error NewableFunction annotations are rejected like concrete constructors.
-    broadConstructorResult: { send: (_text: string): NewableFunction => ConstructorOptions },
-  },
-})
-
-const dynamicCallableConnectors: Record<string, { send: (text: string) => () => void }> = {
-  webhook: { send: (_text: string) => () => {} },
-}
-// @ts-expect-error Dynamic maps must reject statically known callable receipts.
-defineOutboundChannel({ connectors: dynamicCallableConnectors })
-
-async function checkSendTuple() {
-  const [error, receipt] = await channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
-  if (error) {
-    const absent: null = receipt
-    return absent
-  }
-  const noError: null = error
-  const deliveryId: string = receipt.deliveryId
-  return { noError, deliveryId }
-}
-void checkSendTuple
-
-channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
-channel.send("Build finished.", { connector: "slack", channelId: "channel-1" })
-
-// @ts-expect-error Known connectors reject misspelled option properties.
-channel.send("Build finished.", { connector: "telegram", chatId: "chat-1", slient: true })
-
-const defaultChannel = createChannel("defaults", defineOutboundChannel({
-  connectors: definition.connectors,
-  defaultConnector: "telegram",
-}))
-defaultChannel.send("Build finished.", { chatId: "chat-1" })
-// @ts-expect-error Default connector selection cannot make array options valid.
-defaultChannel.send("Build finished.", Object.assign([], { chatId: "chat-1" }))
-
-// @ts-expect-error Default connectors reject misspelled option properties.
-defaultChannel.send("Build finished.", { chatId: "chat-1", slient: true })
-
-// @ts-expect-error Connector options remain specific to the selected connector.
-channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
-// @ts-expect-error Connector options must not mix fields from different connectors.
-channel.send("Build finished.", { connector: "telegram", chatId: "chat-1", channelId: "channel-1" })
-
-const discovered = useChannel("alerts")
-discovered.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
-
-// @ts-expect-error Generated Channel names reject unknown literals.
-useChannel("alrets")
-
-const runtimeName: string = "runtime-channel"
-const dynamic = useChannel(runtimeName)
-dynamic.send("Build finished.", { connector: "runtime", destination: "room-1" })
-dynamic.send("Build finished.", {})
-const dynamicOptions: DynamicConnectorOptions = { connector: "runtime", destination: "room-1" }
-dynamic.send("Build finished.", dynamicOptions)
-const dynamicDefaultOptions: NamedConnectorOptions = { destination: "room-1" }
-dynamic.send("Build finished.", dynamicDefaultOptions)
-dynamic.send("Build finished.", { destination: "room-1" })
-// @ts-expect-error Dynamic channels also reject arrays with a connector property.
-dynamic.send("Build finished.", arrayOptions)
-// @ts-expect-error Dynamic default options cannot be arrays.
-dynamic.send("Build finished.", [])
-
-// @ts-expect-error Dynamic channel options cannot be callable.
-dynamic.send("Build finished.", Object.assign(() => {}, { connector: "runtime" }))
-
-// @ts-expect-error Dynamic channel options cannot be constructor functions.
-dynamic.send("Build finished.", Object.assign(ConstructorOptions, { connector: "runtime" }))
-
-// @ts-expect-error Dynamic connector selectors must be strings when present.
-dynamic.send("Build finished.", { connector: 42 })
-
-// @ts-expect-error Dynamic channel options must be objects.
-dynamic.send("Build finished.", "room-1")
-
-// @ts-expect-error Discovered Channel names retain connector-specific options.
-discovered.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
-
-// Non-array options retain all property names, including length and array method names.
-interface LengthOptions { destination: string, length: number, map: string }
-const lengthDefinition = defineOutboundChannel({
-  connectors: { webhook: { send: (_text: string, options: LengthOptions) => ({ id: options.destination }) } },
-  defaultConnector: "webhook",
-})
-const lengthChannel = createChannel("length", lengthDefinition)
-lengthChannel.send("message", { destination: "room", length: 1, map: "valid" })
-lengthChannel.send("message", { connector: "webhook", destination: "room", length: 1, map: "valid" })
-const publicLengthOptions: ChannelSendOptions<typeof lengthDefinition.connectors> = { connector: "webhook", destination: "room", length: 1, map: "valid" }
-void publicLengthOptions
-dynamic.send("message", { length: 1, map: "valid" })
-
-const unionDefinition = defineOutboundChannel({
-  connectors: { webhook: { send: (_text: string, _options: LengthOptions | readonly string[]) => ({ id: "accepted" }) } },
-  defaultConnector: "webhook",
-})
-const unionChannel = createChannel("union", unionDefinition)
-unionChannel.send("message", { destination: "room", length: 1, map: "valid" })
-const unionTypedOptions: { destination: string, length: number } | readonly string[] = { destination: "room", length: 1 }
-// @ts-expect-error Union-typed options containing an array branch are not dispatchable.
-unionChannel.send("message", unionTypedOptions)
-// @ts-expect-error The array branch of a connector's options union is not dispatchable.
-unionChannel.send("message", ["room"])
-// @ts-expect-error Public options filter out the connector's array branch.
-const publicUnionArray: ChannelSendOptions<typeof unionDefinition.connectors> = Object.assign(["room"], { connector: "webhook" as const })
-void publicUnionArray
-
-const objectUnionDefinition = defineOutboundChannel({
-  connectors: {
-    webhook: {
-      send: (_text: string, options: { destination: string } | { roomId: string }) => ({ id: "destination" in options ? options.destination : options.roomId }),
-    },
-  },
-})
-const objectUnionChannel = createChannel("object-union", objectUnionDefinition)
-objectUnionChannel.send("message", { connector: "webhook", destination: "room" })
-objectUnionChannel.send("message", { connector: "webhook", roomId: "room" })

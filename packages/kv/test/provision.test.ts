@@ -186,9 +186,10 @@ describe("Cloudflare namespace response validation", () => {
     it(`rejects malformed namespace records: ${JSON.stringify(result)}`, async () => {
       const { context } = createContext(() => jsonResponse({ success: true, result: [result] }))
 
-      await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toThrow(
-        "Cloudflare provisioning returned an invalid KV namespace list.",
-      )
+      await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toMatchObject({
+        code: "KV_PROVISION_FAILED",
+        why: "Cloudflare KV provisioning failed. Cloudflare returned an invalid KV namespace list.",
+      })
     })
   }
 })

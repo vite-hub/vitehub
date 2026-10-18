@@ -26,11 +26,10 @@ Register the Agent integration in `vite.config.ts`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 

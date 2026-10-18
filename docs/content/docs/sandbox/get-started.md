@@ -17,17 +17,17 @@ You need Node.js 24.15 or newer, pnpm, a Vite application, and a Vercel project 
 Install the Vercel Sandbox SDK with the Vite integration and Nitro. Add these plugins to your existing Vite config and keep its other plugins.
 
 ```bash [commands/install]
-pnpm add @vite-hub/sandbox @vercel/sandbox nitro h3
+pnpm add @vite-hub/sandbox-task @vercel/sandbox nitro h3
 pnpm add -D @vite-hub/cli vite
 ```
 
 ```ts [vite.config.ts]
-import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { hubSandboxTask } from '@vite-hub/sandbox-task/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubSandbox({ provider: 'vercel' }), nitro() as never],
+  plugins: [hubSandboxTask({ provider: 'vercel' }), nitro() as never],
 })
 ```
 
@@ -47,27 +47,27 @@ For Cloudflare, install `@cloudflare/sandbox` and use the [Cloudflare host integ
 ## Create the package project
 
 Create the package manifest and entrypoint under
-`server/sandboxes/image-optimizer`. The folder name becomes the Sandbox
-Definition name, while the manifest describes the package that runs in the
+`server/sandbox-tasks/image-optimizer`. The folder name becomes the Sandbox
+Task Definition name, while the manifest describes the package that runs in the
 isolated environment.
 
 The manifest selects the TypeScript entrypoint and caps the run at 30 seconds. The nested folder is the package that the provider executes.
 
-```json [server/sandboxes/image-optimizer/package.json]
+```json [server/sandbox-tasks/image-optimizer/package.json]
 {
   "name": "image-optimizer",
   "private": true,
   "type": "module",
   "exports": "./index.ts",
   "vitehub": {
-    "sandbox": { "timeout": 30000 }
+    "sandboxTask": { "timeout": 30000 }
   }
 }
 ```
 
 This function multiplies the dimensions and returns JSON-compatible data. The `format` is sample metadata, not an encoded image. Add an image library and real byte handling only after this run works.
 
-```ts [server/sandboxes/image-optimizer/index.ts]
+```ts [server/sandbox-tasks/image-optimizer/index.ts]
 type ImageInput = { width: number, height: number }
 
 export default async function optimize({ width, height }: ImageInput) {
@@ -78,9 +78,9 @@ export default async function optimize({ width, height }: ImageInput) {
 }
 ```
 
-The entrypoint is ordinary ESM code and does not import the Sandbox package.
+The entrypoint is ordinary ESM code and does not import the Sandbox Task package.
 If the package needs a native dependency, add it to this nested `package.json`;
-it is installed and bundled inside the Sandbox project.
+it is installed and bundled inside the Sandbox Task project.
 
 ::
 
@@ -91,11 +91,11 @@ The route runs the named package and checks the returned HTTP status. It then re
 
 ```ts [server/api/image-optimizer.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runSandbox } from '@vite-hub/sandbox'
+import { runSandboxTask } from '@vite-hub/sandbox-task'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ width: number, height: number }>(event)
-  const response = await runSandbox('image-optimizer', input)
+  const response = await runSandboxTask('image-optimizer', input)
 
   if (!response.ok)
     throw createError({ statusCode: response.status, data: await response.json() })
@@ -126,7 +126,7 @@ With Vercel Sandbox access configured, you should see:
 
 This JSON is the response body, not a file that the Sandbox writes. Check
 `response.ok` before reading the body. A timeout is a non-2xx response with a
-`SANDBOX_TIMEOUT` error. The provider decides the execution boundary and its
+`SANDBOX_TASK_TIMEOUT` error. The provider decides the execution boundary and its
 available network, filesystem, and process access.
 
 ::

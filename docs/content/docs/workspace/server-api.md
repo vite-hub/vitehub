@@ -234,15 +234,15 @@ Source Sync requires a Workspace Store with metadata support. Without `publishPa
 ## Use sessions and Shell
 
 Use a Workspace Session when a command needs a materialized file tree and must produce a diff.
-`session.exec()` requires an open Box Session. Workspace handles materialization, diff, commit, and rollback. Box runs the command and manages its lifecycle.
+`session.exec()` requires an open Sandbox Session. Workspace handles materialization, diff, commit, and rollback. Sandbox runs the command and manages its lifecycle.
 
 ```ts [server/tasks/test-docs.ts]
-import { resolveBox } from '@vite-hub/box'
+import { resolveSandbox } from '@vite-hub/sandbox'
 import { useWorkspace } from '@vite-hub/workspace'
 
 export async function testDocs() {
-  const box = await resolveBox({ runtime: 'trusted-host' }, undefined)
-  const host = await box.open()
+  const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)
+  const host = await sandbox.open()
   const session = await useWorkspace('docs', { mode: 'write' }).startSession({ host })
 
   try {
@@ -258,7 +258,7 @@ export async function testDocs() {
 
 ### Session method options
 
-`startSession(options)` combines Workspace state with an open Box Session. `host` is required for execution. `paths` limits materialization and commits, and `target` defaults to `/workspace`. `abortSignal` cancels preparation, while `onProgress` reports materialization phases. Closing the Workspace Session doesn't close the Box host.
+`startSession(options)` combines Workspace state with an open Sandbox Session. `host` is required for execution. `paths` limits materialization and commits, and `target` defaults to `/workspace`. `abortSignal` cancels preparation, while `onProgress` reports materialization phases. Closing the Workspace Session doesn't close the Sandbox host.
 
 Custom hosts copy Workspace files serially unless they declare a positive `materializationConcurrency` that they can safely support for independent file operations. The local Node host declares a limit of `8`.
 
@@ -267,7 +267,7 @@ Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather 
 | Method | Options | Behavior |
 | --- | --- | --- |
 | `readFile`, `writeFile`, `mkdir`, `rm`, `list`, `glob`, `search` | Same file options as the Workspace filesystem | Operate inside the Session path scope. |
-| `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the supplied Box Session, defaulting cwd to the Workspace target. Basic Sessions without a host reject this method. |
+| `exec(command, args?, options?)` | `abortSignal?`, `cwd?`, `env?`, `timeout?` | Runs through the supplied Sandbox Session, defaulting cwd to the Workspace target. Basic Sessions without a host reject this method. |
 | `diff()` | none | Returns changes inside the Session path scope. |
 | `commit(options?)` | `message?: string` | Writes Session changes back and snapshots them with an optional message. |
 | `close()` | none | Rolls an uncommitted host tree back to authoritative Workspace state and releases Session resources. |
@@ -309,7 +309,7 @@ finally {
 
 Pass `{ readOnly: true }` to `createWorkspaceDriver()` for inspection-only consumers. The same driver can be passed to MountX's 9P or NFS server to reach a Linux guest, or to its S3 gateway for S3-compatible clients. The adapter uses MountX's unstorage driver, so it does not project or persist empty directories, and filenames cannot contain `:`, `?`, or end in `$`. Renames use copy then delete and are not atomic. Executable Git files retain their execute bits; Git symlinks are rejected because the unstorage driver cannot preserve symlink semantics. MountX is alpha and unaudited, so keep network transports loopback-only unless the surrounding sandbox or network is the explicit security boundary.
 
-Workspace stores the file tree and commits. Box and Sandbox provide separate execution environments. Provider Agent Drivers materialize a selected Workspace in their local working directory.
+Workspace stores the file tree and commits. Sandbox and Sandbox provide separate execution environments. Provider Agent Drivers materialize a selected Workspace in their local working directory.
 
 ### Run sessions from the CLI
 

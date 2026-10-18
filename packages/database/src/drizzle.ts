@@ -1,4 +1,4 @@
-import schema from "#vitehub/database/schema"
+import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 import { createAgentDatabase } from "./runtime/agent.ts"
 
@@ -27,9 +27,9 @@ type RuntimeDatabaseRegistry = {
   [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>>
 }
 
-type DefaultDatabaseEntry = "default" extends keyof RuntimeDatabaseRegistry
-  ? RuntimeDatabaseRegistry["default" & keyof RuntimeDatabaseRegistry]
-  : RuntimeDatabaseEntry<typeof schema>
+type DefaultDatabaseEntry = RuntimeDatabaseRegistry extends { default: infer TEntry }
+  ? TEntry
+  : RuntimeDatabaseEntry<typeof virtualSchema>
 
 type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: DefaultDatabaseEntry
@@ -50,5 +50,8 @@ export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Na
 
 export const agentDb = createAgentDatabase(databases)
 
-export { schema }
+// SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
+// The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that
+// module for this file. The registry is the one type source.
+export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
 export * from "#vitehub/database/schema"

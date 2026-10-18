@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Cross-realm Blob request regression</title>
+<!-- Run `pnpm exec vite --host 127.0.0.1` at the repository root, then open
+     /packages/internal/test/http-request.browser.html in a browser.
+     This deliberately uses a native iframe Blob, since Node VM contexts do
+     not supply an independent native Blob constructor. -->
+<pre id="result">Running…</pre>
+<script type="module">
+  import { executeHttpRequest } from "../src/http-request.ts"
+
+  function assert(condition, message) {
+    if (!condition) throw new Error(message)
+  }
+
+  const frame = document.createElement("iframe")
+  frame.hidden = true
+  document.body.append(frame)
+  const ForeignBlob = frame.contentWindow.Blob
+  const bytes = [0, 128, 255, 13, 10]
+  const originalArrayBuffer = Blob.prototype.arrayBuffer
+  let reads = 0
+
+  try {
+    assert(ForeignBlob !== Blob, "The iframe must supply a distinct Blob constructor")
+    Blob.prototype.arrayBuffer = function () {
+      reads++
+      return originalArrayBuffer.call(this)
+    }
+
+    for (const shadow of [false, true]) {
+      const body = new ForeignBlob([new Uint8Array(bytes)], { type: "application/octet-stream" })
+      assert(!(body instanceof Blob), "The native foreign Blob must enter normalization")
+      assert(body instanceof ForeignBlob, "The body must retain its native foreign prototype")
+      if (shadow) {
+        for (const property of ["arrayBuffer", "slice", "stream", "size", "type"]) {
+          Object.defineProperty(body, property, {
+            get() { throw new Error(`Read shadowed ${property}`) },
+          })
+        }
+      }
+
+      let captured
+      reads = 0
+      await executeHttpRequest({ body, method: "POST", url: "https://example.com/upload" }, {
+        fetch: async (_url, init) => {
+          captured = init
+          return new Response("ok")
+        },
+        responseType: "text",
+      })
+      assert(reads === 0, "Normalization must not eagerly read Blob bytes")
+      assert(captured.body instanceof Blob, "Normalization must produce a local Blob")
+      const request = new Request("https://example.com/upload", captured)
+      assert(request.headers.get("content-type") === "application/octet-stream", "Fetch must preserve the native media type")
+      const received = new Uint8Array(await request.arrayBuffer())
+      assert(received.length === bytes.length && received.every((byte, index) => byte === bytes[index]), "Fetch must preserve every byte")
+    }
+
+    const spoof = { size: 5, type: "application/octet-stream", [Symbol.toStringTag]: "Blob" }
+    await executeHttpRequest({ body: spoof, method: "POST", url: "https://example.com/upload" }, {
+      fetch: async (_url, init) => {
+        assert(init.body === JSON.stringify(spoof), "A spoof must remain JSON")
+        return new Response("ok")
+      },
+      responseType: "text",
+    })
+    document.querySelector("#result").textContent = "PASS: native iframe Blob bytes, media type, lazy normalization, shadowed properties, and spoof rejection"
+  } catch (error) {
+    document.querySelector("#result").textContent = `FAIL: ${error.stack}`
+    throw error
+  } finally {
+    Blob.prototype.arrayBuffer = originalArrayBuffer
+    frame.remove()
+  }
+</script>
