@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
 import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
-import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
@@ -1084,7 +1084,7 @@ describe("Manual Schedule runs", () => {
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
-    expect(await schedules.listRuns()).toHaveLength(2)
+    expect(await getScheduleRunStore().listRuns()).toHaveLength(2)
   })
 
   it("uses the installed runtime registry when no registry is passed", async () => {
