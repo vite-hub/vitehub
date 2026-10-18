@@ -278,6 +278,37 @@ describe("DB CLI contributor", () => {
     ], expect.objectContaining({ cwd: projectRoot }))
   })
 
+  it("prefers the Drizzle Kit dependency from the Database root", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-root-"))
+    tempDirs.push(rootDir)
+    const viteRoot = join(rootDir, "app")
+    const databaseBin = join(rootDir, "node_modules/drizzle-kit/bin.cjs")
+    const viteBin = join(viteRoot, "node_modules/drizzle-kit/bin.cjs")
+    await mkdir(dirname(databaseBin), { recursive: true })
+    await mkdir(dirname(viteBin), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs" }))
+    await writeFile(join(viteRoot, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs" }))
+    await writeFile(databaseBin, "")
+    await writeFile(viteBin, "")
+
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      generatedDrizzleConfigFile: join(rootDir, ".vitehub/database/drizzle.config.ts"),
+      rootDir,
+    }) as unknown as ResolvedDBViteConfig)!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], { ...(cliContext(spawn) as object), rootDir: viteRoot } as never)).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [
+      databaseBin,
+      "generate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({ cwd: rootDir }))
+  })
+
   it("passes the CLI env to Drizzle Kit", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const contributor = createDbCliContributor()!

@@ -101,7 +101,9 @@ async function runDrizzleKit(
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
-  const drizzleKitBin = resolveDrizzleKitBin([context.rootDir, projectRoot])
+  // Prefer the Database root because the generated config and working directory
+  // belong to it. Fall back to the invoking Vite root for external Database roots.
+  const drizzleKitBin = resolveDrizzleKitBin([projectRoot, context.rootDir])
   if (!drizzleKitBin) {
     context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
     return 1
