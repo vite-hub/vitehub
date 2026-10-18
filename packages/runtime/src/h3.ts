@@ -36,6 +36,10 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
+  // Prototype traversal is synchronous and can be intercepted by proxies.
+  // Keep the validator bounded while leaving ample room for ordinary derived
+  // Request chains (the regression suite exercises 20,000 levels).
+  const maxPrototypeDepth = 65_536
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -46,7 +50,9 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
+      let depth = 0
       while (prototype !== null) {
+        if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
         // Every ordinary class prototype owns its constructor. A proxy that
@@ -70,7 +76,9 @@ function isRequest(value: unknown): value is Request {
           const findDescriptor = (name: string): PropertyDescriptor | undefined => {
             let current: object | null = prototype
             const seen = new Set<object>()
+            let level = 0
             while (current !== null) {
+              if (level++ >= maxPrototypeDepth) return undefined
               if (seen.has(current)) return undefined
               seen.add(current)
               const descriptor = Object.getOwnPropertyDescriptor(current, name)
