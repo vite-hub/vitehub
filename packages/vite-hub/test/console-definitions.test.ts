@@ -201,8 +201,9 @@ describe("Console definition inspection", () => {
   it("validates methods and definition sections", async () => {
     installConsoleDefinitions("/project", { workflows: { definitions: [], kind: "definition-catalog" } })
 
-    await expect(definitionsHandler(event("", "POST"))).rejects.toThrow(expect.objectContaining({ statusCode: 405 }))
-    await expect(definitionsHandler(event())).rejects.toThrow(expect.objectContaining({ statusCode: 400 }))
+    await expect(definitionsHandler(event("?section=workflows", "POST"))).rejects.toThrow(expect.objectContaining({ statusCode: 405 }))
+    // Console access cannot scope a request without a section, so it rejects the request before the route runs.
+    await expect(definitionsHandlerRoute(event())).resolves.toMatchObject({ status: 403 })
     await expect(definitionsHandler(event("?section=Future"))).rejects.toThrow(expect.objectContaining({ statusCode: 400 }))
     await expect(definitionsHandler(event("?section=future"))).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))
     await expect(definitionsHandler(event("?section=constructor"))).rejects.toThrow(expect.objectContaining({ statusCode: 404 }))

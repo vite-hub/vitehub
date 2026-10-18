@@ -1,11 +1,13 @@
 ---
 title: Email
 navigation.title: Overview
-description: Send outbound transactional email through a provider-neutral driver contract, with dynamic Markdown composition and safe test capture.
+description: Send email from your server through Resend or Cloudflare, and write messages as Markdown templates.
 navigation.order: 1
 icon: i-lucide-mail
 ---
 
+::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
 ::agent-only{skill="email"}
 Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
 
@@ -27,12 +29,14 @@ Prove rendered HTML and text output, a rejected address, and the provider respon
     const markdown = await renderWelcome({ user: { name } })
     const body = await renderEmailMarkdown(markdown)
 
-    return await email.send({
+    const [error, sent] = await email.send({
       ...body,
       from: 'verified-sender@example.com',
       to,
       subject: 'Your workspace is ready',
     })
+    if (error) throw error
+    return sent
   }
   ```
 
@@ -52,56 +56,104 @@ Prove rendered HTML and text output, a rejected address, and the provider respon
       preset: 'node',
       email: {
         driver: 'resend',
-        options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
+        // The server reads the key when it sends
+        options: {
+          apiKey: env({
+            secret: true,
+            source: env.source('RESEND_API_KEY'),
+          }),
+        },
       },
     })],
   })
   ```
 
-  ```ts [server/agents/mailer.ts]
-  import { defineAgent } from 'vite-hub/agent'
-  import { email } from 'vite-hub/agent/capabilities'
+  ```ts [server/api/feedback.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { email } from 'vite-hub/email/server'
 
-  export default defineAgent({
-    driver: { model: 'openai/gpt-5.1-mini' },
-    capabilities: [
-      email({
-        from: 'support@example.com',
-        recipients: [
-          'customer@example.net',
-          'owner@example.com',
-        ],
-        policy: 'require-approval',
-      }),
-    ],
+  // Send a plain text email
+  export default defineEventHandler(async () => {
+    return email.send({
+      from: 'hello@example.com',
+      to: 'team@example.com',
+      subject: 'New feedback',
+      text: 'Someone sent feedback.',
+    })
+  })
+  ```
+
+  ```md [server/emails/welcome.md]
+  # Welcome {{ data.user.name }}
+
+  Your account is ready.
+  ```
+
+  ```ts [server/api/welcome.post.ts]
+  import { defineEventHandler } from 'h3'
+  import renderWelcome from '#vitehub/emails/welcome'
+  import {
+    renderEmailMarkdown,
+  } from 'vite-hub/email/markdown'
+  import { email } from 'vite-hub/email/server'
+
+  export default defineEventHandler(async () => {
+    // Fill the template, then make HTML and text
+    const markdown = await renderWelcome({
+      user: { name: 'Ada' },
+    })
+    const body = await renderEmailMarkdown(markdown)
+
+    return email.send({
+      ...body,
+      from: 'hello@example.com',
+      to: 'ada@example.com',
+      subject: 'Your account is ready',
+    })
+  })
+  ```
+
+  ```ts [test/welcome.test.ts]
+  import { expect, it } from 'vitest'
+  import { createTestEmail } from '@vite-hub/email/test'
+
+  // Check an email without sending it
+  it('sends the welcome email', async () => {
+    const mail = createTestEmail()
+    await mail.send({
+      from: 'hello@example.com',
+      to: 'you@example.com',
+      subject: 'Welcome',
+      text: 'Hello',
+    })
+    expect(mail.messages[0]?.subject).toBe('Welcome')
   })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Config picks the driver, runtime keeps the secret" icon="i-lucide-sliders-horizontal" to="/docs/email/configure"}
-  `driver` is `resend` or `cloudflare-email`; the key resolves at runtime.
+  :::product-feature-item{title="Pick a provider in one place" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-vite"}
+  Choose Resend or Cloudflare Email in your Vite config. Your routes do not change.
   :::
 
-  :::product-feature-item{title="Markdown files in server/emails become typed imports" icon="i-lucide-files" to="/docs/email/server-api#compose-dynamic-markdown"}
-  Each file becomes a typed `#vitehub/emails/<name>` import.
+  :::product-feature-item{title="Keys stay out of your code" icon="i-lucide-shield-check" to="/docs/email/get-started#provide-the-resend-secret"}
+  The API key comes from a server environment variable when the server sends.
   :::
 
-  :::product-feature-item{title="Every send in vite dev is recorded" icon="i-lucide-terminal" to="/docs/email/hosts#development-outbox"}
-  The outbox records each `email.send()`; `deliver: false` skips the provider.
+  :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#compose-dynamic-markdown"}
+  Files in `server/emails` become typed imports. Fill them with data to get HTML and text.
   :::
 
-  :::product-feature-item{title="A test client captures messages without delivery" icon="i-lucide-play-circle" to="/docs/email/server-api#test-without-delivery"}
-  `createTestEmail()` returns a client with an isolated in-memory mailbox.
+  :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
+  In `vite dev`, an outbox keeps a copy of each email. Set `deliver: false` to skip the real send.
   :::
 
-  :::product-feature-item{title="An Agent sends plain text to allowed addresses" icon="i-lucide-bot" to="/docs/email/agent-capability"}
-  The sender is fixed; recipients outside `recipients` deny the call.
+  :::product-feature-item{title="Test without sending" icon="i-lucide-flask-conical" to="/docs/email/server-api#test-without-delivery"}
+  `createTestEmail()` keeps messages in memory, so your tests can check them.
   :::
 
-  :::product-feature-item{title="Delivery errors stay explicit" icon="i-lucide-circle-alert" to="/docs/email/limits-and-errors"}
-  Email maps failures to `EMAIL_*` codes and does not retry.
+  :::product-feature-item{title="Clear errors, no double sends" icon="i-lucide-circle-alert" to="/docs/email/limits-and-errors#handle-delivery-errors"}
+  Each failure has an `EMAIL_*` code. Email does not retry, so a message is not sent twice by mistake.
   :::
 ::

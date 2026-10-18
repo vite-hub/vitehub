@@ -37,7 +37,7 @@ async function run(policy: ConsoleAccessPolicy | undefined, request = event()) {
   if (policy) installConsoleAccess(policy)
   else Reflect.deleteProperty(globalThis, policyKey)
   const handler = vi.fn((_event: ConsoleRequestEvent, access: ConsoleAccess) => access)
-  const result = await withConsoleAccess(handler)(request)
+  const result = await withConsoleAccess(handler, { anySection: true })(request)
   return { handler, result }
 }
 
@@ -94,7 +94,7 @@ describe("Console access policies", () => {
 
   it("keeps the local development Console open and fails closed in production", async () => {
     const allowed = await run({ mode: "local" })
-    expect(allowed.result).toEqual({ mode: "local" })
+    expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
     vi.stubEnv("NODE_ENV", "production")
@@ -110,7 +110,7 @@ describe("Console access policies", () => {
     await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
 
     const allowed = await run({ mode: "open", authorize }, event({ "x-role": "admin" }))
-    expect(allowed.result).toEqual({ mode: "open" })
+    expect(allowed.result).toEqual({ mode: "open", sections: "all" })
     expect(authorize).toHaveBeenLastCalledWith({ request: expect.any(Request) })
 
     const custom = await run({ mode: "open", authorize: () => new Response("Sign in at the host.", { status: 401 }) })
@@ -119,7 +119,7 @@ describe("Console access policies", () => {
     await expect(Response.prototype.text.call(custom.result)).resolves.toBe("Sign in at the host.")
 
     const defined = await run({ mode: "open", authorize: defineConsoleAuthorize(() => true) })
-    expect(defined.result).toEqual({ mode: "open" })
+    expect(defined.result).toEqual({ mode: "open", sections: "all" })
   })
 
   it("checks the Auth Session and fails closed without an Auth Definition", async () => {
@@ -135,7 +135,7 @@ describe("Console access policies", () => {
     const request = event()
     const allowed = await run({ mode: "cloudflare-access", check }, request)
     expect(check).toHaveBeenCalledWith(request)
-    expect(allowed.result).toEqual({ mode: "cloudflare-access" })
+    expect(allowed.result).toEqual({ mode: "cloudflare-access", sections: "all" })
   })
 
   it("checks a real Console Auth Session with withAuthorization()", async () => {
@@ -169,7 +169,7 @@ describe("Console access policies", () => {
         mode: "auth",
         check: async request => request.req instanceof Request ? authorizeConsole(request.req) : new Response(null, { status: 400 }),
       })
-      const route = withConsoleAccess(() => "workspace file")
+      const route = withConsoleAccess(() => "workspace file", { anySection: true })
       const call = (cookie?: string) => route({
         method: "GET",
         req: new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} }),
@@ -205,13 +205,13 @@ describe("Console access grants", () => {
   })
 
   it("rejects a forged access for an internal Console event", () => {
-    const forged: ConsoleAccess = Object.freeze({ mode: "local" })
+    const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
     expect(() => bindConsoleAccess(forged, event())).toThrow("not created by the access check")
   })
 
   it("does not run RPC operations with a forged access", async () => {
     installConsoleSections("/console-access", ["agents"])
-    const forged: ConsoleAccess = Object.freeze({ mode: "local" })
+    const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
     const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
       body: JSON.stringify({ input: {}, method: consoleRpcMethods.sections }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -228,9 +228,9 @@ describe("Console access grants", () => {
     const outer = withConsoleAccess(async (_event: ConsoleRequestEvent, access: ConsoleAccess) => {
       const internal = bindConsoleAccess(access, { method: "GET" })
       expect(() => bindConsoleAccess(access, internal)).toThrow("already bound")
-      return withConsoleAccess(inner)(internal)
-    })
-    await expect(outer(event())).resolves.toEqual({ mode: "auth" })
+      return withConsoleAccess(inner, { anySection: true })(internal)
+    }, { anySection: true })
+    await expect(outer(event())).resolves.toEqual({ mode: "auth", sections: "all" })
     expect(check).toHaveBeenCalledTimes(1)
     expect(inner).toHaveBeenCalledTimes(1)
   })

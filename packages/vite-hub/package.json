@@ -369,29 +369,11 @@
       "require": "./dist/agent/observability.js",
       "default": "./dist/agent/observability.js"
     },
-    "./agent/presets/babysitter": {
-      "types": "./dist/agent/presets/babysitter.d.ts",
-      "import": "./dist/agent/presets/babysitter.js",
-      "require": "./dist/agent/presets/babysitter.js",
-      "default": "./dist/agent/presets/babysitter.js"
-    },
-    "./agent/presets/babysitter/server": {
-      "types": "./dist/agent/presets/babysitter/server.d.ts",
-      "import": "./dist/agent/presets/babysitter/server.js",
-      "require": "./dist/agent/presets/babysitter/server.js",
-      "default": "./dist/agent/presets/babysitter/server.js"
-    },
-    "./agent/presets/labeller": {
-      "types": "./dist/agent/presets/labeller.d.ts",
-      "import": "./dist/agent/presets/labeller.js",
-      "require": "./dist/agent/presets/labeller.js",
-      "default": "./dist/agent/presets/labeller.js"
-    },
-    "./agent/presets/workspace": {
-      "types": "./dist/agent/presets/workspace.d.ts",
-      "import": "./dist/agent/presets/workspace.js",
-      "require": "./dist/agent/presets/workspace.js",
-      "default": "./dist/agent/presets/workspace.js"
+    "./agent/process-host": {
+      "types": "./dist/agent/process-host.d.ts",
+      "import": "./dist/agent/process-host.js",
+      "require": "./dist/agent/process-host.js",
+      "default": "./dist/agent/process-host.js"
     },
     "./agent/runtime/process": {
       "types": "./dist/agent/runtime/process.d.ts",
@@ -410,12 +392,6 @@
       "import": "./dist/agent/server/github.js",
       "require": "./dist/agent/server/github.js",
       "default": "./dist/agent/server/github.js"
-    },
-    "./agent/server/github-inbox": {
-      "types": "./dist/agent/server/github-inbox.d.ts",
-      "import": "./dist/agent/server/github-inbox.js",
-      "require": "./dist/agent/server/github-inbox.js",
-      "default": "./dist/agent/server/github-inbox.js"
     },
     "./agent/state/sqlite": {
       "types": "./dist/agent/state/sqlite.d.ts",
@@ -711,6 +687,30 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./presets/babysitter": {
+      "types": "./dist/presets/babysitter.d.ts",
+      "import": "./dist/presets/babysitter.js",
+      "require": "./dist/presets/babysitter.js",
+      "default": "./dist/presets/babysitter.js"
+    },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js",
+      "require": "./dist/presets/babysitter/server.js",
+      "default": "./dist/presets/babysitter/server.js"
+    },
+    "./presets/labeller": {
+      "types": "./dist/presets/labeller.d.ts",
+      "import": "./dist/presets/labeller.js",
+      "require": "./dist/presets/labeller.js",
+      "default": "./dist/presets/labeller.js"
+    },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js",
+      "require": "./dist/presets/workspace.js",
+      "default": "./dist/presets/workspace.js"
+    },
     "./queue": {
       "types": "./dist/queue.d.ts",
       "import": "./dist/queue.js",
@@ -997,6 +997,18 @@
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
+  "vitehub": {
+    "agent": {
+      "processHost": [
+        "./presets/babysitter"
+      ],
+      "providerDriver": [
+        "./presets/babysitter",
+        "./presets/babysitter/server",
+        "./presets/workspace"
+      ]
+    }
+  },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
@@ -1023,6 +1035,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",

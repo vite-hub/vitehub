@@ -47,7 +47,7 @@ export interface SqliteAgentStateExtensionExecutor {
 }
 
 /**
- * Tables owned by one extension, such as the Babysitter PR inbox, in the Agent State database.
+ * Tables owned by one extension, such as a process host inbox, in the Agent State database.
  * Writes share the adapter's in-process serialization and run in `BEGIN IMMEDIATE` transactions.
  */
 export interface SqliteAgentStateExtension extends SqliteAgentStateExtensionExecutor {

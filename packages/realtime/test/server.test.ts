@@ -1492,6 +1492,11 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
+
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git /config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1/config" }))).toBeUndefined()
+
+
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git./config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT /config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
@@ -1571,7 +1576,7 @@ describe("realtime awareness", () => {
 
     claimAwarenessClientIds(owners, firstPeer, [1])
 
-    expect(() => claimAwarenessClientIds(owners, secondPeer, [1])).toThrow("already owned")
+    expect(() => claimAwarenessClientIds(owners, secondPeer, [1])).toThrow(expect.objectContaining({ code: "REALTIME_AWARENESS_OWNERSHIP_CONFLICT" }))
     expect(owners.get(1)).toBe(firstPeer)
   })
 
@@ -1581,7 +1586,7 @@ describe("realtime awareness", () => {
     claimAwarenessClientIds(owners, peer, Array.from({ length: 1024 }, (_, index) => index))
 
     expect(() => claimAwarenessClientIds(owners, peer, [1024]))
-      .toThrow("too many awareness clients")
+      .toThrow(expect.objectContaining({ code: "REALTIME_TOO_MANY_AWARENESS_CLIENTS" }))
     expect(owners.has(1024)).toBe(false)
   })
 

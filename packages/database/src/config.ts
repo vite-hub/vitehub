@@ -310,7 +310,7 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
   if (expression === undefined) return "sqlite"
   const dialect = readStaticStringLiteral(expression)
   if (dialect === "sqlite" || dialect === "postgresql") return dialect
-  throw databaseErrorDiagnostics.DATABASE_C0011({ message: `[vitehub] Database definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".` })
+  throw databaseErrorDiagnostics.DATABASE_INVALID_DIALECT({ file })
 }
 
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
@@ -326,7 +326,7 @@ type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): FoundDatabaseDefinition {
   const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
   if (configuredName !== name) {
-    throw databaseErrorDiagnostics.DATABASE_C0001({ message: `[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.` })
+    throw databaseErrorDiagnostics.DATABASE_NAME_MISMATCH({ file, name })
   }
   return {
     handler: file,
@@ -396,8 +396,8 @@ function configuresDatabase(file: string) {
   return keys === undefined || keys.size > 0
 }
 
-function listDefinitionFiles(definitions: Array<{ handler: string }>) {
-  return definitions.map(definition => `  - ${definition.handler}`)
+function definitionFiles(definitions: Array<{ handler: string }>) {
+  return definitions.map(definition => definition.handler)
 }
 
 /**
@@ -410,12 +410,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const sameLayer = ordered.find((entry, index) => index > 0 && entry.layer === ordered[index - 1]!.layer)
   if (sameLayer) {
     const duplicates = ordered.filter(entry => entry.layer === sameLayer.layer).map(entry => entry.definition)
-    throw databaseErrorDiagnostics.DATABASE_C0003({ message: [
-      name === "default"
-        ? "[vitehub] Only one default database definition is allowed."
-        : `[vitehub] Only one definition is allowed for database "${name}".`,
-      ...listDefinitionFiles(duplicates),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: name, files: definitionFiles(duplicates) })
   }
 
   const app = ordered[0]!.layer === 0 ? ordered[0]!.definition : undefined
@@ -428,30 +423,16 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const layer of configuringLayers) {
       const layerOptions = readDefinitionOptionKeys(layer.handler)
       if (!appOptions || !layerOptions) {
-        throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-          `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-          "ViteHub cannot read the options of these definitions:",
-          ...listDefinitionFiles([app, layer]),
-          "Pass an object literal to defineDatabase() in both files, or keep every option in one of them.",
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), reason: "unreadable" })
       }
       const missing = [...layerOptions].filter(key => !appOptions.has(key))
       if (!missing.length) continue
       const options = missing.map(key => `\`${key}\``).join(", ")
-      throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-        `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-        `It does not set ${options}, which a layer sets:`,
-        ...listDefinitionFiles([app, layer]),
-        `Set ${options} in the application definition too, or move all options to the layer.`,
-      ].join("\n") })
+      throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), options, reason: "missing" })
     }
   }
   if (!appConfigures && configuringLayers.length > 1) {
-    throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-      `[vitehub] More than one Nuxt layer sets options for database "${name}":`,
-      ...listDefinitionFiles(configuringLayers),
-      `Keep the options in one layer, or set them in the application definition of database "${name}".`,
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles(configuringLayers), reason: "layers" })
   }
 
   const appTables = new Set(app?.tableNames)
@@ -460,11 +441,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
-        throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
-          `[vitehub] More than one Nuxt layer declares table "${tableName}" in database "${name}":`,
-          ...listDefinitionFiles([owner, definition]),
-          `Rename one table, or declare "${tableName}" in the application definition to replace both.`,
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_TABLE_CONFLICT({ database: name, files: definitionFiles([owner, definition]), table: tableName })
       }
       tableOwners.set(tableName, definition)
     }
@@ -519,10 +496,7 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
-    throw databaseErrorDiagnostics.DATABASE_C0002({ message: [
-      "[vitehub] Database definitions must use either one default database or all named databases, not both.",
-      ...listDefinitionFiles(found.map(entry => entry.definition)),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: definitionFiles(found.map(entry => entry.definition)) })
   }
   const byName = new Map<string, typeof found>()
   for (const entry of found) {
