@@ -63,7 +63,7 @@ type ConsoleNitroConfig = {
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
 export interface ConsoleOptions {
-  auth?: false | "app" | ConsoleAuthConfig
+  auth: false | "app" | ConsoleAuthConfig
   /**
    * Server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it after the `auth` check.
    * It returns `true`, `false`, a `Response`, or `{ sections }` to allow only some Console sections.

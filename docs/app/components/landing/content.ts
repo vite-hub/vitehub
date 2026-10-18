@@ -329,7 +329,9 @@ export const portabilityExamples = [
       "",
       "export default defineEventHandler(async (event) => {",
       "  const payload = await readBody<{ email: string }>(event)",
-      '  return runQueue("welcome-email", payload)',
+      '  const [error, result] = await runQueue("welcome-email", payload)',
+      "  if (error) throw error",
+      "  return result",
       "})",
     ],
     hosts: [

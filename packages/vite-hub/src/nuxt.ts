@@ -19,6 +19,7 @@ import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
+import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
@@ -981,6 +982,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+    // Nuxt runs its own Nitro.
+    .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined

@@ -1,23 +1,13 @@
 ---
 title: Env
 navigation.title: Overview
-description: Declare public, build-time, server runtime, and secret values behind typed ViteHub accessors.
+description: Declare your settings and secrets once, then read them as typed values in browser and server code.
 navigation.order: 1
 icon: i-lucide-key-round
 ---
 
-::agent-only{skill="env"}
-Use Env to declare public, build-time, server runtime, and secret values with typed accessors. Keep secret values out of source and client bundles.
-
-Read [Get started](/docs/env/get-started), [Configure](/docs/env/configure), or [Server API](/docs/env/server-api).
-
-Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
-
-Prove missing, valid, and invalid values in the same host mode you will deploy. Inspect declaration metadata, never secret contents.
-::
-
-::product-hero{tagline="Declare public, build-time, server, and secret values in the Vite config, and read them through generated typed imports." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
+::product-hero{tagline="Declare your settings and secrets once, then read them as typed values in browser and server code." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
   ```ts [vite.config.ts]
   import { env, hubEnv } from '@vite-hub/env/vite'
   import { defineConfig } from 'vite'
@@ -25,64 +15,86 @@ Prove missing, valid, and invalid values in the same host mode you will deploy. 
   export default defineConfig({
     plugins: [hubEnv()],
     env: {
+      // Safe to show in the browser
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      // Only server code can read these
       server: {
         github: {
-          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+          token: env({
+            secret: true,
+            source: env.source('GITHUB_TOKEN'),
+          }),
         },
-        labeller: {
-          dryRun: env.boolean({ default: true }),
-          minConfidence: env.number({ default: 0.6 }),
-          mode: env.enum(['draft', 'send'], { default: 'draft' }),
-        },
+        dryRun: env.boolean({ default: true }),
       },
     },
   })
   ```
 
-  ```ts [Server]
-  import { useServerEnv } from '#vitehub/env/server'
+  ```ts [src/app.ts]
+  import { usePublicEnv } from '#vitehub/env/public'
 
-  export async function listIssues() {
-    const { github } = useServerEnv()
-
-    return fetch('https://api.github.com/issues', {
-      headers: {
-        authorization: `Bearer ${github.token.unseal()}`,
-      },
-    })
-  }
+  // Public values work in browser code
+  const { appName } = usePublicEnv()
+  document.title = appName
   ```
 
-  ```bash [CLI]
-  pnpm vitehub env inspect [--stage <name>] [--json]
-  pnpm vitehub env check [--stage <name>] [--json]
+  ```ts [server/api/issues.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { useServerEnv } from '#vitehub/env/server'
+
+  export default defineEventHandler(async () => {
+    const { github } = useServerEnv()
+
+    // A secret stays hidden until you unseal it
+    const token = github.token.unseal()
+    const response = await fetch(
+      'https://api.github.com/issues',
+      { headers: { authorization: `Bearer ${token}` } },
+    )
+    return response.json()
+  })
+  ```
+
+  ```ts [server/api/publish.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { useServerEnv } from '#vitehub/env/server'
+
+  export default defineEventHandler(() => {
+    // dryRun is a boolean, not the text "true"
+    const { dryRun } = useServerEnv()
+    if (dryRun) return { published: false }
+
+    return { published: true }
+  })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Host strings become typed values" icon="i-lucide-sliders-horizontal" to="/docs/env/configure"}
-  `env.boolean()`, `env.number()`, and `env.enum()` parse each value.
+  :::product-feature-item{title="Browser or server" icon="i-lucide-split" to="/docs/env/configure#env-config-sections"}
+  Public values can appear in the browser. Server values stay in server code.
   :::
 
-  :::product-feature-item{title="Secrets stay on the server, redacted" icon="i-lucide-shield-check" to="/docs/env/server-api"}
-  Secret Env stays redacted in Server Env until `unseal()`.
+  :::product-feature-item{title="Typed values" icon="i-lucide-sliders-horizontal" to="/docs/env/configure#typed-values"}
+  Turn text from the host into a boolean, a number, or one of a list of choices. A wrong value fails with a clear error.
   :::
 
-  :::product-feature-item{title="Read credentials from external storage" icon="i-lucide-database" to="/docs/env/server-api#read-external-env-storage"}
-  Each `loadServerEnv()` call reads a fresh snapshot from an Env provider.
+  :::product-feature-item{title="Secrets stay hidden" icon="i-lucide-shield-check" to="/docs/env/server-api#use-it-at-runtime"}
+  A secret prints as hidden text until you call `unseal()`.
   :::
 
-  :::product-feature-item{title="Check a stage without printing values" icon="i-lucide-terminal" to="/docs/development/cli#inspect-server-env"}
-  `env check` exits `1` when Server Env would not load.
+  :::product-feature-item{title="Clear variable names" icon="i-lucide-tag" to="/docs/env/configure#variable-names"}
+  `env.server.github.token` reads `VITEHUB_GITHUB_TOKEN` first, then the name you give in `env.source()`.
   :::
 
-  :::product-feature-item{title="Replace a credential without a redeploy" icon="i-lucide-key-round" to="/docs/env/bridge"}
-  A secret store with per-key grants and a durable activity log.
+  :::product-feature-item{title="Load secrets from your own store" icon="i-lucide-database" to="/docs/env/server-api#read-external-env-storage"}
+  Read values from an outside secret store. Each `loadServerEnv()` call gets fresh values.
   :::
 
-  :::product-feature-item{title="Secrets resolve at runtime" icon="i-lucide-lock-keyhole" to="/docs/env/server-api"}
-  Keep secret values out of generated client and provider output.
+  :::product-feature-item{title="Change a secret without a redeploy" icon="i-lucide-key-round" to="/docs/env/bridge#replace-a-credential"}
+  Env Bridge lets an admin replace a stored value while the app runs.
   :::
 ::

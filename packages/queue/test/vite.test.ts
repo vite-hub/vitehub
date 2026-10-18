@@ -36,6 +36,30 @@ describe("hubQueue", () => {
     await configResolved({ root, command: "build" })
     expect(await collectViteHubDefinitionInspectors([plugin])).toEqual([])
   })
+  it("ignores an inherited provider when resolving standalone runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-inherited-provider-"))
+    roots.push(root)
+    const options = Object.create({ provider: "cloudflare" }) as { provider: "cloudflare" }
+    const config = { root, command: "build", nitro: {} as Record<string, unknown> }
+    const plugin = hubQueue(options)
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect((config.nitro as Record<string, unknown>).plugins).toContain(".vitehub/nitro/queue/plugin.ts")
+  })
+
+  it("keeps inherited providers from disabling runtime for explicit hosting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-inherited-provider-preset-"))
+    roots.push(root)
+    const options = Object.create({ provider: "cloudflare" }) as { provider: "cloudflare" }
+    const config = { root, command: "build", nitro: { preset: "vercel", plugins: [] as unknown[] } }
+    const plugin = hubQueue(options)
+
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+
+    expect((config.nitro as Record<string, unknown>).plugins).toHaveLength(1)
+  })
+
   it("omits explicitly disabled Queue Definitions", async () => {
     const options = false
     const nitro = {}
@@ -354,7 +378,7 @@ describe("hubQueue", () => {
 
     for (const namePrefix of ["-preview-", "preview_", "preview/"]) {
       const config = hubQueue({ namePrefix, provider: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-      expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow("must contain only letters, numbers, and dashes")
+      expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_NAME" }))
     }
   })
 
@@ -589,7 +613,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect(runBuildEnd(plugin)).rejects.toThrow("changed after config resolution")
+    await expect(runBuildEnd(plugin)).rejects.toMatchObject({ code: "QUEUE_DEFINITIONS_CHANGED" })
   })
 
   it("rejects late Queue Definitions for Vercel Nitro", async () => {
@@ -605,7 +629,7 @@ describe("hubQueue", () => {
     } as never)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
-    await expect(runBuildEnd(plugin)).rejects.toThrow("changed after config resolution")
+    await expect(runBuildEnd(plugin)).rejects.toMatchObject({ code: "QUEUE_DEFINITIONS_CHANGED" })
   })
 
   it("removes Queue bindings when final config discovery is empty", async () => {
@@ -645,7 +669,7 @@ describe("hubQueue", () => {
     } as never)
     await rm(definition)
 
-    await expect(runBuildEnd(plugin)).rejects.toThrow("changed after config resolution")
+    await expect(runBuildEnd(plugin)).rejects.toMatchObject({ code: "QUEUE_DEFINITIONS_CHANGED" })
   })
 
   it("rejects ambiguous and conflicting custom Cloudflare bindings", async () => {
@@ -654,7 +678,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "first.queue.ts"), "export default { handler: async () => undefined }\n")
     await writeFile(join(root, "second.queue.ts"), "export default { handler: async () => undefined }\n")
     const custom = hubQueue({ provider: "cloudflare", binding: "JOBS" }).config as unknown as (config: Record<string, unknown>) => unknown
-    expect(() => custom({ nitro: { preset: "cloudflare_module" }, root })).toThrow(/only be used with one Queue Definition/)
+    expect(() => custom({ nitro: { preset: "cloudflare_module" }, root })).toThrow(expect.objectContaining({ code: "QUEUE_BINDING_CONFLICT" }))
 
     await rm(join(root, "second.queue.ts"))
     const generatedBinding = "QUEUE_6669727374"

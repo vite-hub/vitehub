@@ -1,108 +1,99 @@
 ---
 title: Workspace
 navigation.title: Overview
-description: Build persistent file-tree state with rules, Source Bindings, snapshots, diffs, and sessions.
+description: Give your server a folder of files to read and write, with rules for each path and a record of every change.
 navigation.order: 1
 icon: i-lucide-folder-git-2
 ---
 
-::agent-only{skill="workspace"}
-Use Workspace for persistent file-tree state, Sources, access rules, snapshots, diffs, and sessions. A Workspace is the boundary for file authority and write-back.
+::product-hero{tagline="A folder of files your server can read and write, with rules for each path and a record of every change." hosts="Node, Docker, Cloudflare, Vercel"}
+  :::product-files
+  ```ts [server/workspaces/docs.ts]
+  import { defineWorkspace, glob } from 'vite-hub/workspace'
 
-Read [Get started](/docs/workspace/get-started), [Configure](/docs/workspace/configure), [Server API](/docs/workspace/server-api), or [Hosts](/docs/workspace/hosts).
-
-Set the root, provider, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
-
-Prove read, scoped write, diff, and restart or provider recovery. Inspect snapshots and generated Workspace state before relying on persistence.
-::
-
-::product-hero{tagline="A persistent file tree for server code and Agents, with the same calls on every Store provider." hosts="Node, Docker, Cloudflare, Vercel"}
-  :::code-group
-  ```ts [Session]
-  import { resolveSandbox } from '@vite-hub/sandbox'
-  import { useWorkspace } from '@vite-hub/workspace'
-
-  export async function testDocs() {
-    const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)
-    const host = await sandbox.open()
-    const session = await useWorkspace('docs', { mode: 'write' }).startSession({ host })
-
-    try {
-      await session.exec('pnpm', ['test'])
-      return await session.diff()
-    }
-    finally {
-      await session.close()
-      await host.close()
-    }
-  }
-  ```
-
-  ```ts [Definition]
-  import { defineWorkspace, glob, github } from '@vite-hub/workspace'
-
+  // This file defines the docs Workspace.
   export default defineWorkspace({
     sources: {
-      docs: glob({
-        cwd: '.',
-        include: ['README.md', 'docs/**/*.md'],
-      }),
+      // Markdown from your docs folder
+      docs: glob({ cwd: 'docs', include: '**/*.md' }),
+    },
+    rules: {
+      // Your files stay read-only
+      'docs/**': { write: false },
+    },
+  })
+  ```
+
+  ```ts [server/workspaces/handbook.ts]
+  import { defineWorkspace, github } from 'vite-hub/workspace'
+
+  // Files from a GitHub repository.
+  // Private repositories read GITHUB_TOKEN.
+  export default defineWorkspace({
+    sources: {
       handbook: github({
         repo: 'acme/handbook',
         ref: 'main',
-        root: 'support',
-        mount: 'handbook',
-        materialize: 'lazy',
-        sync: true,
       }),
     },
-    rules: {
-      '/**': { write: false },
-      '/drafts/**': { write: true, mediaType: 'text/markdown' },
-    },
   })
   ```
 
-  ```ts [Agent]
-  import { defineAgent } from 'vite-hub/agent'
-  import { workspaceShell } from 'vite-hub/agent/capabilities'
+  ```ts [server/api/docs.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { useWorkspace } from 'vite-hub/workspace'
 
-  export default defineAgent({
-    driver: { model: 'openai/gpt-5.1-mini' },
-    workspace: { mode: 'write' },
-    capabilities: [workspaceShell({ mode: 'write' })],
+  // List every Markdown file
+  export default defineEventHandler(async () => {
+    const docs = useWorkspace('docs')
+    return docs.fs.glob('**/*.md')
   })
   ```
 
-  ```bash [CLI]
-  pnpm vitehub workspace dev --url http://localhost:5173 docs exec pnpm test --filter api
+  ```ts [server/api/drafts.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { useWorkspace } from 'vite-hub/workspace'
+
+  // Write a draft, return the change
+  export default defineEventHandler(async () => {
+    const docs = useWorkspace('docs', { mode: 'write' })
+
+    await docs.fs.writeFile('drafts/hello.md', '# Hello')
+    return docs.diff()
+  })
+  ```
+
+  ```md [docs/intro.md]
+  # Welcome
+
+  This file is in your project.
+  The Workspace shows it under docs/intro.md.
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="One file declares Sources and rules" icon="i-lucide-folder-tree" to="/docs/workspace/configure"}
-  A Definition in `server/workspaces` sets Sources and path rules.
+  :::product-feature-item{title="One file defines it" icon="i-lucide-file-code-2" to="/docs/workspace/configure#workspace-definition-options"}
+  Add a file to `server/workspaces`. Its name is the Workspace name.
   :::
 
-  :::product-feature-item{title="Sync a Source and snapshot the result" icon="i-lucide-code-2" to="/docs/workspace/server-api"}
-  `workspace.sync()` returns per-Source counts and can snapshot the result.
+  :::product-feature-item{title="Start from files you have" icon="i-lucide-folder-input" to="/docs/workspace/configure#source-binding-options"}
+  Show files from your project or a GitHub repository. The originals do not change.
   :::
 
-  :::product-feature-item{title="Run a command and keep its diff" icon="i-lucide-terminal" to="/docs/workspace/server-api#use-sessions-and-shell"}
-  A Sandbox Session diffs, commits, or rolls back on close.
+  :::product-feature-item{title="Read and write from a route" icon="i-lucide-code-2" to="/docs/workspace/server-api#runtime-facade"}
+  `useWorkspace()` gives each route `readFile()`, `writeFile()`, and `glob()`.
   :::
 
-  :::product-feature-item{title="Pick the Store once, keep the calls" icon="i-lucide-sliders-horizontal" to="/docs/workspace/configure#store-providers"}
-  Local, Memory, Cloudflare Artifacts, Vercel Blob, GitHub, or a custom Store.
+  :::product-feature-item{title="Decide who can write where" icon="i-lucide-lock" to="/docs/workspace/configure#workspace-definition-options"}
+  Rules make a path read-only or limit the file types it accepts.
   :::
 
-  :::product-feature-item{title="The same tree, as tools for an Agent" icon="i-lucide-bot" to="/docs/workspace/agent-capability"}
-  `workspaceShell()` adds shell and file tools, bound by Workspace rules.
+  :::product-feature-item{title="See every change" icon="i-lucide-history" to="/docs/workspace/server-api#retained-folder-history"}
+  `diff()` lists what changed. A snapshot saves a version you can read later.
   :::
 
-  :::product-feature-item{title="Changes stay inspectable" icon="i-lucide-history" to="/docs/workspace/server-api"}
-  Read diffs and snapshots before an Agent writes them back.
+  :::product-feature-item{title="Same code in development and production" icon="i-lucide-server" to="/docs/workspace/hosts"}
+  Files stay on your disk while you develop. Your routes do not change when you deploy.
   :::
 ::

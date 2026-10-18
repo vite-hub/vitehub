@@ -58,7 +58,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const pending = (async () => {
       const openKv = getDenoRuntime()?.openKv
       if (!openKv) {
-        throw kvErrorDiagnostics.KV_R0001({ message: "[vitehub] Deno KV requires Deno.openKv(). The runtime must be Deno with KV enabled, or the KV Store needs another driver." })
+        throw kvErrorDiagnostics.KV_DENO_KV_UNAVAILABLE()
       }
       return openKv(options.path)
     })()
@@ -130,10 +130,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         }
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(iterator.cursor)) {
-          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, iterator.cursor)) {
-          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV rejected pagination after the cursor history limit was reached." })
         }
         const nextCursor = cursorHistories.store(iterator.cursor, cursors)
         cursorHistories.complete(cursor)

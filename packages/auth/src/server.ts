@@ -271,34 +271,17 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function responseGetter(value: object, property: string): (() => unknown) | undefined {
-  let prototype: object | null = value
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (descriptor?.get) return descriptor.get
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-}
-
-function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
-  if (Object.prototype.hasOwnProperty.call(value, property)) return
-  let prototype: object | null = Object.getPrototypeOf(value) as object | null
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-}
-
+/**
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ */
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result = await authorize(context)
+  const result: unknown = await authorize(context)
   if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
-  if (response) return response
-  return createForbiddenResponse(context.request)
+  return response ?? createForbiddenResponse(context.request)
 }
 
 const authorizationResponsePrototypeLimit = 32
@@ -357,24 +340,6 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       current = Object.getPrototypeOf(current)
     }
     return false
-  }
-  catch {
-    return false
-  }
-}
-
-function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
-  if (body === null || typeof body !== "object") return
-  try {
-    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
-    const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
-    if (!streamDescriptors) return false
-    const getReader = streamDescriptors.getReader
-    const reader = Reflect.apply(getReader, body, [])
-    const methods = getNativeAuthorizationReaderMethods(reader)
-    if (!methods) return false
-    Reflect.apply(methods.releaseLock, reader, [])
-    return getReader
   }
   catch {
     return false
@@ -500,8 +465,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     if (!nativeHeaderMethods || !nativeCookieMethod) return
-    const bodyReader = body === null ? undefined : getNativeAuthorizationBodyReader(body)
-    if (body !== null && (!bodyReader || !isSerializableAuthorizationBody(body))) return
+    if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
@@ -533,11 +497,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    // Let the platform consume the stream through its internal capability
-    // boundary. Calling reader methods discovered from the candidate's
-    // prototype chain would allow a forged foreign prototype to cross this
-    // authorization boundary.
-    return new Response(body, { status, statusText, headers: normalizedHeaders })
+    // Tee through the platform's native stream operation. This creates a
+    // fresh stream whose methods cannot be replaced by an inherited accessor
+    // on the caller's original stream.
+    const tee = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "tee")?.value
+    if (typeof tee !== "function") return
+    const [normalizedBody] = Reflect.apply(tee, body, []) as [ReadableStream<Uint8Array>, ReadableStream<Uint8Array>]
+    return new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
 
   }
   catch {
