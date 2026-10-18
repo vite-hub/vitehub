@@ -24,7 +24,12 @@ export function connectionActions(definition: ConnectionDefinition): ConnectionA
   const selection = definition.api as Readonly<Record<string, readonly string[] | undefined>> | undefined
   const actions: ConnectionActionInfo[] = []
   for (const [api, catalog] of Object.entries(apis)) {
-    const patterns = selection ? selection[api] : ["*"]
+    // A selection only applies when the API name is an own property. Reading
+    // inherited keys would treat names such as `constructor` as patterns and
+    // can call methods on a prototype value instead of the declared config.
+    const patterns = selection
+      ? Object.hasOwn(selection, api) ? selection[api] : undefined
+      : ["*"]
     if (!patterns?.length) continue
     for (const [method, [httpMethod]] of Object.entries(catalog.methods)) {
       if (!patterns.some(pattern => matchesPattern(method, pattern))) continue

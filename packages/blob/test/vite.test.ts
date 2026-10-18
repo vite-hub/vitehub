@@ -713,6 +713,34 @@ describe("hubBlob", () => {
     }
   })
 
+  it("does not import cloudflare:workers in vite dev, where the Nitro dev runner can be Node", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cloudflare-dev-"))
+    try {
+      const plugin = hubBlob({ bucketName: "assets", driver: "cloudflare-r2" })
+      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+      const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
+      const value = { nitro: { preset: "cloudflare-module" }, build: { outDir: "dist" }, plugins: [{ name: "nitro:main" }], root }
+
+      config(value, { command: "serve" })
+      // The Nuxt replay passes the resolved config without `command`.
+      await configResolved(value as never)
+
+      const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+      const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
+      expect(nitroPlugin).not.toContain("cloudflare:workers")
+      expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
+      expect(middleware).not.toContain("cloudflare:workers")
+      expect(middleware).toContain("target.req?.runtime?.cloudflare?.env")
+      expect(middleware).toContain("if (env) setActiveCloudflareEnv(env)")
+      expect(value).toHaveProperty("nitro.handlers", expect.arrayContaining([
+        expect.objectContaining({ handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"), middleware: true }),
+      ]))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("uses final Nitro ownership when the resolved preset changes", { timeout: 30_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-host-"))
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
