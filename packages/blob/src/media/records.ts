@@ -367,7 +367,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     for (const object of records) {
       const record = sanitizeMediaRecord(await readJson(object.pathname))
       if (!record || (excluding && canonical(record.pathname) === canonical(excluding))) continue
-      if (Object.values(record.crops ?? {}).some(crop => crop.replacement?.pathname === pathname)) return true
+      if (Object.values(record.crops ?? {}).some(crop => crop.replacement && canonical(crop.replacement.pathname) === canonical(pathname))) return true
     }
     return false
   }
@@ -496,6 +496,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (previous) await context.clearDerived(object.pathname)
     await writeRecord(record)
     for (const replacement of removedReplacements) await removeReplacement(replacement)
+    if (previous?.hash && previous.hash !== analysis.hash) {
+      const entry = await readJson(hashPath(previous.hash))
+      if (isRecord(entry) && isString(entry.pathname) && canonical(entry.pathname) === canonical(record.pathname)) {
+        await driver.delete([hashPath(previous.hash)])
+      }
+    }
     await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
     return record
   }
