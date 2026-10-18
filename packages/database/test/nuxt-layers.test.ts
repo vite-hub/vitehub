@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
+import { createProgram, flattenDiagnosticMessageText, getPreEmitDiagnostics, ModuleKind, ModuleResolutionKind, ScriptTarget } from "typescript"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverDatabaseDefinitions, resolveDBViteConfig } from "../src/config.ts"
@@ -87,7 +88,7 @@ describe("Database Definitions in Nuxt layers", () => {
       }),
     ])
 
-    expect(inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs })[0]?.fields).toContainEqual({
+    expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
       label: "Schema sources",
       value: "../layers/blog/server/databases/config.ts, ../layers/accounts/server/databases/config.ts",
     })
@@ -98,9 +99,10 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(files).toHaveLength(1)
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `posts`", "CREATE TABLE `users`"])
     const schema = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
-    expect(schema).toContain("export const users = schemaSource_1.schema[\"users\"]")
-    expect(schema).toContain("export const posts = schemaSource_0.schema[\"posts\"]")
-    expect(schema).toContain("export const schema = { ...schemaSource_0.schema, ...schemaSource_1.schema }")
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_1\.schema\["users"\]\nexport \{ \1 as users \}/)
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_0\.schema\["posts"\]\nexport \{ \1 as posts \}/)
+    expect(schema).toContain("const definitionSchema = { ...schemaSource_0.schema, ...schemaSource_1.schema }")
+    expect(schema).toContain("export const schema = definitionSchema")
     const types = await readFile(join(app.appDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("type DefaultDatabaseSchema = Omit<typeof database_0_0.schema, keyof typeof database_0_1.schema> & typeof database_0_1.schema")
   }, 60_000)
@@ -126,6 +128,82 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain("const schema_0 = { ...schemaSource_0_0.schema, ...schemaSource_0_1.schema }")
     expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults),")
     expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs") })
+  })
+
+  it.each([
+    ["cloudflare-module", false, ".vitehub/database/cloudflare-runtime.mjs"],
+    ["vercel", false, ".vitehub/database/vercel-runtime.mjs"],
+    ["node", true, ".nuxt/vitehub/database/local-runtime.mjs"],
+  ])("keeps the schema type of db in Nuxt server code on %s (dev: %s)", async (preset, dev, runtimePath) => {
+    const app = await createLayeredApp()
+    for (const [name, table] of [["accounts", "users"], ["blog", "posts"]] as const) {
+      await writeModule(app.layerDefinition(name), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { pgTable, serial } from 'drizzle-orm/pg-core'",
+        `export const ${table} = pgTable(${JSON.stringify(table)}, { id: serial('id').primaryKey() })`,
+        `export default defineDatabase({ dialect: 'postgresql', schema: { ${table} } })`,
+      ])
+    }
+    await writeModule(join(app.appDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://user:password@127.0.0.1:1/app' }, schema: {} })",
+    ])
+    const route = join(app.appDir, "server/api/posts.ts")
+    await writeModule(route, [
+      "import { db, useDatabase } from '@vite-hub/database/drizzle'",
+      "export const findPosts = (): Promise<Array<{ id: number }>> => db.query.posts.findMany()",
+      "export const userId: number = useDatabase('default').schema.users.$inferSelect.id",
+      "// An untyped `db` would accept this table.",
+      "// @ts-expect-error The schema has no comments table.",
+      "export const comments = db.query.comments",
+    ])
+    const hooks: Record<string, Array<(value: Record<string, unknown>) => Promise<void> | void>> = {}
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
+        (hooks[name] ??= []).push(callback)
+      },
+      options: { ...app.options, dev },
+    })
+    const nitroConfig: { alias: Record<string, string>, preset: string } = { alias: {}, preset }
+    for (const hook of hooks["nitro:config"] ?? []) await hook(nitroConfig)
+    if (dev) await writeGeneratedDatabaseArtifacts(resolveDBViteConfig(undefined, app.appDir, { serverDirs: app.serverDirs })!)
+    expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toBe(join(app.appDir, runtimePath))
+
+    // Nuxt 5 runs module hooks first, then writes each Nitro alias that has no path yet, with its `.mjs` extension.
+    const paths: Record<string, string[]> = {}
+    for (const hook of hooks["prepare:types"] ?? []) await hook({ serverTsConfig: { compilerOptions: { paths } } })
+    for (const [alias, target] of Object.entries(nitroConfig.alias)) paths[alias] ??= [target]
+    const program = createProgram({
+      options: {
+        allowImportingTsExtensions: true,
+        allowJs: true,
+        module: ModuleKind.ESNext,
+        moduleResolution: ModuleResolutionKind.Bundler,
+        noEmit: true,
+        paths,
+        skipLibCheck: true,
+        strict: true,
+        target: ScriptTarget.ES2022,
+        types: [],
+      },
+      rootNames: [route, join(app.appDir, ".vitehub/types/database.d.ts")],
+    })
+    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  }, 60_000)
+
+  it("preserves an existing database type path", async () => {
+    const app = await createLayeredApp()
+    const hooks: Array<(value: Record<string, unknown>) => Promise<void> | void> = []
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
+        if (name === "prepare:types") hooks.push(callback)
+      },
+      options: { ...app.options, dev: false },
+    })
+    const existing = ["/custom/database.d.ts"]
+    const paths: Record<string, string[]> = { "@vite-hub/database/drizzle": existing }
+    for (const hook of hooks) await hook({ compilerOptions: { paths } })
+    expect(paths["@vite-hub/database/drizzle"]).toBe(existing)
   })
 
   it("lets the application set options and replace a layer table", async () => {
@@ -154,7 +232,35 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(config.databases.default!.connection?.url).toBe("file:.data/app.db")
     expect(sql).toContain("`customer_id` text")
     const schema = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
-    expect(schema).toContain("export const users = schemaSource_2.schema[\"users\"]")
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_2\.schema\["users"\]\nexport \{ \1 as users \}/)
+  }, 60_000)
+
+  it("generates the tables of a layer that spreads an imported schema", async () => {
+    const app = await createLayeredApp()
+    const blogDir = dirname(app.layerDefinition("blog"))
+    await writeModule(join(blogDir, "tables.ts"), [
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const posts = sqliteTable('posts', { id: integer('id').primaryKey(), title: text('title').notNull() })",
+      "export const comments = sqliteTable('comments', { id: integer('id').primaryKey(), postId: integer('post_id') })",
+    ])
+    await writeModule(app.layerDefinition("blog"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import * as tables from './tables.ts'",
+      "export default defineDatabase({ schema: { ...tables } })",
+    ])
+
+    // Source reading cannot list a spread, so only a loaded layer source adds its tables.
+    expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
+      label: "Tables",
+      value: "users, plus an imported or spread schema",
+    })
+
+    const { config, sql } = await generateMigration(app.appDir, app.serverDirs)
+
+    expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `comments`", "CREATE TABLE `posts`", "CREATE TABLE `users`"])
+    const schema = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_0\.schema\["comments"\]\nexport \{ \1 as comments \}/)
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_1\.schema\["users"\]\nexport \{ \1 as users \}/)
   }, 60_000)
 
   it("rejects application options that would drop a layer option", async () => {
@@ -172,7 +278,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `It does not set \`connection\`, which a layer sets:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `It does not set \`connection\`, which a layer sets.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
 
     await writeModule(appDefinition, [
@@ -200,7 +306,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `ViteHub cannot read the options of these definitions:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `ViteHub cannot read the options of these definitions.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
   })
 
@@ -220,7 +326,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `ViteHub cannot read the options of these definitions:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `ViteHub cannot read the options of these definitions.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
   })
 
@@ -234,7 +340,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `More than one Nuxt layer declares table "users" in database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
+      `More than one Nuxt layer declares the table "users" in the database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
     await writeModule(join(app.appDir, "server/databases/config.ts"), [
@@ -254,7 +360,7 @@ describe("Database Definitions in Nuxt layers", () => {
     }
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `More than one Nuxt layer sets options for database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
+      `More than one Nuxt layer sets options for the database "default".\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
     const appDefinition = join(app.appDir, "server/databases/config.ts")

@@ -17,8 +17,8 @@ const queueEventStorage = new AsyncLocalStorage<unknown>()
 let queueEventDefaults: unknown
 const queueClientCache = new Map<string, Promise<QueueClient>>()
 
-export function missingQueueDefinitionError(): Error {
-  return queueErrorDiagnostics.QUEUE_R0013({ message: "Missing queue definition." })
+export function missingQueueDefinitionError(queue: string): Error {
+  return queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue })
 }
 
 export function setQueueRuntimeConfig(config: false | ResolvedQueueOptions | undefined, createClient?: QueueRuntimeClientFactory): void {

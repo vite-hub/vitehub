@@ -21,7 +21,7 @@ export interface NormalizedLlmDecisionChoice {
   key: string
 }
 
-export type DecisionObjectSchemaResult<T> =
+type DecisionObjectSchemaResult<T> =
   | { success: true, value: T }
   | { error: Error, success: false }
 

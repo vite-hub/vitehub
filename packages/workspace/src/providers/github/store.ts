@@ -29,6 +29,7 @@ import {
   resolveGitHubTokenOption,
   type GitHubTreeEntry,
 } from "./shared.ts";
+import { createGitHubWorkspaceHistory } from "./history.ts";
 
 import type {
   DiffOptions,
@@ -46,6 +47,7 @@ import type {
   WorkspaceStat,
   WorkspaceStreamFile,
   WorkspaceStore,
+  WorkspaceStoreHistory,
 } from "../../core/types.ts";
 
 interface GitHubWorkspaceStoreFile {
@@ -164,19 +166,28 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #repository: string;
   #root: string;
   #token: string;
+  #history: WorkspaceStoreHistory | undefined;
 
   constructor(
     options: GitHubWorkspaceStoreOptions,
     private workspaceName: string,
   ) {
     this.#repository = requireGitHubOption(
-      "store",
       "a repository",
       resolveGitHubRepositoryOption(options),
     );
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
-    this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
+    this.#token = requireGitHubOption("a token", resolveGitHubTokenOption(options));
+  }
+
+  get history(): WorkspaceStoreHistory {
+    return this.#history ||= createGitHubWorkspaceHistory({
+      branch: this.#branch,
+      repository: this.#repository,
+      root: this.#root,
+      token: this.#token,
+    });
   }
 
   [workspaceStoreTarget]() {
@@ -272,7 +283,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     }
     await createGitHubBlob({
       bytes: update.bytes,
-      kind: "store",
       repository: this.#repository,
       token: this.#token,
     });
@@ -379,7 +389,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       await this.#ensure({ refresh: false });
       const remote = await readGitHubBranchState({
         branch: this.#branch,
-        kind: "store",
         repository: this.#repository,
         root: this.#root,
         token: this.#token,
@@ -459,7 +468,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
       repository: this.#repository,
       root: this.#root,
       token: this.#token,
@@ -574,7 +582,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
       repository: this.#repository,
       root: this.#root,
       token: this.#token,
