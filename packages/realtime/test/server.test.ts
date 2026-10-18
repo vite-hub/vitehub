@@ -1,3 +1,5 @@
+import * as vm from "node:vm"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
@@ -1222,13 +1224,13 @@ describe("realtime transport boundaries", () => {
 })
 
 describe("realtime Workspace documents", () => {
-  it("destroys a document when stored durable state cannot be restored", () => {
+  it("destroys a document when stored durable state cannot be restored", async () => {
     const destroy = vi.spyOn(Y.Doc.prototype, "destroy")
 
-    expect(() => restoreRealtimeDocument("", "baseline", {
+    await expect(restoreRealtimeDocument("", "baseline", {
       baseline_digest: "baseline",
       update_blob: new Uint8Array([255]).buffer,
-    })).toThrow()
+    })).rejects.toThrow()
     expect(destroy).toHaveBeenCalledOnce()
   })
 
@@ -1460,17 +1462,59 @@ describe("tiptap-markdown documents", () => {
     document.destroy()
   })
 
-  it("restores durable Yjs identities only for the matching Workspace version", () => {
-    const original = markdownToYDoc("# Shared draft")
+  it("restores durable state from a cross-realm ArrayBuffer", async () => {
+    const original = await markdownToYDoc("# Shared draft")
+    const bytes = Y.encodeStateAsUpdate(original)
+    const update: unknown = vm.runInNewContext("Uint8Array.from(bytes).buffer", { bytes: [...bytes] })
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: update,
+    })
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(await yDocToMarkdown(restored)).toBe("# Shared draft")
+    original.destroy()
+    restored.destroy()
+  })
+
+  it("falls back to Markdown for spoofed durable buffers", async () => {
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: { [Symbol.toStringTag]: "ArrayBuffer" },
+    })
+
+    expect(await yDocToMarkdown(restored)).toBe("# Fallback")
+    restored.destroy()
+  })
+
+  it("ignores shadowed metadata on durable views", async () => {
+    const original = await markdownToYDoc("# Durable")
+    const view = new Uint8Array(Y.encodeStateAsUpdate(original)) as Uint8Array & Record<string, unknown>
+    Object.defineProperties(view, {
+      buffer: { value: new ArrayBuffer(0) },
+      byteOffset: { value: 0 },
+      byteLength: { value: 0 },
+    })
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: view,
+    })
+    expect(await yDocToMarkdown(restored)).toBe("# Durable")
+    original.destroy()
+    restored.destroy()
+  })
+
+  it("restores durable Yjs identities only for the matching Workspace version", async () => {
+    const original = await markdownToYDoc("# Shared draft")
     const stored = {
       baseline_digest: "baseline",
       update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
     }
-    const restored = restoreRealtimeDocument("# Shared draft", "baseline", stored)
-    const replaced = restoreRealtimeDocument("# Workspace replacement", "changed", stored)
+    const restored = await restoreRealtimeDocument("# Shared draft", "baseline", stored)
+    const replaced = await restoreRealtimeDocument("# Workspace replacement", "changed", stored)
 
     expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
-    expect(yDocToMarkdown(replaced)).toBe("# Workspace replacement")
+    expect(await yDocToMarkdown(replaced)).toBe("# Workspace replacement")
 
     original.destroy()
     restored.destroy()

@@ -1,4 +1,19 @@
-<!-- The panel head holds only search. The rail marks the current product, and the page list starts with its Overview. -->
+<script setup lang="ts">
+import { normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { useDocsSection } from "~/composables/useDocsSection";
+
+const route = useRoute();
+const currentSection = useDocsSection();
+const sectionPath = computed(() => currentSection.value?.path || "/docs");
+const sectionTitle = computed(() => currentSection.value?.title || "All products");
+const sectionCategory = computed(() => {
+  const category = currentSection.value?.category;
+
+  return category && category !== currentSection.value?.title ? category : "Getting started";
+});
+const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
+</script>
+
 <template>
   <div class="vh-sidebar-head">
     <UContentSearchButton
