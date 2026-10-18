@@ -280,6 +280,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             list: () => inspectDatabaseDefinitions({
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
+              plugins: resolved?.plugins,
+              viteRoot: resolved?.root,
               serverDirs: databaseServerDirs(),
             }),
           }],

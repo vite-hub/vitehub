@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readdir, readFile, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { watch, type FSWatcher } from "node:fs"
 import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -145,6 +146,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
       const definitionFiles = new Set<string>()
+      const definitionWatchers = new Map<string, FSWatcher>()
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
         resolve(root, "src"),
@@ -166,6 +168,16 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               definitionFiles.add(resolve(root, module))
             }
           }
+          for (const file of definitionFiles) {
+            if (definitionWatchers.has(file)) continue
+            try {
+              const watcher = watch(file, () => { void refreshLocalRuntime() })
+              definitionWatchers.set(file, watcher)
+            }
+            catch {
+              // Nuxt's watch list still covers files that cannot be watched directly.
+            }
+          }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles])]
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
@@ -182,7 +194,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         })
       }
       hook("nitro:config", async (config) => {
-        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
+        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins as readonly unknown[] | undefined, {
           projectRoot: root,
           root: resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root),
           serverDirs,
