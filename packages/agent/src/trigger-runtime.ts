@@ -343,16 +343,51 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
+async function hmacSha256Digest(secret: Uint8Array<ArrayBuffer>, value: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const key = await globalThis.crypto.subtle.importKey("raw", secret, { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
+  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, value))
+}
+
+function hexDigest(digest: Uint8Array): string {
+  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  const key = await globalThis.crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"],
-  )
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, value)
-  return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("")
+  return hexDigest(await hmacSha256Digest(new TextEncoder().encode(secret), value))
+}
+
+type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
+
+function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
+  if (signature === "github-sha256") return { preset: "hmac-sha256", prefix: "sha256=" }
+  if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
+  return undefined
+}
+
+/** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
+export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
+  let binary: string
+  try {
+    binary = atob(value)
+  }
+  catch {
+    return undefined
+  }
+  if (!binary.length || btoa(binary).replace(/=+$/, "") !== value.replace(/=+$/, "")) return undefined
+  return Uint8Array.from(binary, character => character.charCodeAt(0))
+}
+
+// Verifies `<prefix><digest>`, where the digest is the HMAC-SHA256 of the raw body in hex or base64.
+async function verifyHmacSignature(signature: HmacSignaturePreset, secret: string, header: string, rawBody: Uint8Array<ArrayBuffer>): Promise<boolean> {
+  const prefix = signature.prefix ?? ""
+  if (!header.startsWith(prefix)) return false
+  const key = signature.secretEncoding === "base64" ? decodeBase64Key(secret) : new TextEncoder().encode(secret)
+  if (!key) return false
+  const digest = await hmacSha256Digest(key, rawBody)
+  const received = header.slice(prefix.length)
+  if (signature.encoding === "base64") return await constantTimeEqual(btoa(String.fromCharCode(...digest)), received)
+  return await constantTimeEqual(hexDigest(digest), received.toLowerCase())
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
@@ -504,10 +539,9 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       }
       continue
     }
-    if (registration.signature === "github-sha256") {
-      const body = (await readRawBody()).buffer
-      const expected = `sha256=${await hmacSha256(secretToken, body)}`
-      if (await constantTimeEqual(expected, headerValue)) {
+    const hmacSignature = hmacSignaturePreset(registration.signature)
+    if (hmacSignature) {
+      if (await verifyHmacSignature(hmacSignature, secretToken, headerValue, await readRawBody())) {
         return { registration, verified: true }
       }
       continue
