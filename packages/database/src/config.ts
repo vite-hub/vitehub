@@ -49,8 +49,9 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 function readDefinitionObjectBody(file: string) {
   const source = readFileSync(file, "utf8")
+  const maskedSource = maskCommentsAndStrings(source)
   const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*(?:[\r\n\u2028\u2029]|$)|\()*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
+  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*$/.test(maskedSource.slice(Math.max(0, item.start - 100), item.start)))
     || calls[0]
   const argument = call?.arguments[0] ? stripLeadingEntryComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)

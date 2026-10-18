@@ -121,6 +121,21 @@ describe("discoverDatabaseDefinitions", () => {
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ handler: file, name: "analytics" })])
   })
 
+  it("ignores export syntax inside comments when selecting the default Definition", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "src/analytics.database.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "const decoy = defineDatabase({ name: 'wrong', schema: {} })",
+      "/* ; export default ( */",
+      "defineDatabase({ name: 'middle', schema: {} })",
+      "export default (defineDatabase({ name: 'analytics', schema: {} }))",
+      "",
+    ].join("\n"))
+
+    expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ handler: file, name: "analytics" })])
+  })
+
   it("preserves prototype-named databases in resolved maps", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "src/__proto__.database.ts")
