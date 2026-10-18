@@ -30,7 +30,7 @@ Check each selected provider in the [support matrix](/docs/frameworks-hosts/supp
 
 ## Decide which state must survive
 
-List the data that must survive a process restart, a replacement container, and a deployment. Configure a store for each item, including Agent State, invocation journals, transcripts, Runtime Schedules, Workflow state, uploaded objects, and Workspace files when the application uses them.
+List the data that must survive a process restart, a replacement container, and a deployment. Configure a store for each item, including Agent State, invocation journals, transcripts, Schedule Runs, Workflow state, uploaded objects, and Workspace files when the application uses them.
 
 Memory stores lose their contents when the process exits. Filesystem and file-backed SQLite stores require a persistent volume on a host that supports them. Hosted SQLite stores, such as `libsql://…` and Cloudflare D1, persist through their provider and do not use a local volume. Giving two replicas the same configuration does not make their local files or memory shared. A remote store supplies only the concurrency guarantees documented by its provider and ViteHub adapter.
 

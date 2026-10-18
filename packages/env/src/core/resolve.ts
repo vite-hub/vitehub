@@ -325,7 +325,8 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
+  try {
+    return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
       if (isRuntimeStaticValue(value)) {
@@ -363,7 +364,14 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       secret: value.secret,
       source,
     }]
-  }))
+    }))
+  }
+  catch (error) {
+    if (isViteHubError(error)) {
+      throw error
+    }
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
 }
 
 function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
@@ -381,13 +389,13 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
 }
 
 /** The default prefix of canonical variable names. */
-export const defaultEnvPrefix = "VITEHUB_"
+const defaultEnvPrefix = "VITEHUB_"
 
 /**
  * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
  * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
  */
-export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
 
@@ -535,7 +543,12 @@ function segmentToEnvParts(segment: string): string[] {
 }
 
 function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
-  return isPlainRecord(value) && value.kind === "env-variable"
+  try {
+    return isPlainRecord(value) && value.kind === "env-variable"
+  }
+  catch {
+    return false
+  }
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

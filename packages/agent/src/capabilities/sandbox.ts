@@ -65,7 +65,6 @@ function validateSandboxArgs(value: unknown): string[] {
       throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
     }
     const argument = value[index]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and must be narrowed before it enters the command adapter.
     if (typeof argument !== "string" || argument.length > maxSandboxArgLength) {
       throw agentDiagnostics.AGENT_R0998({ message: `[vitehub] sandbox_exec args must be an array of no more than ${maxSandboxArgs} strings, each no longer than ${maxSandboxArgLength} characters.` })
     }
@@ -76,7 +75,6 @@ function validateSandboxArgs(value: unknown): string[] {
 
 function validateSandboxCwd(value: unknown): string | undefined {
   if (value === undefined) return undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and the adapter requires a string working directory.
   if (typeof value !== "string") {
     throw agentDiagnostics.AGENT_R0999({ message: "[vitehub] sandbox_exec cwd must be a string." })
   }
@@ -85,7 +83,6 @@ function validateSandboxCwd(value: unknown): string | undefined {
 
 function validateSandboxEnvironment(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and environment records must be plain objects.
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw agentDiagnostics.AGENT_R1000({ message: "[vitehub] sandbox_exec env must be an object with string values." })
   }
@@ -100,7 +97,6 @@ function validateSandboxEnvironment(value: unknown): Record<string, string> | un
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || blockedSandboxEnvironmentKeys.has(normalizedName) || normalizedName.startsWith("LD_") || normalizedName.startsWith("DYLD_")) {
       throw agentDiagnostics.AGENT_R1002({ message: "[vitehub] sandbox_exec env cannot override PATH, NODE_OPTIONS, NODE_PATH, or loader-related variables." })
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and environment values must be strings.
     if (typeof item !== "string" || item.length > maxSandboxEnvironmentValueLength) {
       throw agentDiagnostics.AGENT_R1003({ message: `[vitehub] sandbox_exec env values must be strings no longer than ${maxSandboxEnvironmentValueLength} characters.` })
     }
@@ -111,7 +107,6 @@ function validateSandboxEnvironment(value: unknown): Record<string, string> | un
 
 function validateSandboxTimeout(value: unknown): number | undefined {
   if (value === undefined) return undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input is untrusted and timeout validation defines the execution contract.
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > maxSandboxTimeout) {
     throw agentDiagnostics.AGENT_R1004({ message: `[vitehub] sandbox_exec timeout must be a positive integer no greater than ${maxSandboxTimeout}.` })
   }
@@ -157,7 +152,6 @@ export function sandbox(options: SandboxCapabilityOptions): AgentCapabilityDefin
           async execute(input, execution: AgentToolExecutionContext = {}) {
             // SAFETY: defineInternalTool validates the JSON object shape through inputSchema before execution.
             const value = input as SandboxExecInput
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before the allowed-command check.
             if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0166({ message: "[vitehub] sandbox_exec requires a command." })
             if (!commands.includes(value.command)) throw agentDiagnostics.AGENT_R0167({ message: `[vitehub] Sandbox command "${value.command}" is not allowed.` })
             if (!handle.exec) throw agentDiagnostics.AGENT_R0168({ message: "[vitehub] Sandbox primitive does not expose exec()." })

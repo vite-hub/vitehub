@@ -117,7 +117,7 @@ Filesystem storage is for local or single-process use. It does not become durabl
 | --- | --- | --- | --- |
 | `driver` | `'cloudflare-r2'` | Required | Selects the Cloudflare R2 driver. |
 | `binding` | `string` | `BLOB` | Names the runtime R2 binding. |
-| `bucketName` | `string` | R2 or Blob bucket env | Names the bucket for Provider Output and HTTP fallback. |
+| `bucketName` | `string` | R2 or Blob bucket env | Names the bucket for the generated R2 binding and HTTP fallback. |
 | `accountId` | `string` | Cloudflare account env | Supplies the account id for HTTP fallback. |
 | `accessKeyId` | `string` | R2 access-key env | Supplies the HTTP fallback access key. |
 | `secretAccessKey` | `string` | R2 secret-key env | Supplies the HTTP fallback secret. |
