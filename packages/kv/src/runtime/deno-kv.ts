@@ -35,12 +35,10 @@ function toDenoKey(key: string): ViteHubDenoKVKey {
 }
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV keys are untrusted structured values and only one-string keys belong to this adapter.
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
 function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Match unstorage's TTL normalization at the write-options boundary.
   if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return undefined
   const expireIn = Math.max(1, Math.ceil(ttl * 1_000))
   return Number.isSafeInteger(expireIn) ? { expireIn } : undefined
@@ -60,7 +58,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const pending = (async () => {
       const openKv = getDenoRuntime()?.openKv
       if (!openKv) {
-        throw kvErrorDiagnostics.KV_R0001({ message: "[vitehub] Deno KV requires Deno.openKv(). The runtime must be Deno with KV enabled, or the KV Store needs another driver." })
+        throw kvErrorDiagnostics.KV_DENO_KV_UNAVAILABLE()
       }
       return openKv(options.path)
     })()
@@ -132,10 +130,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         }
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(iterator.cursor)) {
-          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, iterator.cursor)) {
-          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV rejected pagination after the cursor history limit was reached." })
         }
         const nextCursor = cursorHistories.store(iterator.cursor, cursors)
         cursorHistories.complete(cursor)

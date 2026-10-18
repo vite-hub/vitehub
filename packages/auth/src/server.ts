@@ -42,7 +42,6 @@ function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
 }
 
 function hasConfiguredPublicUrl(): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The build injects this value only when `vitehub({ publicUrl })` is set.
   return typeof __VITEHUB_PUBLIC_URL__ !== "undefined"
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
@@ -226,7 +225,6 @@ async function createSignInResponse(
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
   const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
@@ -273,33 +271,34 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function responseGetter(value: object, property: string): (() => unknown) | undefined {
-  let prototype: object | null = value
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (descriptor?.get) return descriptor.get
-    prototype = Object.getPrototypeOf(prototype) as object | null
+const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+
+/**
+ * Return whether `value` is a Response of this runtime.
+ * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
+ * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
+ */
+function isRuntimeResponse(value: unknown): value is Response {
+  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
+  try {
+    Reflect.apply(nativeResponseStatus, value, [])
+    return true
+  }
+  catch {
+    return false
   }
 }
 
-function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
-  if (Object.prototype.hasOwnProperty.call(value, property)) return
-  let prototype: object | null = Object.getPrototypeOf(value) as object | null
-  while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
-    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
-    prototype = Object.getPrototypeOf(prototype) as object | null
-  }
-}
-
+/**
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ */
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result = await authorize(context)
+  const result: unknown = await authorize(context)
   if (result === true) return
-  const response = await normalizeAuthorizationResponse(result)
-  if (response) return response
+  if (isRuntimeResponse(result)) return result
   return createForbiddenResponse(context.request)
 }
 
@@ -688,6 +687,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // without acquiring the body stream's reader.
     let intrinsicBodyUsed: unknown
     try {
+      const trustedBodyUsedGetters = new Set<unknown>()
+      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
+      const UndiciResponse = await getUndiciResponse()
+      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
+      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
       let prototype: object | null = Object.getPrototypeOf(candidate)
       const seen = new Set<object>()
       for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
@@ -695,7 +700,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (typeof descriptor.get !== "function") return
+          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
           intrinsicBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
@@ -756,6 +761,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // bridge reader so a body consumed during validation cannot be admitted
     // after its reader is released and `locked` becomes false again.
     try {
+      const trustedBodyUsedGetters = new Set<unknown>()
+      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
+      const UndiciResponse = await getUndiciResponse()
+      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
+      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
       let prototype: object | null = Object.getPrototypeOf(candidate)
       const seen = new Set<object>()
       let currentBodyUsed: unknown
@@ -764,7 +775,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (typeof descriptor.get !== "function") return
+          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
           currentBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
@@ -845,7 +856,6 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
       const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
