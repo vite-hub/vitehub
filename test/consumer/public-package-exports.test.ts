@@ -454,15 +454,6 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         devDependencies: Object.fromEntries([
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
-          // Agent's packed CLI imports Vite during module evaluation, and its
-          // Forge adapter can be retained by generated package manifests.
-          // Keep those first-party/runtime edges available in every isolated
-          // fixture without restoring the full all-tarball install.
-          // Several packed entrypoints evaluate Vite during module loading,
-          // even though Vite remains an optional peer in their manifests.
-          // Keep that runtime peer available in isolated fixtures so the
-          // contract checks exercise the tarball rather than a missing peer.
-          ...(["@vite-hub/agent", "@vite-hub/auth"].includes(info.packageName) ? ["vite"] : []),
           ...(specs["@vite-hub/forge"] ? ["@vite-hub/forge"] : []),
           ...workspaceDependencies,
         ].map(name => {
