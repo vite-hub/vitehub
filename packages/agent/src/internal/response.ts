@@ -41,6 +41,15 @@ export function isResponse(value: unknown): value is Response {
         candidate = typeof parent === "function" ? parent : undefined
       }
       if (!registeredConstructor) return false
+      // Some registered Fetch implementations (including node-fetch) expose
+      // `headers` as an own instance field rather than a prototype accessor.
+      // The registered constructor identity is the provenance check in this
+      // case; still require a concrete headers value before accepting it.
+      const ownHeaders = Object.getOwnPropertyDescriptor(value as object, "headers")
+      if (ownHeaders && !ownHeaders.get && "value" in ownHeaders) {
+        if (!ownHeaders.value || (typeof ownHeaders.value !== "object" && typeof ownHeaders.value !== "function")) return false
+        return true
+      }
       // A subclass may inherit the implementation's intrinsic accessor from
       // its registered base prototype. Resolve that accessor through the full
       // prototype chain while retaining the brand check on the candidate.
