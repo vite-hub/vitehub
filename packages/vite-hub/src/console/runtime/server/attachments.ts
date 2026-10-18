@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
 import { getConsoleBlob } from "./blob.ts"
-import { isConsoleAttachmentPendingCleanup, consoleAttachmentPrefix as prefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
+import { isConsoleAttachmentPendingCleanup, consoleAttachmentPrefix as prefix, legacyConsoleAttachmentPrefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
 import type { ImagePart } from "@vite-hub/agent"
 
 const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string(), filename: v.optional(v.string(), "image") })), v.minLength(1), v.maxLength(10)) })
@@ -80,7 +80,12 @@ async function inputMessage(prompt: string, attachments: unknown, fresh = new Se
   for (const { id, name } of new Map(parsed.output.map(part => [part.id, part])).values()) {
     const storage = getConsoleBlob().storage
     if (!fresh.has(id) && await isConsoleAttachmentPendingCleanup(storage, id)) throw error(404, "The stored image is pending deletion.")
-    const [headError, metadata] = await storage.head(`${prefix}${id}`)
+    let attachmentPrefix = prefix
+    let [headError, metadata] = await storage.head(`${attachmentPrefix}${id}`)
+    if (headError?.code === "BLOB_NOT_FOUND" || (!headError && !metadata)) {
+      attachmentPrefix = legacyConsoleAttachmentPrefix
+      ;[headError, metadata] = await storage.head(`${attachmentPrefix}${id}`)
+    }
     if (headError) throw headError
     if (!metadata || !metadata.contentType || !imageTypes.has(metadata.contentType)) throw error(404, "The stored image is unavailable.")
     totalBytes += metadata.size ?? maximumBytes + 1
@@ -88,7 +93,7 @@ async function inputMessage(prompt: string, attachments: unknown, fresh = new Se
     parts.push({
       id, type: "image", mediaType: metadata.contentType, name, size: metadata.size, url: metadata.url,
       async fetchData() {
-        const [readError, data] = await storage.get(`${prefix}${id}`)
+        const [readError, data] = await storage.get(`${attachmentPrefix}${id}`)
         if (readError) throw readError
         if (!data) throw error(404, "The stored image is unavailable.")
         return data

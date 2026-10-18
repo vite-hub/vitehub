@@ -1,8 +1,8 @@
 import type { Comment, Cursor, ForgeProvider, Page, ReactionContent, Thread, ThreadRef } from "forges"
 import type { AgentChannelDeliveryEffectContext, AgentChannelDeliveryEffects, AgentRunInput, AgentRuntimeConfig } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { codeHostErrorStatus } from "./code-host.ts"
-import type { CodeHostKind } from "./code-host.ts"
+import { forgeErrorStatus } from "@vite-hub/forge"
+import type { ForgeKind } from "@vite-hub/forge"
 import { hasRuntimeType, isRuntimeRecord as isRecord } from "./runtime-type.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./message-channel-delivery-body.ts"
 
@@ -12,7 +12,7 @@ export function codeHostChannelFetch(fetcher: typeof fetch): typeof fetch {
 }
 
 export interface CodeHostTarget {
-  host: CodeHostKind
+  host: ForgeKind
   instance: string
   repository: string
   number: number
@@ -34,7 +34,7 @@ export async function codeHostChannelRead<T>(provider: ForgeProvider, code: Meta
     return await read()
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
     if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics[code]({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
@@ -48,7 +48,7 @@ export async function codeHostChannelWrite<T>(provider: ForgeProvider, write: ()
     return await write()
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host delivery effect failed with ${status}.`, cause: error })
     if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
@@ -181,7 +181,7 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
         return rawComment(provider, target, response.data)
       }
       catch (error) {
-        const status = codeHostErrorStatus(error)
+        const status = forgeErrorStatus(error)
         if (status === 404) return undefined
         if (status !== undefined && provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
         if (status !== undefined && provider.forge === "github") throw agentDiagnostics.AGENT_R0360({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })

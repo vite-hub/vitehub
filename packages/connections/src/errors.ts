@@ -44,7 +44,6 @@ export function normalizeConnectionError(error: unknown): ConnectionError | unde
   try {
     if (error instanceof ConnectionError) return error
     let shape = getViteHubErrorShape(error)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect a foreign error across package and VM realms.
     if (!shape && typeof error === "object" && error !== null) {
       const read = (key: string): unknown => {
         const descriptor = Object.getOwnPropertyDescriptor(error, key)
@@ -53,23 +52,18 @@ export function normalizeConnectionError(error: unknown): ConnectionError | unde
       if (read("name") === "ViteHubError") {
         const code = read("code")
         const message = read("message")
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate fields on an untrusted foreign error shape.
         if (typeof code === "string" && typeof message === "string") {
           const rawDetails = read("details")
           const details: Record<string, string | number | undefined> = {}
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate optional foreign details before enumeration.
           if (typeof rawDetails === "object" && rawDetails !== null) {
             for (const key of Reflect.ownKeys(rawDetails)) {
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reflect keys may include symbols.
               if (typeof key !== "string") continue
               const descriptor = Object.getOwnPropertyDescriptor(rawDetails, key)
               const value = descriptor && "value" in descriptor ? descriptor.value : undefined
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Keep only serializable foreign detail values.
               if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
             }
           }
           const requestId = read("requestId")
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the bounded request ID contract at the foreign boundary.
           if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 256)) return undefined
           shape = { code, message, details, name: "ViteHubError", requestId }
         }
@@ -81,7 +75,6 @@ export function normalizeConnectionError(error: unknown): ConnectionError | unde
     if (!entry) return undefined
     const details: ConnectionErrorDetails = {}
     for (const [key, value] of Object.entries(shape.details ?? {})) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Retain only values accepted by ConnectionError details.
       if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
     }
     return new ConnectionError(entry[0], shape.message, {

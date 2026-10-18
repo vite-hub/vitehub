@@ -64,7 +64,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 type BoundaryFunction = (this: Record<string, unknown>, ...args: unknown[]) => unknown
 
 function callable(value: unknown): value is BoundaryFunction {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace history methods cross a runtime package boundary.
   return typeof value === "function"
 }
 
@@ -98,12 +97,10 @@ function historyReader(workspace: unknown): WorkspaceHistoryReader | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace history responses cross a runtime package boundary.
   return typeof value === "string" ? value : undefined
 }
 
 function numberValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace history responses cross a runtime package boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 

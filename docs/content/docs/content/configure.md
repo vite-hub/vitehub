@@ -186,7 +186,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts.
+Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview).
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

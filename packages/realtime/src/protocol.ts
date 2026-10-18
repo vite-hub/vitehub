@@ -2,7 +2,9 @@ import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 export const messageWorkspaceChange = 4
 /** Server-to-client JSON control frame: the room session on open, or a reset before closing. */
@@ -38,9 +40,7 @@ export function encodeRealtimeControl(message: RealtimeControlMessage): Uint8Arr
 export function decodeRealtimeControlPayload(decoder: decoding.Decoder): RealtimeControlMessage | undefined {
   try {
     const value: unknown = JSON.parse(decoding.readVarString(decoder))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The control frame is untrusted JSON.
     if (!value || typeof value !== "object" || !("epoch" in value) || !("type" in value)) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The control frame is untrusted JSON; epochs are non-empty strings.
     if (typeof value.epoch !== "string" || !value.epoch) return
     if (value.type === "session" && "access" in value && (value.access === "read" || value.access === "write")) {
       if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document")) {
@@ -57,20 +57,15 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
-  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || /^[a-z]:/i.test(value)) return false
-  const parts = value.split("/")
-  if (parts.some(part => {
-    const withoutStream = part.split(":", 1)[0]!
-    return !withoutStream || /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
-  })) return false
-  if (parts.some((part, index) => {
-    const lower = part.toLowerCase()
-    const withoutStream = lower.split(":", 1)[0]!
-    const normalized = withoutStream.replace(/[ .]+$/, "")
-    const reserved = normalized === ".git" || /^git~\d+$/.test(normalized) || (index === 0 && (normalized === ".vitehub" || /^vitehu~\d+$/.test(normalized)))
-    return reserved
-  })) return false
-  return true
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
+  if (value.includes("//")) return false
+  try {
+    return normalizeSafeWorkspacePath(value) === value
+  }
+  catch {
+    return false
+  }
+
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
@@ -102,7 +97,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_R0002({ message: "Awareness update contains too many clients." })
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))
