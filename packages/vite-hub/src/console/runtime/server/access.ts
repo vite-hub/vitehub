@@ -16,7 +16,7 @@ import type { ConsoleSectionId } from "../sections.ts"
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize }
-  | { mode: "local" }
+  | { mode: "local", authorize?: ConsoleAuthorize }
   | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
@@ -30,8 +30,8 @@ export interface ConsoleAccess {
 }
 
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -181,7 +181,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     const result: unknown = await policy.authorize(user ? { request, user } : { request })
     const response = await authorizationResponse(result)
     if (response) return response
-    if (result === false) return rejection(403, "Forbidden.")
+    if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
 
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -279,7 +279,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
       if (checked instanceof Response) return checked
       access = checked
       checkedEvents.set(event, access)

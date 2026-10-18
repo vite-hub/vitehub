@@ -13,6 +13,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_CONFLICT"
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
+  | "CONSOLE_AUTHORIZE_REQUIRED"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_NOT_FOUND"
@@ -85,6 +86,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONSOLE_AUTH_NOT_CONFIGURED: code(
       "Console Auth is not configured.",
       "Add a ViteHub Auth Definition, or set the Cloudflare Access team domain and audience.",
+      `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_AUTHORIZE_REQUIRED: code(
+      "Console authorization is not configured.",
+      "Set console.authorize to a server authorization function.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
