@@ -584,7 +584,7 @@ function bridgeAuthorizationBody(
         const result = await Reflect.apply(read!, sourceReader, [])
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
-        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
+        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new TypeError("Malformed authorization read result")) }
         else controller.enqueue(result.value)
       } catch (error) { release(); controller.error(error) }
     },
