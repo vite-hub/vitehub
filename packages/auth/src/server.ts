@@ -306,6 +306,7 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+let undiciHeadersPromise: Promise<typeof Headers | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
@@ -313,6 +314,14 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
     .then(module => module.Response as typeof Response)
     .catch(() => undefined)
   return undiciResponsePromise
+}
+
+async function getUndiciHeaders(): Promise<typeof Headers | undefined> {
+  if (undiciHeadersPromise) return undiciHeadersPromise
+  undiciHeadersPromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Headers as typeof Headers)
+    .catch(() => undefined)
+  return undiciHeadersPromise
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
@@ -485,25 +494,25 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     })
     const nativeHeaderMethods = headerMethodOwners.every(Boolean)
       && headerMethodOwners[0] === headerMethodOwners[1]
+    const UndiciHeaders = await getUndiciHeaders()
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
-    // Do not invoke getSetCookie here. Its function identity cannot be
-    // established across runtimes, and a caller can replace it on a genuine
-    // Headers prototype. forEach provides a safe fallback for the normalized
-    // header snapshot, including the single-value Set-Cookie case.
+    // Only invoke the known undici implementation. Other runtimes use the
+    // validated forEach fallback, so caller-installed cookie methods stay out
+    // of the authorization boundary.
     if (!nativeHeaderMethods) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
-    const cookieDescriptor = headerPrototype
-      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")
+    const cookieMethod = headerPrototype
+      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")?.value
       : undefined
-    const getSetCookie = cookieDescriptor?.value
-    const nativeGetSetCookie = typeof getSetCookie === "function"
-      && !Object.prototype.hasOwnProperty.call(headerCarrier, "getSetCookie")
-      && (!Object.getPrototypeOf(headerPrototype)
-        || !Object.prototype.hasOwnProperty.call(Object.getPrototypeOf(headerPrototype), "getSetCookie"))
+    const undiciCookieMethod = UndiciHeaders
+      ? Object.getOwnPropertyDescriptor(UndiciHeaders.prototype, "getSetCookie")?.value
+      : undefined
+    const nativeGetSetCookie = typeof cookieMethod === "function"
+      && cookieMethod === undiciCookieMethod
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -514,18 +523,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       normalizedHeaders.append(key, value)
     }])
     if (nativeGetSetCookie) {
-      try {
-        const cookies = Reflect.apply(getSetCookie, headers, [])
-        if (Array.isArray(cookies)) {
-          combinedCookies = undefined
-          for (const cookie of cookies) {
-            if (typeof cookie !== "string") return
-            normalizedHeaders.append("set-cookie", cookie)
-          }
-        }
-      }
-      catch {
-        return
+      const cookies = Reflect.apply(cookieMethod, headers, [])
+      if (!Array.isArray(cookies)) return
+      combinedCookies = undefined
+      for (const cookie of cookies) {
+        if (typeof cookie !== "string") return
+        normalizedHeaders.append("set-cookie", cookie)
       }
     }
     // Preserve one cookie when the fallback exposes only a combined value. A comma
