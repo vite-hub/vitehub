@@ -21,6 +21,14 @@ export type DocsCatalogGroup = {
 
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
+/** Stable display order for task lanes in primitive sidebars. */
+const primitiveSidebarGroupOrder: Array<string | null> = [
+  null,
+  "Learn",
+  "Build",
+  "Deploy and operate",
+];
+
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 

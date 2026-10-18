@@ -1630,7 +1630,6 @@ export const AgentInvocationInspector = defineComponent({
     showSources: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
-    showSources: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
