@@ -3,6 +3,7 @@ import * as encoding from "lib0/encoding"
 import { normalizeSafeWorkspacePath } from "@vite-hub/workspace/internal/path"
 
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const messageWorkspaceChange = 4
@@ -62,6 +63,7 @@ function validPath(value: unknown): value is string {
   catch {
     return false
   }
+
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {

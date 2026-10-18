@@ -13,6 +13,7 @@ export type {
   ConnectionActivityRetention,
   ConnectionApiCatalog,
   ConnectionApiKeyDefinition,
+  ConnectionApiKeyFallback,
   ConnectionApiKeyProvider,
   ConnectionApiKeyVerification,
   ConnectionApiKeyVerifyContext,
