@@ -433,6 +433,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     consoleAuthMode: typeof consoleAuthMode
     retention: typeof retention
     runtimeCapabilityImports: typeof options.runtimeCapabilityImports
+    invocationBinding?: string
+    invocationState?: ConsoleInvocationRootState
   }
 
   function consoleAccess(): ConsoleAccessBuild | undefined {
@@ -443,6 +445,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    consoleBuildCatalogs.set(projectRoot, catalog)
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -662,6 +665,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             consoleAuthMode,
             retention,
             runtimeCapabilityImports: options.runtimeCapabilityImports,
+            invocationBinding: options.invocationRootState?.binding,
+            invocationState: options.invocationRootState,
           }
         : undefined
       resolvedPlugins = config.plugins
@@ -693,15 +698,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
               callbackState.generatedPlugin,
               callbackState.projectRoot,
               callbackState.sections,
-              callbackState.catalog.agents,
-              callbackState.catalog,
+              (consoleBuildCatalogs.get(callbackState.projectRoot) ?? callbackState.catalog).agents,
+              consoleBuildCatalogs.get(callbackState.projectRoot) ?? callbackState.catalog,
               callbackState.blobStores,
               callbackState.kvStores,
               callbackState.fixture,
-              options.invocationRootState?.binding,
+              callbackState.invocationBinding,
               callbackState.invoke,
               callbackState.observations,
-              () => !options.invocationRootState?.closed,
+              () => !callbackState.invocationState?.closed,
               callbackState.journal,
               callbackState.consoleAuthMode,
               callbackState.retention,
