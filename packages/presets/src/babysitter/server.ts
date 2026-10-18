@@ -907,9 +907,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Claim up to the owner capacity regardless of the model cap: host-only merges and
     // stack retargets must continue while model admission is reduced or paused.
     const claimLimit = ownerLimit;
-    // Owners waiting for model admission do not occupy host execution slots;
-    // keep those slots available for merges and stack retargets.
-    const hostActive = Math.max(0, active.size - waitingModelOwners.size);
+    // Every claimed owner occupies a host slot while it performs checkout,
+    // placement, installation, or waits for model admission. Keep waiters in
+    // this count so concurrent reconciles cannot claim past the owner limit.
+    const hostActive = active.size;
     const remainingCapacity = Math.max(0, claimLimit - hostActive);
     const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
       only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),

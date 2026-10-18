@@ -117,8 +117,13 @@ export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolic
  * only through the workflow jobs that run before it. A check that runs for half an hour is stuck.
  */
 export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
-  return latestCheckSignals(s).some(signal => pending.has(String(signal.status ?? signal.state))
-    && !(Date.parse(String(signal.started_at ?? signal.created_at ?? "")) < now - stuckCheckMs));
+  return latestCheckSignals(s).some(signal => {
+    if (!pending.has(String(signal.status ?? signal.state))) return false;
+    const timestamp = Date.parse(String(signal.started_at ?? signal.created_at ?? ""));
+    // External commit statuses often have no timestamp. They cannot prove a
+    // currently running check, so they must not defer a pass forever.
+    return Number.isFinite(timestamp) && timestamp >= now - stuckCheckMs;
+  });
 }
 
 export function failureKeys(s: Snapshot): string[] {
