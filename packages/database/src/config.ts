@@ -141,6 +141,7 @@ function splitLogicalExpression(expression: string): string[] {
   let start = 0
   let quote: string | undefined
   let escaped = false
+  let depth = 0
   for (let index = 0; index < expression.length - 1; index++) {
     const char = expression[index]!
     if (quote) {
@@ -153,15 +154,33 @@ function splitLogicalExpression(expression: string): string[] {
       quote = char
       continue
     }
+    if (char === "(") {
+      depth++
+      continue
+    }
+    if (char === ")") {
+      if (depth > 0) depth--
+      continue
+    }
     const next = expression[index + 1]!
-    if ((char === "|" && next === "|") || (char === "?" && next === "?")) {
-      parts.push(expression.slice(start, index).trim())
+    if (depth === 0 && ((char === "|" && next === "|") || (char === "?" && next === "?"))) {
+      parts.push(stripBoundaryParentheses(expression.slice(start, index).trim()))
       start = index + 2
       index++
     }
   }
-  parts.push(expression.slice(start).trim())
+  parts.push(stripBoundaryParentheses(expression.slice(start).trim()))
   return parts
+}
+
+function stripBoundaryParentheses(value: string): string {
+  let result = value.trim()
+  while (result.startsWith("(")) {
+    const end = findMatching(result, 0, "(", ")")
+    if (end === undefined || result.slice(end + 1).trim()) break
+    result = result.slice(1, end).trim()
+  }
+  return result
 }
 
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {

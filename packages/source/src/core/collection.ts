@@ -307,6 +307,14 @@ export type CollectionQueryInput<TInput> = TInput extends object
 
 type QueryInput<TSchema extends StandardSchemaV1> = CollectionQueryInput<StandardSchemaV1.InferInput<TSchema>>
 
+function isCollectionFacets(value: unknown): value is CollectionFacets {
+  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
+    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
+      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
+      && Number.isSafeInteger(Reflect.get(entry, "count"))
+      && Number(Reflect.get(entry, "count")) >= 0))
+}
+
 function assertPositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw sourceErrorDiagnostics.SOURCE_R0004({ message: `[vitehub] Collection ${label} must be a positive integer.` })
@@ -447,7 +455,12 @@ export function defineCollection<
           }
           page.total = result.total
         }
-        if (result.facets !== undefined) page.facets = result.facets
+        if (result.facets !== undefined) {
+          if (!isCollectionFacets(result.facets)) {
+            throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection facets must map fields to { value, count } lists." })
+          }
+          page.facets = result.facets
+        }
         return page
       }
       // SAFETY: A cursor definition is paired with a cursor loader by the public overloads.
