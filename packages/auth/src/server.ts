@@ -452,7 +452,11 @@ function bridgeAuthorizationBody(
           release()
           controller.close()
         }
-        else controller.enqueue(result.value as Uint8Array)
+        else {
+          const chunk = result.value
+          if (!(chunk instanceof Uint8Array)) throw new TypeError("Invalid authorization body chunk")
+          controller.enqueue(chunk)
+        }
       }
       catch (error) {
         release()
@@ -542,8 +546,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       const cookiePair = /,\s*[^;=,\s]+\s*=/.exec(combinedCookies)
       if (cookiePair) {
         const prefix = combinedCookies.slice(0, cookiePair.index)
-        const knownAttribute = /(?:^|;)\s*(?:expires|max-age|domain|path|secure|httponly|samesite|partitioned)\s*=/i.test(prefix)
-        if (!prefix.includes(";") || knownAttribute) return
+        const attribute = prefix.match(/(?:^|;)\s*([^=;\s]+)\s*=[^;]*$/)?.[1]?.toLowerCase()
+        if (!prefix.includes(";") || (attribute && attribute !== "extension" && attribute !== "expires" && attribute !== "max-age" && attribute !== "domain" && attribute !== "path" && attribute !== "secure" && attribute !== "httponly" && attribute !== "samesite" && attribute !== "partitioned")) return
       }
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
