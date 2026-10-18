@@ -47,10 +47,14 @@ export const AttachmentActions = slotPart("AttachmentActions", "attachment-actio
 // A Nuxt UI button with the compact icon defaults of shadcn/ui's `AttachmentAction`. Other attributes go to `UButton`.
 export const AttachmentAction = defineComponent({
   name: "AttachmentAction",
-  setup(_props, { slots }) {
+  setup(_props, { attrs, slots }) {
     const UButton = resolveComponent("UButton");
     return () =>
-      h(UButton, { color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost" }, slots);
+      h(
+        UButton,
+        { color: "neutral", size: "xs", square: true, variant: "ghost", ...attrs, "data-slot": "attachment-action" },
+        slots,
+      );
   },
 });
 
