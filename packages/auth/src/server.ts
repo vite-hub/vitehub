@@ -473,11 +473,17 @@ function bridgeAuthorizationBody(
   let initialization: Promise<NonNullable<typeof methods>> | undefined
   const initialize = () => initialization ??= Promise.resolve().then(() => {
     const nextReader = Reflect.apply(getReader, body, [])
-    const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
-    if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
-    reader = nextReader
-    methods = nextMethods
-    return nextMethods
+    try {
+      const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
+      if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
+      reader = nextReader
+      methods = nextMethods
+      return nextMethods
+    }
+    catch (error) {
+      releaseAuthorizationReader(nextReader)
+      throw error
+    }
   })
   let released = false
   const release = () => {
