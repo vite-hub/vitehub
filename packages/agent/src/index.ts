@@ -3499,6 +3499,7 @@ type AgentInvocationContext<
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
   executionBudget: ReturnType<typeof createExecutionBudget>
+  executionBudgetActive: boolean
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4968,6 +4969,7 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       executionBudget,
+      executionBudgetActive: executionBudgetHasConstraints(input),
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
@@ -8386,7 +8388,9 @@ async function executeAgentInvocation<
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
   const budgetInput = {
     ...input,
-    abortSignal: input.abortSignal
+    abortSignal: !executionBudgetHasConstraints(input)
+      ? input.abortSignal
+      : input.abortSignal
       ? AbortSignal.any([input.abortSignal, executionBudget.signal])
       : executionBudget.signal,
   }

@@ -561,7 +561,7 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   context.executionBudget?.recordRetry()
   const summary = await generateText({
     abortSignal: context.input.abortSignal,
-    maxRetries: context.executionBudget ? 0 : undefined,
+    maxRetries: context.executionBudgetActive ? 0 : undefined,
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
@@ -1303,8 +1303,8 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
-  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
+  const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudgetActive && !hasRuntimeType(wrapLanguageModel, "function")) {
     throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
   }
   const instructions = await composeInstructions(
@@ -1328,7 +1328,7 @@ async function createAgent(
     name: tool.name,
     type: "provider-defined",
   }]))
-  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudget)
+  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
@@ -1364,14 +1364,14 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const instrumentedModel = context.executionBudget && wrapLanguageModel
+  const instrumentedModel = context.executionBudgetActive && wrapLanguageModel
     ? wrapLanguageModel({
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
         middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
       })
     : observedModel
   // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
-  const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
+  const budgetedSettings = context.executionBudgetActive ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
