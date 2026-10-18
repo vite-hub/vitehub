@@ -129,6 +129,20 @@ describe("Auth access handlers", () => {
       await expect(run(source)).resolves.toBe(source)
     })
 
+    it.each([
+      ["a Response from another Fetch implementation", () => new ForeignResponse("Policy rejected", { status: 409 })],
+      ["a Response from another Fetch implementation with one cookie and no getSetCookie", () => {
+        const response = new ForeignResponse("Policy rejected", { status: 409, headers: { "set-cookie": "first=1" } })
+        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+        return response
+      }],
+      ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
+    ])("normalizes %s", async (_name, create) => {
+      const result = await run(await create())
+      expect(result?.status).toBe(409)
+      await expect(result?.text()).resolves.toBe("Policy rejected")
+    })
+
     it("keeps the status, headers, and body of a custom rejection", async () => {
       const result = await run(new Response("Policy rejected", { status: 409, headers: { "x-policy": "reject" } }))
       expect(result?.status).toBe(409)
@@ -142,13 +156,6 @@ describe("Auth access handlers", () => {
       ["undefined", () => undefined],
       ["a string", () => "allow"],
       ["a plain object", () => ({ status: 200 })],
-      ["a Response from another Fetch implementation", () => new ForeignResponse("Policy rejected", { status: 409 })],
-      ["a Response from another Fetch implementation with one cookie and no getSetCookie", () => {
-        const response = new ForeignResponse("Policy rejected", { status: 409, headers: { "set-cookie": "first=1" } })
-        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
-        return response
-      }],
-      ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
       ["a proxy around a Response", () => new Proxy(new Response("Policy rejected", { status: 409 }), {})],
       ["an object created from Response.prototype", () => Object.create(Response.prototype)],
       ["an object tagged Response", () => ({ status: 409, statusText: "Conflict", headers: new Headers(), [Symbol.toStringTag]: "Response" })],

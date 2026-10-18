@@ -315,6 +315,7 @@ function responseMethod(value: object, property: string): ((this: object) => unk
     if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
     prototype = Object.getPrototypeOf(prototype) as object | null
   }
+  return false
 }
 
 async function runAccessAuthorize(
@@ -713,6 +714,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
+
   }
   catch {
     return
