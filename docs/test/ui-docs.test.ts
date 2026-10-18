@@ -149,7 +149,7 @@ describe("UI documentation", () => {
 
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-sidebar-search");
-    expect(sidebarTop).not.toContain("vh-docs-context");
+    expect(sidebarTop).toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });

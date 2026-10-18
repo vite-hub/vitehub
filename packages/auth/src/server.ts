@@ -394,6 +394,7 @@ async function hasResponsePrototype(value: unknown, localResponsePrototype: obje
 }
 
 const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+const intrinsicFunctionToString = Function.prototype.toString
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
@@ -424,6 +425,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       prototype = Object.getPrototypeOf(prototype)
     }
     if (typeof locked !== "function" || typeof getReader !== "function") return false
+    // A stream implementation's reader method is an intrinsic operation. A
+    // user override can return a genuine reader from another stream, so reject
+    // methods that are not platform-native before probing ownership.
+    if (!Reflect.apply(intrinsicFunctionToString, getReader, []).includes("[native code]")) return false
     // A local stream must use the captured intrinsic reader. Prototype overrides
     // can otherwise return a fabricated reader that controls the bridge.
     if (streamConstructor === ReadableStream && getReader !== nativeStreamGetReader) return false
