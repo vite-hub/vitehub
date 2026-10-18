@@ -478,6 +478,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (Object(probe) !== probe || typeof (probe as PromiseLike<unknown>).then !== "function") return false
     Reflect.apply(intrinsicReaderMethods.get("cancel")!, readerObject, [])
     Reflect.apply(intrinsicReaderMethods.get("releaseLock")!, readerObject, [])
+    // Releasing the probed reader must unlock the stream that was passed to
+    // getReader(). A genuine reader does this; an override that returns a
+    // reader belonging to another stream leaves freshStream locked.
+    if (Reflect.apply(locked, freshStream, [])) return false
     return true
   }
   catch {
