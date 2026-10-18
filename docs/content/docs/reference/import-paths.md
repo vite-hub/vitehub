@@ -24,12 +24,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
-| `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
-| `vite-hub/agent/evlog/posthog` | Optional Node.js PostHog event, Error Tracking and log exporter. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
-| `vite-hub/agent/evlog` | Deprecated compatibility facade for Agent event logging. |
-| `vite-hub/agent/evlog/posthog` | Deprecated compatibility facade for the PostHog event-log exporter. |
 | `vite-hub/agent/presets/babysitter` | Composable Babysitter repair-loop preset. |
 | `vite-hub/agent/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
 | `vite-hub/agent/presets/babysitter/server` | Babysitter host runtime integration. |
@@ -96,7 +92,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter with request bindings and tracked background work. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
-| `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
@@ -138,9 +133,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, and `inputCommands()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
-| `@vite-hub/agent/evlog` | Agent Package | Host-level evlog integration. |
 | `@vite-hub/agent/observability` | Agent Package | `useObservability()` and observability types. |
-| `@vite-hub/agent/evlog/posthog` | Agent Package | Optional PostHog exporter. |
 | `@vite-hub/agent/process-host` | Agent Package | `withAgentProcessHost()` and webhook intake for preset process hosts. |
 | `@vite-hub/presets/babysitter` | Presets Package | Composable Babysitter repair-loop preset. |
 | `@vite-hub/presets/babysitter/server` | Presets Package | Babysitter host runtime integration. |
@@ -148,8 +141,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/presets/workspace` | Presets Package | Opt-in workspace source-provenance citation preset. |
 | `@vite-hub/agent/observability/host` | Agent Package | `installObservability()` for hosts without `vitehub()`. |
 | `@vite-hub/agent/observability/posthog` | Agent Package | Optional PostHog exporter. |
-| `@vite-hub/agent/evlog` | Agent Package | Deprecated compatibility facade for Agent event logging. |
-| `@vite-hub/agent/evlog/posthog` | Agent Package | Deprecated compatibility facade for the PostHog event-log exporter. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/runtime/process` | Agent Package | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
@@ -202,7 +193,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
 | `@vite-hub/ui`, `@vite-hub/ui/<name>`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components, shadcn/ui parts, and headless message scrolling. |
-| `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers, manual runs, and Schedule Run stores. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/process` | Schedule Package | Process Runtime that runs Static Schedules in a long-lived Node process. |
