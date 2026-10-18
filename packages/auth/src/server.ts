@@ -382,7 +382,6 @@ function hasNativeStreamBrand(body: object): boolean {
   catch {
     return false
   }
-
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -490,23 +489,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
-    const cookieDescriptor = headerPrototype
-      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")
-      : undefined
-    const cookieMethod = cookieDescriptor?.value
-    // A callable value alone is not enough: a caller can replace the foreign
-    // prototype method while preserving the Headers brand. Native implementations
-    // either expose a host intrinsic or perform their own Web IDL brand check.
-    const cookieSource = typeof cookieMethod === "function" ? Function.prototype.toString.call(cookieMethod) : ""
-    const nativeCookieMethod = !cookieDescriptor?.get && (cookieMethod === undefined
-      || (typeof cookieMethod === "function" && cookieMethod.name === "getSetCookie"
-        && (cookieSource.includes("[native code]") || cookieSource.includes("brandCheck"))))
-    if (!nativeHeaderMethods || !nativeCookieMethod) return
+    // Do not invoke getSetCookie here. Its function identity cannot be
+    // established across runtimes, and a caller can replace it on a genuine
+    // Headers prototype. forEach provides a safe fallback for the normalized
+    // header snapshot, including the single-value Set-Cookie case.
+    if (!nativeHeaderMethods) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
-    const cookies: unknown = typeof cookieMethod === "function" ? Reflect.apply(cookieMethod, headers, []) : []
-    if (!Array.isArray(cookies)) return
-    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -524,26 +513,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
-    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
-
-
-    // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
-    // Tee through the platform's native stream operation. Cancel the unused
-    // branch immediately so it cannot retain queued data after the response
-    // branch is consumed.
-    const tee = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "tee")?.value
-    if (typeof tee !== "function") return
-    const [normalizedBody, discarded] = Reflect.apply(tee, body, []) as [ReadableStream<Uint8Array>, ReadableStream<Uint8Array>]
-    // Start cleanup without delaying delivery of the live branch. If the
-    // normalized response is later canceled, tee cancellation coordinates
-    // with this discarded branch and propagates to the original source.
-    void discarded.cancel().catch(() => {})
-    return new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
-
+    return normalizedResponse
   }
   catch {
     return
