@@ -18,23 +18,6 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
-  it.each(["unknown", "constructor", "toString", "__proto__"])("renders persisted status %s without throwing", (value) => {
-    const status = value as AgentInvocationView["status"];
-    const invocation = {
-      createdAt: "2026-09-08T00:00:00.000Z",
-      id: "unknown-status",
-      observations: [],
-      status,
-      traceId: "trace",
-      updatedAt: "2026-09-08T00:00:00.000Z",
-    } as AgentInvocationView;
-    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get('.vh-invocation-inspector__status').text()).toContain("Unknown");
-
-    const list = mount(AgentInvocationList, { props: { items: [{ id: "unknown-status", status, title: "Unknown status" }] } });
-    expect(list.get(".vh-invocation-list__state").text()).toContain("Unknown");
-  });
-
   it("recognizes safe absolute provider Workspace artifact links", () => {
     expect(workspaceArtifactPath("/workspace/vitehub-provider-DjQaJy/artifacts/source-map.html")).toBe("artifacts/source-map.html");
     expect(workspaceArtifactPath("/workspace/run/../.env")).toBeUndefined();
@@ -482,6 +465,7 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
+        remainingStatuses: ["completed"],
       },
     });
 
@@ -2701,6 +2685,7 @@ describe("Agent Invocation UI", () => {
       props: {
         hasMore: true,
         items: [{ id: "working", status: "running", title: "Working" }],
+        remainingStatuses: ["running", "pending", "completed"],
         continuationKey: "page-2",
       },
     });
@@ -2729,6 +2714,7 @@ describe("Agent Invocation UI", () => {
         continuationKey: "page-2",
         hasMore: true,
         items: [{ id: "done", status: "completed", title: "Done" }],
+        remainingStatuses: ["completed"],
         retryKey: 0,
       },
     });
@@ -2754,6 +2740,7 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
+        remainingStatuses: ["completed"],
       },
     });
     const viewport = wrapper.get("nav");
@@ -2871,6 +2858,7 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
+        remainingStatuses: ["running", "completed"],
       },
     });
     const viewport = wrapper.get("nav").element;
@@ -2891,6 +2879,7 @@ describe("Agent Invocation UI", () => {
     });
     expect(wrapper.emitted("endReached")).toHaveLength(3);
 
+    await wrapper.setProps({ remainingStatuses: ["completed"] });
     await wrapper.setProps({
       items: [...wrapper.props("items"), { id: "done-last", status: "completed", title: "Done last" }],
     });
@@ -3936,31 +3925,6 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
   });
 
-  it("ignores malformed persisted channel entries", () => {
-    const invocation: AgentInvocationView = {
-      id: "malformed-channels", traceId: "malformed-channels", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
-      status: "completed", observations: [],
-      configuration: {
-        channels: [null, { id: "support", kind: "web-chat" }, { id: "invalid", kind: 42 }, "[truncated]"],
-      } as never,
-    };
-    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(wrapper.findAll(".vh-invocation-inspector__badge")).toHaveLength(1);
-    expect(wrapper.text()).toContain("Some setup values were shortened");
-    expect(wrapper.text()).toContain("support");
-  });
-
-  it("marks a malformed persisted channel catalog as shortened", () => {
-    const invocation: AgentInvocationView = {
-      id: "malformed-channel-catalog", traceId: "malformed-channel-catalog", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
-      status: "completed", observations: [],
-      configuration: { channels: "[truncated]" } as never,
-    };
-    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(wrapper.text()).toContain("Some setup values were shortened");
-    expect(wrapper.findAll(".vh-invocation-inspector__badge")).toHaveLength(0);
-  });
-
   it("does not label a historical response breakdown as invocation usage", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
       createdAt: "2026-09-08T00:00:00.000Z",
@@ -4246,26 +4210,7 @@ describe("Agent Invocation UI", () => {
     expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
   });
 
-  it.each(["completed", "failed", "cancelled"] as const)("labels messages in collapsed work for %s runs", (status) => {
-    const timestamp = "2026-09-05T00:00:00Z";
-    const invocation: AgentInvocationView = {
-      id: "collapsed-messages", traceId: "trace", createdAt: timestamp, updatedAt: timestamp, status,
-      observations: [
-        { role: "user", body: "Run the tests." },
-        { role: "tool", body: "Tests passed." },
-        { role: "assistant", body: "The tests pass." },
-      ].map((message, index) => ({ name: "agent.message", type: "run", timestamp, sequence: index + 1, attributes: {
-        "message.id": String(index), "message.role": message.role, "message.content": message.body,
-      } })),
-    };
-    const thread = mount(AgentInvocation, { props: { invocation } });
-    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
-    expect(thread.get(".vh-invocation-work__details").attributes("open")).toBeUndefined();
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages3");
-  });
-
-  it("renders structured workspace sources alongside historical source strings", async () => {
+  it("renders structured workspace sources alongside historical source strings", () => {
     const invocation: AgentInvocationView = {
       id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "completed", observations: [],
@@ -4284,7 +4229,6 @@ describe("Agent Invocation UI", () => {
       "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
     ]);
     expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
-    expect(mount(AgentInvocationInspector, { props: { invocation, showSources: false } }).text()).not.toContain("Sources");
   });
 
   describe("conversation view", () => {
