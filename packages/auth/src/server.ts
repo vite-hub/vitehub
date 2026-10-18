@@ -401,7 +401,11 @@ function streamIntrinsics(body: object) {
     try { if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, []) } catch {}
     return
   }
-  try { Reflect.apply(releaseLock, reader, []) } catch { return }
+  try {
+    if (!Reflect.apply(locked, body, [])) return
+    Reflect.apply(releaseLock, reader, [])
+  }
+  catch { return }
   return { locked, getReader, read, cancel, releaseLock }
 }
 
@@ -409,8 +413,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (body === null) return true
   if (Object(body) !== body) return false
   try {
-    const intrinsics = streamIntrinsics(body)
-    return !!intrinsics && !Reflect.apply(intrinsics.locked, body, [])
+    const candidate = Object(body)
+    const intrinsics = streamIntrinsics(candidate)
+    return !!intrinsics && !Reflect.apply(intrinsics.locked, candidate, [])
   }
   catch {
     return false
@@ -471,6 +476,13 @@ function bridgeAuthorizationBody(
         prototype = Object.getPrototypeOf(prototype)
       }
       if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+      let locked: ((this: object) => boolean) | undefined
+      let lockedPrototype: object | null = Object.getPrototypeOf(body)
+      for (let depth = 0; lockedPrototype && depth < authorizationResponsePrototypeLimit; depth++, lockedPrototype = Object.getPrototypeOf(lockedPrototype)) {
+        locked = Object.getOwnPropertyDescriptor(lockedPrototype, "locked")?.get as typeof locked
+        if (typeof locked === "function") break
+      }
+      if (typeof locked !== "function" || !Reflect.apply(locked, body, [])) throw new Error("Malformed authorization reader")
       return acquired as ReadableStreamDefaultReader<Uint8Array>
     })
     reader = await initializing
@@ -545,7 +557,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let nativeBodyState = false
     try {
       const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      const bodyIntrinsics = body === null ? undefined : streamIntrinsics(body)
+      const bodyIntrinsics = body === null ? undefined : streamIntrinsics(Object(body))
       nativeBodyState = bodyUsed !== undefined
         && !Reflect.apply(bodyUsed, candidate, [])
         && (body === null || (!!bodyIntrinsics && !Reflect.apply(bodyIntrinsics.locked, body, [])))
