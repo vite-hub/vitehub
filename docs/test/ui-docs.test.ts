@@ -150,13 +150,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
-    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
-
-    expect(sidebarTop).toContain("<UContentSearchButton");
-    expect(sidebarTop).not.toContain("vh-docs-context");
-    expect(sidebarTop).not.toContain("USelectMenu");
-    expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
-  });
 
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");

@@ -60,11 +60,33 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
   return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
 }
 
+function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
+  const sql = Object.create(null) as Record<string, unknown>
+  const prototype = {
+    constructor: function SqlStorage() {},
+    exec,
+    get databaseSize() {
+      return 1
+    },
+  }
+  Object.setPrototypeOf(sql, prototype)
+  Object.defineProperty(prototype, "databaseSize", {
+    configurable: true,
+    get: new Proxy(Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!, {
+      apply(_target, thisArg) {
+        if (thisArg === sql) return 1
+        throw new TypeError("Illegal invocation")
+      },
+    }),
+  })
+  return sql
+}
+
 function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
     headers: { upgrade: "websocket" },
   }) as Request & { runtime?: unknown }
-  request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+  request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
   return request
 }
 
@@ -840,7 +862,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+    request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
 
     const response = await handler.fetch(request as never) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
 
@@ -879,7 +901,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/missing.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+    request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
 
     const response = await handler.fetch(request as never)
 
