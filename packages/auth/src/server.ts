@@ -28,6 +28,19 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
+
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -282,11 +295,19 @@ function isRuntimeResponse(value: unknown): value is Response {
   if (!nativeResponseStatus || value === null || typeof value !== "object") return false
   try {
     Reflect.apply(nativeResponseStatus, value, [])
-    return true
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (prototype === Response.prototype) return true
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
-    return false
+    // Foreign responses and malformed objects fail the current-realm check.
   }
+  return false
 }
 
 /**
@@ -662,12 +683,20 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           release()
           controller.close()
         }
-        else controller.enqueue(result.value as Uint8Array)
+        else {
+          const value = result.value
+          if (!isIntrinsicUint8Array(value)) throw new Error("Malformed authorization read result")
+          if (!intrinsicTypedArrayByteLengthGetter || typeof intrinsicUint8ArraySet !== "function") throw new Error("Malformed authorization read result")
+          const copy = new intrinsicUint8ArrayConstructor(Reflect.apply(intrinsicTypedArrayByteLengthGetter, value, []))
+          Reflect.apply(intrinsicUint8ArraySet, copy, [value])
+          controller.enqueue(copy)
+        }
       }
       catch (error) {
         release()
         controller.error(error)
       }
+
     },
     async cancel(reason) {
       try {
@@ -817,6 +846,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       return
     }
 
+
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -863,6 +893,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
+
   }
   catch {
     return
