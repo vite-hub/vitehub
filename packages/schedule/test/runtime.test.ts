@@ -724,8 +724,6 @@ describe("Schedule Run bookkeeping", () => {
     expect(handler).not.toHaveBeenCalled()
     expect(hostile).not.toHaveBeenCalled()
   })
-
-
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

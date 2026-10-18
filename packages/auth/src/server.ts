@@ -412,6 +412,28 @@ async function validateAuthorizationBody(
   if (!source) return;
   type Chunk = { done: false; value: unknown } | { done: true; value?: undefined };
   let reader: ReadableStreamDefaultReader<unknown> | undefined;
+  const cleanupReader = async (reason?: unknown, cancel = true) => {
+    const currentReader = reader;
+    reader = undefined;
+    if (!currentReader) {
+      if (cancel) await ReadableStream.prototype.cancel.call(source, reason);
+      return;
+    }
+    let cancellationError: unknown;
+    if (cancel) {
+      try {
+        await currentReader.cancel(reason);
+      } catch (error) {
+        cancellationError = error;
+      }
+    }
+    try {
+      currentReader.releaseLock();
+    } catch (error) {
+      if (cancellationError === undefined) cancellationError = error;
+    }
+    if (cancellationError !== undefined) throw cancellationError;
+  };
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -422,27 +444,21 @@ async function validateAuthorizationBody(
         const currentReader = reader;
         const result = (await currentReader.read()) as Chunk;
         if (result.done) {
+          await cleanupReader(undefined, false);
           controller.close();
         } else if (isUint8ArrayChunk(result.value)) {
           controller.enqueue(result.value);
         } else {
-          await currentReader.cancel().catch(() => {});
-          reader = undefined;
+          await cleanupReader();
           controller.error(new TypeError("Authorization body chunk must be a Uint8Array"));
         }
       } catch (error) {
-        await reader?.cancel().catch(() => {});
-        reader = undefined;
+        await cleanupReader().catch(() => {});
         controller.error(error);
       }
     },
     async cancel(reason) {
-      if (reader) {
-        await reader.cancel(reason).catch(() => {});
-        reader = undefined;
-      } else {
-        await ReadableStream.prototype.cancel.call(source, reason).catch(() => {});
-      }
+      await cleanupReader(reason);
     },
   });
 }
