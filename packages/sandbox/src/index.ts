@@ -640,7 +640,7 @@ function normalizeFiles<Context>(
       const hasContents = "contents" in value;
       const ownsFrom = Object.hasOwn(value, "from");
       const ownsContents = Object.hasOwn(value, "contents");
-      if ((hasFrom && !ownsFrom) || (hasContents && !ownsContents))
+      if ((hasFrom !== ownsFrom) || (hasContents !== ownsContents))
         throw sandboxErrorDiagnostics.SANDBOX_R0046({ message: `[vitehub] Sandbox file ${path} requires exactly one of from or contents.` });
       if (hasFrom && ownsFrom) {
         if (Object.keys(value).length !== 1 || typeof value.from !== "string")
