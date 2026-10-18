@@ -174,7 +174,6 @@
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
 
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
