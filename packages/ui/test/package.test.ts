@@ -104,14 +104,16 @@ describe("@vite-hub/ui package contract", () => {
     "./message",
     "./message-parts",
     "./nuxt",
-    "./package.json",
     "./primitive-rail",
     "./prompt-input",
-    "./styles.css",
     "./trace",
     "./vite",
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
+  });
+
+  it.each(["./package.json", "./styles.css"])("ships asset export %s", (entry) => {
+    expect(existsSync(new URL(`../dist/${entry.slice(2)}`, import.meta.url))).toBe(true);
   });
 
   it("exports every component from the root entry", async () => {

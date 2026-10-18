@@ -1,6 +1,7 @@
 import { connectionEnvAccess } from "@vite-hub/env/internal/connections"
 import * as v from "valibot"
 
+import { providerAccount } from "./account.ts"
 import { createConnectionTransport } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
@@ -851,9 +852,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       // the mutation fenced until the replacement token and state are durable.
       releaseLease = false
       quarantine = true
-      let account: ReturnType<typeof provider.account>
+      let account: ConnectionAccount | undefined
       try {
-        account = provider.account(response)
+        account = providerAccount(provider, response)
       }
       catch (error) {
         quarantine = true
