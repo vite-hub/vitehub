@@ -107,6 +107,20 @@ describe("discoverDatabaseDefinitions", () => {
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ name: "alpha" })])
   })
 
+  it("selects a parenthesized default-exported Definition over an earlier call", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "src/analytics.database.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const decoy = defineDatabase({ name: 'wrong', schema: {} })",
+      "export default (defineDatabase({ name: 'analytics', schema: {} }))",
+      "",
+    ].join("\n"))
+
+    expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ handler: file, name: "analytics" })])
+  })
+
   it("preserves prototype-named databases in resolved maps", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "src/__proto__.database.ts")
