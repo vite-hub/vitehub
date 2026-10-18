@@ -452,7 +452,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
     if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
-      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream|super\.)/.test(source)) return false
+      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream)/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
     if (/^\s*(?:get\s+)?\[[\s\S]*\]\s*\([^)]*\)\s*\{/.test(source)) return false
@@ -592,6 +592,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       try {
         const { reader, read } = await acquireReader()
         const result = await Reflect.apply(read, reader, [])
+        if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) {
           await release()
           controller.close()
@@ -617,7 +618,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       }
     },
   }, { highWaterMark: 0 })
-  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
+  return { stream, release }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
