@@ -452,13 +452,13 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
   }
 }
 
-const trustedUint8ArraySubarray = Uint8Array.prototype.subarray
-const intrinsicObjectToString = Object.prototype.toString
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+const intrinsicTypedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get
 
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (typeof intrinsicTypedArrayTag !== "function") return false
   try {
-    Reflect.apply(trustedUint8ArraySubarray, value, [0, 0])
-    return Reflect.apply(intrinsicObjectToString, value, []) === "[object Uint8Array]"
+    return Reflect.apply(intrinsicTypedArrayTag, value, []) === "Uint8Array"
   }
   catch {
     return false
