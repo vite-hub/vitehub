@@ -369,7 +369,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 }
 
 function productionRuntime(): boolean {
-  return typeof globalThis.process === "undefined" || globalThis.process.env?.NODE_ENV === "production"
+  return typeof globalThis.process === "undefined" || globalThis.process?.env?.NODE_ENV === "production"
 }
 
 function developmentRuntime(): boolean {
