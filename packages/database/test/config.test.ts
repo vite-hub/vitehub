@@ -408,7 +408,7 @@ describe("resolveDBViteConfig", () => {
     await mkdir(dirname(postgresFile), { recursive: true })
     await writeFile(postgresFile, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://localhost/db' }, cloudflare: { binding: 'DB_FOO_BAR' }, schema: {} })",
+      "export default defineDatabase({ name: 'foo-bar', dialect: 'postgresql', connection: { url: 'postgres://localhost/db' }, cloudflare: { binding: 'DB_FOO_BAR' }, schema: {} })",
       "",
     ].join("\n"))
     await writeDefinition(rootDir, "server/databases/foo_bar/config.ts", "accounts")
