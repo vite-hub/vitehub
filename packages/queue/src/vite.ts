@@ -77,8 +77,18 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
+function normalizeQueueForHosting(queue: QueueModuleOptions | undefined, hosting: string | undefined) {
+  if (queue && typeof queue === "object" && Object.hasOwn(queue, "provider")) {
+    const provider = (queue as Record<string, unknown>).provider
+    const providerOnly = normalizeQueueOptions({ provider } as QueueModuleOptions, { hosting })
+    if (providerOnly?.provider && hosting && providerOnly.provider !== hosting) return undefined
+  }
+  return normalizeQueueOptions(queue, { hosting })
+}
+
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
-  return getHostingProvider(resolveHost({ nitro })) || normalizeQueueOptions(queue)?.provider || "vercel"
+  const hosting = getHostingProvider(resolveHost({ nitro }))
+  return hosting || normalizeQueueForHosting(queue, hosting)?.provider || "vercel"
 }
 
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
@@ -117,8 +127,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = getHostingProvider(resolveHost({ nitro }))
-  const normalizedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
-  const providerMismatch = normalizedQueue?.provider && nitroHosting && normalizedQueue.provider !== nitroHosting
+  const normalizedQueue = normalizeQueueForHosting(queue, nitroHosting)
+  const providerMismatch = queue !== false && nitroHosting && queue && normalizedQueue === undefined
   const runtimeEnabled = queue !== false && !providerMismatch
   const nitroOwnsPaths = hasNitroConfigContext(config)
   const plugin = nitroOwnsPaths ? resolve(root, generatedQueueNitroPlugin) : generatedQueueNitroPlugin
