@@ -1034,6 +1034,12 @@
       "import": "./dist/ui/trace.js",
       "require": "./dist/ui/trace.js",
       "default": "./dist/ui/trace.js"
+    },
+    "./ui/marker": {
+      "types": "./dist/ui/marker.d.ts",
+      "import": "./dist/ui/marker.js",
+      "require": "./dist/ui/marker.js",
+      "default": "./dist/ui/marker.js"
     }
   },
   "vitehub": {

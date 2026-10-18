@@ -179,7 +179,7 @@ describe("UI documentation", () => {
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
     expect(desktopStyles).toMatch(/\.vh-docs-aside\s*\{[^}]*display: flex;[^}]*flex: none;/);
     expect(desktopStyles).toMatch(/:deep\(\.vh-docs-sidebars\)\s*\{[^}]*flex-direction: row;/);
-    expect(sidebarPanel).toContain("overflow: auto;");
+    expect(sidebar).toContain("overflow-y: auto;");
     expect(layout).toContain("overflow-x: clip;");
 
     expect(layout).toContain("overflow: visible;");
