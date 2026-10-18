@@ -340,6 +340,7 @@ export function resolveConsoleAccessBuild(
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
   if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: authorize ? "host-managed" : "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
@@ -379,6 +380,9 @@ export function assertConsoleAccess(
 /** Check the app Auth access routes of a production build. */
 export function assertConsoleProductionAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig, base?: string, development?: boolean, sections?: readonly ConsoleSectionId[] }): void {
   if (options.development) return
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed" && !configured.authorize) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize in production." })
+  }
   if (configured.auth === "app" && options.auth) assertConsoleAccess(configured, options)
 }
 
