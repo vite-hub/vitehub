@@ -182,11 +182,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               || !("status" in factoryResult)
               || !("headers" in factoryResult)
               || !("body" in factoryResult)
-              // Factory results must materialize response state on the
-              // instance; inherited fields alone are caller-forgeable.
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "status")
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) {
+              ) {
               hasFactoryBrand = false
               break
             }
@@ -335,7 +331,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   scope[policyKey] = Object.freeze({ ...policy })
   if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
-    globalThis.console.warn(consoleOpenAccessWarning)
+    if (typeof globalThis.console?.warn === "function") globalThis.console.warn(consoleOpenAccessWarning)
   }
 }
 
