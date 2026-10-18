@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type { AgentHealthDiagnostic } from "../../server/health.ts";
 import type { BabysitterInstall } from "../babysitter.ts";
@@ -7,9 +10,28 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const execute = promisify(execFile);
 
+async function resolveExecutable(program: string): Promise<void> {
+  if (isAbsolute(program) || program.includes("/") || program.includes("\\")) {
+    await access(program, constants.X_OK);
+    return;
+  }
+  const path = process.env.PATH ?? "";
+  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const directory of path.split(delimiter)) {
+    for (const extension of extensions) {
+      try {
+        await access(join(directory || ".", `${program}${extension}`), constants.X_OK);
+        return;
+      } catch {}
+    }
+  }
+  throw new Error(`Executable not found: ${program}`);
+}
+
 /** Cached host prerequisites. Failed checks recover without restarting webhook intake. */
 export function createBabysitterPreflight(install: BabysitterInstall, checkCommand: (program: string, probe?: "version" | "path") => Promise<void> = async (program, probe = "version") => {
-  await execute(probe === "path" ? "which" : program, probe === "path" ? [program] : ["--version"], { timeout: 5000, maxBuffer: 64 * 1024 });
+  if (probe === "path") await resolveExecutable(program);
+  else await execute(program, ["--version"], { timeout: 5000, maxBuffer: 64 * 1024 });
 }) {
   let cached: { checkedAt: string; diagnostics: AgentHealthDiagnostic[]; pause?: BabysitterAdmissionPause } | undefined;
   let expiresAt = 0;
