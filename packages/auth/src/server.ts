@@ -403,6 +403,21 @@ function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: 
   }
 }
 
+function nativeStreamIntrinsic<T extends PropertyKey>(body: object, key: T, localIntrinsic: unknown, expectedName: string) {
+  let current: object | null = body
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) {
+      const value = descriptor.get ?? descriptor.value
+      if (isNativeFunction(value, localIntrinsic, expectedName, false, false)) return { value, owner: current }
+    }
+    current = Object.getPrototypeOf(current)
+  }
+}
+
 function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName?: string, allowPrototype = false, requireNativeSource = true): value is (...args: never[]) => unknown {
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
@@ -436,7 +451,8 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // cross-runtime implementations, which expose function declarations or
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
-    if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)) return false
+    if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
+      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream|super\.)/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
     if (/^\s*(?:get\s+)?\[[\s\S]*\]\s*\([^)]*\)\s*\{/.test(source)) return false
@@ -461,9 +477,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   // Inherited stream methods are resolved from the source realm below.
   if (Object.prototype.hasOwnProperty.call(stream, "locked")
     || Object.prototype.hasOwnProperty.call(stream, "getReader")) return false
-  const locked = streamIntrinsic(stream, "locked")
-  const getReader = locked && streamIntrinsic(locked.owner, "getReader")
-  if (!locked || !getReader || locked.owner !== getReader.owner
+  const locked = nativeStreamIntrinsic(stream, "locked", nativeStreamLocked, "locked")
+  const getReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
+  if (!locked || !getReader
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader", false, false)) return false
   if (Reflect.apply(locked.value, stream, [])) return false
   // The Web Streams API exposes the disturbed state only through brand checks:
@@ -471,13 +487,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   // even after its reader has released the lock. Keep this probe before the
   // bridge acquires ownership so response-shaped values cannot silently turn
   // into empty bodies.
-  try {
-    new Response(stream as ReadableStream<Uint8Array>)
-    return true
-  }
-  catch {
-    return false
-  }
+  return true
 }
 
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
@@ -508,8 +518,7 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   // independently and allow those carrier-owned accessors.
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
-  const tag = Object.getOwnPropertyDescriptor(owner, Symbol.toStringTag)?.value
-  if (owner === headers || typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== owner || tag !== "Headers") return
+  if (owner === headers || typeof constructor !== "function" || constructor.name !== "Headers") return
   const forEach = forEachEntry.value
   const getSetCookie = cookieEntry?.value
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
@@ -517,9 +526,9 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations from the stream's realm, never caller-supplied methods.
-  const locked = streamIntrinsic(body, "locked")
-  const getReaderIntrinsic = locked && streamIntrinsic(locked.owner, "getReader")
-  if (!locked || !getReaderIntrinsic || locked.owner !== getReaderIntrinsic.owner
+  const locked = nativeStreamIntrinsic(body, "locked", nativeStreamLocked, "locked")
+  const getReaderIntrinsic = nativeStreamIntrinsic(body, "getReader", nativeStreamGetReader, "getReader")
+  if (!locked || !getReaderIntrinsic
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false)
     || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
@@ -689,9 +698,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && bodyUsed !== true && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (value instanceof Response && bodyUsed !== true && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod) return value
     if (bodyUsed === true && body !== null) return
     if (!isSerializableAuthorizationBody(body)) return
     const headerMethods = authorizationHeaderMethods(headerCarrier)
