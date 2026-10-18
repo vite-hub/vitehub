@@ -65,7 +65,9 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
 function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   const sql = Object.create(null) as Record<string, unknown>
   const prototype = {
-    constructor: function SqlStorage() {},
+    // Use a native constructor in the carrier shape. The production detector
+    // treats the constructor as part of the platform object contract.
+    constructor: Map,
     exec,
     get databaseSize() {
       return 1
