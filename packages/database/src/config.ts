@@ -108,8 +108,10 @@ function findAngleAssertionClose(source: string): number | undefined {
     }
     if (char === "'" || char === '"' || char === "`") { quote = char; continue }
     if (char === "/" && next === "/") {
-      const end = source.indexOf("\n", index + 2)
-      index = end === -1 ? source.length : end
+      const match = /[\r\n\u2028\u2029]/g
+      match.lastIndex = index + 2
+      const terminator = match.exec(source)
+      index = terminator ? terminator.index : source.length
       continue
     }
     if (char === "/" && next === "*") {
