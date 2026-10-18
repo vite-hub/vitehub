@@ -40,4 +40,10 @@ describe("Babysitter host prerequisites", () => {
     expect(result.pause?.detail).not.toContain("Install Corepack");
     expect(command.mock.calls).toEqual([["git", "version"], ["bun", "path"]]);
   });
+
+  it("checks an absolute configured installer executable", async () => {
+    const command = vi.fn(async () => {});
+    expect((await createBabysitterPreflight({ command: "/opt/vitehub/install" }, command)()).pause).toBeUndefined();
+    expect(command.mock.calls).toEqual([["git", "version"], ["/opt/vitehub/install", "path"]]);
+  });
 });

@@ -46,7 +46,7 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
         const program = installer ?? "corepack";
         // A checkout-relative custom command has no stable host PATH probe and
         // may not implement --version; the installer validates its real args.
-        if (!program.includes("/") && !commands.includes(program)) commands.push(program);
+        if ((isAbsolute(program) || (!program.includes("/") && !program.includes("\\"))) && !commands.includes(program)) commands.push(program);
       }
       for (const program of commands) {
         try {
