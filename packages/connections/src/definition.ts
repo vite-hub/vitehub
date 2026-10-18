@@ -43,6 +43,7 @@ const apiKeyDefinitionSchema = v.looseObject({
       scheme: v.optional(v.string()),
       origins: v.array(v.string()),
       apis: apiCatalogsSchema,
+      fallback: v.optional(v.function()),
       verify: v.optional(v.function()),
     }),
     v.check(provider => isValidApiKeyProvider(provider)),

@@ -92,6 +92,12 @@
       "require": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./owned-paths": {
+      "types": "./dist/owned-paths.d.ts",
+      "import": "./dist/owned-paths.js",
+      "require": "./dist/owned-paths.js",
+      "default": "./dist/owned-paths.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",

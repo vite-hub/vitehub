@@ -343,20 +343,26 @@ export function describeConsoleUsageChart(
 
 /** A session time to the minute, for example "Oct 13, 2:05 PM". */
 export function formatConsoleUsageTimestamp(value: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat("en", {
+  const options: Intl.DateTimeFormatOptions = {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     month: "short",
-    ...(timeZone ? { timeZone } : undefined),
-  }).format(new Date(value));
+
+  };
+  if (timeZone) options.timeZone = timeZone;
+  return new Intl.DateTimeFormat("en", options).format(new Date(value));
+
 }
 
 /** The full date and time with seconds and time zone, for a title. */
 export function formatConsoleUsageDateTime(value: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat("en", {
+  const options: Intl.DateTimeFormatOptions = {
     dateStyle: "full",
     timeStyle: "long",
-    ...(timeZone ? { timeZone } : undefined),
-  }).format(new Date(value));
+
+  };
+  if (timeZone) options.timeZone = timeZone;
+  return new Intl.DateTimeFormat("en", options).format(new Date(value));
+
 }

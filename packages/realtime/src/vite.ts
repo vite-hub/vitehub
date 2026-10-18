@@ -200,17 +200,17 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       ])
 
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_B0001({ message: `[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.` })
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
       }
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
         configureCloudflareRealtime(nitro)
       }
       else if (environment?.command === "build" && authority === "auto") {
-        throw realtimeErrorDiagnostics.REALTIME_B0002({ message: "[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server." })
+        throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw realtimeErrorDiagnostics.REALTIME_B0003({ message: `[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.` })
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", preset: deploymentPreset })
       }
       if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
         inspectionAuthority = "memory"

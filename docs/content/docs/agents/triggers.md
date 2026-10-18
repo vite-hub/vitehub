@@ -149,6 +149,22 @@ The Trigger translates the validated event and attaches trusted context. Keep mo
 
 When the Channel declares message methods, also return `message`: JSON data that identifies the provider message. Hooks use it through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
 
+### Ignore a webhook
+
+Return `ignored(reason)` when the Channel receives an event that it does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry, and no Invocation starts.
+
+```ts
+import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+
+defineChannelTrigger({
+  input: ticketOpened,
+  invoke(context, event) {
+    if (event.summary.startsWith('[bot]')) return ignored('bot_ticket')
+    return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
+  },
+})
+```
+
 ### Debounce webhook deliveries
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
