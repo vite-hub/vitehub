@@ -96,7 +96,7 @@ describe("discoverDatabaseDefinitions", () => {
       "",
     ].join("\n"))
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow('must set `name: "analytics"`')
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_NAME_MISMATCH", why: expect.stringContaining('must set `name: "analytics"`') }))
   })
 
   it("decodes a static escaped Definition name", async () => {
@@ -155,7 +155,7 @@ describe("discoverDatabaseDefinitions", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
     await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow("either one default database or all named databases")
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_MIXED_DEFINITIONS" }))
   })
 })
 

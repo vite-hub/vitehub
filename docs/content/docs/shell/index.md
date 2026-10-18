@@ -1,106 +1,116 @@
 ---
 title: Shell
 navigation.title: Overview
-description: Run Unix-like commands with configured filesystem, process, network, timeout, and policy access.
+description: Run shell commands from server code on files you choose, with limits on commands, output, and time.
 navigation.order: 1
 icon: i-lucide-terminal
 ---
 
-::agent-only{skill="shell"}
-Use Shell to run bounded Unix-like commands with explicit filesystem, process, network, timeout, and policy access.
+::product-hero{tagline="Run simple shell commands like ls, cat, and rg from your server, with limits you control." hosts="Node, Docker, Cloudflare"}
+  :::product-files
+  ```ts [server/utils/docs-shell.ts]
+  import { createShellRuntime } from 'vite-hub/shell'
+  import {
+    createJustBashProvider,
+  } from 'vite-hub/shell/providers/just-bash'
+  import {
+    createReadonlyWorkspaceFs,
+  } from 'vite-hub/shell/workspace'
+  import { useWorkspace } from 'vite-hub/workspace'
 
-Read [Get started](/docs/shell/get-started), [Configure](/docs/shell/configure), [Server API](/docs/shell/server-api), or [Limits and errors](/docs/shell/limits-and-errors).
-
-Treat command text, working directory, environment, and network access as authority. Prefer an allowlist and a small working directory. Resource bounds and cancellation are part of the run contract.
-
-Prove a permitted command, a rejected command, timeout, cancellation, output limit, and cleanup.
-::
-
-::product-hero{tagline="Run Unix-like commands from server code through Just Bash or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
-  :::code-group
-  ```ts [Runtime]
-  import { createShellRuntime } from '@vite-hub/shell'
-  import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
-  import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
-  import { useWorkspace } from '@vite-hub/workspace'
-
-  const workspace = useWorkspace('docs')
-  const shell = createShellRuntime({
-    policy: { maxOutputLength: 10_000, timeout: 30_000 },
-    provider: createJustBashProvider({
-      commands: ['pwd', 'ls', 'cat', 'rg'],
-      cwd: workspaceMountPoint,
-      fs: createReadonlyWorkspaceFs(workspace.fs),
-    }),
-  })
-
-  const observation = await shell.exec('rg auth .', { cwd: workspaceMountPoint })
+  // A shell that can only read the docs Workspace
+  export function docsShell() {
+    const docs = useWorkspace('docs')
+    return createShellRuntime({
+      policy: { timeout: 10_000, maxOutputLength: 5_000 },
+      // Bash in JavaScript: no real processes
+      provider: createJustBashProvider({
+        // The only commands it can run
+        commands: ['ls', 'cat', 'rg'],
+        fs: createReadonlyWorkspaceFs(docs.fs),
+      }),
+    })
+  }
   ```
 
-  ```ts [Session]
-  import { createShellRuntime } from '@vite-hub/shell'
+  ```ts [server/api/search.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { docsShell } from '../utils/docs-shell'
 
-  export async function inspect(runtime: ReturnType<typeof createShellRuntime>) {
-    const session = runtime.createSession({
-      policy: {
-        maxOutputLength: 10_000,
-        maxShellCalls: 4,
-        timeout: 30_000,
-      },
+  // Find every line that mentions "auth"
+  export default defineEventHandler(async () => {
+    const result = await docsShell().exec('rg auth .')
+
+    // Exit code 0 means the command worked
+    return {
+      exitCode: result.exitCode,
+      output: result.stdout,
+    }
+  })
+  ```
+
+  ```ts [server/api/overview.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { docsShell } from '../utils/docs-shell'
+
+  // A session shares one limit across commands
+  export default defineEventHandler(async () => {
+    const session = docsShell().createSession({
+      policy: { maxShellCalls: 2 },
     })
-
     try {
-      return await session.exec('pwd')
+      const files = await session.exec('ls')
+      const intro = await session.exec('cat intro.md')
+      return [files.stdout, intro.stdout]
     }
     finally {
       await session.dispose()
     }
-  }
+  })
   ```
 
-  ```ts [Analysis]
-  import { analyzeShellCommand } from '@vite-hub/shell'
+  ```ts [server/api/check.post.ts]
+  import { defineEventHandler, readBody } from 'h3'
+  import { analyzeShellCommand } from 'vite-hub/shell'
 
-  const analysis = await analyzeShellCommand('rg TODO src')
-  // analysis.commands: ['rg'], analysis.hasPipelines: false, analysis.ok: true
-  ```
+  // Read what a command does before you run it
+  export default defineEventHandler(async (event) => {
+    type Body = { command: string }
+    const body = await readBody<Body>(event)
+    const facts = await analyzeShellCommand(body.command)
 
-  ```ts [Agent]
-  import { defineAgent } from 'vite-hub/agent'
-  import { workspaceShell } from 'vite-hub/agent/capabilities'
-
-  export default defineAgent({
-    driver: { model: 'openai/gpt-5.1-mini' },
-    workspace: { mode: 'write' },
-    capabilities: [workspaceShell({ mode: 'write' })],
+    // For example: { commands: ['rg'], ... }
+    return {
+      commands: facts.commands,
+      hasPipelines: facts.hasPipelines,
+    }
   })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Each command returns a Shell Observation" icon="i-lucide-terminal" to="/docs/shell/server-api"}
-  Exit code, stdout, and stderr; a policy denial returns `126`.
+  :::product-feature-item{title="Choose the allowed commands" icon="i-lucide-list-checks" to="/docs/shell/configure#providers"}
+  List the commands a shell can run. Network access stays off unless you turn it on.
   :::
 
-  :::product-feature-item{title="A Session keeps one policy across commands" icon="i-lucide-gauge" to="/docs/shell/server-api#use-shell-sessions"}
-  One call budget, output limit, and timeout for repeated commands.
+  :::product-feature-item{title="Work on your files" icon="i-lucide-folder-open" to="/docs/shell/server-api#workspace-filesystem"}
+  Commands see the files of a [Workspace](/docs/workspace) under `/workspace`. You choose read-only or write access.
   :::
 
-  :::product-feature-item{title="Read the facts of a command first" icon="i-lucide-search" to="/docs/shell/server-api#analyze-commands"}
-  `analyzeShellCommand()` reports executables, pipelines, and redirects; you decide.
+  :::product-feature-item{title="Clear results" icon="i-lucide-terminal" to="/docs/shell/server-api#shell-observation-shape"}
+  Each command returns its exit code, output, and errors. A blocked command returns exit code `126`.
   :::
 
-  :::product-feature-item{title="The provider sets the boundary" icon="i-lucide-shield-check" to="/docs/shell/configure"}
-  The Execution Provider, not analysis, limits commands, files, and network.
+  :::product-feature-item{title="Limits across commands" icon="i-lucide-gauge" to="/docs/shell/server-api#use-shell-sessions"}
+  A session shares one limit for calls, output size, and time across many commands.
   :::
 
-  :::product-feature-item{title="Agents get Shell through the Workspace shell" icon="i-lucide-bot" to="/docs/workspace/agent-capability"}
-  `workspaceShell()` gives an Agent a `shell` tool.
+  :::product-feature-item{title="Check a command first" icon="i-lucide-search" to="/docs/shell/server-api#analyze-commands"}
+  `analyzeShellCommand()` lists the programs, pipes, and redirects in a command. You decide what to allow.
   :::
 
-  :::product-feature-item{title="Model-backed Agents run executables in Sandbox" icon="i-lucide-terminal-square" to="/docs/sandbox/agent-capability"}
-  Give model-backed Agents allowlisted executables through `sandbox()`.
+  :::product-feature-item{title="Stop slow commands" icon="i-lucide-timer" to="/docs/shell/configure#session-and-exec-options"}
+  Set a timeout, or cancel a command with an `AbortSignal`.
   :::
 ::

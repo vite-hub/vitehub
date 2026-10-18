@@ -1,26 +1,33 @@
 ---
 title: KV
 navigation.title: Overview
-description: Store and retrieve small values by key through one key-value API.
+description: Save small values such as settings and flags under a key, and read them back from any server route.
 navigation.order: 1
 icon: i-lucide-database-zap
 ---
 
-::agent-only{skill="kv"}
-Use KV for small values addressed by a key, such as flags, cursors, short-lived state, or counters that do not require relational queries.
+::product-hero{tagline="Save small values like settings and flags under a key, then read them back from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
+  ```ts [vite.config.ts]
+  import { nitro } from 'nitro/vite'
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
 
-Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Server API](/docs/kv/server-api), or [Hosts](/docs/kv/hosts).
+  export default defineConfig({
+    plugins: [
+      // On Node, values are saved in .vitehub/data/kv
+      vitehub({ preset: 'node', kv: true }),
+      nitro() as never,
+    ],
+  })
+  ```
+Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Server API](/docs/kv/server-api), [Hosts](/docs/kv/hosts), or [Limits and errors](/docs/kv/limits-and-errors).
 
-Choose the driver in Vite config. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
-
-Prove put, get, list with a prefix, and delete. Restart local storage or query the hosted provider to confirm the durability you need.
-::
-
-::product-hero{tagline="One key-value import for settings, flags, cursors, and cache records, on every supported host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
   ```ts [server/api/settings.get.ts]
-  import { kv } from '@vite-hub/kv'
+  import { defineEventHandler } from 'h3'
+  import { kv } from 'vite-hub/kv'
 
+  // Read the value saved under "settings"
   export default defineEventHandler(async () => {
     const [error, settings] = await kv.get('settings')
     if (error) throw error
@@ -28,56 +35,57 @@ Prove put, get, list with a prefix, and delete. Restart local storage or query t
   })
   ```
 
-  ```ts [vite.config.ts]
-  import { hubKv } from '@vite-hub/kv/vite'
+  ```ts [server/api/settings.put.ts]
+  import { defineEventHandler, readBody } from 'h3'
+  import { kv } from 'vite-hub/kv'
 
-  export default { plugins: [hubKv()] }
-  ```
-
-  ```ts [server/agents/support.ts]
-  import { defineAgent } from 'vite-hub/agent'
-  import { kv } from 'vite-hub/agent/capabilities'
-
-  export default defineAgent({
-    driver: { model: 'openai/gpt-5.1-mini' },
-    capabilities: [
-      kv({ mode: 'write', store: 'tenant-preferences', policy: 'require-approval' }),
-    ],
+  // Save the request body under "settings"
+  export default defineEventHandler(async (event) => {
+    const settings = await readBody(event)
+    const [error] = await kv.set('settings', settings)
+    if (error) throw error
+    return { ok: true }
   })
   ```
 
-  ```bash [Terminal]
-  pnpm vitehub kv list --prefix users:
-  pnpm vitehub kv get settings --json
-  pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
-  pnpm vitehub kv list --store tenant-preferences
+  ```ts [server/api/settings.delete.ts]
+  import { defineEventHandler } from 'h3'
+  import { kv } from 'vite-hub/kv'
+
+  // Remove the key and its value
+  export default defineEventHandler(async () => {
+    const [error] = await kv.del('settings')
+    if (error) throw error
+    return { ok: true }
+  })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Errors are values" size="large" icon="i-lucide-code-2" to="/docs/kv/server-api"}
-  `[error, value]` on every method, with the provider cause attached.
+  :::product-feature-item{title="Save and read by key" icon="i-lucide-key-round" to="/docs/kv/server-api#use-it-at-runtime"}
+  `kv.set()` saves a value under a key. `kv.get()` reads it back, or returns `null`.
+  :::product-feature-item{title="Errors are values" size="large" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
+  `[error, value]` on every method. Each code has a `why` and a `fix`.
   :::
 
-  :::product-feature-item{title="One import, every host" icon="i-lucide-sliders-horizontal" to="/docs/kv/configure#providers"}
-  The host selects fs-lite, Cloudflare KV, Upstash, or Deno KV.
+  :::product-feature-item{title="Check errors without try/catch" icon="i-lucide-code-2" to="/docs/kv/server-api#runtime-helper"}
+  Every call returns `[error, value]`. Check the error first, then use the value.
   :::
 
-  :::product-feature-item{title="Named stores keep tenants apart" icon="i-lucide-database-zap" to="/docs/kv/configure#configuration-options"}
-  Declare stores in config, select one with `kv.store(name)`.
+  :::product-feature-item{title="Keep data apart" icon="i-lucide-layers" to="/docs/kv/configure#configuration-options"}
+  Add more than one store in your config. Select one with `kv.store(name)`.
   :::
 
-  :::product-feature-item{title="The same store, as a tool for an Agent" icon="i-lucide-bot" to="/docs/kv/agent-capability"}
-  `kv_read` and `kv_edit` tools, limited to one store, gated by policy.
+  :::product-feature-item{title="Same code on every host" icon="i-lucide-server" to="/docs/kv/configure#providers"}
+  Values stay on your disk while you develop. On Cloudflare, Deno, or Upstash, your routes do not change.
   :::
 
-  :::product-feature-item{title="Keys from a terminal" icon="i-lucide-terminal" to="/docs/kv/hosts#read-and-write-keys-during-development"}
-  Run KV commands against the Vite Development Server.
+  :::product-feature-item{title="Counters and one-time values" icon="i-lucide-circle-plus" to="/docs/kv/server-api#use-it-at-runtime"}
+  With Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
-  :::product-feature-item{title="Atomic reads and counters" icon="i-lucide-circle-plus" to="/docs/kv/server-api"}
-  Use `getAndDelete()` and `increment()` for single-use values and counters.
+  :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
+  KV is for values you read by key. Use Database when you need tables, joins, or queries.
   :::
 ::

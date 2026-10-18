@@ -5,8 +5,9 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 
 import { normalizeKVOptions } from "../config.ts"
 import { kvResult } from "../errors.ts"
-import type { KVOperation, KVResult, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
-import { createHostedKVStorage, KVAtomicOperationUnsupportedError, KVStoreConfigurationError, type RuntimeStorage } from "./hosted-storage.ts"
+import type { Result } from "@vite-hub/runtime"
+import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
+import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
@@ -83,14 +84,15 @@ async function resolveStorage(name = "default") {
   return promise
 }
 
-async function runKVOperation<TResult>(
+async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   operation: KVOperation,
   name: string,
   run: (storage: RuntimeStorage) => Promise<TResult>,
-): Promise<KVResult<TResult>> {
-  const result = await kvResult(operation, name, async () => run(await resolveStorage(name)))
-  if (result[0]?.cause instanceof KVStoreConfigurationError) throw result[0].cause
-  return result
+  codes: readonly TCode[] = [],
+): Promise<Result<TResult, TCode | "KV_OPERATION_FAILED">> {
+  // Config errors, for example an unknown store, throw from `resolveStorage()`.
+  const storage = await resolveStorage(name)
+  return kvResult(operation, name, () => run(storage), codes)
 }
 
 function createKVStorage(name = "default"): KVStorage {
@@ -98,23 +100,24 @@ function createKVStorage(name = "default"): KVStorage {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
     async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
-    async getAndDelete(key) {
-      return runKVOperation("getAndDelete", name, (storage) => {
-        if (!storage.getAndDeleteItem) throw new KVAtomicOperationUnsupportedError(name)
-        return storage.getAndDeleteItem(key)
-      })
+    async getAndDelete<T>(key: string) {
+      return runKVOperation("getAndDelete", name, async (storage) => {
+        if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
+        return storage.getAndDeleteItem<T>(key)
+      }, ["KV_UNSUPPORTED_OPERATION"])
     },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
     async increment(key, ttl) {
-      return runKVOperation("increment", name, (storage) => {
-        if (!storage.incrementItem) throw new KVAtomicOperationUnsupportedError(name)
+      return runKVOperation("increment", name, async (storage) => {
+        if (!storage.incrementItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "increment", store: name })
+        if (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl))) throw kvErrorDiagnostics.KV_INVALID_TTL()
         return storage.incrementItem(key, ttl)
-      })
+      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },
     async list(options) {
-      if (!Number.isInteger(options.limit) || options.limit <= 0) throw kvErrorDiagnostics.KV_R0004({ message: "`limit` must be a positive integer." })
-      return runKVOperation("list", name, storage => storage.listKeys(options))
+      if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
+      return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
     store(storeName: KVStoreName) { return createKVStorage(storeName) },

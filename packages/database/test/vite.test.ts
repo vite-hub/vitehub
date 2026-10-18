@@ -481,7 +481,7 @@ describe("hubDb", () => {
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ logger: { warn }, resolve: { alias: [] }, root: rootDir })
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not load to list its tables"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Database Definition \""))
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
     const generate = (await resolveCliContributor(plugin))!.namespaces[0]!.features.find(feature => feature.name === "generate")!
     await expect(generate.run([], {
@@ -489,7 +489,7 @@ describe("hubDb", () => {
       spawn,
       stderr: { write: vi.fn() },
       stdout: { write: vi.fn() },
-    } as never)).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    } as never)).rejects.toMatchObject({ code: "DATABASE_SCHEMA_LOAD_FAILED" })
     expect(spawn).not.toHaveBeenCalled()
   })
 

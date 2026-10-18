@@ -37,9 +37,10 @@ const vercelFunctionsMock = vi.hoisted(() => ({
 }))
 
 it("identifies a missing generated Queue Definition", () => {
-  expect(missingQueueDefinitionError()).toMatchObject({
-    code: "QUEUE_R0013",
-    message: "Missing queue definition.",
+  expect(missingQueueDefinitionError("welcome")).toMatchObject({
+    code: "QUEUE_DEFINITION_NOT_FOUND",
+    docs: "https://vitehub.dev/docs/queue/limits-and-errors#queue_definition_not_found",
+    why: "No Queue Definition has the name \"welcome\".",
   })
 })
 
@@ -92,7 +93,7 @@ describe("cloudflare queue runtime", () => {
   it("selects an explicit Queue client without generated runtime state", async () => {
     const cloudflareSend = vi.fn(async () => {})
     const cloudflare = await createQueueClient({ binding: { send: cloudflareSend, sendBatch: vi.fn(async () => {}) }, provider: "cloudflare" })
-    await cloudflare.send("cloudflare")
+    expect(await cloudflare.send("cloudflare")).toEqual([undefined, { messageId: expect.any(String), status: "queued" }])
     expect(cloudflareSend).toHaveBeenCalledWith("cloudflare", {})
 
     const vercelSend = vi.fn(async () => ({ messageId: "message-1" }))
@@ -101,7 +102,7 @@ describe("cloudflare queue runtime", () => {
       provider: "vercel",
       topic: "topic",
     })
-    await vercel.send("vercel")
+    expect(await vercel.send("vercel")).toEqual([undefined, { messageId: "message-1", status: "queued" }])
     expect(vercelSend).toHaveBeenCalledWith("topic", "vercel", expect.any(Object))
   })
 
@@ -114,7 +115,7 @@ describe("cloudflare queue runtime", () => {
     expect(() => createCloudflareQueueClient({
       binding: Object.create(inherited),
       provider: "cloudflare",
-    })).toThrow("Cloudflare queue binding is invalid.")
+    })).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_BINDING" }))
   })
 
   it("names only identifier bindings in a missing binding error", () => {
@@ -126,11 +127,10 @@ describe("cloudflare queue runtime", () => {
       error = cause
     }
     expect(error).toMatchObject({
-      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
-      details: { provider: "cloudflare" },
-      message: "[vitehub] Cloudflare queue requires a concrete request-scoped binding.",
+      code: "QUEUE_BINDING_NOT_FOUND",
+      why: "The Cloudflare queue client has no binding.",
     })
-    expect(error).not.toHaveProperty("details.binding")
+    expect(JSON.stringify(error)).not.toContain("not a binding")
   })
 
   it("accepts Cloudflare bindings implemented by a class", async () => {
@@ -144,7 +144,7 @@ describe("cloudflare queue runtime", () => {
       provider: "cloudflare",
     })
 
-    await expect(client.send("message")).resolves.toMatchObject({ status: "queued" })
+    await expect(client.send("message")).resolves.toMatchObject([undefined, { status: "queued" }])
   })
 
   it("rejects region for single and batch sends while forwarding supported options", async () => {
@@ -155,17 +155,17 @@ describe("cloudflare queue runtime", () => {
       provider: "cloudflare",
     })
 
-    const unsupportedRegion = {
-      code: "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
-      details: { provider: "cloudflare", unsupported: ["region"] },
-    }
-    await expect(client.send({ id: 1 }, { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
-    await expect(client.sendBatch([{ body: { id: 2 } }], { region: "weur" })).rejects.toMatchObject(unsupportedRegion)
+    const unsupportedRegion = [{
+      code: "QUEUE_UNSUPPORTED_OPTION",
+      why: "The cloudflare queue provider does not support the enqueue option `region`.",
+    }, undefined]
+    await expect(client.send({ id: 1 }, { region: "weur" })).resolves.toMatchObject(unsupportedRegion)
+    await expect(client.sendBatch([{ body: { id: 2 } }], { region: "weur" })).resolves.toMatchObject(unsupportedRegion)
     expect(send).not.toHaveBeenCalled()
     expect(sendBatch).not.toHaveBeenCalled()
 
-    await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 })
-    await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })
+    expect((await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 }))[0]).toBeUndefined()
+    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })).toEqual([undefined, [{ status: "queued" }]])
     expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
@@ -182,7 +182,10 @@ describe("cloudflare queue runtime", () => {
   })
 
   it("points direct Node scripts at generated provider output when no registry is loaded", async () => {
-    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toThrow(/Queue Runtime Registry is installed by generated Provider Output/)
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
+      code: "QUEUE_DEFINITION_NOT_FOUND",
+      fix: expect.stringContaining("The generated server output loads the Queue Definitions"),
+    })
   })
 
   it("acks successful messages and retries failed ones", async () => {
@@ -315,25 +318,23 @@ describe("cloudflare queue runtime", () => {
     }
     const client = createCloudflareQueueClient({ binding, provider: "cloudflare" })
 
-    const sendError = await client.send({ email: "ava@example.com" }).catch(error => error)
-    const batchError = await client.sendBatch([{ body: { email: "ava@example.com" } }]).catch(error => error)
+    const [sendError] = await client.send({ email: "ava@example.com" })
+    const [batchError] = await client.sendBatch([{ body: { email: "ava@example.com" } }])
 
     expect(sendError).toMatchObject({
       cause,
-      code: "QUEUE_PROVIDER_OPERATION_FAILED",
-      details: { operation: "send", provider: "cloudflare" },
-      message: "[vitehub] cloudflare queue provider failed during send.",
+      code: "QUEUE_PROVIDER_FAILED",
+      why: "The cloudflare queue provider failed during send.",
     })
     expect(batchError).toMatchObject({
       cause,
-      code: "QUEUE_PROVIDER_OPERATION_FAILED",
-      details: { operation: "send-batch", provider: "cloudflare" },
-      message: "[vitehub] cloudflare queue provider failed during send-batch.",
+      code: "QUEUE_PROVIDER_FAILED",
+      why: "The cloudflare queue provider failed during send-batch.",
     })
     expect(JSON.stringify([sendError, batchError])).not.toMatch(/secret-token|queue\.example|private/)
   })
 
-  it("preserves abort and custom Queue errors from Cloudflare send", async () => {
+  it("returns abort and custom errors from Cloudflare send as provider failures", async () => {
     const abort = Object.assign(new Error("caller stopped queue send"), { name: "AbortError" })
     const custom = new ViteHubError("WELCOME_EMAIL_REJECTED", "Welcome email was rejected.")
     const send = vi.fn()
@@ -344,8 +345,8 @@ describe("cloudflare queue runtime", () => {
       provider: "cloudflare",
     })
 
-    await expect(client.send({ email: "ava@example.com" })).rejects.toBe(abort)
-    await expect(client.send({ email: "ava@example.com" })).rejects.toBe(custom)
+    await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject([{ cause: abort, code: "QUEUE_PROVIDER_FAILED" }, undefined])
+    await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject([{ cause: custom, code: "QUEUE_PROVIDER_FAILED" }, undefined])
   })
 
   it("redacts unsafe queue identifiers from definition lookup failures", async () => {
@@ -355,10 +356,9 @@ describe("cloudflare queue runtime", () => {
 
     expect(error).toMatchObject({
       code: "QUEUE_DEFINITION_NOT_FOUND",
-      message: "[vitehub] Queue Definition is not registered. Queue Runtime Registry is installed by generated Provider Output.",
+      why: "No Queue Definition has the requested name.",
     })
-    expect(error.details).toBeUndefined()
-    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|https:/)
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|user:/)
   })
 
   it("rejects inherited Queue Definition markers", async () => {
@@ -391,16 +391,15 @@ describe("cloudflare queue runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "QUEUE_DEFINITION_LOAD_FAILED",
-      message: "[vitehub] Queue Definition could not be loaded.",
+      why: "A Queue Definition failed to load.",
     })
-    expect(error.details).toBeUndefined()
-    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|https:/)
+    expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private|user:/)
   })
 
   it("defaults omitted queue config to the Cloudflare provider", async () => {
     const send = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
-      app: async () => Response.json(await runQueue("welcome", { email: "ava@example.com" })),
+      app: async () => Response.json((await runQueue("welcome", { email: "ava@example.com" }))[1]),
       registry: {
         welcome: async () => ({
           default: {
@@ -434,9 +433,9 @@ describe("cloudflare queue runtime", () => {
 
     const binding = getCloudflareQueueBindingName("welcome")
     await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
-      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
-      details: { binding, provider: "cloudflare" },
-      message: expect.stringContaining(`"${binding}" is not in the Worker env`),
+      code: "QUEUE_BINDING_NOT_FOUND",
+      fix: expect.stringContaining("wrangler dev"),
+      why: `The Cloudflare queue binding "${binding}" is not in the Worker env.`,
     })
   })
 
@@ -548,13 +547,13 @@ describe("cloudflare queue runtime", () => {
       messages: [],
       queue: "queue--77656c636f6d65",
       retryAll: vi.fn(),
-    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
     await expect(worker.queue({
       ackAll: vi.fn(),
       messages: [],
       queue: "preview-welcome-0123456789abcdef0123456789abcdef",
       retryAll: vi.fn(),
-    }, {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
+    }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
   })
 
   it("derives bounded physical names from manual worker registries", async () => {
@@ -588,8 +587,8 @@ describe("cloudflare queue runtime", () => {
       retryAll: vi.fn(),
     })
 
-    await expect(worker.queue(createBatch("unknown"), {}, { waitUntil: vi.fn() })).rejects.toThrow("is not mapped to a Queue Definition")
-    await expect(worker.queue(createBatch("preview-queue--77656c636f6d65"), {}, { waitUntil: vi.fn() })).rejects.toThrow('maps to unknown Queue Definition "missing"')
+    await expect(worker.queue(createBatch("unknown"), {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND", why: "No Queue Definition has the name \"unknown\"." })
+    await expect(worker.queue(createBatch("preview-queue--77656c636f6d65"), {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND", why: "No Queue Definition has the name \"missing\"." })
   })
 
   it("uses nested Cloudflare waitUntil for deferred dispatch", async () => {
@@ -738,11 +737,11 @@ describe("cloudflare queue runtime", () => {
     })
 
     enterQueueRuntimeEvent({ env: { [getCloudflareQueueBindingName("welcome")]: { send, sendBatch: vi.fn() } } })
-    await runQueue("welcome", { email: "first@example.com" })
+    expect((await runQueue("welcome", { email: "first@example.com" }))[0]).toBeUndefined()
     enterQueueRuntimeEvent({ env: undefined })
 
     await expect(runQueue("welcome", { email: "second@example.com" })).rejects.toMatchObject({
-      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+      code: "QUEUE_BINDING_NOT_FOUND",
     })
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -842,15 +841,14 @@ describe("vercel provider", () => {
       provider: "vercel",
       topic: "topic--77656c636f6d65",
     })).rejects.toMatchObject({
-      code: "VERCEL_QUEUE_SDK_INVALID",
-      details: { provider: "vercel" },
+      code: "QUEUE_VERCEL_SDK_INVALID",
     })
 
     await expect(createVercelQueueClient({
       client: null as never,
       provider: "vercel",
       topic: "topic--77656c636f6d65",
-    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+    })).rejects.toMatchObject({ code: "QUEUE_VERCEL_SDK_INVALID" })
 
     const revoked = Proxy.revocable({}, {})
     revoked.revoke()
@@ -858,7 +856,7 @@ describe("vercel provider", () => {
       client: revoked.proxy as never,
       provider: "vercel",
       topic: "topic--77656c636f6d65",
-    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+    })).rejects.toMatchObject({ code: "QUEUE_VERCEL_SDK_INVALID" })
   })
 
   it("accepts class-backed direct Vercel SDK clients", async () => {
@@ -878,10 +876,10 @@ describe("vercel provider", () => {
       topic: "topic--77656c636f6d65",
     })
 
-    await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject({
+    await expect(client.send({ email: "ava@example.com" })).resolves.toEqual([undefined, {
       messageId: "class",
       status: "queued",
-    })
+    }])
   })
 
   it("uses provider region as the default send region", async () => {
@@ -920,18 +918,17 @@ describe("vercel provider", () => {
       topic: "topic--77656c636f6d65",
     })
 
-    const error = await client.send({ email: "ava@example.com" }).catch(error => error)
+    const [error] = await client.send({ email: "ava@example.com" })
 
     expect(error).toMatchObject({
       cause,
-      code: "QUEUE_PROVIDER_OPERATION_FAILED",
-      details: { operation: "send", provider: "vercel" },
-      message: "[vitehub] vercel queue provider failed during send.",
+      code: "QUEUE_PROVIDER_FAILED",
+      why: "The vercel queue provider failed during send.",
     })
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
-  it.each([{}, { messageId: null }])("accepts a Vercel send response without a message id", async (response) => {
+  it.each([{}, { messageId: null }])("rejects a Vercel send response without a message id", async (response) => {
     const client = await createVercelQueueClient({
       client: {
         handleCallback: vi.fn(() => async () => new Response("queued")),
@@ -941,10 +938,9 @@ describe("vercel provider", () => {
       topic: "topic--77656c636f6d65",
     })
 
-    await expect(client.send({ email: "ava@example.com" })).resolves.toEqual({
-      messageId: undefined,
-      status: "queued",
-    })
+    const [error, data] = await client.send({ email: "ava@example.com" })
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_INVALID_RESPONSE" })
+    expect(data).toBeUndefined()
   })
 
   it.each([
@@ -960,15 +956,13 @@ describe("vercel provider", () => {
       topic: "topic--77656c636f6d65",
     })
 
-    const error = await client.send({ email: "ava@example.com" }).catch(error => error)
+    const [error] = await client.send({ email: "ava@example.com" })
 
     expect(error).toMatchObject({
       cause,
-      code: "QUEUE_PROVIDER_RESPONSE_INVALID",
-      details: { operation: "send", provider: "vercel" },
-      message: "[vitehub] Vercel queue provider returned an invalid send response.",
+      code: "QUEUE_PROVIDER_INVALID_RESPONSE",
     })
-    expect(JSON.stringify(error)).not.toMatch(/providerSecret|missing-message-id|cause/)
+    expect(JSON.stringify(error)).not.toMatch(/providerSecret|missing-message-id|"cause"/)
   })
 
   it("rejects inherited Vercel SDK exports", async () => {
@@ -984,7 +978,7 @@ describe("vercel provider", () => {
     })
 
     await expect(createVercelQueueClient({ provider: "vercel", region: "iad1", topic: "topic--77656c636f6d65" })).rejects.toMatchObject({
-      code: "VERCEL_QUEUE_SDK_INVALID",
+      code: "QUEUE_VERCEL_SDK_INVALID",
     })
   })
 
@@ -1004,9 +998,7 @@ describe("vercel provider", () => {
 
     expect(error).toMatchObject({
       cause,
-      code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
-      details: { operation: "load-sdk", provider: "vercel" },
-      message: "[vitehub] Vercel queue SDK could not be loaded.",
+      code: "QUEUE_VERCEL_SDK_UNAVAILABLE",
     })
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })

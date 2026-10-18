@@ -103,7 +103,9 @@ describe("package manifest contracts", () => {
         }
       }
       expect(manifest.type).toBe("module")
-      expect(manifest.types).toBe("./dist/index.d.ts")
+      // Presets have one subpath per preset and no root entry.
+      const subpathOnly = packageName === "presets"
+      expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))
       expect(manifest.scripts?.typecheck).toEqual(expect.any(String))
@@ -116,6 +118,9 @@ describe("package manifest contracts", () => {
         })
         expect(exportTarget(manifest.exports?.["./file"])).toBe("./dist/file.js")
         expect(Object.keys(manifest.exports?.["."] ?? {})).toEqual(["types", "node", "default"])
+      }
+      else if (subpathOnly) {
+        expect(manifest.exports?.["."]).toBeUndefined()
       }
       else {
         expect(exportTarget(manifest.exports?.["."])).toBe("./dist/index.js")
