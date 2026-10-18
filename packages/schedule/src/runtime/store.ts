@@ -54,6 +54,11 @@ function joinKey(prefix: string, ...parts: string[]): string {
   return base ? `${base}/${suffix}` : suffix
 }
 
+/** Providers may expose hierarchical keys with either slash or colon separators. */
+function keySegments(key: string, count: number): string[] {
+  return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
+}
+
 function runtimeScheduleKey(prefix: string, id: string): string {
   return joinKey(prefix, "runtime-schedules", id)
 }
@@ -442,7 +447,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (const key of keys) {
       let id: string
       try {
-        id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+        id = keySegments(key, 1)[0]!
       }
       catch {
         unknown.push(key)
@@ -552,14 +557,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split("/").slice(-2).map(decodeURIComponent)
+          const parts = keySegments(key, 2)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+          const id = keySegments(key, 1)[0]!
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }
