@@ -289,6 +289,9 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     }
     catch (error) {
       if (!await driver.head(pathname)) throw error
+      const status = isRecord(error) ? error.status : undefined
+      const code = isRecord(error) ? error.code : undefined
+      if (status !== 409 && status !== 412 && code !== "BLOB_CONFLICT" && code !== "PRECONDITION_FAILED" && code !== "CONFLICT") throw error
       await driver.delete([pathname])
       await driver.put(pathname, body, { contentType: "application/json" })
     }
@@ -532,7 +535,8 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
         const records: MediaRecord[] = []
         for (const file of files) {
           const name = file.name.split(/[\\/]/).pop() || "file"
-          records.push(await withUrl(await putMedia(folder ? `${folder}/${name}` : name, file, { ...options.put, dedupe: options.dedupe ?? true })))
+          const pathname = normalizeTarget(folder ? `${folder}/${name}` : name)
+          records.push(await withUrl(await putMedia(pathname, file, { ...options.put, dedupe: options.dedupe ?? true })))
         }
         return records
       })
