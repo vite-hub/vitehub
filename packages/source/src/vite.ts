@@ -121,6 +121,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     collectionTypesEntry,
     collectionTypesPackageEntry,
     contentRouteEntry,
+    contentPreviewEntry,
     contentSitemapEntry,
     contentRobotsEntry,
   ]
@@ -153,6 +154,7 @@ async function restoreGeneratedSourceArtifacts(
     collectionTypesEntry,
     collectionTypesPackageEntry,
     contentRouteEntry,
+    contentPreviewEntry,
     contentSitemapEntry,
     contentRobotsEntry,
   ]) {
