@@ -686,6 +686,11 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
+  // A native Response from this Fetch implementation is already safe to
+  // return, including responses whose body has been consumed or locked. The
+  // intrinsic status getter is a realm-independent internal-slot check and
+  // does not inspect body state.
+  if (isRuntimeResponse(value)) return value
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
@@ -772,6 +777,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+
+    // A null body cannot be bridged; only a response branded by this runtime
+    // may cross this boundary without a source stream to validate.
+    if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)) return
 
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
@@ -952,7 +961,6 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }

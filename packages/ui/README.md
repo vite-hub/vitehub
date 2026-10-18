@@ -9,7 +9,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | Import                  | Use it for                                                                                | Application responsibility                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `@vite-hub/ui`          | Styled chat, prompt, Markdown, session, invocation, trace, diff, and file-tree components | State, transport, persistence, routes, and authorization                                       |
-| `@vite-hub/ui/agent-chat` (and other `agent-*` entries) | One component entry point, for example `AgentChat` or `AgentFileTree` | State, transport, persistence, routes, and authorization |
+| `@vite-hub/ui` | Import individual components such as `AgentChat` or `AgentFileTree` from the package root | State, transport, persistence, routes, and authorization |
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, and message jumps            | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/nuxt`     | Nuxt module setup                                                                         | Installs the Nuxt UI module, registers ViteHub UI components, and loads the package stylesheet |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
