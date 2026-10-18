@@ -147,7 +147,11 @@ export class ProviderOutputCatalog {
       ?? new Map<ProviderOutputProduct, ProviderRuntimeContribution>().entries()
   }
 
-  resetRuntimeContributions(): void {
+  resetRuntimeContributions(generation?: ProviderDeploymentOutputGeneration): void {
+    if (generation) {
+      this.#runtimeContributionsByGeneration.delete(generation)
+      return
+    }
     this.#runtimeContributions.clear()
   }
 
@@ -377,8 +381,8 @@ export function contributeProviderRuntime(catalog: ProviderOutputCatalog | undef
   catalog?.replaceRuntimeContribution(contribution, generation)
 }
 
-export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | undefined): void {
-  catalog?.resetRuntimeContributions()
+export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | undefined, generation?: ProviderDeploymentOutputGeneration): void {
+  catalog?.resetRuntimeContributions(generation)
 }
 
 export function getProviderRuntimeModule<

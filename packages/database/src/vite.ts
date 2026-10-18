@@ -344,19 +344,22 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async buildEnd(error) {
       if (error) {
+        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
       }
       if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
+        await providerOutputGenerations.reset(this, providerOutput)
         return
       }
 
       let artifactDir: string | undefined
+      const generation = providerOutputGenerations.get(this)
       try {
         const contributionResolved = resolved
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
-        const generation = providerOutputGenerations.get(this)
         await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig, tableNameOptions())
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
@@ -406,6 +409,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
       catch (error) {
         if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
+        resetProviderOutputRuntime(providerOutput, generation)
         await providerOutputGenerations.reset(this, providerOutput, error)
         throw error
       }
@@ -428,6 +432,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     async renderError(error) {
+      resetProviderOutputRuntime(providerOutput, providerOutputGenerations.get(this))
       await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {

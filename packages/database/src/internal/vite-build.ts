@@ -229,8 +229,10 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, 
 
 function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
-    if (runtimeConfig.databases[name]?.dialect === "postgresql") return false
-    const cloudflare = runtimeConfig.databases[name]?.cloudflare
+    const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return false
+    if (isRemoteLibsqlConnectionUrl(database?.connection?.url) || database?.cloudflare?.http) return false
+    const cloudflare = database?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
   })
