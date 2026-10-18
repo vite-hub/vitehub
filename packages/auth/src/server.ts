@@ -555,12 +555,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
     const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
     if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
-    const headerPrototype = Object.getPrototypeOf(headerCarrier)
-    const headerConstructor = headerPrototype && Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
-    const headerNativePrototype = typeof headerConstructor === "function" ? headerConstructor.prototype : undefined
-    if (!headerNativePrototype
-      || Object.getOwnPropertyDescriptor(headerNativePrototype, "get")?.value !== headersGet
-      || Object.getOwnPropertyDescriptor(headerNativePrototype, "forEach")?.value !== headersForEach) return
+    let headerNativePrototype = Object.getPrototypeOf(headerCarrier)
+    while (headerNativePrototype) {
+      const getDescriptor = Object.getOwnPropertyDescriptor(headerNativePrototype, "get")
+      const forEachDescriptor = Object.getOwnPropertyDescriptor(headerNativePrototype, "forEach")
+      if (getDescriptor?.value === headersGet && forEachDescriptor?.value === headersForEach) break
+      headerNativePrototype = Object.getPrototypeOf(headerNativePrototype)
+    }
+    if (!headerNativePrototype) return
     // The local Web API methods perform an internal-slot check. This rejects
     // self-consistent forged prototypes while still allowing implementations
     // whose own methods expose the same Headers data to be copied below.
