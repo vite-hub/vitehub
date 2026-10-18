@@ -17,27 +17,130 @@ icon: i-lucide-circle-alert
 
 ## Errors
 
-| Code | Cause |
-| --- | --- |
-| `CONNECTIONS_NOT_CONFIGURED` | The database or the encryption key is missing. |
-| `CONNECTIONS_INVALID` | The management or connect request is not valid, or the ticket or `state` does not match. |
-| `CONNECTIONS_NOT_FOUND` | No Connection Definition has this name. |
-| `CONNECTIONS_MISSING` | The Connection is not connected. |
-| `CONNECTIONS_NEEDS_RECONNECT` | The provider rejected the refresh token. |
-| `CONNECTIONS_KEY_MISMATCH` | The grant was sealed with a different key. |
-| `CONNECTIONS_DENIED`, `CONNECTIONS_APPROVAL_REQUIRED` | Access rules blocked the call. |
-| `CONNECTION_INVALID` | The request URL is not in the provider `origins`. ViteHub did not send the credential. |
-| `CONNECTIONS_PROVIDER_FAILED` | The provider returned an error. `details.status` has the HTTP status. |
-| `CONNECTIONS_UNAVAILABLE` | Another request holds the refresh lease. Try again. |
-| `CONNECTION_FORBIDDEN` | The management request has no authorized manager. |
-| `CONNECTION_ORIGIN_REJECTED` | The browser origin does not match the origin that the server sees. See [Origin checks](/docs/connections/server-api#origin-checks). |
-| `CONNECTION_CONTENT_TYPE_REJECTED` | The management request is not `application/json`. |
-| `CONNECTION_AUTH_REQUIRED` | The management routes use the `'development'` policy and the server is not a development server. |
-| `CONNECTION_AUTHORIZATION_CANCELLED` | The user declined the consent screen. The callback page shows this code. |
-| `CONNECTION_STATE_MISMATCH` | The callback has no `state` cookie of this browser, or the cookie does not match. Start the connection again. |
-
 Management routes return `{ error: { code, message, fix, docs } }`. The connect and callback routes show the same code, fix, and docs link on their HTML page. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
 
-Management routes return `{ error: { code, message, fix, docs } }`. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
+### CONNECTIONS_APPROVAL_REQUIRED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_AUTHORIZATION_CANCELLED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_AUTH_REQUIRED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_CONTENT_TYPE_REJECTED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_DENIED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_EXECUTION_UNKNOWN
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_FORBIDDEN
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_ACTOR
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_APPROVAL
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_CONFIG
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_DEFINITION
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_INPUT
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_NAME
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_PROVIDER
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_REQUEST
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_INVALID_STORED_DATA
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_KEY_REJECTED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_METHOD_NOT_ALLOWED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_NEEDS_RECONNECT
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_NOT_CONFIGURED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_NOT_CONNECTED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_NOT_FOUND
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_ORIGIN_NOT_ALLOWED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_ORIGIN_REJECTED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_PROVIDER_FAILED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_REQUEST_FAILED
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_ROUTE_NOT_FOUND
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_STATE_CONFLICT
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_STATE_MISMATCH
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_UNAVAILABLE
+
+See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_UNKNOWN_ACTION
+
+See the `why` and `fix` fields in the error response.
 
 When you change the provider of a Connection, the stored grant belongs to the old provider. The status becomes `needs-reconnect` with `lastError: 'CONNECTIONS_PROVIDER_CHANGED'`, and ViteHub never sends that grant to the new provider. Reconnect the Connection.

@@ -32,7 +32,7 @@ describe("OAuth 2.0 through the typed runtime", () => {
     const flow = await test.runtime.authorize({ name: "mail", redirectUri: "https://app.example/cb" })
     test.provider.tokenResponses.push({ body: { error, secret: "upstream-secret" }, status: 400 })
     const failure: unknown = await test.runtime.complete({ code: "code", state: flow.state }).catch((reason: unknown) => reason)
-    expect(failure).toMatchObject({ code: error === "invalid_grant" ? "CONNECTION_REAUTH_REQUIRED" : "CONNECTIONS_PROVIDER_FAILED", details: { status: 400 } })
+    expect(failure).toMatchObject({ code: error === "invalid_grant" ? "CONNECTIONS_NEEDS_RECONNECT" : "CONNECTIONS_PROVIDER_FAILED", details: { status: 400 } })
     expect(JSON.stringify(failure)).not.toContain("upstream-secret")
   })
 })

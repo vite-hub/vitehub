@@ -128,7 +128,7 @@ access: {
 },
 ```
 
-ViteHub checks access before a tool runs. A denied request fails with `CONNECTION_DENIED`. A write that requires approval creates a durable Connection approval and fails with `CONNECTION_APPROVAL_REQUIRED` until an administrator approves it. Each call is recorded as Connection activity with the Agent actor, invocation trace id, and `fetch` action.
+ViteHub checks access before a tool runs. A denied request fails with `CONNECTIONS_DENIED`. A write that requires approval creates a durable Connection approval and fails with `CONNECTIONS_APPROVAL_REQUIRED` until an administrator approves it. Each call is recorded as Connection activity with the Agent actor, invocation trace id, and `fetch` action.
 
 ## Override the request server
 

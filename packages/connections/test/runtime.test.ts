@@ -708,7 +708,7 @@ describe("policy", () => {
     expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
-    expect(isConnectionError(error) && error.reason).toBe("approval_required")
+    expect(isConnectionError(error) && error.code).toBe("CONNECTIONS_APPROVAL_REQUIRED")
   })
 
   it("takes an Agent actor only from an Env context that the Agent runtime created", async () => {

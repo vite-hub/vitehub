@@ -21,7 +21,7 @@ it("keeps a Connections error from API-key verify", async () => {
 
 it.each([
   ["a plain error", () => new Error("bad secret-key")],
-  ["a ViteHubError shape from another package copy", () => Object.assign(new Error("bad secret-key"), { code: "CONNECTION_DENIED", name: "ViteHubError" })],
+  ["a ViteHubError shape from another package copy", () => Object.assign(new Error("bad secret-key"), { code: "CONNECTIONS_DENIED", name: "ViteHubError" })],
   ["a Connections error that contains the key", () => connectionsErrorDiagnostics.CONNECTIONS_UNAVAILABLE({ connection: "secret-key" })],
 ])("replaces %s with a provider failure that does not contain the key", async (_, create) => {
   const runtime = runtimeWithVerify(async () => {

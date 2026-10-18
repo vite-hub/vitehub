@@ -106,7 +106,7 @@ describe("createConnectionsHandler", () => {
     }, { highWaterMark: 0 });
     const response = await handler(streamedPost(body));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_INVALID" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
     expect(reads).toBe(9);
     expect(cancel).toHaveBeenCalledOnce();
     expect(runtime).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
@@ -258,7 +258,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
@@ -291,7 +291,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
@@ -390,7 +390,7 @@ describe("createConnectionsHandler", () => {
     });
     const response = await handler(post({ action: "inspect", name: "missing" }));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_INVALID" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
     expect((await handler(post({ action: "approve", id: "approval_missing" }))).status).toBe(400);
   });
 
@@ -528,7 +528,7 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain('role="alert"');
       expect(html).toContain("<h1>Connection cancelled</h1>");
       expect(html).toContain("Connect again and approve the access that the Connection asks for.");
-      expect(html).toContain("CONNECTION_AUTHORIZATION_CANCELLED · 400");
+      expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
       expect(html).toContain('href="https://vitehub.dev/docs/connections/server-api#management-routes"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
       // A failure waits for the user and never shows the provider's free text.
@@ -548,7 +548,7 @@ describe("createConnectionsHandler", () => {
       const mismatch = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=state`));
       expect(mismatch.status).toBe(400);
       const html = await mismatch.text();
-      expect(html).toContain("CONNECTION_STATE_MISMATCH · 400");
+      expect(html).toContain("CONNECTIONS_STATE_MISMATCH · 400");
       expect(html).toContain("Start the connection again in this browser.");
     });
 
@@ -560,7 +560,7 @@ describe("createConnectionsHandler", () => {
       expect(response.status).toBe(400);
       const html = await response.text();
       expect(html).toContain("The authorization request is unknown or expired. Start the connection again.");
-      expect(html).toContain("CONNECTION_INVALID · 400");
+      expect(html).toContain("CONNECTIONS_INVALID_REQUEST · 400");
     });
   });
 });

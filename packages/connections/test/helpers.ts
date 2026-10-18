@@ -19,7 +19,10 @@ export const ACCESS_TOKEN = "access-token-secret-1"
 export const REFRESH_TOKEN = "refresh-token-secret-1"
 export const CLIENT_SECRET = "client-secret-value"
 
-export function testProvider(): ConnectionProvider<{ mail: MailApi }> {
+/** The test provider declares `account` and `apis`, so tests can read them without a check. */
+export type TestProvider = ConnectionProvider<{ mail: MailApi }> & Required<Pick<ConnectionProvider<{ mail: MailApi }>, "account" | "apis">>
+
+export function testProvider(): TestProvider {
   return {
     account: token => token.id_token ? { email: "owner@example.com", id: token.id_token } : undefined,
     apis: {

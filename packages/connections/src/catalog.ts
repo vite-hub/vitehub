@@ -14,7 +14,7 @@ export function matchesPattern(id: string, pattern: string): boolean {
 /** The provider API catalogs of a definition, by API name. */
 export function providerApis(definition: ConnectionDefinition): Readonly<Record<string, ConnectionApiCatalog>> {
   // SAFETY: ConnectionProvider maps each named API to a ConnectionApiCatalog; the default object generic erases those keys.
-  return definition.provider.apis as Readonly<Record<string, ConnectionApiCatalog>>
+  return (definition.provider.apis ?? {}) as Readonly<Record<string, ConnectionApiCatalog>>
 }
 
 /** List the API methods that a definition exposes, as action ids. */

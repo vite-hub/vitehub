@@ -35,6 +35,8 @@ export default defineConnection({
 
 Connection names may include punctuation, spaces, Unicode, and nested paths. They must not exceed 501 characters, including path separators, so the default Env key fits its 512-character limit.
 
+A provider can also be an object with `id`, `authorizationEndpoint`, `tokenEndpoint`, `clientId`, and optional `clientSecret`, `revocationEndpoint`, `identityScopes`, `authorizationParams`, `apis`, and `account`. `apis` defaults to no catalogs, so the token goes nowhere. Without `account`, a provider whose `identityScopes` include `openid` reads the account from the ID token of the token response: `sub` is the id and a string `email` labels it. The signature is not checked because the token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. `google()` uses this default.
+
 ## Call the API
 
 ```ts
@@ -44,11 +46,11 @@ const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
 const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
 ```
 
-Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
+Server code cannot pass an `agent:` actor. That call fails with `CONNECTIONS_ORIGIN_NOT_ALLOWED`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
 
-The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
+The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTIONS_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTIONS_APPROVAL_REQUIRED` and create an approval.
 
-Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins or declared API key origins. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
+Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins or declared API key origins. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTIONS_ORIGIN_NOT_ALLOWED` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTIONS_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
 
 ## Use an API key
 
@@ -124,7 +126,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 The actor module default-exports one of these policies:
 
 - A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
-- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTION_AUTH_REQUIRED`.
+- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
 
@@ -173,6 +175,6 @@ See the [Connections documentation](https://vitehub.dev/docs/connections).
 
 Connection stores must implement `state.putForToken(state, revision)` as an atomic write that succeeds only while the encrypted token has that revision. A `null` revision requires the token to be absent. OAuth, refresh, and revocation use this check so older work cannot replace newer Connection metadata.
 
-An approved write that was sent to the provider can have an uncertain outcome after a lost response, a provider server error, or a local persistence failure. The runtime reports `CONNECTION_EXECUTION_UNKNOWN` and never replays that approval. Check the provider before requesting another approval. The management HTTP handler returns status 409 for this error.
+An approved write that was sent to the provider can have an uncertain outcome after a lost response, a provider server error, or a local persistence failure. The runtime reports `CONNECTIONS_EXECUTION_UNKNOWN` and never replays that approval. Check the provider before requesting another approval. The management HTTP handler returns status 409 for this error.
 
 After confirmed provider revocation, local recovery reads the current token revision. A persisted revoked marker restores `revoked` state. If the original token remains, recovery marks it `reauth_required` and retains its mutation fence. A newer replacement token is not changed.

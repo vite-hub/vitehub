@@ -83,7 +83,7 @@ describe("apiKey()", () => {
     { apis: { items: { methods: {}, rootUrl: "http://api.example.com" } }, origins: ["https://api.example.com"] },
     { apis: { items: { methods: {}, rootUrl: "https://api.example.com/v1" } }, origins: ["https://api.example.com"] },
   ])("rejects an unsafe provider (%o)", (options) => {
-    expect(() => apiKey(options)).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => apiKey(options)).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_PROVIDER" }))
   })
 
   it("rejects scopes and hand-written providers that would send the key over plain HTTP", () => {

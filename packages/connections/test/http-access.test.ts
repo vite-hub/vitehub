@@ -208,6 +208,6 @@ describe("Connections OAuth state binding", () => {
     const test = createTestRuntime();
     const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" });
     await expect(test.runtime.complete({ actor: "user:other", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" });
-    await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" });
+    await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" });
   });
 });
