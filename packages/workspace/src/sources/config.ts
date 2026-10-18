@@ -334,7 +334,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
   if (family === "file" && isPlainRecord(input)) {
     const options: Record<string, unknown> = input
-    if (isWorkspaceBytes(options.content)) {
+    if (hasOwn(options, "content") && isWorkspaceBytes(options.content)) {
       return {
         ...options,
         get content() {
