@@ -292,6 +292,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (!isResponseLike(value)) return
   if (value instanceof Response) return value
 
+  // Validate the native Response brand before copying a foreign response. This
+  // rejects objects that only spoof Symbol.toStringTag and shallow properties.
+  try { Response.prototype.clone.call(value) }
+  catch { return }
+
+  if (value.status === 0) return Response.error()
   const headers = new Headers(value.headers)
   const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
   return new Response(body, {
@@ -337,7 +343,7 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      const authorize = route !== null && (typeof route === "object" || typeof route === "function") ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
