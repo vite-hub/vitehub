@@ -506,7 +506,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Start cleanup without delaying delivery of the live branch. If the
     // normalized response is later canceled, tee cancellation coordinates
     // with this discarded branch and propagates to the original source.
-    void discarded.cancel()
+    void discarded.cancel().catch(() => {})
     return new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
 
   }
