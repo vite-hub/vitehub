@@ -7,16 +7,18 @@ export type AttachmentOrientation = "horizontal" | "vertical";
 
 export const Attachment = defineComponent({
   name: "Attachment",
+  inheritAttrs: false,
   props: {
     orientation: { default: "horizontal", type: String as PropType<AttachmentOrientation> },
     size: { default: "default", type: String as PropType<AttachmentSize> },
     state: { default: "done", type: String as PropType<AttachmentState> },
   },
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
       h(
         "div",
         {
+          ...attrs,
           "data-orientation": props.orientation,
           "data-size": props.size,
           "data-slot": "attachment",

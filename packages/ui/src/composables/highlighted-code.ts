@@ -1,5 +1,5 @@
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
-import { h, shallowRef, type ShallowRef, toValue, type MaybeRefOrGetter, type VNode, watch } from "vue";
+import { h, onServerPrefetch, shallowRef, type ShallowRef, toValue, type MaybeRefOrGetter, type VNode, watch } from "vue";
 
 type LanguageModule = { default: LanguageRegistration[] };
 
@@ -73,7 +73,6 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
   }
 
   watch([() => toValue(code), () => toValue(language)], () => void highlight().catch(() => {}), { immediate: typeof window !== "undefined" });
-  // Keep the server's initial plain VNodes identical to the client's first
-  // render. Highlighting starts after hydration in the browser.
+  onServerPrefetch(() => highlight().catch(() => {}));
   return lines;
 }
