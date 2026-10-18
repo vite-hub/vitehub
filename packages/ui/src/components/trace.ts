@@ -1,5 +1,5 @@
-import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
-import { defineComponent, h, type PropType } from "vue";
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, injectCollapsibleRootContext } from "reka-ui";
+import { defineComponent, h, type PropType, useId } from "vue";
 import { slotPart } from "../internal/slot-part.ts";
 
 export type TraceLineStatus = "running" | "error" | "pending";
@@ -53,6 +53,8 @@ const chevron = () =>
 export const TraceCollapsibleTrigger = defineComponent({
   name: "TraceCollapsibleTrigger",
   setup(_props, { slots }) {
+    const rootContext = injectCollapsibleRootContext();
+    rootContext.contentId ||= useId();
     return () =>
       h(CollapsibleTrigger, { "data-slot": "trace-collapsible-trigger" }, {
         default: () => [slots.default?.(), chevron()],

@@ -151,6 +151,7 @@ export const PromptInput = defineComponent({
               tabindex: -1,
               type: "file",
             }),
+            slots["footer-leading"]?.(),
             slots.actions?.() ??
               h(UButton, {
                 "aria-label": "Add attachment",
@@ -163,7 +164,6 @@ export const PromptInput = defineComponent({
                 type: "button",
                 variant: "outline",
               }),
-            slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
               h(UButton, {

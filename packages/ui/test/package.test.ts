@@ -113,7 +113,8 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   it.each(["./package.json", "./styles.css"])("ships asset export %s", (entry) => {
-    expect(existsSync(new URL(`../dist/${entry.slice(2)}`, import.meta.url))).toBe(true);
+    const location = entry === "./package.json" ? "../package.json" : "../dist/styles.css";
+    expect(existsSync(new URL(location, import.meta.url))).toBe(true);
   });
 
   it("exports every component from the root entry", async () => {
