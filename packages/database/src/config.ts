@@ -125,7 +125,20 @@ function findAngleAssertionClose(source: string): number | undefined {
       depth--
       if (depth === 0) {
         let nextIndex = index + 1
-        while (/\s/.test(source[nextIndex] || "")) nextIndex++
+        for (;;) {
+          while (/\s/.test(source[nextIndex] || "")) nextIndex++
+          if (source.startsWith("//", nextIndex)) {
+            const end = source.indexOf("\n", nextIndex + 2)
+            nextIndex = end === -1 ? source.length : end + 1
+            continue
+          }
+          if (source.startsWith("/*", nextIndex)) {
+            const end = source.indexOf("*/", nextIndex + 2)
+            nextIndex = end === -1 ? source.length : end + 2
+            continue
+          }
+          break
+        }
         if (source[nextIndex] === "{") return index
         depth++
       }
@@ -755,7 +768,7 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
   if (expression === undefined) return "sqlite"
   const dialect = readStaticStringLiteral(expression)
   if (dialect === "sqlite" || dialect === "postgresql") return dialect
-  throw databaseErrorDiagnostics.DATABASE_C0011({ message: `[vitehub] Database definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".` })
+  throw databaseErrorDiagnostics.DATABASE_INVALID_DIALECT({ file })
 }
 
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
@@ -771,7 +784,7 @@ type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): FoundDatabaseDefinition {
   const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
   if (configuredName !== name) {
-    throw databaseErrorDiagnostics.DATABASE_C0001({ message: `[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.` })
+    throw databaseErrorDiagnostics.DATABASE_NAME_MISMATCH({ file, name })
   }
   return {
     handler: file,
@@ -964,10 +977,7 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
-    throw databaseErrorDiagnostics.DATABASE_C0002({ message: [
-      "[vitehub] Database definitions must use either one default database or all named databases, not both.",
-      ...listDefinitionFiles(found.map(entry => entry.definition)),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: found.map(entry => entry.definition.handler) })
   }
   const byName = new Map<string, typeof found>()
   for (const entry of found) {
