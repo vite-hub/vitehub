@@ -676,6 +676,8 @@ The Nitro plugin that `vitehub({ observability })` generates owns request IDs, d
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
 
 
+Webhook `signature` selects how `secretHeader` is checked: unset compares the secret itself, `"github-sha256"` and `"stripe-sha256"` check those providers' formats, `{ preset: "hmac-sha256", prefix?, encoding?: "hex" | "base64", secretEncoding?: "utf8" | "base64" }` checks `prefix` followed by the HMAC-SHA256 of the raw body, and `{ verify }` runs a custom check. `"github-sha256"` is the HMAC preset with `prefix: "sha256="`. A `secretEncoding: "base64"` key that does not decode fails verification. `vitehub channels history` signs its requests with the same preset.
+
 Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an object with its own `resolve` method. Resolver objects must define `resolve` directly, for example `{ resolve: () => "secret" }`. A class can use a `resolve` field. Inherited methods, including class prototype methods, are rejected. Resolvers must return a string, `false` to disable verification, or `undefined`. Other resolved values fail webhook verification.
 
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:

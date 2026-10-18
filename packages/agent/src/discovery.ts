@@ -9,6 +9,7 @@ import {
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
+import { moduleTokens, scanModule, templateExpressionSources } from "@vite-hub/internal/build/scan-module"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -77,9 +78,6 @@ function isIdentifier(token: string | undefined): boolean {
   return !!token && /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u.test(token)
 }
 
-// Keep literals as single tokens so their punctuation cannot change object depth.
-const agentTokenPattern = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?|(?:[\p{ID_Start}$_]|\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4})(?:(?:[\p{ID_Continue}$\u200C\u200D])|(?:\\u\{[\da-fA-F]+\}|\\u[\da-fA-F]{4}))*|[^\s]/gu
-
 function endsAgentExpression(tokens: string[]): boolean {
   function closesControlCondition(index: number): boolean {
     if (tokens[index] !== ")") return false
@@ -101,52 +99,9 @@ function endsAgentExpression(tokens: string[]): boolean {
   )
 }
 
-// Read nested templates as one token and expose only their executable regions.
-function readAgentTemplate(source: string, start: number): { end: number, expressions: string[] } {
-  const expressions: string[] = []
-  let cursor = start + 1
-  while (cursor < source.length) {
-    if (source[cursor] === "\\") {
-      cursor += 2
-      continue
-    }
-    if (source[cursor] === "`") return { end: cursor + 1, expressions }
-    if (source[cursor] !== "$" || source[cursor + 1] !== "{") {
-      cursor++
-      continue
-    }
-    const expressionStart = cursor + 2
-    const pattern = new RegExp(agentTokenPattern.source, agentTokenPattern.flags)
-    pattern.lastIndex = expressionStart
-    let depth = 1
-    const expressionTokens: string[] = []
-    for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
-      let token = match[0]
-      if (token.startsWith("//") || token.startsWith("/*")) continue
-      if (token.startsWith("/") && token.length > 1 && endsAgentExpression(expressionTokens)) {
-        token = "/"
-        pattern.lastIndex = match.index + 1
-      }
-      expressionTokens.push(token)
-      if (token.startsWith("`")) {
-        pattern.lastIndex = readAgentTemplate(source, match.index).end
-      }
-      else if (token === "{") depth++
-      else if (token === "}") depth--
-      if (depth === 0) {
-        expressions.push(source.slice(expressionStart, match.index))
-        cursor = pattern.lastIndex
-        break
-      }
-    }
-    if (depth !== 0) return { end: source.length, expressions }
-  }
-  return { end: source.length, expressions }
-}
-
 function templateReferences(template: string, lineBreaks = new Set<number>()): string[] {
   const references: string[] = []
-  for (const expression of readAgentTemplate(template, 0).expressions) {
+  for (const expression of templateExpressionSources(template)) {
     const parsed = tokenizeAgentSource(expression)
     for (let index = 0; index < parsed.tokens.length; index++) {
       if (parsed.lineBreaks.has(index)) lineBreaks.add(references.length)
@@ -165,33 +120,12 @@ function templateReferences(template: string, lineBreaks = new Set<number>()): s
   return references
 }
 
-export function tokenizeAgentSource(source: string): { tokens: string[], lineBreaks: Set<number> } {
-  const tokens: string[] = []
-  const lineBreaks = new Set<number>()
-  let previousEnd = 0
-  const tokenPattern = new RegExp(agentTokenPattern.source, agentTokenPattern.flags)
-  for (let match = tokenPattern.exec(source); match !== null; match = tokenPattern.exec(source)) {
-    let token = match[0]
-    if (token.startsWith("`")) {
-      tokenPattern.lastIndex = readAgentTemplate(source, match.index).end
-      token = source.slice(match.index, tokenPattern.lastIndex)
-    }
-    if (token.startsWith("//") || token.startsWith("/*")) continue
-    if (/[\r\n\u2028\u2029]/.test(source.slice(previousEnd, match.index))) lineBreaks.add(tokens.length)
-    const endsExpression = endsAgentExpression(tokens)
-    // A slash after an expression divides it. Expose operands that the
-    // regex-literal matcher would otherwise hide, including option writes.
-    if (token.startsWith("/") && token.length > 1 && endsExpression) {
-      token = "/"
-      tokenPattern.lastIndex = match.index + 1
-    }
-    // Identifier escapes name the same bindings and properties at runtime.
-    tokens.push(/^[\p{ID_Start}$_\\]/u.test(token)
-      ? token.replace(/\\u(?:\{([\da-fA-F]+)\}|([\da-fA-F]{4}))/g, (_escape, point: string | undefined, unit: string | undefined) => String.fromCodePoint(Number.parseInt(point ?? unit!, 16)))
-      : token)
-    previousEnd = match.index + token.length
-  }
-  return { tokens, lineBreaks }
+/**
+ * Splits Agent source into tokens. Literals stay single tokens so their punctuation cannot change object depth, and
+ * identifier escapes are decoded because they name the same bindings at runtime.
+ */
+export function tokenizeAgentSource(source: string, file?: string): { tokens: string[], lineBreaks: Set<number> } {
+  return moduleTokens(scanModule(source, file))
 }
 
 // Decode ESM string literals without executing the source module.
@@ -332,7 +266,7 @@ function isWorkspaceAgentDefinition(source: string, file: string): boolean {
 }
 
 function inspectAgentModule(source: string, file: string, modules: Set<string>) {
-  const { tokens, lineBreaks } = tokenizeAgentSource(source)
+  const { tokens, lineBreaks } = tokenizeAgentSource(source, file)
   function declarationKeyword(index: number): boolean {
     if (["const", "let", "var"].includes(tokens[index])) return true
     // `using` is contextual; calls and properties with this name are not declarations.
