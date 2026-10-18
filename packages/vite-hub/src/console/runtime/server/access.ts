@@ -164,17 +164,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // word "extends" without making the constructor a derived Response.
         const isDerivedClassConstructor = isClassConstructor
           && /^class(?:\s+[^\s{]+)?\s+extends\s+/.test(constructorSource)
-        // Some Fetch implementations expose a standalone class (for example
-        // the native Response in a worker realm), so inheritance is not part
-        // of the response contract. Keep the intrinsic-parent check for
-        // classes as well as native constructors; the complete structural
-        // checks below still reject ordinary function and object spoofs.
-        // A standalone caller-created class has the same intrinsic Function
-        // parent as a genuine implementation, so the public shape alone
-        // cannot distinguish it from a forged Response. Accept class-based
-        // implementations only when their constructor is derived (as the
-        // supported independent Fetch implementations are), or native.
-        hasNativeConstructorLineage = (isDerivedClassConstructor || constructorSource.includes("[native code]"))
+        // Fetch implementations may expose a standalone class (for example
+        // happy-dom's Response), so inheritance is not part of the contract.
+        // Keep the intrinsic-parent and full structural checks as the
+        // compatibility gate while allowing both standalone and derived
+        // class implementations.
+        hasNativeConstructorLineage = (isClassConstructor || constructorSource.includes("[native code]"))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
