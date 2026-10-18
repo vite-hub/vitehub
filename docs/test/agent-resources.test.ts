@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createSkillReferences } from "../modules/vitehub-docs/artifacts/skill-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");
@@ -30,14 +31,12 @@ describe("public ViteHub skill", () => {
       "SKILL.md",
       "agents/openai.yaml",
       "references/agent-definitions.md",
-      "references/boxes-hosts.md",
       "references/capabilities-authority.md",
       "references/channels-triggers.md",
       "references/framework-composition.md",
       "references/preview-contract.md",
       "references/primitives/auth.md",
       "references/primitives/blob.md",
-      "references/primitives/box.md",
       "references/primitives/browser.md",
       "references/primitives/cache.md",
       "references/primitives/channels.md",
@@ -51,6 +50,7 @@ describe("public ViteHub skill", () => {
       "references/primitives/queue.md",
       "references/primitives/rate-limit.md",
       "references/primitives/realtime.md",
+      "references/primitives/sandbox-task.md",
       "references/primitives/sandbox.md",
       "references/primitives/schedule.md",
       "references/primitives/shell.md",
@@ -60,6 +60,7 @@ describe("public ViteHub skill", () => {
       "references/project-patterns.md",
       "references/project-shapes.md",
       "references/proof-recovery.md",
+      "references/sandboxes-hosts.md",
       "references/schedules-workflows-invocations.md",
       "references/server-primitives.md",
       "references/workspaces-sources-access.md",
@@ -87,6 +88,17 @@ describe("public ViteHub skill", () => {
     expect(skill).toContain("## 5. Prove and repair");
     expect(skill).toContain("Package owner | Source file | Runtime path | Authority or persistence | Proof");
     expect(skill).toContain("every behavior row has an observed result, or a precise source-backed unsupported boundary");
+  });
+
+  it("builds primitive references from agent-only blocks in the docs pages", async () => {
+    // Edit the `::agent-only{skill="..."}` block on the docs page, then run `vp test -u` to regenerate.
+    const primitivesRoot = resolve(skillRoot, "references/primitives");
+    const references = createSkillReferences(docsRoot);
+
+    expect(references.map(reference => `${reference.name}.md`).sort()).toEqual(readdirSync(primitivesRoot).sort());
+    for (const reference of references) {
+      await expect(reference.markdown, reference.source).toMatchFileSnapshot(resolve(primitivesRoot, `${reference.name}.md`));
+    }
   });
 
   it("publishes every directly routed reference", () => {

@@ -60,7 +60,12 @@
       "require": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
-
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js",
+      "require": "./dist/internal/path.js",
+      "default": "./dist/internal/path.js"
+    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
@@ -84,12 +89,6 @@
       "import": "./dist/nuxt.js",
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
-    },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js",
-      "require": "./dist/publish.js",
-      "default": "./dist/publish.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -174,11 +173,11 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",

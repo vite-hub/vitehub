@@ -16,18 +16,23 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
+import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
   ContentCollectionsRuntime,
   ContentHistorySource,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentPreview } from "./preview.ts"
 export { contentSource } from "./content-source.ts"
+export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional } from "./documents.ts"
 export type {
@@ -175,6 +180,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
+  /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
+  readonly preview: ContentPreview
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -199,8 +206,7 @@ export function defineContent<
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
   const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
-  if (authorize !== undefined && typeof authorize !== "function") {
+  if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
   const collectionEntries = Object.entries(collections ?? {})
@@ -217,9 +223,14 @@ export function defineContent<
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
+  const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
-    // SAFETY: Each definition was checked with isDocumentsDefinition() above.
-    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
+    ? createContentCollections({
+        workspace: workspace!,
+        // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+        collections: Object.fromEntries(collectionEntries),
+        defaultRef: () => preview.active() ? "draft" : "published",
+      })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
   for (const [name] of collectionEntries) {
@@ -233,23 +244,43 @@ export function defineContent<
   }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
 
-  // Published collections are refreshed when another writer, process, or host moved the `published` head.
-  let syncing: Promise<void> | undefined
-  async function syncPublished(): Promise<void> {
-    if (!documentsRuntime) return
-    syncing ??= (async () => {
-      const loaded = collectionInstances.filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
-      if (!loaded.length) return
-      const head = await documentsRuntime.publishedHead()
-      const stale: Array<Promise<unknown>> = []
-      for (const { instance, source } of loaded) {
-        if (source.loadedRevision !== head) stale.push(instance.refresh())
+  // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
+  let draft: { hub: ContentHub<ComarkContent[]>, instances: Array<{ instance: ComarkContent, source: ContentHistorySource }> } | undefined
+  function draftHub() {
+    if (!draft) {
+      const pinned = hub.withRefs(Object.fromEntries(collectionEntries.map(([name]) => [name, "draft"])))
+      const names = new Set(collectionEntries.map(([name]) => name))
+      draft = {
+        hub: pinned,
+        // SAFETY: Collection instances read a ContentHistorySource, and withRef() pins it through comarkSource().
+        instances: pinned.instances.filter(instance => names.has(instance.name)).map(instance => ({ instance, source: instance.getSource(instance.name) as ContentHistorySource })),
       }
-      await Promise.all(stale)
-    })().finally(() => {
-      syncing = undefined
-    })
-    await syncing
+    }
+    return draft
+  }
+
+  // Loaded collection instances are refreshed when another writer, process, or host moved the head of their ref.
+  const syncing = new Map<ContentRef, Promise<void>>()
+  async function sync(ref: ContentRef): Promise<void> {
+    if (!documentsRuntime) return
+    let pending = syncing.get(ref)
+    if (!pending) {
+      pending = (async () => {
+        const loaded = (ref === "draft" ? draftHub().instances : collectionInstances)
+          .filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
+        if (!loaded.length) return
+        const head = await documentsRuntime.head(ref)
+        const stale: Array<Promise<unknown>> = []
+        for (const { instance, source } of loaded) {
+          if (source.loadedRevision !== head) stale.push(instance.refresh())
+        }
+        await Promise.all(stale)
+      })().finally(() => {
+        syncing.delete(ref)
+      })
+      syncing.set(ref, pending)
+    }
+    await pending
   }
   documentsRuntime?.onPublish(async (names) => {
     const refreshes: Array<Promise<unknown>> = []
@@ -258,10 +289,15 @@ export function defineContent<
     }
     await Promise.all(refreshes)
   })
-  function fresh<TArgs extends unknown[], TResult>(method: (...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  /** Run a read on the hub of the current request's ref after refreshing stale instances. */
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
-      await syncPublished()
-      return await method(...args)
+      if (documentsRuntime && preview.active()) {
+        await sync("draft")
+        return await method(draftHub().hub, ...args)
+      }
+      await sync("published")
+      return await method(hub, ...args)
     }
   }
   function requireDocuments(): ContentCollectionsRuntime {
@@ -283,6 +319,7 @@ export function defineContent<
   }
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
+    preview,
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string) => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
@@ -310,14 +347,15 @@ export function defineContent<
     ...hub,
     ...documentsApi,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh(hub.get.bind(hub)) as ContentHub["get"],
-    navigation: fresh(hub.navigation.bind(hub)),
-    handler: fresh(hub.handler.bind(hub)),
-    list: fresh((names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined)),
-    search: fresh((names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names })),
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
+    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
+    handler: fresh((target, request: Request) => target.handler(request)),
+    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
-      await hub.dispose()
+      // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
+      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
@@ -350,56 +388,64 @@ export function defineContent<
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
 }
 
-/** Adapt a Comark Content Web handler to an H3/Nitro route. */
+/**
+ * Adapt a Comark Content Web handler to an H3/Nitro route. With a Content runtime, a request with a valid preview
+ * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
+ */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler">,
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview },
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (event.req instanceof Request) return await content.handler(event.req)
-
-    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-    const nodeRequest = event.node.req as NodeContentRequest
-    const method = event.method || nodeRequest.method || "GET"
-    const headers = new Headers()
-    for (const [name, value] of Object.entries(nodeRequest.headers)) {
-      if (value === undefined) continue
-      if (Array.isArray(value)) {
-        for (const entry of value) headers.append(name, entry)
-      }
-      else headers.set(name, value)
-    }
-    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-      || headers.get("host")
-      || "localhost"
-    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-    let body: Uint8Array | undefined
-    if (method !== "GET" && method !== "HEAD") {
-      const chunks: Uint8Array[] = []
-      for await (const chunk of nodeRequest) {
-        const bytes = nodeBodyChunk(chunk)
-        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-        chunks.push(bytes)
-      }
-      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-      body = new Uint8Array(length)
-      let offset = 0
-      for (const chunk of chunks) {
-        body.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-    }
-    const abort = new AbortController()
-    if (nodeRequest.aborted) abort.abort()
-    else nodeRequest.once("aborted", () => abort.abort())
-
-    return await content.handler(new Request(url, {
-      body,
-      headers,
-      method,
-      signal: abort.signal,
-    }))
+    if (!content.preview) return await serveContent(content, event)
+    return await content.preview.run(event, () => serveContent(content, event))
   }) as ContentHandler
+}
+
+async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
+  if (event.req instanceof Request) return await content.handler(event.req)
+
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  const method = event.method || nodeRequest.method || "GET"
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(nodeRequest.headers)) {
+    if (value === undefined) continue
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(name, entry)
+    }
+    else headers.set(name, value)
+  }
+  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+    || headers.get("host")
+    || "localhost"
+  const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+  let body: Uint8Array | undefined
+  if (method !== "GET" && method !== "HEAD") {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of nodeRequest) {
+      const bytes = nodeBodyChunk(chunk)
+      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+      chunks.push(bytes)
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+    body = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+  }
+  const abort = new AbortController()
+  if (nodeRequest.aborted) abort.abort()
+  else nodeRequest.once("aborted", () => abort.abort())
+
+  return await content.handler(new Request(url, {
+    body,
+    headers,
+    method,
+    signal: abort.signal,
+  }))
 }

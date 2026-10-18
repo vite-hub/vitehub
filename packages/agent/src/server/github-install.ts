@@ -137,7 +137,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT" && command === "corepack") {
-        throw new Error("Babysitter host installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
+        throw new Error("Pull request workspace installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
       }
       throw error;
     }
@@ -168,7 +168,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
 }
 
 /** Require validation to use the same dependency inputs that the host installed. */
-export async function assertGitHubDependenciesCurrent(target: string, inputs = target): Promise<void> {
+export async function assertGitHubDependenciesCurrent(target: string, inputs: string = target): Promise<void> {
   if (!(await exists(join(inputs, "package.json"))) && !(await exists(join(inputs, "pnpm-workspace.yaml")))) return;
   const fingerprint = await validateGitHubInstallInputs(inputs, inputs === target ? undefined : async paths => {
     const checkout = await realpath(target);
@@ -226,7 +226,7 @@ export async function assertGitHubDependenciesCurrent(target: string, inputs = t
 }
 
 /** Return whether the host's frozen install matches current inputs and has published outputs. */
-export async function hasCurrentGitHubDependencies(target: string, inputs = target): Promise<boolean> {
+export async function hasCurrentGitHubDependencies(target: string, inputs: string = target): Promise<boolean> {
   try {
     await assertGitHubDependenciesCurrent(target, inputs);
     // A fingerprint proves the inputs are current, not that published outputs survived.

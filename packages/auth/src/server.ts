@@ -286,6 +286,9 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+const nativeResponseConstructor = Response
+const nativeResponsePrototype = Response.prototype
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -341,8 +344,8 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
-async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  const targets = new Set<object>([Response.prototype])
+async function hasResponsePrototype(value: unknown, localResponsePrototype: object): Promise<boolean> {
+  const targets = new Set<object>([localResponsePrototype])
   const UndiciResponse = await getUndiciResponse()
   if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
@@ -352,7 +355,7 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       const prototype = current
       if (targets.has(prototype)) {
-        if (prototype === Response.prototype && !hasTrustedResponseDescriptors(prototype)) return false
+        if (prototype === localResponsePrototype && !hasTrustedResponseDescriptors(prototype)) return false
         return !shadowedResponseProperties
       }
       if (seen.has(prototype)) return false
@@ -446,11 +449,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!await hasResponsePrototype(candidate)) return
+    const localResponsePrototype = nativeResponsePrototype
+    const localResponseConstructor = nativeResponseConstructor
+    if (!await hasResponsePrototype(candidate, localResponsePrototype)) return
     // Authenticate local Responses through their intrinsic getters before any
     // ordinary reads. Proxies and shadowed subclasses cannot satisfy these
     // private-brand checks and must fail closed instead of being normalized.
-    if (value instanceof Response) {
+    if (value instanceof localResponseConstructor) {
       const nativeDescriptors = authorizationResponseProperties.every(key =>
         responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
       if (!nativeDescriptors) return
@@ -478,7 +483,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
-    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+    const nativeDescriptors = value instanceof localResponseConstructor && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
     let nativeProperties = false
     let nativeBodyUnused = false
@@ -487,7 +492,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         const getter = trustedResponseGetters[key]
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
-      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(localResponsePrototype, "bodyUsed")?.get
       const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
       nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
         && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
@@ -507,7 +512,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     // Preserve an authenticated local Response even after its body is consumed or locked.
     // Body-state checks belong only to normalization, where we would otherwise take ownership.
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (value instanceof localResponseConstructor && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value as Response
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")

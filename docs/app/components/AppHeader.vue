@@ -1,7 +1,11 @@
 <script setup lang="ts">
 const route = useRoute();
-// On docs routes the brand opens the product catalog, like a docs site logo. Elsewhere it opens the home page.
-const isDocsRoute = computed(() => route.path.startsWith("/docs"));
+// Docs routes and the site areas use the docs layout. There the brand opens the product catalog, like a docs site logo,
+// and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
+const isDocsRoute = computed(() => route.meta.layout === "docs" || route.path.startsWith("/docs"));
+// On wide screens the docs sidebar carries the brand, the links, and the controls, so the header hides.
+// It stays on narrow screens for the menu. The support matrix has no sidebar, so it keeps the header.
+const hidesOnWideScreens = computed(() => isDocsRoute.value && !route.path.startsWith("/docs/frameworks-hosts/support-matrix"));
 
 // Agents is one product in the docs rail and catalog, so the header links only to site areas.
 const navLinks = [
@@ -28,7 +32,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
 </script>
 
 <template>
-  <div class="sticky top-0 z-50">
+  <div class="sticky top-0 z-50" :class="{ 'lg:hidden': hidesOnWideScreens }">
     <UHeader
       :ui="{
         // Docs pages pin the rail to the left edge, so the header spans the full width.
@@ -159,6 +163,11 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
   .vh-docs-menu {
     height: calc(100dvh - var(--ui-header-height) - 2rem);
   }
+}
+
+/* The header already shows the brand above the menu. */
+.vh-docs-menu-sidebars :deep(.vh-docs-rail-brand) {
+  display: none;
 }
 
 .vh-docs-menu-sidebars :deep(.vh-docs-panel) {
