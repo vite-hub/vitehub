@@ -19,22 +19,7 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-/** Groups shown in the docs rail, excluding platform sections reached from Start. */
-export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
-}
-
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
-/** Short label shown beside a product in the catalog. */
-export function getDocsSectionKind(section: DocsSection) {
-  if (section.id === "agents") return "Agent runtime";
-  if (section.id === "ui") return "UI components";
-  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
-  if (section.category === "Start") return "Getting started";
-  if (section.category === "Platform") return "Platform";
-  return section.category || "Documentation";
-}
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";

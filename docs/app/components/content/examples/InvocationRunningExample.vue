@@ -4,6 +4,7 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { onMounted } from "vue";
 
 const now = useState("ui-running-clock", () => Date.now());
+const initialNow = now.value;
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 onMounted(() => {
