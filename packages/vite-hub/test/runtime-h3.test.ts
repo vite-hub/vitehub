@@ -195,7 +195,8 @@ describe("H3 Runtime Context", () => {
   it("preserves deeply derived foreign requests", () => {
     const request = new MiniflareRequest("https://example.test")
     let prototype = Object.getPrototypeOf(request)
-    for (let index = 0; index < 20_000; index++) {
+    // Exercise a chain beyond the previous 65,536-step ceiling.
+    for (let index = 0; index < 70_000; index++) {
       const constructor = function ForeignRequestSubclass() {}
       prototype = Object.create(prototype, {
         constructor: { value: constructor },
