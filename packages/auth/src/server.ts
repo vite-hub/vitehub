@@ -424,6 +424,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         Reflect.apply(nativeHeaders, candidate, [])
         Reflect.apply(nativeBody, candidate, [])
         if (Reflect.apply(nativeBodyUsed, candidate, [])) return
+        const nativeBodyValue = Reflect.apply(nativeBody, candidate, [])
+        if (nativeBodyValue !== null) {
+          const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+          if (locked && Reflect.apply(locked, nativeBodyValue, [])) return
+        }
         return candidate as Response
       }
       catch {
@@ -466,8 +471,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // A proxy around a local Response cannot pass native accessors directly,
     // but its ordinary reads still provide a stable snapshot for normalization.
 
-    const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      typeof responsePropertyDescriptor(headerCarrier, key)?.value === "function")
+    const headerMethodOwners = ["get", "forEach"].map(key => {
+      if (Object.prototype.hasOwnProperty.call(headerCarrier, key)) return undefined
+      let current: object | null = Object.getPrototypeOf(headerCarrier)
+      for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, key)
+        if (descriptor) return typeof descriptor.value === "function" ? current : undefined
+        current = Object.getPrototypeOf(current)
+      }
+      return undefined
+    })
+    const nativeHeaderMethods = headerMethodOwners.every(Boolean)
+      && headerMethodOwners[0] === headerMethodOwners[1]
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
@@ -597,7 +612,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -617,10 +632,10 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {
