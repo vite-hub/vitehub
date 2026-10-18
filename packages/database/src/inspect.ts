@@ -20,7 +20,7 @@ function describeTables(files: string[]) {
 
 /** Lists Database Definitions with their mode, the tables their sources declare, and the files that add tables to them, without loading them. */
 export function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): ViteHubDefinitionSummary[] {
-  return discoverDatabaseDefinitions(options.rootDir, { serverDirs: options.serverDirs }).map(definition => ({
+  return discoverDatabaseDefinitions(options.rootDir, { implicitDefault: true, serverDirs: options.serverDirs }).map(definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },

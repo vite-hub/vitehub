@@ -34,6 +34,8 @@ export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
+export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
+export type { DatabaseContributingPlugin, DatabaseContribution, DatabaseContributionContext, DatabaseContributionFactory, DatabaseContributionFields, DefaultDatabaseResolution, ResolvedDatabaseContribution } from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
 const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
@@ -120,7 +122,8 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n"))
 
   return [
-    `import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`,
+    ...(config.databaseNames.some(name => config.databases[name]?.dialect !== "postgresql") ? [`import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`] : []),
+    ...(config.databaseNames.some(name => config.databases[name]?.dialect === "postgresql") ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`] : []),
     ...imports,
     "",
     "export const databases = {",
