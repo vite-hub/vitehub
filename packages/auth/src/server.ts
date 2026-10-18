@@ -421,11 +421,17 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
     return
   }
   try {
-    if (!Reflect.apply(locked, body, [])) return
+    if (!Reflect.apply(locked, body, [])) {
+      Reflect.apply(releaseLock, reader, [])
+      return
+    }
     // Keep this ownership-verified reader for the bridge. Acquiring again
     // later would allow a stateful getReader() to return another stream.
   }
-  catch { return }
+  catch {
+    try { Reflect.apply(releaseLock, reader, []) } catch {}
+    return
+  }
   return { locked, getReader, read, cancel, releaseLock, reader }
 }
 
@@ -445,9 +451,16 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value)
-    && Object.prototype.toString.call(value) === "[object Uint8Array]"
-    && (value as Uint8Array).BYTES_PER_ELEMENT === 1
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    // Calling a captured typed-array intrinsic performs the cross-realm brand
+    // check without consulting mutable instance properties or toString tags.
+    Uint8Array.prototype.values.call(value as Uint8Array)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
