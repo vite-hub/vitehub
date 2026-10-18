@@ -586,6 +586,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
           await release()
           controller.close()
         }
+        else if (!isIntrinsicUint8Array(result.value)) {
+          await release()
+          controller.error(new Error("Malformed authorization read result"))
+        }
         else controller.enqueue(result.value)
       }
       catch (error) {
