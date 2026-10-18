@@ -630,6 +630,7 @@ function readPath(value: Record<string, unknown>, path: string): unknown {
     if (typeof current !== "object" || current === null) {
       return undefined
     }
+    if (!Object.hasOwn(current, segment)) return undefined
     return (current as Record<string, unknown>)[segment]
   }, value)
 }
