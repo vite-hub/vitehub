@@ -248,7 +248,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // Fetch permits bodyless 204/205/304 responses. Preserve their status and
     // headers while constructing the host-realm response; a non-null body is
     // rejected by the response constructor below.
-    if ([204, 205, 304].includes(value.status)) return new Response(null, init)
+    if ([204, 205, 304].includes(value.status)) {
+      // Fetch forbids bodies for these statuses. Inspect the foreign value before
+      // normalizing it so an impostor cannot silently discard a non-null body.
+      if (value.body !== null) return invalidAuthorizationResponse
+      return new Response(null, init)
+    }
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
