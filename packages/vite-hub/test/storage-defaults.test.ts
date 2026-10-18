@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
-import { consoleD1Binding, resolveConsoleJournal, withDataDir } from "../src/storage-config.ts"
+import { consoleD1Binding, resolveConsoleJournal, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
@@ -195,5 +195,36 @@ describe("Console journal host defaults", () => {
     expect(resolveConsoleJournal("file:journal.sqlite", "DB", true)).toEqual({ databaseUrl: "file:journal.sqlite" })
     expect(resolveConsoleJournal(undefined, "DB", true)).toEqual({ d1Binding: "DB" })
     expect(resolveConsoleJournal(undefined, "DB", false)).toBeUndefined()
+  })
+})
+
+describe("Connections database default", () => {
+  // SAFETY: vitehub() returns a flat list of concrete plugins in these tests.
+  const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)
+
+  it("enables database when connections is set and database is unset", () => {
+    expect(withConnectionsDatabase({ connections: true, preset: "node" }).database).toBe(true)
+    expect(pluginNames({ connections: true, preset: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
+  })
+
+  it("keeps configured database options", () => {
+    const database = { connection: { url: "file:/data/database/sqlite.db" } }
+    expect(withConnectionsDatabase({ connections: true, database, preset: "node" }).database).toBe(database)
+    expect(withConnectionsDatabase({ preset: "node" }).database).toBeUndefined()
+  })
+
+  it("fails when connections is set and database is false", () => {
+    expect(() => vitehub({ connections: true, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0124" }))
+  })
+
+  it("reads the D1 binding of the implicit default Database on Cloudflare", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-connections-d1-"))
+    try {
+      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "d1" as const }
+      expect(consoleD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })

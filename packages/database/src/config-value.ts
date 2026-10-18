@@ -15,7 +15,6 @@ export function createRuntimeEnvConfigValue(names: string[], defaultValue?: stri
 export function withConfigValueFallback(value: DatabaseConfigValue | undefined, fallback: string | undefined): DatabaseConfigValue | undefined {
   if (fallback === undefined) return value
   if (value === undefined) return fallback
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- DatabaseConfigValue permits a literal string or an Env declaration; preserve the literal before adding an Env default.
   if (typeof value === "string") return value
   return { ...value, default: value.default ?? fallback }
 }

@@ -17,11 +17,36 @@ Each provider declares the API origins that may receive its credential. `call` a
 
 An origin is `https://host` or `https://host:port`. ViteHub compares origins exactly, so list each host. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider yet. For another service, use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, declare an [OAuth provider object](#oauth-provider-objects), or use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+
+## OAuth provider objects
+
+A provider object declares the endpoints of an OAuth 2.0 authorization code flow with PKCE:
+
+```ts [server/connections/crm.ts]
+export default defineConnection({
+  provider: {
+    id: 'crm',
+    authorizationEndpoint: 'https://auth.crm.example.com/authorize',
+    tokenEndpoint: 'https://auth.crm.example.com/token',
+    clientId: 'crm-client-id',
+    identityScopes: ['openid', 'email'],
+  },
+  scopes: ['offline_access'],
+})
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `account` | The ID token claims when `identityScopes` includes `openid` | Reads the account from the token response. |
+| `apis` | `{}` | Typed API catalogs. Their root URLs receive the token. Without catalogs, `call` and `fetch` send the token nowhere. |
+| `identityScopes` | None | Scopes added to each authorization request so the provider identifies the account. |
+
+Without `account`, a provider that requests `openid` reads the account from the ID token in the token response: `sub` becomes the account id and a string `email` labels it. ViteHub does not check the token signature, because the ID token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. A missing or malformed ID token gives no account. A reconnect without an account, or with a different account, puts the Connection in `reauth_required`.
 
 ## API key Connections
 
-`apiKey()` defines a Connection whose credential is a static key. An admin sets the key at runtime, so it is not in code or Server Env:
+`apiKey()` defines a Connection whose credential is a static key. An admin sets the key at runtime, so it is not in code:
 
 ```ts [server/connections/executor.ts]
 import { apiKey, defineConnection } from 'vite-hub/connections'
@@ -53,6 +78,7 @@ export default defineConnection({
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `''` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs. Their root URLs also receive the key. |
 | `verify` | None | Checks a new key before ViteHub stores it. It receives the runtime `fetch` and a 30-second abort signal. |
+| `fallback` | None | Returns the key to use until an admin sets one, for example from Server Env. See [Fallback key](#fallback-key). |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI:
@@ -65,9 +91,29 @@ The CLI reads the key only from stdin, so it does not stay in the shell history.
 
 ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth Connections. An API key has no scopes and no refresh: a `401` response does not change the status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking the Connection deletes the stored key; revoke the key at the provider too.
 
+### Fallback key
+
+`fallback` gives a key from Server Env until an admin sets one. A sealed Server Env secret is unsealed:
+
+```ts [server/connections/github.ts]
+import { useServerEnv } from '#vitehub/env/server'
+
+export default defineConnection({
+  provider: apiKey({
+    id: 'github',
+    origins: ['https://api.github.com'],
+    fallback: () => useServerEnv().github.token,
+  }),
+})
+```
+
+The fallback applies only when no key was ever set for the Connection, or when the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins. A revoke also wins: a revoked Connection stays disconnected. The fallback key must pass the same format check as a stored key. Requests with it use the same access rules and approvals, and ViteHub records them as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
+
 ## Access rules
 
 `access` has rules for `server`, `routes` (by route id such as `POST /api/sync`), and `agents` (by Agent id). A route without its own rule uses `server`. Each rule has `read`, `write`, and `approve` settings. When an `access` map is present, actors without a matching rule are denied. Without the map, reads and ordinary server writes are allowed, while high-risk writes and fetches are denied.
+
+An Agent discovered under `server/agents/` that has no rule of its own uses the rule of the nearest Agent it [extends](/docs/agents/agent-definitions#extend-an-agent). With `agent:bot` in the map, `bot-dev` from `defineAgent({ extends: bot })` uses the `agent:bot` rule, and a grandchild uses the first rule up its chain. A rule that names the child always wins, also when it grants less. An Agent that is not discovered, such as an inline `defineAgent({ extends })` that `runAgent()` runs, gets only the rules that name it. Server, route, and schedule actors never inherit a rule. An approval replays with the rules that applied when the Agent requested it.
 
 ViteHub checks the actor rule before the operation. A write list can contain exact Operation ids or `*` patterns; high-risk writes require an explicit matching pattern.
 
@@ -81,8 +127,22 @@ ViteHub checks the actor rule before the operation. A write list can contain exa
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity. See [Activity retention](#activity-retention). |
 | `database` | `'default'` | Database that stores grants and activity. |
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` requires `database`. The Nuxt module does not support Connections yet.
+`vitehub({ connections })` enables `database` when it is unset. Without a Database Definition, Connections use the empty Default Database. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module does not support Connections yet.
+
+## Activity retention
+
+Connections write one activity event per provider request. By default the database keeps 14 days and at most 10,000 events. Change the limits, or set `false` to keep all activity:
+
+```ts [vite.config.ts]
+vitehub({
+  database: true,
+  connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+})
+```
+
+Each limit is a positive integer. A missing limit uses its default. ViteHub prunes after each event, so the limits hold across multiple server processes. A failed prune logs a warning and does not fail the request. Pruning deletes only Connections activity; other Env activity stays.

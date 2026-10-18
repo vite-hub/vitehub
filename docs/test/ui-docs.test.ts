@@ -180,7 +180,7 @@ describe("UI documentation", () => {
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow-x: clip;");
 
     expect(layout).toContain("overflow: visible;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
@@ -194,6 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toContain("server primitives");
   });
 });

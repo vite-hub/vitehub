@@ -2,7 +2,7 @@ import { waitUntil as vercelWaitUntil } from "@vercel/functions"
 import { Request as UndiciRequest } from "undici"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
-import { createQueueError } from "../errors.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { toResponse } from "@vite-hub/runtime"
 
@@ -68,7 +68,6 @@ function createVercelJobHandler(definition: QueueDefinition) {
     // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
     return toResponse(await definition.handler({
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel metadata is untyped at this boundary and must be validated before use.
       attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
       id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
       metadata,
@@ -85,7 +84,6 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
       // SAFETY: Vercel supplies this optional delivery metadata shape to retry callbacks.
       const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
       reportQueueDeliveryError(error, {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel metadata is untyped at this boundary and must be validated before use.
         attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
         id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
         provider: "vercel",
@@ -107,9 +105,7 @@ function createVercelCallbackOptions(name: string, options: VercelQueueCallbackO
 export async function handleHostedVercelQueueCallback(event: { method?: string, request?: Request }, name: string, definition: QueueDefinition): Promise<unknown> {
   const queue = await dynamicQueue.get(name)
   if (queue.provider !== "vercel") {
-    throw createQueueError("VERCEL_PROVIDER_EXPECTED", {
-      details: { provider: queue.provider },
-    })
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "vercel", provider: queue.provider })
   }
 
   return await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(await toRequest(event))
