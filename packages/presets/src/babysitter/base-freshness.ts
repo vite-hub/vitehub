@@ -28,7 +28,10 @@ export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Sn
     const [run] = await reader.rest(`repos/${repository}/actions/runs/${id}`, "{created_at: .created_at, pull_requests: [.pull_requests[]? | .base.sha]}", signal);
     if (isRuntimeRecord(run)) {
       const bases = Array.isArray(run.pull_requests) ? run.pull_requests.filter((base): base is string => hasRuntimeType(base, "string")) : [];
-      return { created: Date.parse(String(run.created_at)), base: bases.length === 1 ? bases[0] : undefined, hasPullRequestMetadata: bases.length > 0 };
+      // An array returned by the Actions API is metadata, even when it is
+      // empty or contains unusable entries. In that case the run is
+      // ambiguous and must not fall back to an activity timestamp guess.
+      return { created: Date.parse(String(run.created_at)), base: bases.length === 1 ? bases[0] : undefined, hasPullRequestMetadata: Array.isArray(run.pull_requests) };
     }
     // Compatibility with older readers; real GitHub responses are records above.
     return { created: Date.parse(String(run)), base: undefined, hasPullRequestMetadata: false };

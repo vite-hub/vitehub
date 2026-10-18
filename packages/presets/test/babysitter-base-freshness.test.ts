@@ -62,6 +62,17 @@ describe("Babysitter base freshness", () => {
     expect(await staleBaseOverlap(reader({ files: [["src/a.ts"]], compare: { ahead: 1, files: truncated } }), snapshot(), live, signal)).toEqual(["src/a.ts"]);
   });
 
+  it("treats an empty pull-request metadata array as ambiguous", async () => {
+    const read = reader({ files: [["src/a.ts"]] });
+    const originalRest = read.rest;
+    read.rest = async (path, projection, requestSignal) => {
+      if (path.endsWith("/actions/runs/77")) return [{ created_at: "2026-10-18T10:00:00Z", pull_requests: [] }];
+      return originalRest(path, projection, requestSignal);
+    };
+    expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/a.ts"]);
+    expect(read.paths.some((path) => path.includes("/activity?"))).toBe(false);
+  });
+
   it("retests failed checks only after the base moved and passes again", async () => {
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 3 } }), snapshot("failure"), failedConclusions, signal)).toBe(3);
     expect(await baseFixedSinceFailure(reader({ compare: { ahead: 0 } }), snapshot("failure"), failedConclusions, signal)).toBeUndefined();
