@@ -123,7 +123,7 @@ describe("Console access policies", () => {
       expect(result.headers.get("x-host-auth")).toBe("required")
       await expect(result.text()).resolves.toBe("Sign in at the host.")
       installConsoleAccess({ mode: "host-managed", authorize: runInNewContext("() => response", { response: new window.Response(null, { status: 401 }) }) })
-      await expect(consoleConnectionsActor(event())).resolves.toBeUndefined()
+      await expect(consoleConnectionsActor(event())).resolves.toMatchObject({ status: 401 })
     }
     finally {
       await window.happyDOM.close()
@@ -162,8 +162,8 @@ describe("Console access policies", () => {
     await expect(rejection(result)).resolves.toMatchObject({ status: 403 })
   })
   it("rejects unknown legacy access and exposure values", () => {
-    expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
-    expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
+    expect(() => resolveConsoleOptions({ auth: false, access: "authz" })).toThrow(/console\.access/)
+    expect(() => resolveConsoleOptions({ auth: false, exposure: "prod" })).toThrow(/console\.exposure/)
   })
 
   it("keeps legacy host-managed exposure out of app-auth validation", () => {
