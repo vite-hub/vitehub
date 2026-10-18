@@ -139,7 +139,7 @@ describe("UI documentation", () => {
     expect(page).toContain("<DocsArticle v-else-if=\"page\"");
     expect(layout).toContain("vh-docs-main");
     expect(layout).toContain("lg:!flex lg:!flex-row");
-    expect(layout).toContain("max-width: none;");
+    expect(readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8")).toContain("max-width: none;");
   });
 
   it("uses a static context link instead of a product disclosure control", () => {
