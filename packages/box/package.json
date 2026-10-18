@@ -68,6 +68,7 @@
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",

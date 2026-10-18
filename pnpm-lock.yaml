@@ -1113,6 +1113,9 @@ importers:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.12.10
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
