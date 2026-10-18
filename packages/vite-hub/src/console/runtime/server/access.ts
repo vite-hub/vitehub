@@ -61,34 +61,6 @@ function rejection(status: number, code: ConsoleDiagnosticCode, message?: string
 
 async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
-  if ((typeof value !== "object" && typeof value !== "function") || value === null) return
-  try {
-    const candidate = value as object & { constructor?: unknown }
-    const constructor = candidate.constructor
-    if (typeof constructor !== "function" || constructor.name !== "Response") return
-    const prototype = constructor.prototype
-    if (prototype === null || typeof prototype !== "object") return
-    const native = (member: unknown): member is Function => typeof member === "function" && Function.prototype.toString.call(member).includes("[native code]")
-    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
-    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
-    const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-    const bodyUsed = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
-    const body = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-    const clone = prototype.clone
-    if (![status, statusText, headers, bodyUsed, body, clone].every(native)) return
-    const responseStatus = Reflect.apply(status, value, [])
-    const responseStatusText = Reflect.apply(statusText, value, [])
-    const responseHeaders = Reflect.apply(headers, value, [])
-    const responseBodyUsed = Reflect.apply(bodyUsed, value, [])
-    if (typeof responseStatus !== "number" || typeof responseStatusText !== "string" || typeof responseBodyUsed !== "boolean" || responseBodyUsed) return
-    Reflect.apply(clone, value, [])
-    const responseBody = Reflect.apply(body, value, [])
-    const init = { headers: new Headers(responseHeaders), status: responseStatus, statusText: responseStatusText }
-    return responseBody === null ? new Response(null, init) : new Response(responseBody as BodyInit, init)
-  }
-  catch {
-    return
-  }
 }
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
@@ -313,7 +285,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       checkedEvents.set(event, access)
     }
     if ("section" in declared) {
-      const section = declared.section instanceof Function ? declared.section(event) : declared.section
+      const section = resolveRouteSection(declared, event)?.section
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
