@@ -220,3 +220,13 @@ export type RealtimeWorkspaceChange =
 export type RealtimeResetReason = "source-changed" | "stale"
 
 export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeDefinition }>>
+
+/**
+ * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
+ */
+export type RealtimeRequestErrorCode =
+  | "REALTIME_DISABLED"
+  | "REALTIME_DISCONNECTED"
+  | "REALTIME_INVALID_RESPONSE"
+  | "REALTIME_MISSING_DOCUMENT"
+  | "REALTIME_REQUEST_FAILED"

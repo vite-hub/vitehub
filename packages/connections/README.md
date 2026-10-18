@@ -44,7 +44,7 @@ const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
 const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
 ```
 
-Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`.
+Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
 
 The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
 
@@ -52,7 +52,7 @@ Typed catalog methods and `useConnection().fetch()` can send the Connection toke
 
 ## Use an API key
 
-Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code or Server Env:
+Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code:
 
 ```ts
 // server/connections/executor.ts
@@ -72,6 +72,7 @@ export default defineConnection({
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
 | `requests` | none | Pacing, retries, and a timeout for provider requests. See [Pace and retry requests](#pace-and-retry-requests). |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
+| `fallback` | none | Return the key to use until an admin sets one, for example `() => useServerEnv().github.token`. A sealed Server Env secret is unsealed. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI. The CLI reads the key only from stdin and sends it only over HTTPS or to a loopback host:
@@ -99,6 +100,7 @@ apiKey({
 ```
 
 `retry.attempts` defaults to `3`. Network errors and `5xx` responses are retried with exponential backoff from `delayMs` (default `250`), only for `methods` (default `GET`, `HEAD`, `OPTIONS`). A `429` is retried for every method after `Retry-After`, at least `on429.minDelayMs`, and pauses the whole bucket. The last attempt returns its response as is. A caller abort stops at once and is not retried. The schedule is in memory, per server process or isolate.
+The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
 
 ## Use a custom store
 
@@ -121,6 +123,8 @@ An expired unresolved lease blocks every token revision. A replacement token can
 
 Custom stores must implement atomic `refreshLeases.claim()` and owner-fenced `refreshLeases.release()`. The name remains for compatibility, but the lease covers all token mutations. `claim()` returns `acquired`, `busy`, or `expired`; it must never replace an expired unresolved lease, even when the token revision changed. A lost refresh response or failed token write requires reconnecting rather than reusing the old grant. An unconfirmed callback exchange or revoke keeps its lease until the provider outcome is confirmed and the store is repaired. A successful callback exchange stays fenced through account extraction and token/state persistence. Failures during those steps quarantine the current token revision as `reauth_required`.
 
+The default store prunes activity in the `connections` namespace of `vitehub_env_activity` after each event. One `DELETE` drops events older than `maxAgeMs` and events past the newest `maxRecords`. A failed prune logs a warning and does not fail the request. Pass `activityRetention` to `createDatabaseConnectionStore()` to change the limits, or `false` to keep all activity.
+
 A custom Connections store must supply the token revision as the second `bridge.use()` callback argument. Revocation requires a provider `revocationEndpoint` and uses that revision to replace the token with a revoked marker. A provider without that endpoint rejects revocation and keeps the stored grant. The default Env Bridge supplies it. Connections has no standing administrator access to its bridge. For each call, Env gives it a context for one Connection token and one permission.
 
 ## Vite integration
@@ -129,6 +133,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity, one event per provider request: 14 days and 10,000 events. Each limit is a positive integer. `false` keeps all activity. |
 | `actor` | none | Module whose default export is the access policy of the management API, in development and production. `vite-hub` sets it to the Console actor module when the Console shows Connections. |
 | `database` | `false` | Module that exports the SQLite Drizzle database as `db`. |
 | `management` | `false` | Mount the management API in production. Production requires an actor module, from `actor` or `management: { actor }`. |
@@ -148,7 +153,7 @@ With `vite-hub` and the Console, the policy is the Console access policy of the 
 | Console Auth (`console: { auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
 | App Auth (`console: { auth: "app" }`) | The app Auth session and the access routes that protect the Console. | The signed-in user, `user:<id>`. |
 | Cloudflare Access (`console: { auth: { provider: "cloudflare-access" } }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
-| No sign-in (`console: { auth: false }`) | None. | `user:open`. |
+| No sign-in (`console: { auth: false }`) | None. | `user:host-managed` (stable actor for upgrades). |
 
 `console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 

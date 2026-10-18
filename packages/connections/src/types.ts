@@ -133,6 +133,13 @@ export interface ConnectionAccessRule<TPattern extends string = string> {
   approve?: boolean
 }
 
+/** A key, a sealed Server Env secret, or nothing. */
+export type ConnectionApiKeyFallback = () =>
+  | string
+  | { unseal: () => string }
+  | undefined
+  | Promise<string | { unseal: () => string } | undefined>
+
 /** Result of an API key `verify` check. `false` rejects the key. `account` labels the Connection in inspection. */
 export type ConnectionApiKeyVerification = boolean | { account?: ConnectionAccount }
 
@@ -158,6 +165,8 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
   readonly mcp?: string
   /** Pacing, retries, and a timeout for provider requests. */
   readonly requests?: ConnectionRequestPolicy
+  /** The key to use while no key was ever stored, or while the store cannot open. A revoked key does not fall back. */
+  fallback?: ConnectionApiKeyFallback
   /** Check a new key before ViteHub stores it. */
   verify?: (key: string, context: ConnectionApiKeyVerifyContext) => Promise<ConnectionApiKeyVerification>
   /** Type-only method map. It has no runtime value. */
@@ -169,7 +178,9 @@ interface ConnectionDefinitionRules<TApis extends object, TSelection extends Con
   api?: TSelection
   /**
    * Access rules by actor, for example `schedule:gmail` or `agent:labeller`.
-   * When set, actors not listed are denied. When omitted, server actors may read and
+   * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
+   * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
+   * When omitted, server actors may read and
    * call non-high-risk writes, and Agent writes require approval.
    */
   access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>>>>
@@ -206,6 +217,17 @@ export type ConnectionDefinitionRegistry = Record<string, () => Promise<unknown>
 
 /** Loads the ViteHub Database that the default store uses. */
 export type ConnectionsDatabaseLoader = () => Promise<EnvDatabase>
+
+/**
+ * How long the database keeps Connection activity. Connections write one activity event per
+ * provider request. Each limit is a positive integer.
+ */
+export interface ConnectionActivityRetention {
+  /** Delete events older than this many milliseconds. Defaults to 14 days. */
+  maxAgeMs?: number
+  /** Keep at most this many events, the newest first. Defaults to 10,000. */
+  maxRecords?: number
+}
 
 export interface DiscoveredConnectionDefinition {
   handler: string
@@ -306,6 +328,8 @@ export interface ConnectionInspection {
   credential: "api-key" | "oauth2"
   /** The provider's MCP endpoint, when it declares one. */
   mcp?: string
+  /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
+  keySource?: "fallback" | "stored"
   name: string
   provider: string
   refreshedAt?: string

@@ -8,9 +8,14 @@ export default defineConfig({
     token: "vercel_blob_rw_test",
   },
   build: {
-    outDir: "dist/client",
-    rolldownOptions: { input: "src/server.ts" },
-    ssr: "src/server.ts",
+    outDir: "dist/vercel",
+    rolldownOptions: { output: { entryFileNames: "server.mjs" } },
+    ssr: ".vitehub/nitro/blob/runtime.mjs",
   },
-  plugins: [hubBlob()],
+  nitro: { preset: "vercel" },
+  plugins: [
+    { name: "nitro:main" },
+    hubBlob(),
+  ],
+  ssr: { noExternal: true },
 })
