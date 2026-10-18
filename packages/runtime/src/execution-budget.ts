@@ -76,7 +76,10 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
   const abortFromExternal = () => controller.abort(options.signal?.reason)
   if (options.signal) {
     if (options.signal.aborted) abortFromExternal()
-    else options.signal.addEventListener("abort", abortFromExternal, { once: true })
+    else {
+      options.signal.addEventListener("abort", abortFromExternal, { once: true })
+      controller.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortFromExternal), { once: true })
+    }
   }
   if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt)
   return createBudget(state, limits, controller)
@@ -101,8 +104,13 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
+    const sharedReason = state.sharedController.signal.reason
     if (state.controller.signal.aborted && !(stateReason instanceof ExecutionBudgetExceededError)) state.controller.signal.throwIfAborted()
     if (controller.signal.aborted && !(controllerReason instanceof ExecutionBudgetExceededError)) controller.signal.throwIfAborted()
+    if (state.sharedController.signal.aborted) {
+      if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
+      state.sharedController.signal.throwIfAborted()
+    }
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
@@ -174,7 +182,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     snapshot() {
       const remainingTime = limits.deadlineAt === undefined ? undefined : Math.max(0, limits.deadlineAt - Date.now())
       return {
-        cancelled: state.controller.signal.aborted || controller.signal.aborted,
+        cancelled: state.controller.signal.aborted || controller.signal.aborted || state.sharedController.signal.aborted,
         ...(limits.deadlineAt === undefined ? {} : { deadlineAt: limits.deadlineAt }),
         limits: { ...limits },
         remaining: {
