@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// The footer of a product landing page: every documented area by category, with the current one marked.
+// The end of every docs page: every documented area by category, with the current one marked.
 import { docsManifest, type DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { getDocsCatalog } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
-  current: DocsSection;
+  current?: DocsSection | null;
 }>();
 
 const groups = getDocsCatalog(docsManifest.sections);
 
 function isCurrent(section: DocsSection) {
-  return section.id === props.current.id;
+  return section.id === props.current?.id;
 }
 </script>
 

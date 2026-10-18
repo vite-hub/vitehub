@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer"
 import { fixtureFetch } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
+
 import { BranchMovedError, forgeArchive, forgeBlob, forgeCommitFiles, forgeGitAuthHeader, forgeGitCredentials, forgeProvider } from "../src/index.ts"
 
 function repo(provider: Awaited<ReturnType<typeof forgeProvider>>, owner: string, name: string) {
@@ -96,6 +97,7 @@ describe("forgeGitCredentials", () => {
   })
 })
 
+
 interface RecordedCall {
   body?: unknown
   method: string
@@ -184,6 +186,22 @@ describe("forgeCommitFiles", () => {
       ],
     })
     expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "new-commit" })
+  })
+
+  it("creates an empty GitHub commit through the Git database", async () => {
+    const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main",
+      changes: [],
+      expectedHead: parentSha,
+      message: "empty revision",
+    })).resolves.toBe("new-commit")
+    expect(fake.calls.find(call => call.method === "POST" && call.path.endsWith("/git/trees"))?.body).toEqual({
+      base_tree: "base-tree",
+      tree: [],
+    })
   })
 
   it("rejects with BranchMovedError when the branch moved", async () => {

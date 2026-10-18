@@ -39,13 +39,13 @@ Read only the references whose conditions match, but read them before writing co
 | Queue jobs and consumers | [Queue](references/primitives/queue.md) |
 | Atomic request budgets | [Rate Limit](references/primitives/rate-limit.md) |
 | Realtime collaboration | [Realtime](references/primitives/realtime.md) |
-| Isolated provider-backed runs | [Sandbox](references/primitives/sandbox.md) |
+| Isolated provider-backed task runs | [Sandbox Tasks](references/primitives/sandbox-task.md) |
 | Static cron schedules | [Schedule](references/primitives/schedule.md) |
 | Bounded shell commands | [Shell](references/primitives/shell.md) |
 | Read-only external files or resources | [Source](references/primitives/source.md) |
 | Durable long-running orchestration | [Workflow](references/primitives/workflow.md) |
 | Persistent files, Sources, snapshots, or write-back | [Workspace](references/primitives/workspace.md) |
-| Trusted-host or provider execution sessions | [Boxes](references/primitives/box.md) |
+| Trusted-host or provider execution sessions | [Sandboxes](references/primitives/sandbox.md) |
 | Nitro cache storage | [Cache](references/primitives/cache.md) |
 | Markdown rendering with bindings | [Markdown Templates](references/primitives/markdown-template.md) |
 | Modify an existing framework integration; add Nitro or Nuxt; use generated types; configure a provider; or diagnose a framework-specific failure | [Framework composition](references/framework-composition.md) |
@@ -54,7 +54,7 @@ Read only the references whose conditions match, but read them before writing co
 | Agent Channel, Trigger, webhook admission, concurrency, or Agent delivery | [Channels and Triggers](references/channels-triggers.md) |
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
-| Box, trusted host, isolation, required command, or deployment target | [Boxes and hosts](references/boxes-hosts.md) |
+| Sandbox, trusted host, isolation, required command, or deployment target | [Sandboxes and hosts](references/sandboxes-hosts.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 

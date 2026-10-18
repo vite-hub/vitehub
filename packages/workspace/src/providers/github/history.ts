@@ -437,11 +437,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       if (current?.sha === await gitBlobSha(bytes) && current.mode === mode) continue
       updates.push({ bytes, fullPath: joinGitPath(options.root, path), mode })
     }
-    if (!updates.length && !deletes.length) {
-      // `commitFiles()` cannot make an empty commit. A commit without changes keeps the current head.
-      if (state.branchExists) return await revision(ref, state.refSha, commitOptions.metadata)
-      throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
-    }
+    // Keep empty commits: they are real history revisions and may be used as the next `ifHead`.
     const commitSha = await commitGitHubChanges({
       branch: ref,
       branchExists: state.branchExists,

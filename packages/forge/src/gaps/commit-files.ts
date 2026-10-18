@@ -25,7 +25,9 @@ export interface ForgeCommitFilesInput extends Omit<CommitFilesInput, "changes">
  * Proposed upstream as `FileChange.mode`.
  */
 export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, input: ForgeCommitFilesInput, options: BaseOptions = {}): Promise<string> {
-  if (!input.changes.some(change => change.mode)) return (await provider.contents.commitFiles(repo, input, options)).sha
+  // GitHub's Contents API rejects an empty change set, but history commits must
+  // still create a revision. Use the Git database for empty commits as well.
+  if (input.changes.length > 0 && !input.changes.some(change => change.mode)) return (await provider.contents.commitFiles(repo, input, options)).sha
   if (provider.forge !== "github") {
     throw forgeDiagnostics.FORGE_R0005({ message: `Git file modes are not supported for ${provider.forge}.` })
   }

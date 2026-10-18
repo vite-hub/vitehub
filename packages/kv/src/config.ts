@@ -54,7 +54,7 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
     // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_C0001({ message: `Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "deno-kv", "upstash", or "fs-lite".` })
+    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
   }
 }
 
@@ -74,7 +74,7 @@ export function normalizeKVOptions(
   if (options === false) return
 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw kvErrorDiagnostics.KV_C0002({ message: "`kv` must be a plain object." })
+    throw kvErrorDiagnostics.KV_INVALID_CONFIG({ path: "kv" })
   }
 
   const env = input.env || process.env
@@ -84,7 +84,7 @@ export function normalizeKVOptions(
   // SAFETY: Reflect.get preserves the effective value exposed by a Proxy or accessor; ownness is checked separately above.
   const stores = hasOwnStores ? Reflect.get(options, "stores", options) : undefined
   if (hasOwnStores && !isPlainObject(stores)) {
-    throw kvErrorDiagnostics.KV_C0004({ message: "`kv.stores` must be a plain object." })
+    throw kvErrorDiagnostics.KV_INVALID_CONFIG({ path: "kv.stores" })
   }
 
   if (hasStoresConfig(options, stores)) {
@@ -92,7 +92,7 @@ export function normalizeKVOptions(
       Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
     )
     const defaultStore = resolvedStores.default
-    if (!defaultStore) throw kvErrorDiagnostics.KV_C0003({ message: "`kv.stores.default` is required when using named KV stores." })
+    if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 

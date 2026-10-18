@@ -313,7 +313,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
-| `box` | Runs a built-in provider Driver inside a [Box](/docs/agents/boxes) with a checkout, private Home, environment, and boot checks. Cannot be combined with `workspace`. |
+| `sandbox` | Runs a built-in provider Driver inside a [Sandbox](/docs/agents/sandboxes) with a checkout, private Home, environment, and boot checks. Cannot be combined with `workspace`. |
 | `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
 | `driver.output` | Validates structured Agent output. |
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
