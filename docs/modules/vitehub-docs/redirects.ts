@@ -116,6 +116,7 @@ export const docsPageRedirects = {
   "/docs/agents/boxes": "/docs/agents/sandboxes",
   "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
+  "/docs/schedule/agent-capability": "/docs/schedule",
 
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),
