@@ -26,9 +26,9 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
-| `vite-hub/agent/presets/babysitter` | Composable Babysitter repair-loop preset. |
-| `vite-hub/agent/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/agent/presets/babysitter/server` | Babysitter host runtime integration. |
+| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
+| `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
