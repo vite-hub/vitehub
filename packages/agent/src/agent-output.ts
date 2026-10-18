@@ -1161,8 +1161,8 @@ function isResponseLike(value: unknown): value is Response {
     // though the proxy target's prototype has no corresponding descriptors.
     if (!lockedAccessor || !streamReader) {
       // Registered foreign responses may expose a proxy-backed reader, but an
-      // own reader operation is caller-controlled and must not run merely
-      // because the response constructor was registered.
+      // own or accessor-backed reader operation is caller-controlled and must
+      // not run merely because the response constructor was registered.
       if (registeredResponse) {
         const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
         if (ownReader) return false
