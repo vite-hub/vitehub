@@ -556,7 +556,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   /** A GitHub rate limit stops every forge request until it resets. Returns whether the error was one. */
   async function noteForgeQuota(error: unknown, operation: string): Promise<boolean> {
-    if (!github.isRateLimitError(error) && !isProviderRateLimit(error)) return false;
+    if (!github.isRateLimitError(error)) return false;
     const until = await forgeQuota.block();
     schedulerEvent("babysitter.forge.quota.blocked", { operation, blocked_until: new Date(until).toISOString(),
       reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
