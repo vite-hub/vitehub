@@ -14,7 +14,7 @@ Each Workspace name has one definition. A discovered file and a [contributed Wor
 
 ## Retained history
 
-Retained-history methods require a Store with `history`. Unsupported Stores and partial Workspace scopes throw `WORKSPACE_R0069`. `vitehub workspace history`, `refs`, and `show` report the same code and name the Blob + Database Store. Invalid list limits and cursors from another ref throw `WORKSPACE_R0070`; limits must be integers from `1` to `100`. Invalid ref names throw `WORKSPACE_R0071`.
+Retained-history methods require a Store with `history`. Unsupported Stores and partial Workspace scopes throw `WORKSPACE_R0069`. Invalid list limits and cursors from another ref throw `WORKSPACE_R0070`; limits must be integers from `1` to `100`. Invalid ref names throw `WORKSPACE_R0071`.
 
 A stale `ifHead` throws `WORKSPACE_CONFLICT` with the ref and the expected and actual revision ids. Missing revisions, deleted workspace identities, and change commits that delete a missing file throw `WORKSPACE_NOT_FOUND`. Blob operations retain their `BLOB_*` error codes. Retry failed workspace deletion after the storage error is resolved.
 

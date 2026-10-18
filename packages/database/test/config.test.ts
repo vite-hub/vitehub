@@ -95,7 +95,7 @@ describe("discoverDatabaseDefinitions", () => {
       "",
     ].join("\n"))
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow('must set `name: "analytics"`')
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_NAME_MISMATCH", why: expect.stringContaining('must set `name: "analytics"`') }))
   })
 
   it("decodes a static escaped Definition name", async () => {
@@ -154,7 +154,7 @@ describe("discoverDatabaseDefinitions", () => {
     await writeDefinition(rootDir, "server/databases/config.ts")
     await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
 
-    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow("either one default database or all named databases")
+    expect(() => discoverDatabaseDefinitions(rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_MIXED_DEFINITIONS" }))
   })
 })
 
@@ -163,6 +163,54 @@ describe("resolveDBViteConfig", () => {
     const rootDir = await createTempProject()
 
     expect(resolveDBViteConfig(undefined, rootDir)).toBeUndefined()
+  })
+
+  describe("implicit default Database", () => {
+    it("resolves one empty default Database with the server/databases migrations directory", async () => {
+      const rootDir = await createTempProject()
+
+      const resolved = resolveDBViteConfig(undefined, rootDir, { implicitDefault: true })
+
+      expect(resolved?.databaseNames).toEqual(["default"])
+      expect(resolved?.definitions).toEqual([expect.objectContaining({ mode: "default", name: "default", source: "implicit-default", tableNames: [] })])
+      expect(resolved?.definitions[0]?.handler).toMatch(/[\\/]runtime[\\/]default-database\.(?:js|ts)$/)
+      expect(resolved?.databases.default).toMatchObject({
+        connection: { url: "file:.vitehub/data/database/sqlite.db" },
+        migrationsDir: "server/databases/migrations",
+        mode: "default",
+        name: "default",
+      })
+      expect(readStaticDatabaseSchema(resolved!.definitions[0]!.handler)).toEqual({ complete: true, tableNames: [] })
+    })
+
+    it("uses database.connection and the first server directory", async () => {
+      const rootDir = await createTempProject()
+
+      const resolved = resolveDBViteConfig({ connection: { url: "file:/data/database/sqlite.db" } }, rootDir, {
+        implicitDefault: true,
+        serverDirs: [join(rootDir, "app/server"), join(rootDir, "layer/server")],
+      })
+
+      expect(resolved?.databases.default?.connection?.url).toBe("file:/data/database/sqlite.db")
+      expect(resolved?.databases.default?.migrationsDir).toBe("app/server/databases/migrations")
+    })
+
+    it("keeps the Definitions of an app that defines a Database", async () => {
+      const rootDir = await createTempProject()
+      const file = await writeDefinition(rootDir, "server/databases/config.ts")
+
+      const resolved = resolveDBViteConfig(undefined, rootDir, { implicitDefault: true })
+
+      expect(resolved?.definitions).toEqual([expect.objectContaining({ handler: file, source: "server-database-default", tableNames: ["notes"] })])
+      expect(resolved?.databases.default?.migrationsDir).toBe("server/databases/migrations")
+    })
+
+    it("does not resolve a disabled database", async () => {
+      const rootDir = await createTempProject()
+
+      expect(resolveDBViteConfig(false, rootDir, { implicitDefault: true })).toBeUndefined()
+      expect(discoverDatabaseDefinitions(rootDir)).toEqual([])
+    })
   })
 
   it("resolves generated files, migrations, and local fallback connection", async () => {

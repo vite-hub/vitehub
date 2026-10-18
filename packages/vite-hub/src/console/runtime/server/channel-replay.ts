@@ -53,14 +53,12 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
     }
     return replayError("Malformed Channel replay payload.", 400)
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Request JSON is untyped until this boundary validates its object shape.
   if (!body || typeof body !== "object" || Array.isArray(body) || !("agent" in body)) {
     return replayError("Channel replay requires an Agent name.", 400)
   }
   // SAFETY: the object guard above establishes a string-keyed JSON object.
   const replayBody = body as Record<string, unknown>
   const agentName = replayBody.agent
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The agent field is untyped request JSON until validated here.
   if (typeof agentName !== "string" || !agentName.trim()) return replayError("Channel replay requires an Agent name.", 400)
   const name = agentName
   const { agent: _, ...replay } = replayBody

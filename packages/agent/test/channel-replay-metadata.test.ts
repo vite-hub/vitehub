@@ -7,7 +7,7 @@ import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation, workflowDispatchAttemptedAnnotation } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
-import { channelReplayRunId, replayChannel } from "../src/channel-replay.ts"
+import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 
 const metadata = { annotations: { trigger: "history" }, channelId: "mailbox", origin: "history-trigger", threadId: "message-thread" }
 
@@ -31,7 +31,7 @@ it.each(["memory", "libsql"])("persists trigger metadata before executing replay
   try {
     const store = adapter === "memory" ? createMemoryAgentInvocationStore() : createLibsqlAgentInvocationStore({ client })
     const invocations = defineAgentInvocations({ store })
-    const runId = channelReplayRunId("mailbox", "m1")
+    const runId = channelMessageRunId("mailbox", "m1")
     const run = vi.fn(async () => {
       expect(await invocations.getByRunId(runId, "metadata-replay")).toMatchObject(metadata)
       return "done"

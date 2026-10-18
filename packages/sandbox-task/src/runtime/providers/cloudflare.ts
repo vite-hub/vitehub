@@ -1,0 +1,49 @@
+import type { CloudflareSandboxOptions } from '@vite-hub/sandbox'
+import { resolveCloudflareSandbox } from '@vite-hub/sandbox/_internal/cloudflare'
+import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
+import type { CloudflareSandboxTaskDefinitionProviderOptions, SandboxTaskDefinitionOptions } from '../../module-types'
+import { sandboxTaskErrorDiagnostics } from "../../error-diagnostics.ts"
+
+type SandboxTaskOptions = {
+  local: SandboxTaskDefinitionOptions
+  provider: CloudflareSandboxTaskDefinitionProviderOptions
+}
+
+type SandboxTaskEvent = {
+  context?: {
+    cloudflare?: { env?: Record<string, unknown> }
+    _platform?: { cloudflare?: { env?: Record<string, unknown> } }
+  }
+}
+
+export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions, context: { event?: SandboxTaskEvent } = {}) {
+  const env = getCloudflareEnv(context.event)
+  const bindingName = options.provider.binding || 'SANDBOX'
+  const namespace = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
+
+  if (!namespace) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0071({
+      message: `Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare. `
+        + "The cloudflare preset writes the binding and its Container to .output/server/wrangler.json, and the Vite or "
+        + "Nuxt dev server cannot host them: build, then run `npx wrangler --cwd .output/server dev` (needs Docker).",
+    })
+  }
+
+  return {
+    closeAfterRun: options.provider.keepAlive === true,
+    provider: 'cloudflare' as const,
+    sandboxId: options.provider.sandboxId,
+    resolveSandbox: async (requirements: readonly string[]) => await resolveCloudflareSandbox(
+      {
+        namespace: namespace as CloudflareSandboxOptions['namespace'],
+        sandboxId: options.provider.sandboxId,
+        cloudflare: {
+          sleepAfter: options.provider.sleepAfter ?? '5m',
+          keepAlive: options.provider.keepAlive,
+          normalizeId: options.provider.normalizeId,
+        },
+      },
+      requirements,
+    ),
+  }
+}

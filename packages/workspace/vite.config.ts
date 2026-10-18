@@ -33,7 +33,6 @@ export default defineConfig({
       "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
-      "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
       "src/internal/path.ts",

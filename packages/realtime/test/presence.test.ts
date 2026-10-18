@@ -16,7 +16,7 @@ describe("realtime presence", () => {
   })
 
   it("rejects non-string user ids at the public identity boundary", () => {
-    expect(() => Reflect.apply(createRealtimeIdentity, undefined, [{ id: 42 }])).toThrow("valid user id")
+    expect(() => Reflect.apply(createRealtimeIdentity, undefined, [{ id: 42 }])).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_USER" }))
   })
 
   it("returns only public identity fields from untrusted presence state", () => {

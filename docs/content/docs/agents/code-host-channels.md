@@ -40,12 +40,12 @@ Explicit options take precedence over Server Env. The Channel reads the host var
 
 | Server Env field | Host variable | Default or use |
 | --- | --- | --- |
-| `gitlab.baseUrl` | `GITLAB_BASE_URL` | `https://gitlab.com` |
-| `gitlab.token` | `GITLAB_TOKEN` | Token for metadata and writes. |
-| `gitlab.webhookSecret` | `GITLAB_WEBHOOK_SECRET` | Required webhook secret. |
-| `forgejo.baseUrl` | `FORGEJO_BASE_URL` | `https://codeberg.org` |
-| `forgejo.token` | `FORGEJO_TOKEN` | Token for metadata and writes. |
-| `forgejo.webhookSecret` | `FORGEJO_WEBHOOK_SECRET` | Required webhook secret. |
+| `gitlab.baseUrl` | `VITEHUB_GITLAB_BASE_URL` | `https://gitlab.com` |
+| `gitlab.token` | `VITEHUB_GITLAB_TOKEN` | Token for metadata and writes. |
+| `gitlab.webhookSecret` | `VITEHUB_GITLAB_WEBHOOK_SECRET` | Required webhook secret. |
+| `forgejo.baseUrl` | `VITEHUB_FORGEJO_BASE_URL` | `https://codeberg.org` |
+| `forgejo.token` | `VITEHUB_FORGEJO_TOKEN` | Token for metadata and writes. |
+| `forgejo.webhookSecret` | `VITEHUB_FORGEJO_WEBHOOK_SECRET` | Required webhook secret. |
 
 The matching options are `baseUrl`, `token`, and `webhookSecret`. Each accepts a runtime callback. Tokens and secrets also accept a Server Env secret value with `unseal()`.
 

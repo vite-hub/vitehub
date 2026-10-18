@@ -23,7 +23,7 @@ export interface DiscoveredCollection {
 }
 
 /** Finds the `defineCollection(...)` call that initializes the named export. */
-export function findCollectionDefinitionCall(source: string, exportName: string, file: string): IdentifierCall | undefined {
+function findCollectionDefinitionCall(source: string, exportName: string, file: string): IdentifierCall | undefined {
   const scanner = createSourceScanner(file)
   const masked = scanner.maskSourceLiterals(source)
   const escapedExportName = exportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")

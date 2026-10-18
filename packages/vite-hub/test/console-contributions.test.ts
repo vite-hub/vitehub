@@ -10,7 +10,7 @@ import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, i
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
-    expect([...consoleContributedSections.keys()]).toEqual(["email", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"])
+    expect([...consoleContributedSections.keys()]).toEqual(["email", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"])
     for (const [id, section] of consoleContributedSections) {
       expect(section.descriptor.id).toBe(id)
       expect(isConsoleSectionId(id)).toBe(true)
@@ -23,11 +23,11 @@ describe("Console section contributions", () => {
   })
 
   it("keeps navigation order and omits built-in sections", () => {
-    const sections = resolveConsoleSectionIds({ agent: true, database: true, kv: true, queue: true, rateLimit: true, sandbox: true, schedule: true, workflow: true, workspace: true })
+    const sections = resolveConsoleSectionIds({ agent: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })
 
     expect(describeConsoleContributedSections(sections).map(section => section.id)).toEqual([
       "rate-limits",
-      "sandboxes",
+      "sandbox-tasks",
       "workspaces",
       "workflows",
       "queues",
@@ -40,10 +40,9 @@ describe("Console section contributions", () => {
   it("maps request-time readers to vite-hub exports", async () => {
     const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
 
-    expect(consoleRuntimeReaderModule("@vite-hub/schedule/runtime/console")).toBe("vite-hub/_internal/schedule/runtime/console")
+    expect(consoleRuntimeReaderModule("@vite-hub/email/runtime/console")).toBe("vite-hub/_internal/email/runtime/console")
     expect(describeConsoleRuntimeReaders(["agents", "email", "queues", "schedules"])).toEqual([
       { export: "readEmailOutboxConsoleRecords", module: "vite-hub/_internal/email/runtime/console", section: "email" },
-      { export: "readScheduleConsoleRecords", module: "vite-hub/_internal/schedule/runtime/console", section: "schedules" },
     ])
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
       expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)

@@ -23,7 +23,7 @@ export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = Age
 } & ([TConfigKey] extends [never] ? {} : { readonly configKey: TConfigKey })
 
 /** Resolve a local name before the normal Agent layer composition. */
-export function resolveNamedAgentPresetOptions(input: unknown): unknown {
+function resolveNamedAgentPresetOptions(input: unknown): unknown {
   if (!isRuntimeRecord(input)) return input
   if (!("presets" in input) && !("preset" in input)) return input
   const { preset, presets, ...options } = input

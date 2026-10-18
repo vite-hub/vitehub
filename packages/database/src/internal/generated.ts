@@ -30,8 +30,17 @@ function createTableExports(parts: readonly SchemaPart[]) {
   return [...winners].map(([tableName, expression], index) => {
     const variable = `table_${index}`
     const source = expression === "databaseDefinition" ? `${expression}.schema` : expression
-    return `const ${variable} = ${source}[${JSON.stringify(tableName)}]\nexport { ${variable} as ${tableName} }`
+    const exportName = renderExportName(tableName)
+    return `const ${variable} = ${source}[${JSON.stringify(tableName)}]\nexport { ${variable} as ${exportName} }`
   })
+}
+
+
+const reservedExportNames = new Set(["default", "class", "function", "const", "let", "var", "return", "export", "import", "extends", "new", "delete", "void", "typeof", "instanceof", "in", "of", "this", "super", "yield", "await", "true", "false", "null", "undefined"])
+function renderExportName(name: string) {
+  const normalized = name.replace(/[^A-Za-z0-9_$]/g, "_")
+  const safe = /^[A-Za-z_$]/.test(normalized) ? normalized : `_${normalized}`
+  return reservedExportNames.has(safe) ? `_${safe}` : safe
 }
 
 function renderSchemaExpression(parts: readonly SchemaPart[]) {
