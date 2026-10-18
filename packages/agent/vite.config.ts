@@ -1,14 +1,26 @@
 import { defineConfig } from "vite-plus";
+import { isBuiltin } from "node:module";
+import { fileURLToPath } from "node:url";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
 const privateEntryExports = new Set(["./provider-agent", "./runtime/provider-agent-worker"]);
 
+// These packages are only on pkg.pr.new, so the published manifest must not name them.
+// Bundle them, and bundle what they import (such as their own Effect version), so npm installs need no URL.
+const bundledPreviewPackages = /^(?:@vite-hub\/internal|@t3tools\/(?:provider-runtime|contracts)|forges)(?:\/|$)/;
+const bundledPreviewImporters = /[\\/]node_modules[\\/](?:@t3tools[\\/](?:provider-runtime|contracts)|forges|effect)[\\/]/;
+
+function alwaysBundle(id: string, importer: string | undefined): boolean {
+  if (bundledPreviewPackages.test(id)) return true;
+  return !!importer && bundledPreviewImporters.test(importer) && !isBuiltin(id);
+}
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      alwaysBundle,
       neverBundle: [
         "vite",
         "esbuild",
@@ -18,7 +30,6 @@ export default defineConfig({
         "@vite-hub/env/internal/access",
         "@vite-hub/env/internal/agent",
         "@vercel/nft",
-        "@t3tools/provider-runtime",
         "@vite-hub/rate-limit",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,

@@ -151,7 +151,7 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-  it("moves the brand, the site areas, and the controls from the header into the sidebar", () => {
+  it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
     const body = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
@@ -186,11 +186,15 @@ describe("UI documentation", () => {
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
     expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    // The aside container is a flex column. The sidebars must grow into it, or the panel collapses to its header.
+    expect(layout).toContain("overflow-x: clip;");
+    expect(sidebarPanel).toContain("overflow: hidden;")
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow: visible;");
+    expect(layout).toMatch(/@media \(min-width: 80rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("flex: 1;");
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
     expect(desktopStyles).toMatch(/\.vh-docs-aside-sidebars\s*\{[^}]*flex: 1 1 0;/);
-    expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
