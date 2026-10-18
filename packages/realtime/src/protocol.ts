@@ -58,7 +58,7 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
   const normalized = value.replaceAll("\\", "/")
-  if (normalized.includes("//") || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) return false
+  if (normalized !== value || normalized.includes("//") || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) return false
   const parts = normalized.split("/")
   if (parts.some(part => part.length === 0 || part === "." || part === "..")) return false
   return !parts.some((part, index) => {
