@@ -1118,11 +1118,12 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(statusText, "string")) return false
     if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
-    // A bodyless response is only trusted when the host brand operation
-    // succeeded. An own-tagged object with `body: null` is caller-defined.
+    // A bodyless response is valid for the registered implementation too:
+    // its constructor registration establishes provenance even when the
+    // host-realm brand accessor cannot run against the foreign instance.
     if (body === null) {
-      if (trustedResponse) validatedResponseBodies.set(value, null)
-      return trustedResponse
+      if (trustedResponse || registeredResponse) validatedResponseBodies.set(value, null)
+      return trustedResponse || registeredResponse
     }
     if (!isRuntimeObject(body)) return false
     // A stream may already be locked by its caller. In that state acquiring a
