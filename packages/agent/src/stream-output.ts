@@ -177,6 +177,10 @@ function headersDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor
 function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = false) {
   // Use the source realm's native operations, never caller-supplied methods.
   // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
+  const ownGetReader = registered ? Object.getOwnPropertyDescriptor(body, "getReader") : undefined
+  if (ownGetReader) {
+    throw new TypeError("Foreign stream getReader override is not supported")
+  }
   const getReader = (registered ? Reflect.get(body, "getReader") : readableStreamDescriptor(body, "getReader")?.value) as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   // Some foreign implementations expose reader operations as own properties
@@ -264,7 +268,10 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     // Registered implementations have already passed their intrinsic brand
     // and surface checks. Preserve their identity so callers can continue to
     // consume the original foreign response.
-    if (registered) return value as Response & { body: ReadableStream<Uint8Array> }
+    if (registered) {
+      if (!isPortableRegisteredUIMessageBody(body)) return
+      return value as Response & { body: ReadableStream<Uint8Array> }
+    }
     if (!(registered ? isPortableRegisteredUIMessageBody(body) : isPortableUIMessageBody(body))) return
     const forEach = Reflect.get(headers, "forEach")
     if (!hasRuntimeType(forEach, "function")) return
