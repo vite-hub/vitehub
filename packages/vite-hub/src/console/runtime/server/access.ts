@@ -159,7 +159,11 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // Response surface. Independently implemented Fetch responses use a
         // base body implementation, so their constructor is derived; reject
         // stand-alone caller classes before the structural checks below.
-        const isDerivedClassConstructor = isClassConstructor && /\bextends\b/.test(constructorSource)
+        // Only a class header can establish the derived implementation shape.
+        // A caller-controlled comment, string, or method body may contain the
+        // word "extends" without making the constructor a derived Response.
+        const isDerivedClassConstructor = isClassConstructor
+          && /^class(?:\s+[^\s{]+)?\s+extends\s+/.test(constructorSource)
         hasNativeConstructorLineage = (isDerivedClassConstructor || constructorSource.includes("[native code]"))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
