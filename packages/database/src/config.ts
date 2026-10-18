@@ -917,30 +917,16 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const layer of configuringLayers) {
       const layerOptions = readDefinitionOptionKeys(layer.handler)
       if (!appOptions || !layerOptions) {
-        throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-          `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-          "ViteHub cannot read the options of these definitions:",
-          ...listDefinitionFiles([app, layer]),
-          "Pass an object literal to defineDatabase() in both files, or keep every option in one of them.",
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: [app.handler, layer.handler], reason: "unreadable" })
       }
       const missing = [...layerOptions].filter(key => !appOptions.has(key))
       if (!missing.length) continue
       const options = missing.map(key => `\`${key}\``).join(", ")
-      throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-        `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-        `It does not set ${options}, which a layer sets:`,
-        ...listDefinitionFiles([app, layer]),
-        `Set ${options} in the application definition too, or move all options to the layer.`,
-      ].join("\n") })
+      throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: [app.handler, layer.handler], options, reason: "missing" })
     }
   }
   if (!appConfigures && configuringLayers.length > 1) {
-    throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-      `[vitehub] More than one Nuxt layer sets options for database "${name}":`,
-      ...listDefinitionFiles(configuringLayers),
-      `Keep the options in one layer, or set them in the application definition of database "${name}".`,
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: configuringLayers.map(definition => definition.handler), reason: "layers" })
   }
 
   const appTables = new Set(app?.tableNames)
@@ -949,11 +935,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
-        throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
-          `[vitehub] More than one Nuxt layer declares table "${tableName}" in database "${name}":`,
-          ...listDefinitionFiles([owner, definition]),
-          `Rename one table, or declare "${tableName}" in the application definition to replace both.`,
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_TABLE_CONFLICT({ database: name, files: [owner.handler, definition.handler], table: tableName })
       }
       tableOwners.set(tableName, definition)
     }
