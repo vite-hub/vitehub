@@ -2905,6 +2905,8 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
+  /** Whether the enclosing Invocation requested execution-budget constraints. */
+  executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean

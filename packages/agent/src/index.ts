@@ -4971,7 +4971,7 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       executionBudget,
-      executionBudgetActive: executionBudgetHasConstraints(input),
+      executionBudgetActive: executionBudget !== undefined,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])

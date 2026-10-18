@@ -1364,10 +1364,11 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const instrumentedModel = context.executionBudgetActive && wrapLanguageModel
+  const executionBudget = context.executionBudgetActive ? context.executionBudget : undefined
+  const instrumentedModel = executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
-        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+        middleware: executionBudgetMiddleware(executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
       })
     : observedModel
   // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
