@@ -2,7 +2,7 @@ import "./virtual-module.d.ts"
 
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
-import schema from "#vitehub/database/schema"
+import virtualSchema from "#vitehub/database/schema"
 import type { AgentDatabaseHandle } from "./runtime/agent.js"
 
 type DatabaseDialect = "sqlite" | "postgresql"
@@ -32,14 +32,16 @@ type RuntimeDatabaseRegistry = {
 
 type DefaultDatabaseEntry = "default" extends keyof RuntimeDatabaseRegistry
   ? RuntimeDatabaseRegistry["default" & keyof RuntimeDatabaseRegistry]
-  : RuntimeDatabaseEntry<typeof schema>
+  : RuntimeDatabaseEntry<typeof virtualSchema>
 
 type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {
   default: DefaultDatabaseEntry
 } & Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
 
 export * from "#vitehub/database/schema"
-export { schema }
+
+/** The schema of the default database. The generated registry gives its table types. */
+export declare const schema: DefaultDatabaseEntry["schema"]
 
 export declare const databases: RuntimeDatabaseLookup
 

@@ -35,6 +35,8 @@ export default defineConnection({
 
 Connection names may include punctuation, spaces, Unicode, and nested paths. They must not exceed 501 characters, including path separators, so the default Env key fits its 512-character limit.
 
+A provider can also be an object with `id`, `authorizationEndpoint`, `tokenEndpoint`, `clientId`, and optional `clientSecret`, `revocationEndpoint`, `identityScopes`, `authorizationParams`, `apis`, and `account`. `apis` defaults to no catalogs, so the token goes nowhere. Without `account`, a provider whose `identityScopes` include `openid` reads the account from the ID token of the token response: `sub` is the id and a string `email` labels it. The signature is not checked because the token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. `google()` uses this default.
+
 ## Call the API
 
 ```ts
@@ -52,7 +54,7 @@ Typed catalog methods and `useConnection().fetch()` can send the Connection toke
 
 ## Use an API key
 
-Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code or Server Env:
+Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code:
 
 ```ts
 // server/connections/executor.ts
@@ -71,6 +73,7 @@ export default defineConnection({
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `""` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
+| `fallback` | none | Return the key to use until an admin sets one, for example `() => useServerEnv().github.token`. A sealed Server Env secret is unsealed. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI. The CLI reads the key only from stdin and sends it only over HTTPS or to a loopback host:
@@ -80,6 +83,8 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
+
+The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
 
 ## Use a custom store
 

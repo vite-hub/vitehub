@@ -14,7 +14,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
     },
     QUEUE_PROVIDER_INVALID_RESPONSE: {
-      why: "The Vercel queue provider accepted the job, but returned a missing or invalid `messageId`.",
+      why: "The Vercel queue provider accepted the job, but returned an invalid `messageId`.",
       fix: "Do not send the job again without an `idempotencyKey`, because the provider can have it. Check the installed `@vercel/queue` version.",
     },
     QUEUE_UNSUPPORTED_OPTION: {

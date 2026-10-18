@@ -434,6 +434,36 @@ describe("release package artifacts", () => {
     await expect(verifyReleaseArtifacts({ manifestPath: linked.manifestPath, sourceSha })).rejects.toThrow("Unexpected release artifact entry")
   })
 
+  it.each([
+    ["dependencies", "https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@abc"],
+    ["dependencies", "http://example.com/pkg.tgz"],
+    ["optionalDependencies", "git+https://github.com/vite-hub/t3code.git"],
+    ["peerDependencies", "github:vite-hub/t3code"],
+    ["dependencies", "file:../provider-runtime"],
+  ])("rejects a packed %s specifier %s", async (section, specifier) => {
+    const root = await temporaryDirectory("vitehub-release-url-dependency-")
+    const content = JSON.stringify({ [section]: { "@t3tools/provider-runtime": specifier }, name: "@vite-hub/agent", version: "1.2.3" })
+    const { manifestPath } = await writeArtifact(root, [{ files: [{ content, path: "package/package.json" }], name: "@vite-hub/agent" }])
+
+    await expect(verifyReleaseArtifacts({ manifestPath, sourceSha }))
+      .rejects.toThrow(`Packed ${section} specifier for @vite-hub/agent -> @t3tools/provider-runtime is ${specifier}`)
+  })
+
+  it("accepts registry specifiers and URL specifiers that installers ignore", async () => {
+    const root = await temporaryDirectory("vitehub-release-registry-dependency-")
+    const content = JSON.stringify({
+      dependencies: { "aliased": "npm:effect@4.0.1", "effect": "4.0.1", "yaml": "^2.9.0" },
+      devDependencies: { forges: "https://pkg.pr.new/danielroe/forges@abc" },
+      name: "@vite-hub/agent",
+      peerDependencies: { vite: "*" },
+      repository: { type: "git", url: "git+https://github.com/vite-hub/vitehub.git" },
+      version: "1.2.3",
+    })
+    const { manifestPath } = await writeArtifact(root, [{ files: [{ content, path: "package/package.json" }], name: "@vite-hub/agent" }])
+
+    await expect(verifyReleaseArtifacts({ manifestPath, sourceSha })).resolves.toMatchObject({ releaseVersion: "1.2.3" })
+  })
+
   it("rejects symlinked and oversized manifests before parsing", async () => {
     const root = await temporaryDirectory("vitehub-release-manifest-file-")
     const artifact = await writeArtifact(root, [{ name: "@vite-hub/runtime" }])

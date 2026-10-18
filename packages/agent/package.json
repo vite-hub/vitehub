@@ -259,7 +259,6 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@t3tools/provider-runtime": "catalog:",
     "@vercel/connect": "2.5.2",
     "@vercel/nft": "catalog:vercel",
     "@yarnpkg/parsers": "catalog:tooling",
@@ -274,7 +273,6 @@
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",
-    "forges": "catalog:",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",
@@ -306,7 +304,9 @@
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
     "evlog": "^2.32.0",
-    "posthog-node": "^5.56.2"
+    "posthog-node": "^5.56.2",
+    "@t3tools/provider-runtime": "catalog:",
+    "forges": "catalog:"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",

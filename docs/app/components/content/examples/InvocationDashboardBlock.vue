@@ -7,7 +7,8 @@ import {
 } from "@vite-hub/ui";
 import { computed, onMounted, ref } from "vue";
 
-// Keep running timestamps relative to the page load, including server rendering.
+// Keep the server clock through hydration, then refresh prerendered timestamps.
+
 const now = useState("ui-dashboard-clock", () => Date.now());
 
 onMounted(() => {
