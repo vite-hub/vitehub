@@ -315,7 +315,7 @@ function responseMethod(value: object, property: string): ((this: object) => unk
     if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
     prototype = Object.getPrototypeOf(prototype) as object | null
   }
-  return false
+  return
 }
 
 async function runAccessAuthorize(
