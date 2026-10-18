@@ -53,9 +53,11 @@ describe("Database types in a Nuxt app", () => {
     const buildDir = join(root, ".nuxt")
     const options: Record<string, unknown> = { buildDir, dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} }
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+    const prepareTypesHooks: Array<(context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void> = []
     await hubDb()(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
+        if (name === "prepare:types") prepareTypesHooks.push(callback as (context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void)
       },
       options,
     })
@@ -65,8 +67,15 @@ describe("Database types in a Nuxt app", () => {
     const generatedTypes = join(root, ".vitehub/types/database.d.ts")
     await expect(readFile(generatedTypes, "utf8")).resolves.toContain("interface DatabaseRegistry")
     // Nuxt resolves tsconfig includes from the build directory.
-    const sharedInclude = (options.typescript as { sharedTsConfig: { include: string[] } }).sharedTsConfig.include
-    expect(sharedInclude.map(path => resolve(buildDir, path))).toContain(generatedTypes)
+    const typeContext: {
+      references: { path: string }[]
+      sharedTsConfig: { include?: string[] }
+      serverTsConfig: { include?: string[] }
+    } = { references: [], sharedTsConfig: {}, serverTsConfig: {} }
+    for (const prepareTypes of prepareTypesHooks) prepareTypes(typeContext)
+    expect(typeContext.references.map(reference => reference.path)).toContain(generatedTypes)
+    expect(typeContext.sharedTsConfig.include?.map(path => resolve(buildDir, path))).toContain(generatedTypes)
+    expect(typeContext.serverTsConfig.include?.map(path => resolve(buildDir, path))).toContain(generatedTypes)
 
     const serverFile = join(root, "server/utils/note.ts")
     const sharedFile = join(root, "shared/types/note.ts")

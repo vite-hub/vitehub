@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { dirname, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -61,6 +61,7 @@ type DatabaseNuxtModule = {
 type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
+    (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
     (name: "close", callback: () => Promise<void> | void): void
   }
@@ -77,6 +78,16 @@ type NuxtLike = {
     vite?: Record<string, unknown> & { plugins?: unknown[], root?: string }
     watch?: Array<string | RegExp>
   }
+}
+
+type NuxtPrepareTypesConfig = {
+  include?: string[]
+}
+
+type NuxtPrepareTypesContext = {
+  references: { path: string }[]
+  sharedTsConfig?: NuxtPrepareTypesConfig
+  serverTsConfig?: NuxtPrepareTypesConfig
 }
 
 interface ResolvedDatabaseNuxtD1Options {
@@ -141,15 +152,18 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
-    // Code in `shared/` can derive types from tables, so the shared tsconfig needs the generated registry too.
-    if (nuxtOptions.buildDir) {
-      const sharedTsConfig = ensureRecord(ensureRecord(nuxtOptions, "typescript"), "sharedTsConfig")
-      const include = Array.isArray(sharedTsConfig.include) ? sharedTsConfig.include : []
-      sharedTsConfig.include = [...new Set([...include, relative(nuxtOptions.buildDir, resolve(root, generatedDatabaseTypesFile))])]
-    }
-
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
+      hook("prepare:types", (context) => {
+        const generatedTypes = resolve(root, generatedDatabaseTypesFile)
+        context.references.push({ path: generatedTypes })
+        if (!nuxtOptions.buildDir) return
+        const relativeGeneratedTypes = relative(nuxtOptions.buildDir, generatedTypes)
+        for (const tsConfig of [context.sharedTsConfig, context.serverTsConfig]) {
+          if (!tsConfig) continue
+          tsConfig.include = [...new Set([...(tsConfig.include ?? []), relativeGeneratedTypes])]
+        }
+      })
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
       let closed = false
