@@ -385,15 +385,16 @@ function unwrapAst(node: unknown): unknown {
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
  * `sitemap` or `robots` that is not `false`, or a `seo` value that discovery cannot follow.
  */
-export function inspectContentModule(program: unknown): ContentEntryFeatures {
+export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
   const maybe: ContentEntryFeatures = { collections: true, sitemap: false, robots: false }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
+  const modules = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
   let contentInit: unknown
   let contentLocal: string | undefined
   for (const statement of body) {
-    if (statement.type === "ImportDeclaration" && isAstNode(statement.source) && contentModules.has(String(statement.source.value))) {
+    if (statement.type === "ImportDeclaration" && isAstNode(statement.source) && modules.has(String(statement.source.value))) {
       for (const specifier of astNodes(statement.specifiers)) {
         if (specifier.type === "ImportSpecifier" && astName(specifier.imported) === "defineContent") {
           const local = astName(specifier.local)
@@ -463,11 +464,11 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
 }
 
 /** Read what the Content module defines without running it. A file that does not parse counts as defining everything. */
-export async function inspectContentEntry(file: string): Promise<ContentEntryFeatures> {
+export async function inspectContentEntry(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
   // `vite` is an optional peer. Content discovery runs inside Vite, so it is installed there.
   const { parseAst } = await import("vite")
   try {
-    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }))
+    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
   }
   catch {
     // The runtime reports the syntax error.
@@ -497,7 +498,7 @@ async function writeContentArtifact(
   ].join("\n"))
   const handlers: GeneratedSourceHandler[] = [{ handler: output, route: "/api/content/**" }]
   // `defineContent({ seo: { sitemap, robots } })` adds the site-wide SEO routes.
-  const features = await inspectContentEntry(file)
+  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
   for (const [enabled, path, helper, route] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
     [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],
