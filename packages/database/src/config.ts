@@ -47,6 +47,10 @@ export function serializeGeneratedRegistry(value: unknown): string {
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
+function isLineTerminator(char: string): boolean {
+  return char === "\n" || char === "\r" || char === "\u2028" || char === "\u2029"
+}
+
 function readDefinitionObjectBody(file: string) {
   const source = readFileSync(file, "utf8")
   const maskedSource = maskCommentsAndStrings(source)
@@ -211,9 +215,13 @@ function maskCommentsAndStrings(source: string) {
     else if (char === "/" && next === "/") {
       result += "  "
       index++
-      while (index + 1 < source.length && source[index + 1] !== "\n") {
+      while (index + 1 < source.length && !isLineTerminator(source[index + 1]!)) {
         result += " "
         index++
+      }
+      if (index + 1 < source.length && isLineTerminator(source[index + 1]!)) {
+        index++
+        result += source[index]!
       }
     }
     else if (char === "/" && next === "*") {
@@ -237,7 +245,9 @@ function maskCommentsAndStrings(source: string) {
 
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
-  return match?.[1] || match?.[2] || match?.[3]
+  if (match?.[1]) return match[1]
+  if (match?.[2]) return readStaticStringLiteral(match[0].trim().slice(0, -1).trim())
+  if (match?.[3]) return readStaticStringLiteral(match[0].trim().replace(/^\[\s*/, "").replace(/\s*\](?::|$)/, ""))
 }
 
 function readEntryValue(entry: string): string | undefined {
