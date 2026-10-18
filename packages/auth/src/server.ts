@@ -476,11 +476,10 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           if (Object.getOwnPropertyDescriptor(parent, "getReader")) return
           parent = Object.getPrototypeOf(parent)
         }
-        // The host bridge invokes only the captured host intrinsics. Foreign
-        // streams are normalized through the host Response boundary below;
-        // never cache or invoke methods obtained from a caller-controlled
-        // foreign prototype.
-        if (constructor === ReadableStream && typeof descriptor.value === "function") {
+        // Probe and capture the source runtime's native reader methods. This
+        // supports genuine streams from another realm while rejecting
+        // caller-provided lookalikes through the native brand probes below.
+        if (typeof descriptor.value === "function") {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.

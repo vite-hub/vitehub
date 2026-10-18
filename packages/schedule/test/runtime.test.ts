@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 
-import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
+import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineSchedule, defineScheduleTarget, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
 import { schedules, createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
