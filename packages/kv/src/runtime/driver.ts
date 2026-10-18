@@ -62,7 +62,7 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): KVRu
     if (driverPromise) return driverPromise
     const pending = (async () => {
       const runtime = resolveRuntimeKVOptions(config)
-      if (!runtime) throw kvErrorDiagnostics.KV_R0002({ message: "KV runtime is disabled." })
+      if (!runtime) throw kvErrorDiagnostics.KV_DISABLED()
       return createRuntimeDriver(runtime.store)
     })()
     driverPromise = pending

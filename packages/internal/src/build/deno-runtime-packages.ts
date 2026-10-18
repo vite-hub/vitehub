@@ -758,31 +758,25 @@ interface RuntimePackageJson {
 
 function parseRuntimePackageJson(source: string): RuntimePackageJson {
   const value: unknown = JSON.parse(source)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for untrusted JSON input.
   if (!value || typeof value !== "object" || Array.isArray(value)) throw internalErrorDiagnostics.INTERNAL_B0016({ message: "Expected package.json to contain an object." })
   // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
   const record = value as Record<string, unknown>
   const stringList = (key: string): string[] | undefined => {
     const property = record[key]
     if (property === undefined) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package platform constraints accept either one string or an array of strings.
     if (typeof property === "string") return [property]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every unknown package.json array item before returning it.
     if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0017({ message: `Expected package.json ${key} to contain strings.` })
     return property
   }
   const stringRecord = (key: string): Record<string, string> | undefined => {
     const property = record[key]
     if (property === undefined) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates the unknown package.json record and each value before returning it.
     if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0018({ message: `Expected package.json ${key} to contain string values.` })
     // SAFETY: The preceding validation proves every property value is a string.
     return property as Record<string, string>
   }
   const peerMeta = record.peerDependenciesMeta
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for unknown peer metadata.
   if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw internalErrorDiagnostics.INTERNAL_B0019({ message: "Expected package.json peerDependenciesMeta to contain an object." })
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown name field.
   if (record.name !== undefined && typeof record.name !== "string") throw internalErrorDiagnostics.INTERNAL_B0020({ message: "Expected package.json name to contain a string." })
   return {
     cpu: stringList("cpu"),
@@ -794,7 +788,6 @@ function parseRuntimePackageJson(source: string): RuntimePackageJson {
     peerDependencies: stringRecord("peerDependencies"),
     // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
     peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown version field.
     version: typeof record.version === "string" ? record.version : undefined,
   }
 }

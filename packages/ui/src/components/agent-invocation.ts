@@ -1,6 +1,6 @@
 import { channelIcon } from "../internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "../internal/invocation-brand.ts";
-import { useMounted, useNow } from "@vueuse/core";
+import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -1210,11 +1210,10 @@ function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
   showCapabilities: boolean,
+  showSources: boolean,
   selectTool: (name: string) => void,
-  showSources = true,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
   const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
   const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
@@ -1466,7 +1465,7 @@ export const AgentInvocation = defineComponent({
     const conversation = computed(() => buildInvocationConversation(activities.value));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const mounted = useMounted();
-    const now = useNow({ interval: 60_000 });
+    const now = useNow({ scheduler: (tick) => useIntervalFn(tick, 60_000) });
     const liveNow = ref<Date>();
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
@@ -1627,10 +1626,10 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
-    showSources: { default: true, type: Boolean },
     showCapabilities: { default: false, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
+    showSources: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1780,7 +1779,7 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
-                h("div", [h("dt", "Messages (including collapsed)"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
                 totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
@@ -1807,7 +1806,8 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
+
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

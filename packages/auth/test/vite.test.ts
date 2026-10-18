@@ -379,6 +379,66 @@ describe("hubAuth", () => {
     }
   })
 
+  it("preserves commas inside quoted cookie values without getSetCookie", async () => {
+    const root = await createWorkspaceTempProject()
+    await writeAuth(root)
+    const authResponse = new Response("Portable policy response", {
+      status: 409,
+      headers: { "set-cookie": 'a="hello, b=1"; Path=/, c=2' },
+    })
+    Object.defineProperty(authResponse.headers, "getSetCookie", { value: undefined })
+    const handler = vi.spyOn(authServer, "getAuthForDefinition").mockReturnValue({
+      handler: async () => authResponse,
+    } as never)
+    const server = await createServer({
+      configFile: false,
+      plugins: [hubAuth()],
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+    try {
+      await server.listen()
+      const address = server.httpServer?.address()
+      if (!address || typeof address === "string") throw new Error("Expected local Auth server address")
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/get-session`)
+      expect(response.headers.getSetCookie()).toEqual(['a="hello, b=1"; Path=/', "c=2"])
+    }
+    finally {
+      handler.mockRestore()
+      await server.close()
+    }
+  })
+
+  it("does not treat quotes in cookie attributes as quoted values", async () => {
+    const root = await createWorkspaceTempProject()
+    await writeAuth(root)
+    const authResponse = new Response("Portable policy response", {
+      status: 409,
+      headers: { "set-cookie": 'a=1; Path=/x"y, b=2' },
+    })
+    Object.defineProperty(authResponse.headers, "getSetCookie", { value: undefined })
+    const handler = vi.spyOn(authServer, "getAuthForDefinition").mockReturnValue({
+      handler: async () => authResponse,
+    } as never)
+    const server = await createServer({
+      configFile: false,
+      plugins: [hubAuth()],
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+    try {
+      await server.listen()
+      const address = server.httpServer?.address()
+      if (!address || typeof address === "string") throw new Error("Expected local Auth server address")
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/get-session`)
+      expect(response.headers.getSetCookie()).toEqual(["a=1; Path=/x\"y", "b=2"])
+    }
+    finally {
+      handler.mockRestore()
+      await server.close()
+    }
+  })
+
   it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {
     const root = await createWorkspaceTempProject()
     await writeAuth(root)
@@ -513,9 +573,8 @@ describe("hubAuth", () => {
       await middleware({ headers: { host: "app.example" }, method: "GET", url: "/api/auth/session" }, target, next)
       expect(next).not.toHaveBeenCalled()
       expect(target.statusCode).toBe(302)
-      expect(target.appendHeader.mock.calls.filter(([key]) => key === "set-cookie")).toEqual(
-        nativeCookies ? cookies.map(cookie => ["set-cookie", cookie]) : [["set-cookie", cookies.join(", ")]],
-      )
+      // Without getSetCookie(), sendWebResponse() splits the combined field at cookie names.
+      expect(target.appendHeader.mock.calls.filter(([key]) => key === "set-cookie")).toEqual(cookies.map(cookie => ["set-cookie", cookie]))
       expect(target.appendHeader).toHaveBeenCalledWith("location", "/app")
       expect(target.write).toHaveBeenCalledWith(Buffer.from("redirect"))
       expect(target.end).toHaveBeenCalledOnce()

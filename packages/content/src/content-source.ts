@@ -39,7 +39,10 @@ const typedArrayTag = Object.getOwnPropertyDescriptor(
   Symbol.toStringTag,
 )!.get!
 
-function normalizeContentSourcePath(path = ""): string {
+function normalizeContentSourcePath(path: unknown = ""): string {
+  if (typeof path !== "string") {
+    throw contentErrorDiagnostics.CONTENT_R0001({ message: "[vitehub] Content Source paths must be strings." })
+  }
   const raw = path.replace(/\\/g, "/")
   const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
   const parts = normalized.split("/").filter(Boolean)
@@ -57,7 +60,8 @@ function normalizeContentSourcePath(path = ""): string {
 }
 
 function contentPath(item: ContentSourceItem): string {
-  return normalizeContentSourcePath(item.path || item.key)
+  const path = "path" in item && item.path !== undefined ? item.path : item.key
+  return normalizeContentSourcePath(path)
 }
 
 function textContent(item: ContentSourceItem): string {
