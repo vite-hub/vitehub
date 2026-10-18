@@ -67,7 +67,7 @@ function scheduleRunAttemptKey(prefix: string, id: string): string {
 }
 
 function runtimeScheduleBase(prefix: string): string {
-  return joinKey(prefix, "runtime-schedules")
+  return `${joinKey(prefix, "runtime-schedules")}/`
 }
 
 function scheduleRunBase(prefix: string): string {
