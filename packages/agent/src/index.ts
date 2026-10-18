@@ -8383,7 +8383,9 @@ async function executeAgentInvocation<
     ? AbortSignal.any([input.abortSignal, executionBudget.signal])
     : executionBudget.signal
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
-  input = { ...input, abortSignal: budgetAbortSignal }
+  const budgetedInput = { ...input, abortSignal: budgetAbortSignal }
+  transferParsedAgentWorkflowInput(input, budgetedInput)
+  input = budgetedInput
   markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined

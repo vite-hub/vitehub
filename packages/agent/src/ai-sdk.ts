@@ -1303,7 +1303,7 @@ async function createAgent(
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
-    ? aiSdk.wrapLanguageModel({ model: observedModel, middleware: executionBudgetMiddleware(context.executionBudget) })
+    ? aiSdk.wrapLanguageModel({ model: observedModel as never, middleware: executionBudgetMiddleware(context.executionBudget) })
     : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
@@ -1388,7 +1388,7 @@ async function createAgent(
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
   let repairBudgetError: ExecutionBudgetExceededError | undefined
   const guardedModel = hasRuntimeType(observedModel, "object")
-    ? new Proxy(observedModel as object, {
+    ? new Proxy(budgetedModel as object, {
         get(target, property, receiver) {
           const value = Reflect.get(target, property, receiver)
           if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value
@@ -1470,7 +1470,6 @@ async function createAgent(
             context.executionBudget?.recordRetry()
             // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
             // Structured-output repair is an additional model attempt owned by ViteHub.
-            context.executionBudget?.recordRetry()
             repairResult = asUnknownBoundary(await repairAgent.generate({
               ...repairCallInput,
               ...("options" in resolvedCallInput ? { options: resolvedCallInput.options } : {}),
