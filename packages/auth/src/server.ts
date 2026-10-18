@@ -311,6 +311,17 @@ const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
 const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+const nativeUint8ArraySlice = Uint8Array.prototype.slice
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    Reflect.apply(nativeUint8ArraySlice, value, [0, 0])
+    return Object.prototype.toString.call(value) === "[object Uint8Array]"
+  }
+  catch {
+    return false
+  }
+}
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   return value === nativeReaderMethods[key]
 }
@@ -643,7 +654,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           controller.close()
         }
         else {
-          if (!ArrayBuffer.isView(result.value) || Object.prototype.toString.call(result.value) !== "[object Uint8Array]") throw new TypeError("Authorization response body yielded a non-byte chunk")
+          if (!isIntrinsicUint8Array(result.value)) throw new TypeError("Authorization response body yielded a non-byte chunk")
           controller.enqueue(result.value)
         }
       }
@@ -752,7 +763,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
-    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    // Preserve same-runtime Responses by identity, including bodies that are
+    // intentionally locked by an outstanding reader. The intrinsic bodyUsed
+    // checks above still reject consumed responses before this fast path.
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     // A genuine stream from an arbitrary realm cannot safely donate its
     // reader methods across the boundary. The platform Response constructor
     // performs the source-runtime brand check and creates a host stream whose

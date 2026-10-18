@@ -587,9 +587,15 @@ export async function resolveAgentUsageRecordDuringStream(value: unknown, run?: 
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
+  const usage = usageMetadataValue(value, "usage") ?? usageMetadataValue(value, "totalUsage")
+  if (usage !== undefined) {
+    return usageRecordFromUsage(await resolveUsageValue(usage), value, undefined, run)
+  }
+  const raw = usageMetadataValue(value, "raw")
+  if (!isRecord(raw)) return
   return usageRecordFromUsage(
-    await resolveUsageValue(usageMetadataValue(value, "usage") ?? usageMetadataValue(value, "totalUsage")),
-    value,
+    await resolveUsageValue(usageMetadataValue(raw, "usage") ?? usageMetadataValue(raw, "totalUsage")),
+    raw,
     undefined,
     run,
   )
