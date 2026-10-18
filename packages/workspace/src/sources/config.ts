@@ -1,4 +1,3 @@
-import { defu } from "defu"
 import { createHash } from "node:crypto"
 
 import { workspaceError } from "../core/errors.ts"
@@ -214,7 +213,11 @@ function normalizeSourceMount(source: WorkspaceSource) {
 function normalizeSourceCache(source: Pick<WorkspaceSource, "cache">): false | WorkspaceCacheOptions | undefined {
   const cache = ownSourceOption(source, "cache")
   if (cache === false) return false
-  if (cache) return defu(cache, {})
+  if (cache) {
+    const normalized: WorkspaceCacheOptions = {}
+    if (Object.hasOwn(cache, "maxAge")) normalized.maxAge = cache.maxAge
+    return normalized
+  }
 }
 
 function normalizeSourceSync(sync: WorkspaceSource["sync"]): false | WorkspaceSourceSyncPolicy {

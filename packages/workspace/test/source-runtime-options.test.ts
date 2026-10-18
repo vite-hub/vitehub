@@ -104,6 +104,16 @@ describe("Workspace Source runtime options", () => {
     expect(fetch(options as never)).toMatchObject({ materialize: "lazy", sync: undefined })
   })
 
+  it("ignores inherited cache fields", () => {
+    const cache = Object.assign(Object.create({ maxAge: 60 }), {})
+    const source: WorkspaceSource = {
+      async getKeys() { return [] },
+      async getItem(key) { return { content: "", key } },
+      cache,
+    }
+    expect(normalizeWorkspaceSource("docs", source).cache).toEqual({})
+  })
+
   it("preserves non-runtime fetch options outside enumerable own properties", () => {
     const prototype = { url: "https://status.example.com/health" }
     const options = Object.create(prototype)
