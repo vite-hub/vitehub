@@ -20,13 +20,20 @@ async function validateExecutable(path: string): Promise<void> {
     const file = await open(path, "r");
     const buffer = Buffer.alloc(256);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0).finally(() => file.close());
-    const header = buffer.subarray(0, bytesRead).toString("utf8");
-    if (!header.startsWith("#!")) {
-      const bytes = Buffer.from(header);
+    const bytes = buffer.subarray(0, bytesRead);
+    const header = bytes.toString("utf8");
+    if (!(bytes[0] === 0x23 && bytes[1] === 0x21)) {
       const elf = bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46;
-      const macho = (bytes[0] === 0xfe && bytes[1] === 0xed && (bytes[2] === 0xfa || bytes[2] === 0xfb))
-        || (bytes[0] === 0xca && bytes[1] === 0xfe && bytes[2] === 0xba && bytes[3] === 0xbe)
-        || (bytes[0] === 0xcf && bytes[1] === 0xfa && bytes[2] === 0xed && bytes[3] === 0xfe);
+      const macho = [
+        [0xfe, 0xed, 0xfa, 0xce], // MH_MAGIC
+        [0xce, 0xfa, 0xed, 0xfe], // MH_CIGAM
+        [0xfe, 0xed, 0xfa, 0xcf], // MH_MAGIC_64
+        [0xcf, 0xfa, 0xed, 0xfe], // MH_CIGAM_64
+        [0xca, 0xfe, 0xba, 0xbe], // FAT_MAGIC
+        [0xbe, 0xba, 0xfe, 0xca], // FAT_CIGAM
+        [0xca, 0xfe, 0xba, 0xbf], // FAT_MAGIC_64
+        [0xbf, 0xba, 0xfe, 0xca], // FAT_CIGAM_64
+      ].some(magic => magic.every((byte, index) => bytes[index] === byte));
       if (!elf && !macho) {
         throw new Error(`Executable has no interpreter: ${path}`);
       }
