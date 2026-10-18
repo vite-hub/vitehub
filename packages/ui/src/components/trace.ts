@@ -11,8 +11,8 @@ export const TraceLine = defineComponent({
   props: {
     status: { type: String as PropType<TraceLineStatus> },
   },
-  setup(props, { slots }) {
-    return () => h("span", { "data-slot": "trace-line", "data-status": props.status }, slots.default?.());
+  setup(props, { attrs, slots }) {
+    return () => h("span", { ...attrs, "data-slot": "trace-line", "data-status": props.status }, slots.default?.());
   },
 });
 
@@ -28,11 +28,12 @@ export const TraceCollapsible = defineComponent({
     open: { default: undefined, type: Boolean },
   },
   emits: { "update:open": (_open: boolean) => true },
-  setup(props, { emit, slots }) {
+  setup(props, { attrs, emit, slots }) {
     return () =>
       h(
         CollapsibleRoot,
         {
+          ...attrs,
           "data-slot": "trace-collapsible",
           defaultOpen: props.defaultOpen,
           open: props.open,
@@ -52,11 +53,11 @@ const chevron = () =>
 
 export const TraceCollapsibleTrigger = defineComponent({
   name: "TraceCollapsibleTrigger",
-  setup(_props, { slots }) {
+  setup(_props, { attrs, slots }) {
     const rootContext = injectCollapsibleRootContext();
     rootContext.contentId ||= useId();
     return () =>
-      h(CollapsibleTrigger, { "data-slot": "trace-collapsible-trigger" }, {
+      h(CollapsibleTrigger, { ...attrs, "data-slot": "trace-collapsible-trigger" }, {
         default: () => [slots.default?.(), chevron()],
       });
   },
