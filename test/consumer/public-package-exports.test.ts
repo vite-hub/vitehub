@@ -406,7 +406,11 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    const workspaceDependencies = new Set<string>()
+    // Keep every packed first-party package available in the isolated fixture.
+    // Packed manifests can gain runtime edges during the build (for example,
+    // Agent's Forge adapter), so walking source manifests alone can omit a
+    // tarball that pnpm must resolve while installing a dependency closure.
+    const workspaceDependencies = new Set(Object.keys(specs))
     const pending = [info.packageName]
     while (pending.length) {
       const packageName = pending.pop()!
