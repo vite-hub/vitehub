@@ -1224,13 +1224,13 @@ describe("realtime transport boundaries", () => {
 })
 
 describe("realtime Workspace documents", () => {
-  it("destroys a document when stored durable state cannot be restored", () => {
+  it("destroys a document when stored durable state cannot be restored", async () => {
     const destroy = vi.spyOn(Y.Doc.prototype, "destroy")
 
-    expect(() => restoreRealtimeDocument("", "baseline", {
+    await expect(restoreRealtimeDocument("", "baseline", {
       baseline_digest: "baseline",
       update_blob: new Uint8Array([255]).buffer,
-    })).toThrow()
+    })).rejects.toThrow()
     expect(destroy).toHaveBeenCalledOnce()
   })
 
