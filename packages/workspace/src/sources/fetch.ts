@@ -200,7 +200,20 @@ const fetchRuntimeOptionKeys = ["cache", "materialize", "probeKeys", "sync"] as 
 
 function normalizeFetchSourceOptions<TResponse, TOutput>(options: FetchSourceOptions<TResponse, TOutput>) {
   const normalized = Object.create(Object.getPrototypeOf(options)) as FetchSourceOptions<TResponse, TOutput>
-  Object.defineProperties(normalized, Object.getOwnPropertyDescriptors(options))
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(options))) {
+    if ("value" in descriptor) {
+      Object.defineProperty(normalized, key, descriptor)
+      continue
+    }
+    // Evaluate accessors against the caller's options object. Defining the
+    // original accessor on `normalized` would change its `this` receiver.
+    Object.defineProperty(normalized, key, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      value: Reflect.get(options, key, options),
+      writable: true,
+    })
+  }
   for (const key of fetchRuntimeOptionKeys) {
     if (!Object.hasOwn(options, key)) {
       Object.defineProperty(normalized, key, { configurable: true, enumerable: true, value: undefined, writable: true })

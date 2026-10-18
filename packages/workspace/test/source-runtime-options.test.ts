@@ -110,4 +110,14 @@ describe("Workspace Source runtime options", () => {
     Object.defineProperty(options, "workspacePath", { value: "health.json", enumerable: false })
     expect(fetch(options as never)).toMatchObject({ materialize: "lazy" })
   })
+
+  it("keeps the original receiver for fetch option getters", () => {
+    const options = {
+      url: "https://status.example.com/health",
+      get workspacePath() {
+        return this.url.endsWith("/health") ? "health.json" : "wrong.json"
+      },
+    }
+    expect(fetch(options)).toMatchObject({ materialize: "lazy" })
+  })
 })
