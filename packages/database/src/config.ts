@@ -338,7 +338,10 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const source = readObjectPropertyValue(body, "source")?.trim()
   const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(stripExpressionComments(source || ""))
   if (!sourceMatch) return
-  const sourceValue = sourceMatch[1]!.trim()
+  // `env.source` accepts options as a second argument. Static discovery only
+  // needs the first argument, which may itself be an array or a literal.
+  const sourceValue = splitTopLevel(sourceMatch[1]!)[0]?.trim()
+  if (!sourceValue) return
   const singleName = readStaticStringLiteral(sourceValue)
   const names = typeof singleName !== "undefined"
     ? [singleName]
