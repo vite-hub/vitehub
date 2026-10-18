@@ -36,8 +36,6 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
-  // Prototype traversal is synchronous and can be intercepted by proxies.
-  const maxPrototypeDepth = 16_384
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -48,9 +46,7 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
-      let depth = 0
       while (prototype !== null) {
-        if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
         // Every ordinary class prototype owns its constructor. A proxy that
@@ -60,6 +56,10 @@ function isRequest(value: unknown): value is Request {
           && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
         if (prototype === Request.prototype) return false
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        // Ordinary class prototypes point their constructor back to themselves.
+        // Fresh proxy-created objects do not, so they fail closed immediately.
+        if (prototype !== value
+          && (typeof constructor !== "function" || constructor.prototype !== prototype)) return false
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof bodyGetter === "function") {
@@ -70,7 +70,7 @@ function isRequest(value: unknown): value is Request {
           const findDescriptor = (name: string): PropertyDescriptor | undefined => {
             let current: object | null = prototype
             const seen = new Set<object>()
-            for (let level = 0; current !== null && level < maxPrototypeDepth; level++) {
+            while (current !== null) {
               if (seen.has(current)) return undefined
               seen.add(current)
               const descriptor = Object.getOwnPropertyDescriptor(current, name)
