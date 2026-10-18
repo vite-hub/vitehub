@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
-import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
-import { schedules, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { defineSchedule, defineScheduleTarget, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
+import { schedules, createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
