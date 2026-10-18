@@ -158,9 +158,8 @@ describe("UI documentation", () => {
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
     expect(rail).toContain("<template #header");
-    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(rail).toContain('{ label: "Projects", to: "/projects"');
-    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("getDocsRailCatalog");
+    expect(rail).toContain("getUncategorizedDocsSections");
     expect(rail).toContain("<template #default");
   });
 
@@ -174,7 +173,8 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
-    expect(sidebarPanel).toContain("vh-docs-aside");
+    expect(sidebarPanel).toContain("vh-docs-sidebars");
+    expect(sidebarPanel).toContain("vh-docs-panel");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
