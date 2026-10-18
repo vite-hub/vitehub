@@ -609,16 +609,16 @@ export async function resolveAgentTriggerInvocation<
   }
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
-  const invokedRun = { ...(context.run || {}), ...(result.run || {}) }
+  const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
   const invoked = withWebhookDeliveryRun({
     ...result,
-    ...(Object.keys(invokedRun).length ? { run: invokedRun } : {}),
+    ...(invokedRun ? { run: invokedRun } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
-  const inheritedRun = { ...(invoked.run || {}) }
+  const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
-    ? { ...(Object.keys(inheritedRun).length ? inheritedRun : { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun.annotations, ...annotations } }
-    : Object.keys(inheritedRun).length ? inheritedRun : undefined
+    ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
+    : inheritedRun
   return resolveAgentTriggerInvocationResult({
     ...invoked,
     ...(run ? { run } : {}),
