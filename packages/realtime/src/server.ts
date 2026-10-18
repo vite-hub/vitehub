@@ -693,8 +693,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
     const storage = storageDescriptor.value
     if (!storage || typeof storage !== "object") return undefined
-    const readNativeSql = (descriptor: PropertyDescriptor): RealtimeRoomSql | undefined => {
-      if ("value" in descriptor) return hasNativeCloudflareSql(descriptor.value) ? descriptor.value : undefined
+    const readNativeSql = (descriptor: PropertyDescriptor, inherited = false): RealtimeRoomSql | undefined => {
+      if ("value" in descriptor) return !inherited && hasNativeCloudflareSql(descriptor.value) ? descriptor.value : undefined
       const getter = descriptor.get
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
@@ -710,7 +710,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     let prototype = Object.getPrototypeOf(storage)
     while (prototype && prototype !== Object.prototype) {
       const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
-      if (sqlDescriptor) return readNativeSql(sqlDescriptor)
+      if (sqlDescriptor) return readNativeSql(sqlDescriptor, true)
       prototype = Object.getPrototypeOf(prototype)
     }
     return undefined

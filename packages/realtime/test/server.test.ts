@@ -916,6 +916,28 @@ describe("realtime server handler", () => {
     )
   })
 
+  it("rejects an inherited data SQL descriptor", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/inherited.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = {
+      cloudflare: {
+        context: { storage: Object.create({ sql: nativeSqlCarrier(exec) }) },
+      },
+    }
+
+    await handler.fetch(request as never)
+
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it("retries room initialization after a Workspace read fails", async () => {
     const stat = vi.fn()
       .mockRejectedValueOnce(new Error("Workspace read failed"))
