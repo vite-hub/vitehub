@@ -1164,6 +1164,11 @@ function isResponseLike(value: unknown): value is Response {
       // own or accessor-backed reader operation is caller-controlled and must
       // not run merely because the response constructor was registered.
       if (!registeredResponse) return false
+      // The instance fallback is an adapter boundary for implementations such
+      // as node-fetch whose stream facade is exposed by a proxy. Reconfirm the
+      // response's intrinsic implementation brand before touching that facade;
+      // a response-shaped generic result must stay on the generic path.
+      if (!isResponse(value)) return false
       const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
       const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
       if (ownLocked || ownReader) return false
