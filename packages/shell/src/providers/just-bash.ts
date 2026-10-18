@@ -80,7 +80,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands,
           cwd,
           networkGrants,
-          signal: execOptions.signal,
+          signal: runOptions.signal,
         })
         if (curlResult) return curlResult
 
@@ -91,12 +91,6 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
-        const timeoutSignal = typeof execOptions.timeout === "number"
-          ? AbortSignal.timeout(execOptions.timeout)
-          : undefined
-        const signal = timeoutSignal && execOptions.signal
-          ? AbortSignal.any([execOptions.signal, timeoutSignal])
-          : timeoutSignal ?? execOptions.signal
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,

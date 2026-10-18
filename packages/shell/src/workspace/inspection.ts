@@ -62,7 +62,7 @@ export async function runWorkspaceInspectionCommand(
     }),
   })
   const cwd = options.cwd || workspaceMountPoint
-  const result = await runtime.exec(command, { budget: options.budget, cwd, timeout, workspacePaths: workspaceSessionPaths(command, cwd) })
+  const result = await runtime.exec(command, { budget: options.budget, cwd, timeout, signal: options.signal, workspacePaths: workspaceSessionPaths(command, cwd) })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   if (!noMatchFeedback) return result

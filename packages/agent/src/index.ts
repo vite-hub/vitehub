@@ -8379,6 +8379,12 @@ async function executeAgentInvocation<
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
   })
+  const budgetAbortSignal = input.abortSignal
+    ? AbortSignal.any([input.abortSignal, executionBudget.signal])
+    : executionBudget.signal
+  const callerAbortSignal = agentInvocationCallerAbortSignal(input)
+  input = { ...input, abortSignal: budgetAbortSignal }
+  markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {

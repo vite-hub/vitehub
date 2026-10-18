@@ -1302,6 +1302,9 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
+    ? aiSdk.wrapLanguageModel({ model: observedModel, middleware: executionBudgetMiddleware(context.executionBudget) })
+    : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1353,7 +1356,7 @@ async function createAgent(
     context: context.context,
     input: context.input,
     invoker: context.invoker,
-    model: observedModel,
+    model: budgetedModel,
     run: context.runtime.run,
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
@@ -1735,8 +1738,25 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       const repairBudgetError = getRepairBudgetError()
       if (repairBudgetError) throw repairBudgetError
+      const propagateRepairBudgetError = <T>(stream: AsyncIterable<T>): AsyncIterable<T> => (async function* () {
+        for await (const part of stream) yield part
+        const error = getRepairBudgetError()
+        if (error) throw error
+      })()
+      const streamWithBudget = result.stream ? propagateRepairBudgetError(result.stream) : undefined
+      const fullStreamWithBudget = result.fullStream
+        ? result.fullStream === result.stream && streamWithBudget
+          ? streamWithBudget
+          : propagateRepairBudgetError(result.fullStream)
+        : undefined
+      const budgetedResult = streamWithBudget || fullStreamWithBudget
+        ? cloneStreamTextResult(result, {
+            ...(streamWithBudget ? { stream: streamWithBudget } : {}),
+            ...(fullStreamWithBudget ? { fullStream: fullStreamWithBudget } : {}),
+          })
+        : result
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
+      return withWorkspaceFallbackStreamResult(budgetedResult, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
 }
