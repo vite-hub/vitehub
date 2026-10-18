@@ -1,4 +1,4 @@
-import { defineErrors } from "@vite-hub/runtime"
+import { defineErrors, type ErrorCatalog } from "@vite-hub/runtime"
 
 const connect = (connection: string) => `Run \`vitehub connections connect ${connection}\`.`
 
@@ -213,7 +213,7 @@ const codes = {
   },
 }
 
-export const connectionsErrorDiagnostics = /*#__PURE__*/ defineErrors({ docs, codes })
+export const connectionsErrorDiagnostics: ErrorCatalog<typeof codes> = /*#__PURE__*/ defineErrors({ docs, codes })
 
 /** Repair guidance of a code, for HTTP bodies that do not carry the error object. */
 export function connectionsErrorGuidance(code: string): { docs: string, fix: string } | undefined {
