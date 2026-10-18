@@ -159,7 +159,7 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
   const normalized: NormalizedQuery = { empty: [], filters: Object.create(null), search: "" }
-  for (const [key, value] of Object.entries(query)) {
+  for (const [key, value] of Object.entries(query).sort(([a], [b]) => a.localeCompare(b))) {
     if (value === undefined || value === null) continue
     if (key === "search") {
       normalized.search = String(value).trim().toLocaleLowerCase()

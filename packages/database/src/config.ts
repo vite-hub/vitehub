@@ -120,7 +120,7 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
+  const fallbackParts = splitLogicalExpression(expression)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
     if (envName) return createRuntimeEnvConfigValue([envName])
@@ -134,6 +134,34 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
     const staticFallback = readStaticStringLiteral(fallback)
     if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([envName], staticFallback)
   }
+}
+
+function splitLogicalExpression(expression: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let quote: string | undefined
+  let escaped = false
+  for (let index = 0; index < expression.length - 1; index++) {
+    const char = expression[index]!
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    const next = expression[index + 1]!
+    if ((char === "|" && next === "|") || (char === "?" && next === "?")) {
+      parts.push(expression.slice(start, index).trim())
+      start = index + 2
+      index++
+    }
+  }
+  parts.push(expression.slice(start).trim())
+  return parts
 }
 
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
