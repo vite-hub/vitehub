@@ -295,7 +295,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   assertRuntimeExecuteOptionsObject(runtimeOptions)
   assertRuntimeScheduleId(runtimeOptions.id)
   const id = runtimeOptions.id
-  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt)
+  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", id, scheduledAt))

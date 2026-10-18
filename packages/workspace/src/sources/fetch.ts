@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
@@ -23,25 +22,25 @@ import type {
 } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
-type FetchSourceMethod = "GET" | "HEAD" | "POST"
-type FetchSourceResponseType = "json" | "text"
+export type FetchSourceMethod = "GET" | "HEAD" | "POST"
+export type FetchSourceResponseType = "json" | "text"
 
-interface FetchSourceStandardSchemaResultSuccess<T = unknown> {
+export interface FetchSourceStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
 }
 
-interface FetchSourceStandardSchemaResultFailure {
+export interface FetchSourceStandardSchemaResultFailure {
   issues: readonly unknown[]
 }
 
-interface FetchSourceStandardSchemaV1<T = unknown> {
+export interface FetchSourceStandardSchemaV1<T = unknown> {
   "~standard": {
     validate: (input: unknown) => FetchSourceStandardSchemaResultSuccess<T> | FetchSourceStandardSchemaResultFailure | Promise<FetchSourceStandardSchemaResultSuccess<T> | FetchSourceStandardSchemaResultFailure>
   }
 }
 
-interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourceStandardSchemaV1<T> {
+export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourceStandardSchemaV1<T> {
   "~standard": FetchSourceStandardSchemaV1<T>["~standard"] & {
     jsonSchema: {
       input: (options?: { target?: string }) => Record<string, unknown>
@@ -52,7 +51,7 @@ interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourceStanda
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "probeKeys" | "sync">
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
-interface FetchSourceCredentialOptions {
+export interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
   headers?: Record<string, string>
   maxResponseBytes?: number
@@ -61,7 +60,7 @@ interface FetchSourceCredentialOptions {
 
 export type FetchSourceRequestOptions = FetchSourceCredentialOptions
 
-interface FetchSourceRequestCallbackContext {
+export interface FetchSourceRequestCallbackContext {
   request: {
     body?: unknown
     hasBody: boolean
@@ -227,11 +226,13 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    : hasRuntimeType(method, "string")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can bypass the method union; reject non-string values before calling toUpperCase.
+    : typeof method === "string"
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    const label = hasRuntimeType(method, "string") ? method : typeof method
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report invalid JavaScript inputs without calling their custom string conversion.
+    const label = typeof method === "string" ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
@@ -477,7 +478,9 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
+  if (isWorkspaceBytes(value)) {
+    return value instanceof Uint8Array ? value : Uint8Array.from(value)
+  }
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)
