@@ -635,31 +635,37 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
-        if (typeof result?.done !== "boolean") throw new Error("Malformed authorization response reader result")
-        if (result.done) {
+  try {
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+          if (typeof result?.done !== "boolean") throw new Error("Malformed authorization response reader result")
+          if (result.done) {
+            release()
+            controller.close()
+          } else if (!result.value || !ArrayBuffer.isView(result.value) || result.value.BYTES_PER_ELEMENT !== 1) {
+            throw new Error("Malformed authorization response reader chunk")
+          } else controller.enqueue(result.value)
+        }
+        catch (error) {
           release()
-          controller.close()
-        } else if (!result.value || !ArrayBuffer.isView(result.value) || result.value.BYTES_PER_ELEMENT !== 1) {
-          throw new Error("Malformed authorization response reader chunk")
-        } else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        const sourceReader = reader ?? await acquire()
-        await Reflect.apply(cancel!, sourceReader, [reason])
-      } finally { release() }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
+          controller.error(error)
+        }
+      },
+      async cancel(reason) {
+        try {
+          const sourceReader = reader ?? await acquire()
+          await Reflect.apply(cancel!, sourceReader, [reason])
+        } finally { release() }
+      },
+    }, { highWaterMark: 0 })
+    return { stream, release }
+  }
+  catch (error) {
+    release()
+    throw error
+  }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
