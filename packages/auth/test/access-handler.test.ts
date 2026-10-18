@@ -63,6 +63,15 @@ describe("Auth access handlers", () => {
     expect(provider.betterAuth).not.toHaveBeenCalled()
   })
 
+  it("matches root recursive access routes at the application root", async () => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => true }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/private")))?.status).toBe(401)
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(401)
+  })
+
   it("requires every overlapping authorization rule using one Definition snapshot", async () => {
     const first = vi.fn(() => true)
     const second = vi.fn(() => false)
