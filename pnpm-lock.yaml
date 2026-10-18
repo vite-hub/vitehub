@@ -85,7 +85,7 @@ catalogs:
       specifier: ^1.4.4
       version: 1.4.4
     '@t3tools/provider-runtime':
-      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
       version: 0.0.33
     '@types/proper-lockfile':
       specifier: 4.1.4
@@ -730,7 +730,7 @@ importers:
         version: 1.1.0
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -1709,7 +1709,7 @@ importers:
         version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
@@ -8454,14 +8454,14 @@ packages:
   '@swc/types@0.1.28':
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca':
+    resolution: {integrity: sha512-O4vQ+ZsHBiWMkhD9yOKsL7aiz+Jhl4yXdMw7ZgxZ3Fev2V6gFxE0sF6o92EzuQLHrM/xzVy2/nadjQkVGka5nQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.45
     peerDependencies:
-      effect: 4.0.1
+      effect: 4.0.5
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-qWamVmsJdHUz9sEl62S5nFkqP/w5Oc+ZzBZdgtaPNr3M1z3/bXccXkOmivp0LkF4TDHIAzFCoehstFD9S/MQ5A==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822}
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca':
+    resolution: {integrity: sha512-Sbe2Ugm2px69IZ5VgRV1at4zZZt5GJPj1JfrGBYkMU6IhtMREso2cGx4bCIYY/Zf6HycTENmihU4vymw7EjPRg==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
@@ -11232,9 +11232,6 @@ packages:
 
   effect@3.17.7:
     resolution: {integrity: sha512-dpt0ONUn3zzAuul6k4nC/coTTw27AL5nhkORXgTi6NfMPzqWYa1M05oKmOMTxpVSTKepqXVcW9vIwkuaaqx9zA==}
-
-  effect@4.0.1:
-    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
 
   effect@4.0.5:
     resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==}
@@ -24873,14 +24870,14 @@ snapshots:
     dependencies:
       '@swc/counter': 0.1.3
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822(effect@4.0.1)':
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca(effect@4.0.5)':
     dependencies:
-      effect: 4.0.1
+      effect: 4.0.5
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822':
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca':
     dependencies:
-      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822(effect@4.0.1)
-      effect: 4.0.1
+      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca(effect@4.0.5)
+      effect: 4.0.5
 
   '@tailwindcss/node@4.3.3':
     dependencies:
@@ -28469,8 +28466,6 @@ snapshots:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 3.23.2
-
-  effect@4.0.1: {}
 
   effect@4.0.5: {}
 

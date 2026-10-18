@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   docsManifest,
+  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
