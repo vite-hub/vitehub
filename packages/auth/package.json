@@ -77,8 +77,7 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^5.20261016.1",
-    "@types/node": "catalog:tooling",
+    "@cloudflare/workers-types": "^5.20261003.1",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
@@ -90,7 +89,6 @@
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
-    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

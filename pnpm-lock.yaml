@@ -909,11 +909,8 @@ importers:
   packages/auth:
     dependencies:
       '@cloudflare/workers-types':
-        specifier: ^5.20261016.1
+        specifier: ^5.20261003.1
         version: 5.20261016.1
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.2
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -924,7 +921,7 @@ importers:
         specifier: catalog:auth
         version: 1.7.10(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261016.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@5.0.5)(vue@3.5.44(typescript@6.0.3))
       bun-types:
-        specifier: ^1.4.3
+        specifier: ^1.4.2
         version: 1.4.3
       nostics:
         specifier: catalog:runtime

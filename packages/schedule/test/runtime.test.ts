@@ -289,6 +289,80 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
   it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
     const scheduledAt = new Date("2026-05-23T10:00:00.000Z")
     const run = await executeStaticSchedule({
