@@ -539,7 +539,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
-      if (/,\s*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      const cookiePair = /,\s*[^;=,\s]+\s*=/.exec(combinedCookies)
+      if (cookiePair) {
+        const prefix = combinedCookies.slice(0, cookiePair.index)
+        const knownAttribute = /(?:^|;)\s*(?:expires|max-age|domain|path|secure|httponly|samesite|partitioned)\s*=/i.test(prefix)
+        if (!prefix.includes(";") || knownAttribute) return
+      }
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
@@ -635,7 +640,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -655,10 +660,10 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {
