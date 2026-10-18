@@ -367,21 +367,36 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 }
 
 function streamIntrinsics(body: object) {
-  const streamPrototype = Object.getPrototypeOf(body)
-  const locked = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "locked")?.get
-  const getReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
-  if (typeof locked !== "function" || typeof getReader !== "function") return
+  let prototype: object | null = Object.getPrototypeOf(body)
+  let locked: ((this: object) => boolean) | undefined
+  let intrinsicPrototype: object | null = null
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++, prototype = Object.getPrototypeOf(prototype)) {
+    const candidate = Object.getOwnPropertyDescriptor(prototype, "locked")?.get as typeof locked
+    if (typeof candidate === "function") {
+      locked = candidate
+      intrinsicPrototype = prototype
+      break
+    }
+  }
+  if (!locked || !intrinsicPrototype) return
+  let getReader: ((this: object) => unknown) | undefined
+  for (let depth = 0; intrinsicPrototype && depth < authorizationResponsePrototypeLimit; depth++, intrinsicPrototype = Object.getPrototypeOf(intrinsicPrototype)) {
+    getReader = Object.getOwnPropertyDescriptor(intrinsicPrototype, "getReader")?.value as typeof getReader
+    if (typeof getReader === "function") break
+  }
+  if (typeof getReader !== "function") return
   let reader: object
-  try {
-    reader = Object(Reflect.apply(getReader, body, []))
+  try { reader = Object(Reflect.apply(getReader, body, [])) } catch { return }
+  let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  let read: ((this: object) => Promise<unknown>) | undefined
+  let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
+  let releaseLock: ((this: object) => void) | undefined
+  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
+    if (!read) read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as typeof read
+    if (!cancel) cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as typeof cancel
+    if (!releaseLock) releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
+    if (read && cancel && releaseLock) break
   }
-  catch {
-    return
-  }
-  const readerPrototype = Object.getPrototypeOf(reader)
-  const read = readerPrototype && Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value
-  const cancel = readerPrototype && Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value
-  const releaseLock = readerPrototype && Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return
   return { locked, getReader, read, cancel, releaseLock }
 }
