@@ -505,13 +505,21 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       }
       normalizedHeaders.append(key, value)
     }])
-    // Preserve cookies exposed by the validated enumeration method. A comma
-    // followed by another cookie assignment at the cookie-pair boundary proves that
-    // multiple values were merged. Assignment-like text after an extension attribute
-    // can still be part of that attribute's value, so do not reject it as a merge.
+    // Preserve cookies exposed by the validated enumeration method. Some foreign
+    // Headers implementations combine duplicate Set-Cookie fields into one value;
+    // split only at commas that begin another cookie-pair, leaving commas in
+    // Expires attributes untouched.
     for (const cookie of cookieValues) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(cookie)) return
-      normalizedHeaders.append("set-cookie", cookie)
+      const parts: string[] = []
+      let start = 0
+      const boundary = /,[\s]*(?=[^;,=\s]+\s*=)/g
+      for (const match of cookie.matchAll(boundary)) {
+        const index = match.index
+        parts.push(cookie.slice(start, index))
+        start = index + match[0].length
+      }
+      parts.push(cookie.slice(start))
+      for (const part of parts) normalizedHeaders.append("set-cookie", part)
     }
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
