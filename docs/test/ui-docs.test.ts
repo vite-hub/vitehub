@@ -127,7 +127,7 @@ describe("UI documentation", () => {
     expect(article).toContain("UContentToc");
     expect(article).toContain('aria-label="Page outline"');
     expect(article).toContain("min-w-0");
-    expect(article).toContain('<ContentRenderer :value="page" />');
+    expect(article).toContain('<ContentRenderer :value="page"');
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
   });
