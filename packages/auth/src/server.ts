@@ -369,26 +369,26 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
-async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  const targets = new Set<object>([Response.prototype])
+async function responseImplementation(value: unknown): Promise<typeof Response | undefined> {
+  const implementations = [Response]
   const UndiciResponse = await getUndiciResponse()
-  if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  if (UndiciResponse && UndiciResponse !== Response) implementations.push(UndiciResponse)
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true
-      if (seen.has(current)) return false
+      const implementation = implementations.find(candidate => candidate.prototype === current)
+      if (implementation) return implementation
+      if (seen.has(current)) return
       seen.add(current)
       current = Object.getPrototypeOf(current)
     }
-    return false
+    return
   }
   catch {
-    return false
+    return
   }
 }
-
 
 function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: unknown, owner: object } | undefined {
   let current: object | null = body
@@ -602,7 +602,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!await hasResponsePrototype(candidate)) return
+    const responseImplementationConstructor = await responseImplementation(candidate)
+    if (!responseImplementationConstructor) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -611,12 +612,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     const type: unknown = Reflect.get(candidate, "type")
     let nativeResponseState = false
-    if (value instanceof Response) {
+    if (responseImplementationConstructor) {
       try {
+        const responsePrototype = responseImplementationConstructor.prototype
         const responseGetters = ["status", "statusText", "headers", "body", "bodyUsed", "type"] as const
         const responseValues = [status, statusText, headers, body, bodyUsed, type]
         nativeResponseState = responseGetters.every((key, index) => {
-          const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+          const getter = Object.getOwnPropertyDescriptor(responsePrototype, key)?.get
           return getter !== undefined && Reflect.apply(getter, candidate, []) === responseValues[index]
         })
       }
@@ -628,7 +630,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // applying ordinary HTTP status validation; reconstructing it with Response
     // would reject status 0 and lose its error type.
     if (status === 0 && statusText === "" && body === null && type === "error" && nativeResponseState) {
-      return value instanceof Response ? value as Response : Response.error()
+      return responseImplementationConstructor === Response ? value as Response : Response.error()
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
