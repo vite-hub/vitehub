@@ -180,6 +180,7 @@ describe("Console access policies", () => {
   })
 
   it("keeps the local development Console open and fails closed in production", async () => {
+    vi.stubEnv("NODE_ENV", "development")
     const allowed = await run({ mode: "local" })
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
