@@ -406,6 +406,19 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
+    const workspaceDependencies = new Set<string>()
+    const pending = [info.packageName]
+    while (pending.length) {
+      const packageName = pending.pop()!
+      if (workspaceDependencies.has(packageName)) continue
+      workspaceDependencies.add(packageName)
+      const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
+      if (!dependencyInfo) continue
+      const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
+      for (const dependency of Object.keys(dependencyManifest.dependencies || {})) {
+        if (specs[dependency]) pending.push(dependency)
+      }
+    }
     await mkdir(appDir, { recursive: true })
     await Promise.all([
       writeFile(join(appDir, ".npmrc"), [
@@ -422,6 +435,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         devDependencies: Object.fromEntries([
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
+          ...workspaceDependencies,
         ].map(name => {
           // SAFETY: requiredPeerVersions covers every required peer not packed by this contract.
           const spec = specs[name] || requiredPeerVersions[name as keyof typeof requiredPeerVersions]
