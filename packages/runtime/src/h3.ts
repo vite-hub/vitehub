@@ -36,6 +36,9 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
+  // Keep hostile proxies from manufacturing an unbounded stream of fresh
+  // prototypes while leaving ample room for deeply derived Request classes.
+  const maxPrototypeDepth = 1024
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -46,7 +49,9 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
+      let depth = 0
       while (prototype !== null) {
+        if (++depth > maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
         // Every ordinary class prototype, including arbitrarily deep Request
