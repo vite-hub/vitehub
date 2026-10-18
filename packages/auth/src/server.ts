@@ -444,22 +444,30 @@ function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
 ) {
-  // Use the already validated intrinsic method so shadowed stream properties cannot
-  // dispatch caller-controlled code during authorization response normalization.
-  const reader = Reflect.apply(getReader, body, [])
-  const methods = getNativeAuthorizationReaderMethods(reader)
-  if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
-  const { read, cancel, releaseLock } = methods
+  // Defer acquisition until the normalized body is consumed or canceled. This
+  // preserves the source stream's unlocked state for unconsumed responses.
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let methods: ReturnType<typeof getNativeAuthorizationReaderMethods>
+  let initialization: Promise<NonNullable<typeof methods>> | undefined
+  const initialize = () => initialization ??= Promise.resolve().then(() => {
+    const nextReader = Reflect.apply(getReader, body, [])
+    const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
+    if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
+    reader = nextReader
+    methods = nextMethods
+    return nextMethods
+  })
   let released = false
   const release = () => {
-    if (released || !reader || !releaseLock) return
+    if (released || !reader || !methods) return
     released = true
-    Reflect.apply(releaseLock, reader, [])
+    Reflect.apply(methods.releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+        const { read } = await initialize()
+        const result = await Reflect.apply(read, reader!, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
@@ -477,8 +485,10 @@ function bridgeAuthorizationBody(
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
-      } finally { release() }
+        const { cancel } = await initialize()
+        await Reflect.apply(cancel, reader!, [reason])
+      }
+      finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
@@ -531,7 +541,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (body !== null && typeof nativeBodyReader !== "function") return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
