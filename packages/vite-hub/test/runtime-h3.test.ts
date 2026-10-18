@@ -192,6 +192,18 @@ describe("H3 Runtime Context", () => {
     expect(getRuntimeContext({ context: {}, req: request }).request).toBeUndefined()
   })
 
+  it("rejects foreign requests beyond the documented prototype-depth ceiling", () => {
+    const request = new MiniflareRequest("https://example.test")
+    let prototype = Object.getPrototypeOf(request)
+    for (let index = 0; index <= 16_384; index++) {
+      prototype = Object.create(prototype, {
+        constructor: { value: function ForeignRequestSubclass() {} },
+      })
+    }
+    Object.setPrototypeOf(request, prototype)
+    expect(getRuntimeContext(new H3Event(request)).request).toBeUndefined()
+  })
+
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
     const host = { waitUntil: vi.fn() }
     const event = new H3Event(new Request("https://example.test"))
