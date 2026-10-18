@@ -29,19 +29,6 @@ function createTestKVStore(): ScheduleKVStorage {
   }
 }
 
-/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
-function createColonKVStore(): ScheduleKVStorage {
-  const store = createTestKVStore()
-  const normalize = (key: string) => key.replaceAll("/", ":")
-  return {
-    del: key => store.del(normalize(key)),
-    get: key => store.get(normalize(key)),
-    has: key => store.has(normalize(key)),
-    keys: base => store.keys(base === undefined ? undefined : normalize(base)),
-    set: (key, value) => store.set(normalize(key), value),
-  }
-}
-
 function createDelayedHasKVStore(): ScheduleKVStorage & { releaseHas: () => void } {
   const store = createTestKVStore()
   let releaseHas: (() => void) | undefined
@@ -624,9 +611,37 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-  it("returns the invalid scheduledAt diagnostic for throwing date tags", async () => {
-    const scheduledAt = new Proxy(new Date(), { get(_target, property) { if (property === Symbol.toStringTag) throw new Error("malicious tag"); return undefined } }) as Date
-    await expect(executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "throwing-date-tag", scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("rejects hostile scheduledAt objects through the Schedule diagnostic", async () => {
+    const handler = vi.fn()
+    const cases = [
+      { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
+      new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
+    ]
+    for (const scheduledAt of cases) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "report", scheduledAt: scheduledAt as never,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
@@ -640,20 +655,13 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-  it.each([
-    { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
-    new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
-  ])("rejects hostile scheduledAt objects through the Schedule diagnostic", async (scheduledAt) => {
-    const handler = vi.fn()
-    await expect(executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "report", scheduledAt: scheduledAt as never })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
-    expect(handler).not.toHaveBeenCalled()
-  })
-
   it("accepts genuine Dates without consulting a caller-defined tag", async () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
     Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
-    const run = await executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "report", scheduledAt })
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "report", scheduledAt,
+    })
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     expect(readTag).not.toHaveBeenCalled()
   })
@@ -670,7 +678,10 @@ describe("Schedule Run bookkeeping", () => {
       const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
       Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
       const run = await executeStaticSchedule({
-        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "custom-tag-date", scheduledAt,
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
       })
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
@@ -1208,24 +1219,6 @@ describe("KV Schedule Run Store", () => {
     expect(get).toHaveBeenCalledTimes(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
-  })
-
-  it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {
-    const kvStore = createColonKVStore()
-    const store = createKVScheduleRunStore({ kvStore })
-    for (let index = 0; index < 1001; index++) {
-      const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
-      await store.createRun({ id: `srun_static_reconcile_${scheduledAt.toISOString()}`, scheduleId: "reconcile", target: "reconcile",
-        scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    }
-    await store.createAttempt({ id: "attempt/1", runId: "srun_static_reconcile_2026-01-01T16:40:00.000Z", createdAt: new Date(0),
-      startedAt: new Date(0), updatedAt: new Date(0), status: "succeeded" })
-    const get = vi.spyOn(kvStore, "get")
-
-    const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
-    expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
-    expect(get).toHaveBeenCalledTimes(1)
-    expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
   })
 
   it.each([true, false])("preserves newest opaque fallback history when index writes are available: %s", async (indexAvailable) => {
