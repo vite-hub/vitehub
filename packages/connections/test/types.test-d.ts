@@ -5,7 +5,7 @@ import { google } from "../src/google.ts"
 import { useConnection } from "../src/runtime/state.ts"
 
 import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionMethod } from "../src/types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -126,5 +126,22 @@ describe("Connection types", () => {
       provider: google({ clientId: "id", clientSecret: "secret" }),
       scopes: [],
     })
+  })
+
+  it("makes account and apis optional for OAuth providers", () => {
+    expectTypeOf<undefined>().toMatchTypeOf<ConnectionProvider["account"]>()
+    expectTypeOf<undefined>().toMatchTypeOf<ConnectionProvider["apis"]>()
+    const oidc = defineConnection({
+      access: { server: { read: true, write: ["fetch"] } },
+      provider: {
+        authorizationEndpoint: "https://auth.example.com/authorize",
+        clientId: "client-id",
+        id: "example",
+        identityScopes: ["openid", "email"],
+        tokenEndpoint: "https://auth.example.com/token",
+      },
+      scopes: ["profile"],
+    })
+    expectTypeOf(oidc).toMatchTypeOf<ConnectionDefinition>()
   })
 })
