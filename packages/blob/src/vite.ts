@@ -175,7 +175,8 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   return kit.config
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, sharp = false): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, sharp = false, workersModule = true): string {
+  const cloudflareGlobals = cloudflare && workersModule
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
@@ -218,7 +219,8 @@ function resolveSharpImport(root: string, blob: BlobViteRuntimeConfig["blob"], c
   return installed
 }
 
-function renderNitroBlobMiddleware(importBase = blobPackageName): string {
+function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
+  const requestEnv = "target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? target.node?.req?.runtime?.cloudflare?.env"
   return [
     ...(workersModule
       ? [
@@ -397,8 +399,8 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, resolveSharpImport(root, blob, cloudflare, provider))),
-    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, resolveSharpImport(root, blob, cloudflare, provider), !development)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
   if (!serve) return
