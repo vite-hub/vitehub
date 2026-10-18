@@ -436,6 +436,9 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
     if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)) return false
+    // Computed concise methods stringify with a bracketed property key but are
+    // still caller-defined executable methods.
+    if (/^\s*(?:get\s+)?\[[^\]]+\]\s*\([^)]*\)\s*\{/.test(source)) return false
     return true
   }
   catch {
