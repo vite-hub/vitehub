@@ -1010,7 +1010,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         // host, starts without dependencies and gets the error, so the model repairs the lockfile.
         const installDefectKey = `install-defect:${repository}#${number}`;
         const recordedDefect = await pullRequestInbox.meta(installDefectKey);
-        const installDefect = isRuntimeRecord(recordedDefect) && recordedDefect.head === inboxClaim.snapshot.pr?.head?.sha && hasRuntimeType(recordedDefect.error, "string") ? recordedDefect.error : undefined;
+        let installDefect = isRuntimeRecord(recordedDefect) && recordedDefect.head === inboxClaim.snapshot.pr?.head?.sha && hasRuntimeType(recordedDefect.error, "string") ? recordedDefect.error : undefined;
         const installFailure = (error: Error) => error.message.split("\n").filter(line => !/cyclic workspace dependencies|^\s+\//.test(line)).join("\n");
         const handInstallDefect = async (error: Error, wait: { retryAt?: number }) => {
           // Hand the defect to one model pass per head instead of waiting for a person to push.
@@ -1348,6 +1348,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (hostInstall() && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
                     await installDependencies(providerDirectory, abortSignal, owner, undefined);
                   }
+                  // A successful refresh rebuilt the dependency graph, so the
+                  // recovery pass can verify it before committing repaired inputs.
+                  installDefect = undefined;
                   await assertLease();
                 },
                 commitRepair: async (input) => {
