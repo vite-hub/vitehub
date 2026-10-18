@@ -14,12 +14,12 @@ vi.mock("@libsql/client", async importOriginal => {
 
 import { createLibsqlAgentState, createSqliteAgentState, type LibsqlAgentStateClient, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
 
-import type { QueueEntry, StateAdapter } from "chat"
+import type { QueueEntry } from "chat"
 import type { AgentWebhookQueueDelivery } from "../src/internal/webhook-queue.ts"
 
 const tempDirs: string[] = []
 
-async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: StateAdapter; url: string }> {
+async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: ViteHubSqliteAgentStateAdapter; url: string }> {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-"))
   tempDirs.push(dir)
   const url = `file:${join(dir, "state.db")}`

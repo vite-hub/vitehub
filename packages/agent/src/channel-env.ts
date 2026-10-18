@@ -1,6 +1,6 @@
 import { readBuiltInEnv } from "./internal/builtin-env.ts"
 
-import { forgeEnv } from "@vite-hub/forge"
+import { forgeEnv, type ForgeEnv } from "@vite-hub/forge"
 
 import type { BuiltInEnvField } from "./internal/builtin-env.ts"
 import type { AgentCallbackContext, AgentRuntimeConfig } from "./types.ts"
@@ -16,7 +16,15 @@ export type ChannelEnvField = BuiltInEnvField
  * `channelEnvValue()`. ViteHub then finds the factory in Agent files, declares the values
  * in Server Env, shows them in the Console, and adds required secrets to Wrangler.
  */
-export const builtInChannelEnv = {
+export type BuiltInChannelEnv = {
+  discord: Record<"applicationId" | "botToken" | "publicKey", ChannelEnvField>
+  github: ForgeEnv["github"]
+  gitlab: ForgeEnv["gitlab"]
+  forgejo: ForgeEnv["forgejo"]
+  telegram: Record<"apiBaseUrl" | "botToken" | "webhookSecret", ChannelEnvField>
+}
+
+export const builtInChannelEnv: BuiltInChannelEnv = {
   discord: {
     applicationId: { names: ["DISCORD_APPLICATION_ID"] },
     botToken: { names: ["DISCORD_BOT_TOKEN"], secret: true },
@@ -30,9 +38,7 @@ export const builtInChannelEnv = {
     botToken: { names: ["TELEGRAM_BOT_TOKEN"], requiredUnless: ["adapter", "botToken"], secret: true },
     webhookSecret: { names: ["TELEGRAM_WEBHOOK_SECRET_TOKEN"], secret: true },
   },
-} as const satisfies Record<string, Record<string, ChannelEnvField>>
-
-export type BuiltInChannelEnv = typeof builtInChannelEnv
+}
 
 const channelEnvFields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
 

@@ -9,6 +9,7 @@ import {
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 
 import { workspaceError } from "./errors.ts"
 import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
@@ -115,6 +116,7 @@ export interface UseWorkspaceOptions {
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
   broadSearchPaths?: string[]
   cwd?: string
+  executionBudget?: ExecutionBudget
   maxShellCalls?: number
   maxOutputLength?: number
   sourceRequests?: boolean

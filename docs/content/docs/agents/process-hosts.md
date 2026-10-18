@@ -3,7 +3,7 @@ title: Process hosts
 description: Run one long-lived Node process that admits, recovers, and drains background Agent work.
 navigation.title: Process hosts
 navigation.order: 74
-navigation.group: Operate
+navigation.group: Advanced execution
 icon: i-lucide-server-cog
 ---
 

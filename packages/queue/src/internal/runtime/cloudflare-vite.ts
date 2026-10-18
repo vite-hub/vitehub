@@ -33,7 +33,7 @@ function createRegistryDefinitionNames(registry: QueueDefinitionRegistry | undef
   for (const name of Object.keys(registry)) {
     const physicalName = getCloudflareQueueName(name, namePrefix)
     if (definitions[physicalName]) {
-      throw queueErrorDiagnostics.QUEUE_R0004({ message: `Queue names ${JSON.stringify(definitions[physicalName])} and ${JSON.stringify(name)} collide after Cloudflare resource name derivation.` })
+      throw queueErrorDiagnostics.QUEUE_NAME_COLLISION({ first: definitions[physicalName], resolved: physicalName, second: name })
     }
     definitions[physicalName] = name
   }
@@ -80,11 +80,11 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
             ? undefined
             : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix))
         if (!definitionName) {
-          throw queueErrorDiagnostics.QUEUE_R0005({ message: `[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.` })
+          throw queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue: batch.queue })
         }
         const definition = await loadQueueDefinition(definitionName)
         if (!definition) {
-          throw queueErrorDiagnostics.QUEUE_R0006({ message: `[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} maps to unknown Queue Definition ${JSON.stringify(definitionName)}.` })
+          throw queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue: definitionName })
         }
 
         await createCloudflareQueueBatchHandler({

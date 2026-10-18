@@ -18,12 +18,12 @@ const postgresSchemaQuery = "SELECT table_schema, table_name, column_name, data_
 const sqliteSchemaQuery = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
 
 export function defaultDatabaseNotConfiguredError(): Error {
-  return databaseErrorDiagnostics.DATABASE_R0016({ message: "[vitehub] Database \"default\" is not configured." })
+  return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: "default" })
 }
 
 function requireDatabase(databases: Record<string, AgentDatabaseEntry>, name: string) {
   const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
-  if (!entry) throw databaseErrorDiagnostics.DATABASE_R0006({ message: `[vitehub] Database "${name}" is not configured.` })
+  if (!entry) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
   return entry
 }
 

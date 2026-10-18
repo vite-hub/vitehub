@@ -121,9 +121,9 @@ export default defineConfig({
 
 This connection is a deployment default. A Database Definition can still declare its own `connection.url` or `connection.authToken`. Those values take precedence for that database.
 
-## Provider output
+## Host output
 
-The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface and schema artifacts, and wires provider-specific output. Provider bindings are integration details. The public database identity is the Default Database or Named Database name.
+Nitro is the only host output. The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface and schema artifacts, and adds host bindings to the Nitro config. Provider bindings are integration details. The public database identity is the Default Database or Named Database name.
 
 Put Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources in Database configuration or host setup. Route code keeps using the generated Drizzle imports.
 
