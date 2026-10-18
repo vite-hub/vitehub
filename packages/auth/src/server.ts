@@ -310,20 +310,24 @@ async function runAccessAuthorize(
 
 function findGetter(value: object, name: string): ((this: unknown) => unknown) | undefined {
   let prototype: object | null = value
+  let getter: ((this: unknown) => unknown) | undefined
   while (prototype) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
-    if (descriptor?.get) return descriptor.get as (this: unknown) => unknown
+    if (descriptor?.get) getter = descriptor.get as (this: unknown) => unknown
     prototype = Object.getPrototypeOf(prototype)
   }
+  return getter
 }
 
 function findMethod(value: object, name: string): ((this: unknown) => Promise<ArrayBuffer>) | undefined {
   let prototype: object | null = value
+  let method: ((this: unknown) => Promise<ArrayBuffer>) | undefined
   while (prototype) {
-    const method = Object.getOwnPropertyDescriptor(prototype, name)?.value
-    if (typeof method === "function") return method as (this: unknown) => Promise<ArrayBuffer>
+    const candidate = Object.getOwnPropertyDescriptor(prototype, name)?.value
+    if (typeof candidate === "function") method = candidate as (this: unknown) => Promise<ArrayBuffer>
     prototype = Object.getPrototypeOf(prototype)
   }
+  return method
 }
 
 async function normalizeResponse(value: unknown): Promise<Response | undefined> {
@@ -343,12 +347,13 @@ async function normalizeResponse(value: unknown): Promise<Response | undefined> 
       if (locked === true) return
     }
     const exposed = value as { status?: unknown, statusText?: unknown, headers?: unknown, body?: unknown }
+    const arrayBuffer = findMethod(response, "arrayBuffer")
+    if (!arrayBuffer) return
+    const data = await arrayBuffer.call(response)
+    if (data === null || typeof data !== "object") return
     if (value instanceof Response && exposed.status === status && exposed.statusText === statusText
       && exposed.headers === headers && exposed.body === body) return value as Response
-    const arrayBuffer = findMethod(response, "arrayBuffer")
-    const data = body === null ? null : await arrayBuffer?.call(response)
-    if (body !== null && !data) return
-    return new Response(data as ArrayBuffer | null, { status: statusNumber, statusText, headers: headers as Headers })
+    return new Response(body === null ? null : data, { status: statusNumber, statusText, headers: headers as Headers })
   }
   catch {
     return
@@ -374,7 +379,7 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      const authorize = route !== null && typeof route === "object" ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
