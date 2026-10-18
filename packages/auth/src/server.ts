@@ -346,16 +346,6 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
-function isNativeGetter(value: unknown): value is (this: object) => unknown {
-  if (typeof value !== "function") return false
-  try {
-    return Function.prototype.toString.call(value).includes("[native code]")
-  }
-  catch {
-    return false
-  }
-}
-
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
   try {
     let current = Object.getPrototypeOf(Object(value))
@@ -365,7 +355,7 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       seen.add(current)
       const descriptor = Object.getOwnPropertyDescriptor(current, "status")
       if (descriptor) {
-        if (!isNativeGetter(descriptor.get)) return false
+        if (typeof descriptor.get !== "function") return false
         Reflect.apply(descriptor.get, value, [])
         return true
       }
@@ -707,7 +697,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (!isNativeGetter(descriptor.get)) return
+          if (typeof descriptor.get !== "function") return
           intrinsicBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
@@ -780,7 +770,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
         if (descriptor) {
-          if (!isNativeGetter(descriptor.get)) return
+          if (typeof descriptor.get !== "function") return
           currentBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
