@@ -487,15 +487,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
   let prototype: object | null = Object.getPrototypeOf(body)
   const seen = new Set<object>()
-  let lockedOwner: object | undefined
   for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
     if (seen.has(prototype)) return
     seen.add(prototype)
-    if (!lockedOwner && typeof Object.getOwnPropertyDescriptor(prototype, "locked")?.get === "function") lockedOwner = prototype
-    if (lockedOwner === prototype) {
-      const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
-      return typeof reader === "function" ? reader : undefined
-    }
+    const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
+    if (typeof reader === "function") return reader
     prototype = Object.getPrototypeOf(prototype)
   }
 }
@@ -650,7 +646,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       ? Response.error()
       : new Response(null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body, authorizationBodyReader(body))
+    const getReader = authorizationBodyReader(body)
+    if (!getReader) return
+    const bridgedBody = bridgeAuthorizationBody(body, getReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
