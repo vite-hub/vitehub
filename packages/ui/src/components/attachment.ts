@@ -33,11 +33,17 @@ export const AttachmentGroup = slotPart("AttachmentGroup", "attachment-group");
 
 export const AttachmentMedia = defineComponent({
   name: "AttachmentMedia",
+  inheritAttrs: false,
   props: {
     variant: { default: "icon", type: String as PropType<"icon" | "image"> },
   },
-  setup(props, { slots }) {
-    return () => h("div", { "data-slot": "attachment-media", "data-variant": props.variant }, slots.default?.());
+  setup(props, { attrs, slots }) {
+    return () =>
+      h(
+        "div",
+        { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant },
+        slots.default?.(),
+      );
   },
 });
 
