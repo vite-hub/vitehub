@@ -20,7 +20,9 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) =>
+    !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) &&
+    !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) =>
@@ -73,7 +75,9 @@ describe("UI documentation", () => {
   it("gives every block page a full-width, resettable preview", () => {
     expect(blockPages.length).toBeGreaterThanOrEqual(3);
     for (const page of blockPages) {
-      expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
+      expect(page.source, page.name).toMatch(
+        /::component-preview\{name="[A-Za-z]+Block" flush reset\}/,
+      );
       expect(page.source, page.name).toContain("navigation.group: Console");
     }
   });
@@ -131,10 +135,10 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
+    expect(page).toContain('<DocsTutorial v-else-if="page && isTutorialPage"');
+    expect(page).toContain('<DocsArticle v-else-if="page"');
+    expect(article).toContain('class="vh-docs-article"');
     expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -147,11 +151,15 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("uses a static context link instead of a product disclosure control", () => {
-    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
+  it("switches sections with the primitive rail instead of a product selector", () => {
+    const sidebarTop = readFileSync(
+      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
+      "utf8",
+    );
+    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain('<NuxtLink');
+    expect(sidebars).toContain("<DocsRail />");
+    expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -160,7 +168,7 @@ describe("UI documentation", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
-    expect(sidebar).toContain("vh-docs-sidebar-nav");
+    expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");

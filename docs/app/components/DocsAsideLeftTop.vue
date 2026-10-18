@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { getDocsSectionForPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { useDocsSection } from "~/composables/useDocsSection";
 
 const route = useRoute();
-const currentSection = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const currentSection = useDocsSection();
 const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {

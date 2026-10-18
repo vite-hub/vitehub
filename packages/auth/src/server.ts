@@ -70,10 +70,12 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined
+function getRuntimeEnvResolver(): AuthRuntimeEnvResolver | undefined {
+  return getAuthRuntimeState().envResolver
+}
 
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  authRuntimeEnvResolver = resolver
+  getAuthRuntimeState().envResolver = resolver
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -102,7 +104,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -116,7 +118,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: authRuntimeEnvResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver() }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -141,7 +143,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -190,7 +192,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -282,7 +284,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: authRuntimeEnvResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getRuntimeEnvResolver() })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -301,34 +303,52 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  const response = normalizeResponse(result)
+  const response = await normalizeResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function normalizeResponse(value: unknown): Response | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response input is untrusted at the authorization boundary; reject primitives before invoking the native brand-checking getters.
+function findGetter(value: object, name: string): ((this: unknown) => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+    if (descriptor?.get) return descriptor.get as (this: unknown) => unknown
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
+function findMethod(value: object, name: string): ((this: unknown) => Promise<ArrayBuffer>) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const method = Object.getOwnPropertyDescriptor(prototype, name)?.value
+    if (typeof method === "function") return method as (this: unknown) => Promise<ArrayBuffer>
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
+async function normalizeResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || typeof value !== "object") return
   try {
-    // Accessors on the native prototype perform an internal-slot brand check,
-    // which accepts genuine cross-realm Responses while rejecting lookalikes.
-    const responsePrototype = Response.prototype
-    const get = (name: string) => Object.getOwnPropertyDescriptor(responsePrototype, name)!.get!.call(value)
-    const status = get("status")
-    const statusText = get("statusText")
-    const headers = get("headers")
-    const body = get("body")
-    if (!(Number.isInteger(status) && status >= 0 && status <= 599
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its status text before returning the Response contract.
-      && typeof statusText === "string"
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its Headers object before returning the Response contract.
-      && headers !== null && typeof headers === "object")) return
-
-    // Read ordinary properties after validating the internal slots. If a caller
-    // shadows one of them, return a stable local snapshot instead.
+    const response = value as object
+    const status = findGetter(response, "status")?.call(response)
+    const statusText = findGetter(response, "statusText")?.call(response)
+    const headers = findGetter(response, "headers")?.call(response)
+    const body = findGetter(response, "body")?.call(response)
+    const bodyUsed = findGetter(response, "bodyUsed")?.call(response)
+    const statusNumber = typeof status === "number" ? status : NaN
+    if (!(Number.isInteger(statusNumber) && statusNumber >= 0 && statusNumber <= 599 && typeof statusText === "string"
+      && headers !== null && typeof headers === "object" && bodyUsed === false)) return
+    if (body !== null) {
+      const locked = findGetter(body as object, "locked")?.call(body)
+      if (locked === true) return
+    }
     const exposed = value as { status?: unknown, statusText?: unknown, headers?: unknown, body?: unknown }
-    if (exposed.status === status && exposed.statusText === statusText && exposed.headers === headers && exposed.body === body) return value as Response
-    return new Response(body, { status, statusText, headers })
+    if (value instanceof Response && exposed.status === status && exposed.statusText === statusText
+      && exposed.headers === headers && exposed.body === body) return value as Response
+    const arrayBuffer = findMethod(response, "arrayBuffer")
+    const data = body === null ? null : await arrayBuffer?.call(response)
+    if (body !== null && !data) return
+    return new Response(data as ArrayBuffer | null, { status: statusNumber, statusText, headers: headers as Headers })
   }
   catch {
     return
