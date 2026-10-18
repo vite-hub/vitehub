@@ -384,6 +384,11 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
           }
         }
         catch {
+          // Native Web IDL accessors reject a Proxy receiver even when it
+          // wraps a real local Response. Keep the trusted constructor/prototype
+          // identity as the provenance check and let normalization snapshot
+          // the proxy's explicitly forwarded properties.
+          if (constructor === Response && value instanceof Response && current === Response.prototype) return true
           // Continue searching for a supported response prototype.
         }
       }
