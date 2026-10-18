@@ -1,14 +1,14 @@
 ---
 title: Blob hosts
-description: Set up provider output, development access, Cloudflare R2, S3-compatible storage, and MinIO.
+description: Set up host output, development access, Cloudflare R2, S3-compatible storage, and MinIO.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Provider output
+## Host output
 
-The Blob package selects the default or named store and loads its driver. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
+Nitro writes the host output. `hubBlob()` adds a Nitro plugin that selects the default or named store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's generated `wrangler.json`. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
 
 Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
 
@@ -28,7 +28,7 @@ The commands call the same Blob storage as the running app. Pass `--store <name>
 
 ## Cloudflare R2 bucket
 
-Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub emit the matching Cloudflare R2 bucket binding in Provider Output.
+Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 export default defineConfig({

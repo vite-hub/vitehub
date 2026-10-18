@@ -62,6 +62,40 @@ describe("Connection access", () => {
     expect(decide({ ...action, action: "mail.messages.send", highRisk: true, approved: true })).toBe("deny")
   })
 
+  it("uses the rule of the nearest Agent that an Agent extends", () => {
+    const definition = mailConnection({
+      "agent:bot": { read: true, write: ["mail.messages.modify"], approve: false },
+      "agent:base": { read: true },
+    })
+    const action = { action: "mail.messages.modify", definition, highRisk: false, write: true }
+    expect(decide({ ...action, actor: "agent:bot-dev" })).toBe("deny")
+    expect(decide({ ...action, actor: "agent:bot-dev", inherited: ["agent:bot"] })).toBe("allow")
+    // A grandchild uses the nearest parent that has a rule.
+    expect(decide({ ...action, actor: "agent:bot-canary", inherited: ["agent:bot-dev", "agent:bot", "agent:base"] })).toBe("allow")
+    expect(decide({ ...action, actor: "agent:bot-canary", inherited: ["agent:base", "agent:bot"] })).toBe("deny")
+  })
+
+  it("keeps an explicit child rule even when it grants less than the parent rule", () => {
+    const definition = mailConnection({
+      "agent:bot": { read: true, write: ["mail.messages.modify"], approve: false },
+      "agent:bot-dev": { read: true },
+    })
+    const action = { action: "mail.messages.modify", actor: "agent:bot-dev", definition, highRisk: false, inherited: ["agent:bot"], write: true }
+    expect(decide(action)).toBe("deny")
+    expect(decide({ ...action, action: "mail.labels.list", write: false })).toBe("allow")
+  })
+
+  it("never lets non-Agent actors inherit a rule", () => {
+    const definition = mailConnection({ "agent:bot": { read: true, write: ["mail.messages.modify"], approve: false }, server: { read: true } })
+    const action = { action: "mail.messages.modify", definition, highRisk: false, inherited: ["agent:bot"], write: true }
+    expect(decide({ ...action, actor: "server" })).toBe("deny")
+    expect(decide({ ...action, actor: "schedule:gmail" })).toBe("deny")
+    expect(decide({ ...action, actor: "user:owner" })).toBe("deny")
+    // Inherited entries are Agent actors only. A parent list cannot borrow a server rule.
+    const server = mailConnection({ server: { read: true, write: ["mail.messages.modify"] } })
+    expect(decide({ ...action, definition: server, actor: "agent:bot-dev", inherited: ["server"] })).toBe("deny")
+  })
+
   it("requires exact high-risk and raw-fetch write authority", () => {
     const definition = mailConnection({ server: { read: true, write: true } })
     expect(decide({ action: "mail.messages.send", actor: "server", definition, highRisk: true, write: true })).toBe("deny")

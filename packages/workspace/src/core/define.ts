@@ -7,7 +7,6 @@ const workspaceDefinitionKeys = new Set([
   "hooks",
   "loaders",
   "plugins",
-  "publish",
   "rootDir",
   "rules",
   "sourceRootDir",

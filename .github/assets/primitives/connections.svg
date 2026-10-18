@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -3540ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.link {
+  opacity: 0.4;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.conn-call-1 { animation-name: conn-call-1; }
+.conn-call-2 { animation-name: conn-call-2; }
+.conn-call-3 { animation-name: conn-call-3; }
+.conn-service-1 { animation-name: conn-service-1; }
+.conn-service-2 { animation-name: conn-service-2; }
+.conn-service-3 { animation-name: conn-service-3; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes conn-call-1 {
+  0%, 4% { opacity: 0; transform: translate(0, 0); }
+  7% { opacity: 0.85; transform: translate(0, 0); }
+  20% { opacity: 0.85; transform: translate(21px, -7.5px); }
+  23%, 100% { opacity: 0; transform: translate(23px, -8.2px); }
+}
+@keyframes conn-service-1 {
+  0%, 19% { opacity: 0.35; }
+  24%, 30% { opacity: 0.85; }
+  40%, 100% { opacity: 0.35; }
+}
+@keyframes conn-call-3 {
+  0%, 36% { opacity: 0; transform: translate(0, 0); }
+  39% { opacity: 0.85; transform: translate(0, 0); }
+  52% { opacity: 0.85; transform: translate(21px, 7.5px); }
+  55%, 100% { opacity: 0; transform: translate(23px, 8.2px); }
+}
+@keyframes conn-service-3 {
+  0%, 51% { opacity: 0.35; }
+  56%, 62% { opacity: 0.85; }
+  72%, 100% { opacity: 0.35; }
+}
+@keyframes conn-call-2 {
+  0%, 68% { opacity: 0; transform: translateX(0); }
+  71% { opacity: 0.85; transform: translateX(0); }
+  84% { opacity: 0.85; transform: translateX(21px); }
+  87%, 100% { opacity: 0; transform: translateX(23px); }
+}
+@keyframes conn-service-2 {
+  0%, 83% { opacity: 0.35; }
+  88%, 94% { opacity: 0.85; }
+  100% { opacity: 0.35; }
+}
+</style>
+      <path d="M18 18 42 9.5M18 20h24M18 22l24 8.5" class="line link" />
+      <rect x="6" y="14" width="12" height="12" rx="2.5" class="line" />
+      <rect x="10" y="18" width="4" height="4" rx="1" class="soft" />
+      <circle cx="46" cy="9" r="4" class="line" />
+      <circle cx="46" cy="20" r="4" class="line" />
+      <circle cx="46" cy="31" r="4" class="line" />
+      <circle cx="46" cy="9" r="1.5" class="soft a conn-service-1" />
+      <circle cx="46" cy="20" r="1.5" class="soft a conn-service-2" />
+      <circle cx="46" cy="31" r="1.5" class="soft a conn-service-3" />
+      <circle cx="18" cy="18" r="1.75" class="token a conn-call-1" />
+      <circle cx="18" cy="20" r="1.75" class="token a conn-call-2" />
+      <circle cx="18" cy="22" r="1.75" class="token a conn-call-3" />
+</svg>

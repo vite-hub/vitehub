@@ -49,7 +49,6 @@ export class ConsoleRequestError extends Diagnostic {
 }
 
 const textField = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined
 
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
@@ -181,7 +180,6 @@ export async function requestConsole(
   if (!response.ok) throw await consoleResponseError(response)
   const result = record(await response.json().catch(() => undefined))
   if (result?.ok === true) return result.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const status = typeof result?.status === "number" && result.status >= 400 ? result.status : 502
   throw new ConsoleRequestError(status, consoleErrorFields(result))
 }
@@ -195,9 +193,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function assertConsolePage(page: Record<string, unknown>): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const message = typeof page.error === "string" ? page.error : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const code = typeof page.errorCode === "string" ? page.errorCode : undefined
   if (!message && !code) return
   const error = viteHubErrorDiagnostics.VITE_HUB_R0041({ message: message ?? `Console request failed with error code ${code}.` })
@@ -226,7 +222,6 @@ export async function loadConsoleKVPages(
     if (!page) break
     assertConsolePage(page)
     pages.push(page)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
     if (cursor === undefined) {
       hasMore = false

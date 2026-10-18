@@ -341,16 +341,32 @@ async function runAccessAuthorize(
           // adoption promise so the fallback cannot dispatch that override.
           const ownThen = Object.getOwnPropertyDescriptor(result, "then")
           let masked = false
-          if (ownThen?.configurable) {
-            Object.defineProperty(result, "then", { configurable: true, value: intrinsicPromiseThen })
-            masked = true
+          let maskDescriptor: PropertyDescriptor | undefined
+          if (!ownThen || ownThen.configurable || ("value" in ownThen && ownThen.writable)) {
+            try {
+              Object.defineProperty(result, "then", {
+                configurable: ownThen?.configurable ?? true,
+                enumerable: ownThen?.enumerable ?? false,
+                value: intrinsicPromiseThen,
+                writable: ownThen?.writable ?? true,
+              })
+              masked = true
+              maskDescriptor = ownThen
+            }
+            catch {
+              // Frozen instances cannot be masked; leave the native resolver
+              // to report the source settlement or its unavoidable override.
+            }
           }
           let nativeAdopted: Promise<unknown>
           try {
             nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
           }
           finally {
-            if (masked) Object.defineProperty(result, "then", ownThen!)
+            if (masked) {
+              if (maskDescriptor) Object.defineProperty(result, "then", maskDescriptor)
+              else Reflect.deleteProperty(result, "then")
+            }
           }
           void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
             (value: unknown) => { void settle(value).then(resolve, reject) }, reject,

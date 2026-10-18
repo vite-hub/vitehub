@@ -15,9 +15,9 @@ export type AskScoreCriteria = readonly [AskEntry, AskEntry, ...AskEntry[]]
 export type AskChanceCriteria = { false?: AskEntry, true?: AskEntry } | null
 
 /** Labels become criteria with `null` descriptions. An object stays as it is. */
-export type AskNamedCriteria<T> = T extends AskChoiceLabels ? { [K in T[number]]: null } : T
+type AskNamedCriteria<T> = T extends AskChoiceLabels ? { [K in T[number]]: null } : T
 /** Score level keys: the tuple indices for a fixed rubric, otherwise any numeric string. */
-export type AskScoreLevel<T extends AskScoreCriteria> = number extends T["length"] ? `${number}` : Extract<keyof T, `${number}`>
+type AskScoreLevel<T extends AskScoreCriteria> = number extends T["length"] ? `${number}` : Extract<keyof T, `${number}`>
 
 export interface AskChoiceAnswer<T extends AskChoiceCriteria = AskChoiceCriteria> {
   readonly type: "choice"
