@@ -289,37 +289,10 @@ async function runAccessAuthorize(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value instanceof Response) {
-    try {
-      Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
-      return value
-    }
-    catch {
-      return
-    }
-  }
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return
+  if (!(value instanceof Response)) return
   try {
-    const findDescriptor = (name: string) => {
-      let prototype = Object.getPrototypeOf(value)
-      while (prototype) {
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
-        if (descriptor) return descriptor
-        prototype = Object.getPrototypeOf(prototype)
-      }
-    }
-    const status = findDescriptor("status")?.get
-    const statusText = findDescriptor("statusText")?.get
-    const headers = findDescriptor("headers")?.get
-    const body = findDescriptor("body")?.get
-    const arrayBuffer = (value as { arrayBuffer?: unknown }).arrayBuffer
-    if (typeof status !== "function" || typeof statusText !== "function" || typeof headers !== "function" || typeof body !== "function") return
-    if (typeof arrayBuffer !== "function") return
-    const response = value as Response
-    const nativeHeaders = new Headers(headers.call(response))
-    const foreignBody = body.call(response)
-    const nativeBody = foreignBody === null ? null : new Uint8Array(await (arrayBuffer as () => Promise<ArrayBuffer>).call(response))
-    return new Response(nativeBody, { headers: nativeHeaders, status: status.call(response), statusText: statusText.call(response) })
+    Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
+    return value
   }
   catch {
     return

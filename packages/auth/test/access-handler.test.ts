@@ -104,7 +104,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("normalizes authorization responses from another realm", async () => {
+  it("rejects authorization responses from another realm", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
@@ -118,9 +118,9 @@ describe("Auth access handlers", () => {
     }))
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
+    expect(response).toMatchObject({ status: 403 })
     expect(response).not.toBe(foreignResponse)
-    expect(response?.status).toBe(409)
-    expect(response?.headers.get("x-policy")).toBe("rejected")
+    expect(response?.status).toBe(403)
   })
 
   it("rejects response-shaped objects without native body operations", async () => {

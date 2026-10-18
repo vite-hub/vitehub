@@ -1,5 +1,7 @@
 export interface ScheduleRunContext {
   id: string
+  /** Input supplied when the schedule run was started manually or by a runtime trigger. */
+  input?: unknown
   attemptId?: string
   runId?: string
   scheduleId?: string
