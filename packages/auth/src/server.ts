@@ -410,7 +410,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         const nativeStatusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
         const nativeHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
         const nativeBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-        if (!nativeStatus || !nativeStatusText || !nativeHeaders || !nativeBody) return
+        const nativeBodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+        if (!nativeStatus || !nativeStatusText || !nativeHeaders || !nativeBody || !nativeBodyUsed) return
         // Validate the internal slots directly. This also accepts legitimate
         // Response subclasses that override accessors while rejecting proxies,
         // whose native accessors fail the brand check.
@@ -418,6 +419,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         Reflect.apply(nativeStatusText, candidate, [])
         Reflect.apply(nativeHeaders, candidate, [])
         Reflect.apply(nativeBody, candidate, [])
+        if (Reflect.apply(nativeBodyUsed, candidate, [])) return
         return candidate as Response
       }
       catch {
@@ -440,9 +442,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     if (!nativeField("status", status) || !nativeField("statusText", statusText)
-      || !nativeField("headers", headers) || !nativeField("body", body)) return
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
+      || !nativeField("headers", headers) || !nativeField("body", body)
+      || !nativeField("bodyUsed", bodyUsed)) return
+    if (bodyUsed !== false) return
+    if (typeof status !== "number" || !Number.isInteger(status)
+      || (status !== 0 && (status < 200 || status > 599))) return
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
     // Response construction rejects bodies for these status codes. Check this
@@ -456,14 +462,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (value instanceof Response) return
 
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+      typeof responsePropertyDescriptor(headerCarrier, key)?.value === "function")
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+      || typeof cookieDescriptor.value === "function")
     if (!nativeHeaderMethods || !nativeCookieMethod) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
@@ -471,7 +477,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
-    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
