@@ -15,12 +15,15 @@ export function payloadText(value: unknown): string {
   } catch (error) {
     let message: string | undefined;
     try {
-      if (error instanceof Error) {
-        try {
-          message = error.message;
-        } catch {}
+      const candidate = error as { message?: unknown };
+      const raw = candidate?.message;
+      if (typeof raw === "string") message = raw;
+      else if (raw !== undefined) {
+        try { message = String(raw); } catch {}
       }
     } catch {}
-    return message === undefined ? "[Unable to display payload]" : `[Unable to display payload: ${message}]`;
+    if (message === undefined) return "[Unable to display payload]";
+    try { return `[Unable to display payload: ${message}]`; }
+    catch { return "[Unable to display payload]"; }
   }
 }
