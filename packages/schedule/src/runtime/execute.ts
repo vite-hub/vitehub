@@ -312,12 +312,11 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", runtimeOptions.id, scheduledAt))
-  // Manual replays remain valid after a schedule is deleted. Provider wakes must
-  // still load the schedule first so disabled schedules cannot acknowledge a wake.
-  if (existingRun && runtimeOptions.intent !== "provider") return existingRun
+  // A persisted run always acknowledges a replay, including provider redeliveries
+  // after the schedule has been disabled or deleted.
+  if (existingRun) return existingRun
   const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
   if (schedule && !schedule.enabled) throw createScheduleError("SCHEDULE_DISABLED")
-  if (existingRun) return existingRun
   if (!schedule) throw createScheduleError("SCHEDULE_NOT_FOUND")
   if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) throw createScheduleError("SCHEDULE_NOT_DUE")
   const definition = await loadScheduleDefinition(schedule.target)
