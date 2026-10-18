@@ -112,7 +112,11 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     }
     // Node exposes a non-observable proxy brand check. Use it before any
     // reflection so proxy traps cannot run during source authority checks.
-    if (isWorkspaceSourceProxy(left) || isWorkspaceSourceProxy(right)) return false
+    // An unavailable detector is not evidence that a value is safe. Fail
+    // closed before any proxy-observable reflection in non-Node runtimes.
+    const leftProxy = isWorkspaceSourceProxy(left)
+    const rightProxy = isWorkspaceSourceProxy(right)
+    if (leftProxy !== false || rightProxy !== false) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
@@ -150,7 +154,7 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
   }
 }
 
-const isWorkspaceSourceProxy = (() => {
+const isWorkspaceSourceProxy: (value: object) => boolean | undefined = (() => {
   try {
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
     const process = (globalThis as typeof globalThis & {
@@ -158,16 +162,16 @@ const isWorkspaceSourceProxy = (() => {
     }).process
     const getBuiltinModule = process?.getBuiltinModule
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
-    if (typeof getBuiltinModule !== "function") return (_value: object) => false
+    if (typeof getBuiltinModule !== "function") return (_value: object) => undefined
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
     const util = getBuiltinModule.call(process, "util") as {
       types?: { isProxy?: (value: object) => boolean }
     } | undefined
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
-    return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => false
+    return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => undefined
   }
   catch {
-    return (_value: object) => false
+    return (_value: object) => undefined
   }
 })()
 
