@@ -63,11 +63,13 @@ function createTableExports(parts: SchemaPart[]) {
   }))
 }
 
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: SchemaPart[], contributions: ResolvedDatabaseContribution[]) {
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: SchemaPart[], contributions: ResolvedDatabaseContribution[], sourceSchemas: readonly LoadedDatabaseSchema[]) {
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const layered = sourceVariables.length > 1
   return [
-    ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
+    ...definition.schemaSources.flatMap((source, index) => sourceSchemas[index]?.loaded
+      ? [`import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`]
+      : [`const ${sourceVariables[index]} = { ${sourceSchemas[index]?.keys.map(key => `${JSON.stringify(key)}: undefined`).join(", ")} }`]),
     ...contributions.map((contribution, index) => renderContributionImport(file, contribution, `contributedSchema_${index}`)),
     "",
     // Nuxt layers merge in order, so the application wins a key.
@@ -122,7 +124,7 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution)), "utf8")
+  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution), loadedSources), "utf8")
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
