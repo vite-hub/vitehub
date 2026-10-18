@@ -202,6 +202,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               || !("status" in factoryResult)
               || !("headers" in factoryResult)
               || !("body" in factoryResult)
+              || (!constructorSource.includes("[native code]")
+                && (!Object.prototype.hasOwnProperty.call(factoryResult, "status")
+                  || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
+                  || !Object.prototype.hasOwnProperty.call(factoryResult, "body")))
               ) {
               hasFactoryBrand = false
               break
