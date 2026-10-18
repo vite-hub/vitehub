@@ -102,6 +102,21 @@ describe("Node storage defaults", () => {
     expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel-blob", token: "fixture" } } })
   })
 
+  it("ignores inherited named stores when applying local defaults", () => {
+    const kv = Object.assign(Object.create({ stores: { inherited: { driver: "fs-lite" as const } } }), {
+      driver: "upstash" as const,
+      url: "https://kv.example.com",
+      token: "token",
+    })
+    const blob = Object.assign(Object.create({ stores: { inherited: { driver: "fs" as const } } }), {
+      driver: "vercel-blob" as const,
+      token: "token",
+    })
+    const result = withDataDir({ preset: "node", dataDir: "/tmp/app", kv, blob } as ViteHubOptions)
+    expect(result.kv).toEqual({ driver: "upstash", url: "https://kv.example.com", token: "token" })
+    expect(result.blob).toEqual({ driver: "vercel-blob", token: "token" })
+  })
+
   it("rejects local storage on hosted ephemeral presets through the public API", () => {
     for (const preset of ["cloudflare", "vercel", "netlify", "deno"] as const) {
       expect(() => vitehub({ preset, dataDir: "/data" })).toThrow("dataDir requires the node preset")

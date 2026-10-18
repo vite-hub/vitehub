@@ -59,7 +59,9 @@ export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | und
       state.envResolver = resolver
     }
     else {
+      const registeredResolver = state.envResolvers?.get(definition)
       state.envResolvers?.delete(definition)
+      if (registeredResolver && state.envResolver === registeredResolver) state.envResolver = undefined
     }
     return
   }
