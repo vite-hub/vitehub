@@ -36,6 +36,7 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 function isRequest(value: unknown): value is Request {
+  const maxPrototypeDepth = 32
   try {
     if (value === null || typeof value !== "object") return false
     const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
@@ -46,7 +47,8 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
-      while (prototype !== null) {
+      let depth = 0
+      while (prototype !== null && depth++ < maxPrototypeDepth) {
         if (visited.has(prototype)) return false
         visited.add(prototype)
         if (prototype === Request.prototype) return false
