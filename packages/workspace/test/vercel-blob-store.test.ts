@@ -234,6 +234,22 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
   })
 
+  it("removes files from the legacy root during migration", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await blobMock.put(".vitehub/workspaces/docs/files/legacy.md", "legacy")
+    await blobMock.put(".vitehub/workspaces/docs/files/archive/old.md", "old")
+    await store.rm("legacy.md")
+    await store.rm("archive", { recursive: true })
+
+    expect(blobMock.del).toHaveBeenCalledWith(".vitehub/workspaces/docs/files/legacy.md", { token: "token" })
+    expect(blobMock.del).toHaveBeenCalledWith(".vitehub/workspaces/docs/files/archive/old.md", { token: "token" })
+    await expect(store.readFile("legacy.md")).resolves.toBeUndefined()
+    await expect(store.readFile("archive/old.md")).resolves.toBeUndefined()
+  })
+
   it("recognizes not-found errors from a separately loaded Blob SDK", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")

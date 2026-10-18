@@ -319,11 +319,18 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     }
     const client = await this.#client()
     const targets: string[] = []
-    const current = await client.head(this.#fileKey(normalized))
-    if (current) targets.push(this.#fileKey(normalized))
+    const fileKeys = [this.#fileKey(normalized)]
+    if (this.#legacyRoot !== this.#root) fileKeys.push(this.#legacyFileKey(normalized))
+    for (const key of fileKeys) {
+      if (await client.head(key)) targets.push(key)
+    }
     if (options.recursive) {
-      for (const blob of await this.#listBlobs(`${this.#fileKey(normalized)}/`)) {
-        targets.push(blob.key)
+      const prefixes = [`${this.#fileKey(normalized)}/`]
+      if (this.#legacyRoot !== this.#root) prefixes.push(`${this.#legacyFileKey(normalized)}/`)
+      for (const prefix of prefixes) {
+        for (const blob of await this.#listBlobs(prefix)) {
+          if (!targets.includes(blob.key)) targets.push(blob.key)
+        }
       }
     }
 
