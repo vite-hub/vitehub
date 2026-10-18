@@ -928,7 +928,8 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
-  it.each([{}, { messageId: null }])("accepts a deferred Vercel send response without a message id", async (response) => {
+  it("accepts a deferred Vercel send response without a message id", async () => {
+    const response = { messageId: null }
     const client = await createVercelQueueClient({
       client: {
         handleCallback: vi.fn(() => async () => new Response("queued")),
@@ -942,6 +943,23 @@ describe("vercel provider", () => {
       messageId: undefined,
       status: "queued",
     }])
+  })
+
+  it("rejects a Vercel send response without a message id property", async () => {
+    const client = await createVercelQueueClient({
+      client: {
+        handleCallback: vi.fn(() => async () => new Response("queued")),
+        send: vi.fn().mockResolvedValue({}),
+      },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [error] = await client.send({ email: "ava@example.com" })
+
+    expect(error).toMatchObject({
+      code: "QUEUE_PROVIDER_INVALID_RESPONSE",
+    })
   })
 
   it.each([
