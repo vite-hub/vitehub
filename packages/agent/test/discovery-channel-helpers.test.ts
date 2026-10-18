@@ -1730,7 +1730,7 @@ it.each([
   ['defineCapability({ workspace: 0 })', false],
   ...["NaN", "+NaN", "-NaN", "(NaN)", "NaN as number", "NaN && {}", "NaN ?? {}"].map(value => [`{ id: "stateless", workspace: ${value} }`, false] as const),
   ['{ id: "storage", workspace: NaN || {} }', true],
-  ...["0.0", "-0.0", "+0.0", ".0", "0.", "0e3", "0e-3", "0x0", "0b0", "0o0", "0_0.0_0", "0n", "0x0n", "1e-999"].flatMap(zero => [
+  ...["0.0", "-0.0", "+0.0", ".0", "0.", "0e3", "0e-3", "0x0", "0b0", "0o0", "0.0_0", "0n", "0x0n", "1e-999"].flatMap(zero => [
     [`{ id: "stateless", workspace: ${zero} }`, false],
     [`{ id: "stateless", workspace: false || ${zero} }`, false],
     [`{ id: "storage", workspace: ${zero} || {} }`, true],
