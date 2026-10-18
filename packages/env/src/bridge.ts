@@ -151,12 +151,29 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return false;
     return await safe(async () => {
       const grants = await options.access.grants(key);
-      return grants.some(
-        (grant) =>
+      if (!Array.isArray(grants)) throw new TypeError("Invalid access grants.");
+      for (const grant of grants) {
+        if (
+          !grant ||
+          typeof grant !== "object" ||
+          typeof grant.key !== "string" ||
+          !grant.actor ||
+          typeof grant.actor !== "object" ||
+          typeof grant.actor.id !== "string" ||
+          !["user", "agent", "service"].includes(grant.actor.kind) ||
+          !Array.isArray(grant.permissions) ||
+          !grant.permissions.every((value: unknown) => ["inspect", "preview", "replace", "use"].includes(value as string))
+        )
+          throw new TypeError("Invalid access grant.");
+        if (
+          grant.key === key &&
           grant.actor.id === context.actor.id &&
           grant.actor.kind === context.actor.kind &&
-          grant.permissions.includes(permission),
-      );
+          grant.permissions.includes(permission)
+        )
+          return true;
+      }
+      return false;
     });
   }
   async function audited<T>(

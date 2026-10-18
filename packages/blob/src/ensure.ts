@@ -1,24 +1,15 @@
 import { createError } from "h3"
 
-import type { BlobEnsureOptions, BlobType, SizeUnit } from "./types.ts"
+import { blobSizeToBytes } from "./internal/size.ts"
 
-const FILESIZE_UNITS = ["B", "KB", "MB", "GB"] as const
+import type { BlobEnsureOptions, BlobType } from "./types.ts"
 
 function fileSizeToBytes(input: string) {
-  const regex = new RegExp(`^(\\d+)\\s*(${FILESIZE_UNITS.join("|")})$`, "i")
-  const match = input.match(regex)
-  if (!match) {
+  const bytes = blobSizeToBytes(input)
+  if (bytes === undefined) {
     throw createError({ statusCode: 400, message: `Invalid file size format: ${input}` })
   }
-
-  const sizeValue = Number.parseFloat(match[1]!)
-  // SAFETY: The regex matches only FILESIZE_UNITS, which are valid SizeUnit values after uppercasing.
-  const sizeUnit = match[2]!.toUpperCase() as SizeUnit
-  if (!FILESIZE_UNITS.includes(sizeUnit)) {
-    throw createError({ statusCode: 400, message: `Invalid file size unit: ${sizeUnit}` })
-  }
-
-  return Math.floor(sizeValue * Math.pow(1024, FILESIZE_UNITS.indexOf(sizeUnit)))
+  return bytes
 }
 
 export function ensureBlob(blob: Blob, options: BlobEnsureOptions = {}): void {

@@ -17,7 +17,6 @@ import type {
   EmailMessage,
   EmailProviderErrorCode,
 } from "../types.ts";
-import { emailErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ResendEmailDriverOptions {
   apiKey: string;
@@ -30,7 +29,10 @@ const RESPONSE_READ_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
-  return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError");
+  return signal?.aborted === true || (
+    isRecord(cause)
+    && cause.name === "AbortError"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -229,33 +231,36 @@ function payload(message: EmailMessage): Record<string, unknown> {
 }
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
-  requiredOption("resend", options?.apiKey, "apiKey");
-  if (!isString(options.apiKey))
-    throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must be a string.");
-  if (!options.apiKey.startsWith("re_"))
-    throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.");
-  if (/[^\u0021-\u007E]/.test(options.apiKey))
+  const record = options !== null && typeof options === "object" ? options : undefined;
+  const apiKey = record && Object.hasOwn(record, "apiKey") ? record.apiKey : undefined;
+  requiredOption("resend", apiKey, "apiKey");
+  if (!isString(apiKey))
+    throw emailProviderError("resend", "NOT_CONFIGURED", "apiKey must be a string.");
+  if (!apiKey.startsWith("re_"))
+    throw emailProviderError("resend", "NOT_CONFIGURED", "apiKey must start with 're_'.");
+  if (/[^\u0021-\u007E]/.test(apiKey))
     throw emailProviderError(
       "resend",
-      "INVALID_OPTIONS",
+      "NOT_CONFIGURED",
       "apiKey contains an invalid HTTP header character.",
     );
-  const request = options.fetch ?? globalThis.fetch;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch callbacks cross JavaScript realms, so callability must be validated at this runtime boundary.
+  const configuredFetch = record && Object.hasOwn(record, "fetch") ? record.fetch : undefined;
+  const request = configuredFetch ?? globalThis.fetch;
   if (typeof request !== "function")
-    throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.");
+    throw emailProviderError("resend", "NOT_CONFIGURED", "fetch is unavailable.");
   let endpoint: string;
   try {
-    const url = new URL(options.endpoint ?? "https://api.resend.com");
+    const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
+    const url = new URL(configuredEndpoint ?? "https://api.resend.com");
     if (url.protocol !== "http:" && url.protocol !== "https:")
-      throw emailErrorDiagnostics.EMAIL_R0005({ message: "Unsupported protocol" });
+      throw new TypeError("Unsupported protocol");
     if (url.username || url.password || url.search || url.hash)
-      throw emailErrorDiagnostics.EMAIL_R0006({ message: "Unsupported URL components" });
+      throw new TypeError("Unsupported URL components");
     endpoint = url.href.replace(/\/+$/, "");
   } catch (cause) {
     throw emailProviderError(
       "resend",
-      "INVALID_OPTIONS",
+      "NOT_CONFIGURED",
       "endpoint must be a valid HTTP or HTTPS URL.",
       { cause },
     );
@@ -380,7 +385,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         response = await request(`${endpoint}/emails`, {
           body,
           headers: {
-            authorization: `Bearer ${options.apiKey}`,
+            authorization: `Bearer ${apiKey}`,
             "content-type": "application/json",
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },

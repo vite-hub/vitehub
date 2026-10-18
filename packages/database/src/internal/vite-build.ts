@@ -1,61 +1,24 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { contributeProviderRuntime, getProviderRuntimeModule, hasProviderRuntimeModule, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
-import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
-import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
-import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { computePackageDir, createImportPath, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
+import { readProvisionedId } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { isStaticD1HttpDefinition } from "../config.ts"
+import { isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
-import { renderDatabaseConfigExpression } from "./runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const dbPackageName = "@vite-hub/database"
-const productName = "database"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 
-type DBProvider = "cloudflare" | "vercel"
-
-interface ProviderEntrySpec {
-  entryFile: string
-  factory: string
-  name: DBProvider
-  runtimeModule: string
-}
-
-const providerEntrySpecs: ProviderEntrySpec[] = [
-  { entryFile: "cloudflare-worker.mjs", factory: "createDbCloudflareWorker", name: "cloudflare", runtimeModule: "runtime/cloudflare-vite" },
-  { entryFile: "vercel-server.mjs", factory: "createDbVercelServer", name: "vercel", runtimeModule: "runtime/vercel-vite" },
-]
-
-interface GenerateProviderOutputsOptions {
-  appRootDir?: string
-  artifacts?: GeneratedDBArtifacts
-  clientOutDir: string
-  generation?: ProviderDeploymentOutputGeneration
-  providerOutput?: ProviderOutputCatalog
-  rootDir: string
-  runtimeConfig: ResolvedDBViteConfig
-  serverFunctionName?: string
-}
-
-interface GeneratedDBArtifacts {
-  blobRuntimeModules: Partial<Record<DBProvider, string>>
-  cloudflareWorkerFile: string
-  definitionDefaultsFile: string
-  generatedDir: string
-  runtimeModuleFiles: Record<DBProvider, string>
-  vercelServerFile: string
-}
+export type DBProvider = "cloudflare" | "vercel"
 
 function normalizeDefinitionDefaults(defaults: ResolvedDBViteConfig["definitionDefaults"]): ResolvedDBViteConfig["definitionDefaults"] {
   if (!defaults.cloudflare || defaults.cloudflare.binding === undefined) return defaults
@@ -66,16 +29,6 @@ function normalizeDefinitionDefaults(defaults: ResolvedDBViteConfig["definitionD
       binding: defaults.cloudflare.binding.trim() || undefined,
     },
   }
-}
-
-interface CloudflareDBConfig {
-  assets?: { directory?: string, run_worker_first: string[] }
-  compatibility_date: string
-  compatibility_flags: string[]
-  d1_databases?: ReturnType<typeof resolveCloudflareD1Bindings>["d1Databases"]
-  main: string
-  name?: string
-  observability: { enabled: true }
 }
 
 export function usesD1HttpOnly(runtimeConfig: ResolvedDBViteConfig) {
@@ -90,8 +43,10 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     `import schema_${index} from ${JSON.stringify(createImportPath(file, runtimeConfig.generatedSchemaFilesByDatabase[definition.name]!))}`,
   ])
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
-    `  ${JSON.stringify(name)}: {`,
-    `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
+    `  [${JSON.stringify(name)}]: {`,
+    runtimeConfig.databases[name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`)},`
+      : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -100,29 +55,12 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
     imports: [
-      `import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesD1HttpOnly(runtimeConfig) ? "runtime/d1" : "runtime/hosted")))}`,
+      ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesD1HttpOnly(runtimeConfig) ? "runtime/d1" : "runtime/hosted")))}`] : []),
+      ...(usesPostgres(runtimeConfig) ? [`import { createPostgresDatabase } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/postgres")))}`] : []),
       "",
       ...imports,
     ],
   })
-}
-
-function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, userAppEntry: string | undefined) {
-  const imports = [
-    `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
-  ]
-  if (userAppEntry) {
-    imports.push(`import dbApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
-  }
-
-  return [
-    ...imports,
-    "",
-    `export default ${spec.factory}({`,
-    userAppEntry ? "  app: dbApp," : "",
-    "})",
-    "",
-  ].filter(Boolean).join("\n")
 }
 
 /** Writes hosted modules before a framework resolves its generated runtime aliases. */
@@ -133,6 +71,7 @@ export async function writeHostedDatabaseRuntimeModules(
 ) {
   const unprojectedNativeDatabases = runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return false
     const projection = runtimeConfig.definitionDefaults.cloudflareProjections?.[name]
     const cloudflare = database?.cloudflare ?? runtimeConfig.definitionDefaults.cloudflare
     return (projection?.resource === "opaque" || (projection?.resource === "configured" && !projection.binding))
@@ -141,9 +80,9 @@ export async function writeHostedDatabaseRuntimeModules(
   if (providers.includes("cloudflare") && unprojectedNativeDatabases.length) {
     const opaqueNativeDatabases = unprojectedNativeDatabases.filter(name => runtimeConfig.definitionDefaults.cloudflareProjections[name]?.resource === "opaque")
     if (opaqueNativeDatabases.length) {
-      throw databaseErrorDiagnostics.DATABASE_B0003({ message: `[vitehub] Cloudflare native D1 output requires a literal cloudflare block for databases: ${opaqueNativeDatabases.join(", ")}. Use a literal block so ViteHub can project the resource, or configure D1 HTTP or a remote libSQL connection.` })
+      throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
-    throw databaseErrorDiagnostics.DATABASE_B0005({ message: `[vitehub] Owned Cloudflare native D1 databases require resolved cloudflare.databaseId and cloudflare.databaseName values: ${unprojectedNativeDatabases.join(", ")}. Set the resource values at build time or provision the database ID. Use D1 HTTP or a remote libSQL connection for resource values that resolve at runtime.` })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
   }
   if (providers.includes("cloudflare")) resolveCloudflareD1Bindings(runtimeConfig)
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
@@ -151,41 +90,13 @@ export async function writeHostedDatabaseRuntimeModules(
   const definitionDefaultsFile = resolve(generatedDir, "definition-defaults.mjs")
   await mkdir(generatedDir, { recursive: true })
   await Promise.all([
-    writeFile(definitionDefaultsFile, `export default ${JSON.stringify(definitionDefaults)}\n`, "utf8"),
+    writeFile(definitionDefaultsFile, `export default ${serializeGeneratedRegistry(definitionDefaults)}\n`, "utf8"),
     ...providers.map(async (provider) => {
       const file = resolve(generatedDir, `${provider}-runtime.mjs`)
       await writeFile(file, renderRuntimeModule(file, normalizedRuntimeConfig), "utf8")
     }),
   ])
   return definitionDefaultsFile
-}
-
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string): Promise<Omit<GeneratedDBArtifacts, "blobRuntimeModules">> {
-  const generatedDir = artifactDir ?? ensureGeneratedDir(rootDir, productName)
-  await mkdir(generatedDir, { recursive: true })
-
-  const userAppEntry = resolveUserAppEntry(appRootDir, {
-    names: ["server.db.ts", "server.db.mts", "server.db.js", "server.db.mjs", "server.ts", "server.mts", "server.js", "server.mjs"],
-  })
-  const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
-  const runtimeModuleFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
-  const definitionDefaultsFile = await writeHostedDatabaseRuntimeModules(generatedDir, runtimeConfig)
-
-  await Promise.all(providerEntrySpecs.map(async (spec) => {
-    const entryFile = resolve(generatedDir, spec.entryFile)
-    const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
-    entryFiles[spec.name] = entryFile
-    runtimeModuleFiles[spec.name] = runtimeModuleFile
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, userAppEntry), "utf8")
-  }))
-
-  return {
-    cloudflareWorkerFile: entryFiles.cloudflare,
-    definitionDefaultsFile,
-    generatedDir,
-    runtimeModuleFiles,
-    vercelServerFile: entryFiles.vercel,
-  }
 }
 
 // Explicit env-resolved id wins; otherwise fall back to a provisioned id from Provision State.
@@ -208,9 +119,15 @@ function hasConfigValue(value: DatabaseConfigValue | undefined) {
     : typeof value !== "undefined"
 }
 
+// A Postgres Definition runs on Cloudflare through a generated Hyperdrive binding or a direct connection URL.
+function hasCloudflarePostgresConnection(database: ResolvedDBViteConfig["databases"][string]) {
+  return hasConfigValue(database.hyperdrive?.hyperdriveId) || hasConfigValue(database.connection?.url)
+}
+
 function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return !hasCloudflarePostgresConnection(database)
     const hasD1Binding = hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
     return !hasD1Binding && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
@@ -219,6 +136,7 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, 
 function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return false
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
@@ -230,6 +148,7 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return !hasConfigValue(database.connection?.url)
     const hasD1Http = Boolean(database?.cloudflare?.http)
       && hasConfigValue(database.cloudflare?.databaseId)
     return !hasD1Http
@@ -237,170 +156,10 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   })
 }
 
-interface ProviderWriteOptions {
-  artifacts: GeneratedDBArtifacts
-  clientOutDir: string
-  providerOutput?: ProviderOutputCatalog
-  provisionState: ProvisionState
-  rootDir: string
-  runtimeConfig: ResolvedDBViteConfig
-  serverFunctionName?: string
-}
-
-function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
-  const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig, provisionState)
-  if (databasesMissingNames.length) {
-    throw databaseErrorDiagnostics.DATABASE_R0001({ message: `[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.` })
-  }
-
-  const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig, provisionState)
-  if (unsupportedDatabases.length) {
-    throw databaseErrorDiagnostics.DATABASE_R0002({ message: `[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.` })
-  }
-
-  const d1Projection = resolveCloudflareD1Bindings(runtimeConfig, { provisionState })
-  const unresolvedNativeBindings = d1Projection.unresolved.filter((binding) => {
-    const database = runtimeConfig.databases[binding.database]
-    return !database?.cloudflare?.http && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
-  })
-  if (unresolvedNativeBindings.length) {
-    const missingNames = unresolvedNativeBindings.filter(binding => binding.reason === "missing-database-name").map(binding => binding.database)
-    if (missingNames.length) {
-      throw databaseErrorDiagnostics.DATABASE_R0001({ message: `[vitehub] Cloudflare output requires non-empty \`db.cloudflare.databaseName\` values for databases: ${missingNames.join(", ")}.` })
-    }
-    const missingIds = unresolvedNativeBindings.filter(binding => binding.reason === "missing-database-id").map(binding => binding.database)
-    throw databaseErrorDiagnostics.DATABASE_R0002({ message: `[vitehub] Cloudflare output requires non-empty \`db.cloudflare.databaseId\` or a provisioned D1 ID for databases: ${missingIds.join(", ")}.` })
-  }
-  const d1Databases = d1Projection.d1Databases
-  const blobRuntime = artifacts.blobRuntimeModules.cloudflare
-
-  const wranglerConfig: CloudflareDBConfig = {
-    compatibility_date: defaultCloudflareCompatibilityDate,
-    compatibility_flags: ["nodejs_compat"],
-    ...(d1Databases.length ? { d1_databases: d1Databases } : {}),
-    main: "index.js",
-    observability: { enabled: true },
-  }
-
-  return {
-    bundleEntry: artifacts.cloudflareWorkerFile,
-    bundleOptions: {
-      alias: {
-        "#vitehub/database/definition-defaults": artifacts.definitionDefaultsFile,
-        "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare,
-        ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
-      },
-      conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"],
-      external: ["node:async_hooks"],
-      format: "esm",
-      platform: "neutral",
-    },
-    wranglerConfigKeys: ["d1_databases"],
-    wranglerConfig,
-  }
-}
-
-function createVercelOutput({ artifacts, runtimeConfig, serverFunctionName }: ProviderWriteOptions): VercelProviderDeploymentOutput {
-  const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
-  if (unsupportedDatabases.length) {
-    throw databaseErrorDiagnostics.DATABASE_R0003({ message: `[vitehub] Vercel output requires \`db.cloudflare.http\` with \`db.cloudflare.databaseId\`, or a remote libSQL \`db.connection.url\`, for databases: ${unsupportedDatabases.join(", ")}.` })
-  }
-  const blobRuntime = artifacts.blobRuntimeModules.vercel
-
-  return {
-    bundleEntry: artifacts.vercelServerFile,
-    bundleOptions: {
-      alias: {
-        "#vitehub/database/definition-defaults": artifacts.definitionDefaultsFile,
-        "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.vercel,
-        ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
-      },
-      conditions: ["vitehub-hosted", "node", "default"],
-      format: "esm",
-      platform: "node",
-    },
-    ...(serverFunctionName ? { function: { kind: "isolated" as const, name: serverFunctionName } } : {}),
-  }
-}
-
-export function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
-  return getVercelUnsupportedDatabases(runtimeConfig).length === 0
-}
-
-export function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
-  return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
-    && getCloudflareDatabasesMissingNames(runtimeConfig, provisionState).length === 0
-}
-
-function getSupportedProviderRuntimeModules(
-  artifacts: GeneratedDBArtifacts,
-  runtimeConfig: ResolvedDBViteConfig,
-  provisionState: ProvisionState,
-) {
-  return {
-    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState)
-      ? {
-          cloudflare: artifacts.runtimeModuleFiles.cloudflare,
-          "cloudflare-definition-defaults": artifacts.definitionDefaultsFile,
-        }
-      : {}),
-    ...(shouldCreateVercelOutput(runtimeConfig)
-      ? {
-          vercel: artifacts.runtimeModuleFiles.vercel,
-          "vercel-definition-defaults": artifacts.definitionDefaultsFile,
-        }
-      : {}),
-  }
-}
-
-function registerSupportedProviderRuntimeModules(
-  providerOutput: ProviderOutputCatalog | undefined,
-  artifacts: GeneratedDBArtifacts,
-  runtimeConfig: ResolvedDBViteConfig,
-  provisionState: ProvisionState,
-  generation?: ProviderDeploymentOutputGeneration,
-): void {
-  contributeProviderRuntime(providerOutput, {
-    owner: "database",
-    runtimeModules: getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState),
-  }, generation)
-}
-
-export async function generateProviderOutputs(
-  options: GenerateProviderOutputsOptions,
-  write: ProviderDeploymentOutputWriter = writeProviderDeploymentOutputs,
-): Promise<GeneratedDBArtifacts> {
-  const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
-  const provisionState = readProvisionStateSync(options.rootDir)
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState, options.generation)
-  const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
-  await write({
-    clientOutDir: options.clientOutDir,
-    cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
-    cleanup: {
-      cloudflare: () => {
-        const hasOtherCloudflareOutput = hasProviderRuntimeModule(options.providerOutput, "cloudflare", { except: "database", generation: options.generation })
-        return {
-          ...(!hasOtherCloudflareOutput ? { fileNames: ["index.js"] } : {}),
-          wranglerConfigOwnership: { keys: ["d1_databases"] },
-        }
-      },
-    },
-    rootDir: options.rootDir,
-    sourceRootDir: options.appRootDir,
-    vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
-  })
-  return artifacts
-}
-
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "generation" | "providerOutput" | "rootDir" | "runtimeConfig"> & { artifactDir?: string }): Promise<GeneratedDBArtifacts> {
-  const artifacts = {
-    ...await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir, options.artifactDir),
-    blobRuntimeModules: {
-      cloudflare: getProviderRuntimeModule(options.providerOutput, "blob", "cloudflare", options.generation),
-      vercel: getProviderRuntimeModule(options.providerOutput, "blob", "vercel", options.generation),
-    },
-  }
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir), options.generation)
-  return artifacts
+/** Reports whether the hosted runtime module can serve every configured database on the provider. */
+export function supportsHostedDatabaseRuntime(provider: DBProvider, runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
+  return provider === "cloudflare"
+    ? getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
+      && getCloudflareDatabasesMissingNames(runtimeConfig, provisionState).length === 0
+    : getVercelUnsupportedDatabases(runtimeConfig).length === 0
 }
