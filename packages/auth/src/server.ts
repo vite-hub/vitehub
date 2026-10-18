@@ -428,10 +428,28 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const reader = Reflect.apply(getReader, freshStream, [])
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
-    if (typeof Reflect.get(readerObject, "read") !== "function"
-      || typeof Reflect.get(readerObject, "cancel") !== "function"
-      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
-    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
+    const intrinsicReaderMethods = new Map<string, Function>()
+    let readerPrototype: object | null = Object.getPrototypeOf(readerObject)
+    const readerSeen = new Set<object>()
+    while (readerPrototype && readerSeen.size < authorizationResponsePrototypeLimit) {
+      if (readerSeen.has(readerPrototype)) return false
+      readerSeen.add(readerPrototype)
+      for (const name of ["read", "cancel", "releaseLock"]) {
+        if (intrinsicReaderMethods.has(name)) continue
+        const method = Object.getOwnPropertyDescriptor(readerPrototype, name)?.value
+        if (typeof method === "function") intrinsicReaderMethods.set(name, method)
+      }
+      readerPrototype = Object.getPrototypeOf(readerPrototype)
+    }
+    for (const name of ["read", "cancel", "releaseLock"]) {
+      if (typeof Reflect.get(readerObject, name) !== "function" || !intrinsicReaderMethods.has(name)) return false
+    }
+    // Applying the fresh realm's intrinsic operation performs the reader brand
+    // check; a getReader override cannot authenticate a fabricated lookalike.
+    const probe = Reflect.apply(intrinsicReaderMethods.get("read")!, readerObject, [])
+    if (Object(probe) !== probe || typeof (probe as PromiseLike<unknown>).then !== "function") return false
+    Reflect.apply(intrinsicReaderMethods.get("cancel")!, readerObject, [])
+    Reflect.apply(intrinsicReaderMethods.get("releaseLock")!, readerObject, [])
     return true
   }
   catch {
