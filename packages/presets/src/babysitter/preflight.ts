@@ -23,13 +23,19 @@ async function validateExecutable(path: string): Promise<void> {
     const header = buffer.subarray(0, bytesRead).toString("utf8");
     if (!header.startsWith("#!")) {
       const bytes = Buffer.from(header);
-      if (!(bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46)) {
+      const elf = bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46;
+      const macho = (bytes[0] === 0xfe && bytes[1] === 0xed && (bytes[2] === 0xfa || bytes[2] === 0xfb))
+        || (bytes[0] === 0xca && bytes[1] === 0xfe && bytes[2] === 0xba && bytes[3] === 0xbe)
+        || (bytes[0] === 0xcf && bytes[1] === 0xfa && bytes[2] === 0xed && bytes[3] === 0xfe);
+      if (!elf && !macho) {
         throw new Error(`Executable has no interpreter: ${path}`);
       }
     } else {
       const line = header.slice(2, header.indexOf("\n") < 0 ? undefined : header.indexOf("\n")).trim();
       const parts = line.split(/\s+/).filter(Boolean);
-      const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env" ? parts.find(part => !part.startsWith("-")) : parts[0];
+      const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env"
+        ? parts.slice(1).find(part => !part.startsWith("-"))
+        : parts[0];
       if (!interpreter) throw new Error(`Executable has no interpreter: ${path}`);
       await resolveExecutable(interpreter);
     }
@@ -49,10 +55,12 @@ async function resolveExecutable(program: string): Promise<void> {
     : [""];
   for (const directory of path.split(delimiter)) {
     for (const extension of extensions) {
-      try {
-        await validateExecutable(join(directory || ".", `${program}${extension}`));
-        return;
-      } catch {}
+      const candidate = join(directory || ".", `${program}${extension}`);
+      try { await access(candidate, constants.X_OK); } catch { continue; }
+      // Continue only when PATH resolution cannot select this entry. Once an
+      // executable candidate is found, validation errors must be reported.
+      await validateExecutable(candidate);
+      return;
     }
   }
   throw new Error(`Executable not found: ${program}`);
