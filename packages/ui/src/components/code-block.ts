@@ -34,9 +34,15 @@ export const CodeBlockCopyButton = defineComponent({
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
     const copy = () => {
-      if (!navigator.clipboard) return;
-      void navigator.clipboard
-        .writeText(props.value)
+      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+      if (!clipboard || typeof clipboard.writeText !== "function") return;
+      let result: PromiseLike<void> | void;
+      try {
+        result = clipboard.writeText(props.value);
+      } catch {
+        return;
+      }
+      void Promise.resolve(result)
         .then(() => {
           copied.value = true;
           clearTimeout(timeout);
