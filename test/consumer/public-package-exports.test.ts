@@ -145,10 +145,58 @@ async function packPublicPackages(packDir: string) {
       expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
       return join(packDir, tarballs[0]!)
     })
+    await assertPackedTargets(info.packageName, tarball)
     specs[info.packageName] = `file:${tarball}`
   }
   if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
   return specs
+}
+
+function packageExportTargets(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap(packageExportTargets)
+  if (value && typeof value === "object") return Object.values(value).flatMap(packageExportTargets)
+  return []
+}
+
+function packedTargetMatches(files: Set<string>, target: string) {
+  const normalized = target.replace(/^\.\//, "")
+  const wildcardCount = normalized.split("*").length - 1
+  if (wildcardCount === 0) return files.has(`package/${normalized}`)
+  const parts = normalized.split("*")
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"))
+  const pattern = new RegExp(`^package/${escaped[0]}(.+)${escaped.slice(1).map((part, index) => index === 0 ? part : `\\1${part}`).join("")}$`)
+  return [...files].some(file => pattern.test(file))
+}
+
+function manifestEntries(value: unknown): [string, unknown][] {
+  if (typeof value === "string" || Array.isArray(value)) return [[".", value]]
+  if (value && typeof value === "object") return Object.entries(value)
+  return []
+}
+
+async function assertPackedTargets(packageName: string, tarball: string) {
+  const [{ stdout: listing }, { stdout: manifestSource }] = await Promise.all([
+    run("tar", ["-tzf", tarball], repoRoot),
+    run("tar", ["-xOf", tarball, "package/package.json"], repoRoot),
+  ])
+  const files = new Set(listing.split("\n").filter(Boolean))
+  const manifest = JSON.parse(manifestSource) as {
+    bin?: unknown
+    exports?: unknown
+  }
+
+  for (const [subpath, value] of manifestEntries(manifest.exports)) {
+    for (const target of packageExportTargets(value)) {
+      expect(packedTargetMatches(files, target), `${packageName} ${subpath} is missing packed export ${target}`).toBe(true)
+    }
+  }
+
+  for (const [binName, value] of manifestEntries(manifest.bin)) {
+    for (const target of packageExportTargets(value)) {
+      expect(packedTargetMatches(files, target), `${packageName} ${binName} is missing packed binary ${target}`).toBe(true)
+    }
+  }
 }
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {

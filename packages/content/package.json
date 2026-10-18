@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/content",
   "version": "0.0.4",
-  "description": "Comark Content runtime integration for ViteHub Sources.",
+  "description": "Comark Content runtime integration for ViteHub Sources, with editable document collections on Workspace history.",
   "keywords": [
     "comark",
     "content",
@@ -27,11 +27,15 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
-      "import": "./dist/client.js"
+      "import": "./dist/client.js",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
     },
     "./package.json": "./package.json"
   },
@@ -42,17 +46,27 @@
     "test": "vp run -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@valibot/to-json-schema": "catalog:runtime",
+    "@vite-hub/internal": "workspace:*",
     "comark-content": "catalog:markdown",
+    "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "comark-content": "catalog:markdown"

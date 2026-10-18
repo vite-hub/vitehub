@@ -1,1 +1,1 @@
-export { setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+export { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"

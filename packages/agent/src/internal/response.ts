@@ -21,7 +21,12 @@ export function isResponse(value: unknown): value is Response {
     return true
   }
   catch {
-    const constructor = (value as { constructor?: unknown }).constructor
-    return isTrustedResponseConstructor(constructor) && value instanceof (constructor as Function)
+    try {
+      const constructor = (value as { constructor?: unknown }).constructor
+      return isTrustedResponseConstructor(constructor) && value instanceof (constructor as Function)
+    }
+    catch {
+      return false
+    }
   }
 }
