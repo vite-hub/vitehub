@@ -185,7 +185,7 @@ async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Paramet
   if (isBlobValue(data)) {
     const bytes = new Uint8Array(await blobArrayBuffer(data))
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
-    return bytes.buffer
+    return bytes
   }
   if (isArrayBufferValue(data)) return new Uint8Array(data)
   if (isUint8ArrayValue(data)) {
