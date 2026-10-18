@@ -23,6 +23,7 @@ export { resolvePublicUrl } from "@vite-hub/runtime"
 export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
+export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
 export type {
@@ -52,6 +53,42 @@ export { activeProviderSandbox } from "../internal/provider-box.ts"
 export { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { runAgent } from "../index.ts"
+import type { AgentInput, AgentRuntimeContext, ResolvedAgentRuntimeContext } from "../types.ts"
+
+interface ScheduledAgentTargetRunContext {
+  attemptId?: string
+  id: string
+  input?: unknown
+  runId?: string
+  scheduleId?: string
+  scheduledAt: Date
+  target?: string
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+interface ScheduledAgentTargetDefinition {
+  cron: "* * * * *"
+  handler: (context: ScheduledAgentTargetRunContext) => Promise<unknown>
+  options: { manual: true }
+}
+
+/** Adapts a discovered Agent to the schedule runtime's target contract. */
+export function defineScheduledAgentTarget(
+  agent: AgentInput<AgentRuntimeContext>,
+  runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
+): ScheduledAgentTargetDefinition {
+  return {
+    cron: "* * * * *",
+    handler: async schedule => await runAgent(agent, {
+      ...runtimeContext,
+      memo: runtimeContext.memo ?? ((_, create) => create()),
+      runtime: runtimeContext.runtime ?? "unknown",
+      waitUntil: runtimeContext.waitUntil ?? schedule.waitUntil ?? (() => {}),
+    }, {}, { schedule, output: "drained" }),
+    options: { manual: true },
+  }
+}
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
 

@@ -224,7 +224,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       hook("prepare:types", ({ serverTsConfig }) => {
         if (!serverTsConfig) return
         const paths = ensureRecord(ensureRecord(serverTsConfig, "compilerOptions"), "paths")
-        paths[databaseDrizzleImport] = [databaseDrizzleTypes]
+        paths[databaseDrizzleImport] ??= [databaseDrizzleTypes]
       })
       hook("nitro:config", async (config) => {
         // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
@@ -401,7 +401,7 @@ async function installNitroLocalDatabaseRuntime(
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     runtime.databases[definition.name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, merged(index) ? `{ ...definition_${index}, schema: schema_${index} }` : `definition_${index}`)},`
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`)},`
       : merged(index)
         ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
         : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,

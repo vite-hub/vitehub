@@ -191,6 +191,21 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 60_000)
 
+  it("preserves an existing database type path", async () => {
+    const app = await createLayeredApp()
+    const hooks: Array<(value: Record<string, unknown>) => Promise<void> | void> = []
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (value: Record<string, unknown>) => Promise<void> | void) => {
+        if (name === "prepare:types") hooks.push(callback)
+      },
+      options: { ...app.options, dev: false },
+    })
+    const existing = ["/custom/database.d.ts"]
+    const paths: Record<string, string[]> = { "@vite-hub/database/drizzle": existing }
+    for (const hook of hooks) await hook({ compilerOptions: { paths } })
+    expect(paths["@vite-hub/database/drizzle"]).toBe(existing)
+  })
+
   it("lets the application set options and replace a layer table", async () => {
     const app = await createLayeredApp()
     const appDefinition = join(app.appDir, "server/databases/config.ts")
