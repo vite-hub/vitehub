@@ -181,7 +181,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               // accessors backed by internal slots rather than own properties.
               || !("status" in factoryResult)
               || !("headers" in factoryResult)
-              || !("body" in factoryResult)) {
+              || !("body" in factoryResult)
+              // Factory results must materialize response state on the
+              // instance; inherited fields alone are caller-forgeable.
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "status")
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) {
               hasFactoryBrand = false
               break
             }
