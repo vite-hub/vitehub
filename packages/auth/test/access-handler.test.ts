@@ -586,7 +586,7 @@ describe("Auth access handlers", () => {
     const source = new ReadableStream<Uint8Array>()
     let invoked = false
     const paddedPrototype = {
-      get locked() { return ReadableStream.prototype.locked.call(this) },
+      get locked() { return Reflect.apply(Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")!.get!, this, []) },
       getReader() {
         invoked = true
         return ReadableStream.prototype.getReader.call(this)
@@ -594,6 +594,28 @@ describe("Auth access handlers", () => {
     }
     Object.setPrototypeOf(paddedPrototype, ReadableStream.prototype)
     Object.setPrototypeOf(source, paddedPrototype)
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(invoked).toBe(false)
+    expect(source.locked).toBe(false)
+  })
+
+  it("rejects an async concise foreign stream operation without invoking it", async () => {
+    const source = new ReadableStream<Uint8Array>()
+    let invoked = false
+    const pollutedPrototype = {
+      get locked() { return Reflect.apply(Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")!.get!, this, []) },
+      async getReader() {
+        invoked = true
+        return ReadableStream.prototype.getReader.call(this)
+      },
+    }
+    Object.setPrototypeOf(pollutedPrototype, ReadableStream.prototype)
+    Object.setPrototypeOf(source, pollutedPrototype)
     const foreign = new ForeignResponse(source, { status: 409 })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreign as never }] },

@@ -403,6 +403,9 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // Async functions are executable caller code even when they spoof an
     // intrinsic operation name and otherwise resemble a native method.
     if (/^\s*async\s+function\b/.test(source)) return false
+    // Async concise methods have the same caller-controlled body but stringify
+    // as `async name() { ... }`, so reject them before invocation as well.
+    if (/^\s*async\s+[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) return false
     // Cross-runtime Web API implementations (for example undici) commonly
     // stringify as concise methods with a full implementation body. Reject
     // the short, caller-authored method-shaped functions used to spoof an
