@@ -355,7 +355,7 @@ describe("connect", () => {
         ? new Response(null, { status })
         : test.provider.fetch(input, init),
     })
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", details: { status } })
+    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: expect.stringContaining(String(status)) })
     expect(await test.store.secrets.read("connection/mail")).toEqual(token)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     expect(await test.store.refreshLeases.claim({ name: "mail", owner: "another-runtime", revision: token.revision, now: test.now.value, expiresAt: test.now.value + 1000 })).toBe("busy")
