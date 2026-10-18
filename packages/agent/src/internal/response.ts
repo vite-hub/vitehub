@@ -67,9 +67,14 @@ export function isResponse(value: unknown): value is Response {
         if (typeof body !== "function") return false
         // A fabricated registered prototype can copy the public body factory
         // and make the accessor return null without ever running the foreign
-        // Response constructor. Body-bearing responses must expose the
-        // implementation-created body here; otherwise keep the value generic.
-        if (body.call(value) == null) return false
+        // Response constructor. Bodyless instances still carry the
+        // implementation's own initialization state, so require that state
+        // before accepting a null body.
+        if (body.call(value) == null) {
+          const candidate = value as object
+          if (!Object.prototype.hasOwnProperty.call(candidate, "bodyInit")
+            || !Object.prototype.hasOwnProperty.call(candidate, "options")) return false
+        }
         return true
       }
       // A subclass may inherit the implementation's intrinsic accessor from

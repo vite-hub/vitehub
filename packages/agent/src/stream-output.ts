@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
+import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -105,13 +106,14 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
     // Response accessors perform an internal-slot brand check, so the host
     // realm's getters reject an otherwise genuine Response from another realm.
     // Select the accessors from the candidate's branded Response prototype.
-    if (!hasResponsePrototype(value)) return false
+    const registered = isResponse(value)
+    if (!registered && !hasResponsePrototype(value)) return false
     const branded = responsePrototype(value)
-    if (!branded || !hasResponseBrand(value, branded)) return false
-    const bodyGetter = responsePropertyDescriptor(value, "body")?.get
-    const headersGetter = responsePropertyDescriptor(value, "headers")?.get
-    const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
-    const headers = headersGetter && Reflect.apply(headersGetter, value, [])
+    if (!registered && (!branded || !hasResponseBrand(value, branded))) return false
+    const bodyDescriptor = responsePropertyDescriptor(value, "body")
+    const responseHeadersDescriptor = responsePropertyDescriptor(value, "headers")
+    const body = bodyDescriptor?.get ? Reflect.apply(bodyDescriptor.get, value, []) : bodyDescriptor && "value" in bodyDescriptor ? bodyDescriptor.value : undefined
+    const headers = responseHeadersDescriptor?.get ? Reflect.apply(responseHeadersDescriptor.get, value, []) : responseHeadersDescriptor && "value" in responseHeadersDescriptor ? responseHeadersDescriptor.value : undefined
     const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
     const get = headers && headersDescriptor(headers, "get")?.value
     if (!body || !headers || !lockedGetter || !hasRuntimeType(get, "function")) return false
