@@ -244,7 +244,7 @@ function maskCommentsAndStrings(source: string) {
 }
 
 function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
+  const match = /^\s*(?:([\p{ID_Start}$_][\p{ID_Continue}$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/u.exec(stripLeadingEntryComments(entry))
   if (match?.[1]) return match[1]
   if (match?.[2]) return readStaticStringLiteral(match[0].trim().slice(0, -1).trim())
   if (match?.[3]) return readStaticStringLiteral(match[0].trim().replace(/^\[\s*/, "").replace(/\s*\](?::|$)/, ""))
@@ -252,7 +252,7 @@ function readEntryKey(entry: string): string | undefined {
 
 function readEntryValue(entry: string): string | undefined {
   const normalized = stripLeadingEntryComments(entry)
-  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
+  const match = /^\s*(?:[\p{ID_Start}$_][\p{ID_Continue}$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/u.exec(normalized)
   return match ? normalized.slice(match[0].length).trim() : undefined
 }
 
@@ -330,11 +330,11 @@ function splitTopLevelOperator(expression: string): string[] {
 }
 
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
-  const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
+  const match = /^env\s*\((.*)\)$/s.exec(stripExpressionComments(expression))
   const body = objectLiteralBody(match?.[1])
   if (!body) return
   const source = readObjectPropertyValue(body, "source")?.trim()
-  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(source || "")
+  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(stripExpressionComments(source || ""))
   if (!sourceMatch) return
   const sourceValue = sourceMatch[1]!.trim()
   const singleName = readStaticStringLiteral(sourceValue)
@@ -351,7 +351,8 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
 const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"]])
 
 function readStaticStringLiteral(expression: string): string | undefined {
-  const normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
+  let normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
+  while (normalized.startsWith("(") && findMatching(normalized, 0, "(", ")") === normalized.length - 1) normalized = normalized.slice(1, -1).trim()
   const quote = normalized[0]
   if (normalized.length < 2 || (quote !== "'" && quote !== '"') || normalized.at(-1) !== quote) return
   let value = ""
@@ -391,6 +392,16 @@ function readStaticStringLiteral(expression: string): string | undefined {
   return value
 }
 
+function readStaticStringReference(expression: string | undefined, source: string, seen = new Set<string>()): string | undefined {
+  if (!expression) return
+  const direct = readStaticStringLiteral(expression)
+  if (direct !== undefined) return direct
+  const identifier = expression.trim()
+  if (!/^[\p{ID_Start}$_][\p{ID_Continue}$]*$/u.test(identifier) || seen.has(identifier)) return
+  seen.add(identifier)
+  return readStaticStringReference(readOpaqueDeclarationExpression(identifier, source), source, seen)
+}
+
 /** Remove comments while preserving quoted literal contents. */
 function stripExpressionComments(expression: string): string {
   let result = ""
@@ -410,7 +421,7 @@ function stripExpressionComments(expression: string): string {
     }
     else if (char === "/" && next === "/") {
       index += 1
-      while (index + 1 < expression.length && expression[index + 1] !== "\n") index++
+      while (index + 1 < expression.length && !isLineTerminator(expression[index + 1]!)) index++
       result += " "
     }
     else if (char === "/" && next === "*") {
@@ -455,7 +466,7 @@ function stripStaticTypeAssertions(expression: string): string {
 
 function readProcessEnvName(expression: string) {
   const normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
-  return /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(normalized)?.[1]
+  return /^process\.env\.([\p{ID_Start}$_][\p{ID_Continue}$]*)$/u.exec(normalized)?.[1]
     ?? (() => {
       const match = /^process\.env\[([\s\S]+)\]$/.exec(normalized)
       const value = match ? readStaticStringLiteral(match[1]!.trim()) : undefined
@@ -700,7 +711,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     const bindingExpression = rawBinding && /^[A-Za-z_$][\w$]*$/.test(rawBinding)
       ? readOpaqueDeclarationExpression(rawBinding, source)?.trim() ?? rawBinding
       : rawBinding
-    const binding = bindingExpression ? readStaticStringLiteral(bindingExpression) : undefined
+    const binding = readStaticStringReference(bindingExpression, source)
     if (cloudflareEntries.length && expression?.trim() !== "undefined") {
       return {
         resource,
