@@ -16,12 +16,13 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+
 function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   if (!isRuntimeObject(value)) return false
   try {
-    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
-    if (typeof getter !== "function") return false
-    getter.call(value)
+    if (typeof arrayBufferByteLengthGetter !== "function") return false
+    arrayBufferByteLengthGetter.call(value)
     return true
   }
   catch {
