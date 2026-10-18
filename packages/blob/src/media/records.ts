@@ -362,7 +362,18 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     return record?.hash === hash ? record : undefined
   }
 
-  async function removeReplacement(replacement: MediaCropReplacement): Promise<void> {
+  async function replacementIsReferenced(pathname: string, excluding?: string): Promise<boolean> {
+    const records = await listAll(mediaRecordsPrefix)
+    for (const object of records) {
+      const record = sanitizeMediaRecord(await readJson(object.pathname))
+      if (!record || (excluding && canonical(record.pathname) === canonical(excluding))) continue
+      if (Object.values(record.crops ?? {}).some(crop => crop.replacement?.pathname === pathname)) return true
+    }
+    return false
+  }
+
+  async function removeReplacement(replacement: MediaCropReplacement, excluding?: string): Promise<void> {
+    if (await replacementIsReferenced(replacement.pathname, excluding)) return
     await driver.delete([replacement.pathname])
     await context.clearDerived(replacement.pathname)
   }
@@ -383,7 +394,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     const record = await readRecord(pathname)
     unwrap(await context.storage.del(pathname))
     for (const crop of Object.values(record?.crops ?? {})) {
-      if (crop.replacement) await removeReplacement(crop.replacement)
+      if (crop.replacement) await removeReplacement(crop.replacement, pathname)
     }
     await driver.delete([recordPath(pathname)])
     if (record?.hash) {
@@ -421,7 +432,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (next.hash) await writeJson(hashPath(next.hash), { pathname: next.pathname })
     unwrap(await context.storage.del(from))
     for (const crop of Object.values(record.crops ?? {})) {
-      if (crop.replacement) await removeReplacement(crop.replacement)
+      if (crop.replacement) await removeReplacement(crop.replacement, from)
     }
     await driver.delete([recordPath(from)])
     return next
