@@ -443,7 +443,7 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let releaseLock: ((this: object) => void) | undefined
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
-  let fallbackReleaseLock: ((this: object) => void) | undefined
+  const fallbackReleaseLock = Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, "releaseLock")?.value as ((this: object) => void) | undefined
   try {
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
   for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
@@ -455,8 +455,6 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   // Capture a prototype intrinsic before touching the instance property. If
   // the instance lookup is a throwing accessor, cleanup can still release the
   // exact acquired reader without repeating that lookup.
-  fallbackReleaseLock = releaseLock
-  if (!fallbackReleaseLock) fallbackReleaseLock = Reflect.get(reader, "releaseLock") as typeof fallbackReleaseLock
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
     releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
     return

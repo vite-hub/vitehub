@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth } from "./vite.ts"
+import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
 
 import type { AuthModuleOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
@@ -74,11 +74,14 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (options.nitro !== false && !nitroRegistered.has(nuxt)) {
     nitroRegistered.add(nuxt)
     nuxt.hook?.("nitro:config", async (nitroConfig) => {
-      const pluginApi = (authPlugin as { api?: { getConfig?: () => { definition?: { handler?: string } }, refresh?: () => { definition?: { handler?: string } } } }).api
-      // Nitro can run before Vite's configResolved hook. Refresh discovery here
-      // so the virtual definition alias is available during Nitro setup.
-      const definitionHandler = pluginApi?.refresh?.()?.definition?.handler
-        || pluginApi?.getConfig?.()?.definition?.handler
+      // Nitro can run before Vite's configResolved hook. Resolve discovery
+      // directly from the Nuxt/Vite inputs so the virtual definition alias is
+      // available during Nitro setup.
+      const definitionHandler = resolveAuthViteConfig(
+        nuxt.options.vite?.auth ?? options.auth,
+        viteRoot,
+        { serverDirs: resolveNuxtServerDirs(nuxt.options) },
+      )?.definition.handler
       if (definitionHandler) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
