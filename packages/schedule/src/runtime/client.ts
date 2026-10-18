@@ -234,7 +234,7 @@ const dynamicSchedules = {
     return await getScheduleRunStore().listAttempts(runId)
   },
   async listRuns(): Promise<ScheduleRunRecord[]> {
-    return await getScheduleRunStore().listRuns()
+    return await getScheduleRunStore().listRuns({ runtimeOnly: true })
   },
   async run(id: string, options: { scheduledAt?: Date } = {}): Promise<ScheduleRunRecord> {
     return await executeRuntimeSchedule({ id, scheduledAt: options.scheduledAt })

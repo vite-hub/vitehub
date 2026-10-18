@@ -19,18 +19,21 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
+  timeZone?: string
 }
 
 export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
+  timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
   options?: ScheduleDefinitionOptions
+  timeZone?: string
 }
 
 export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {
@@ -54,11 +57,12 @@ export interface ScheduleDefinitionRegistry {
 export interface ScheduleTargetRegistry {}
 
 /** Target names declared by generated or consumer type augmentation. */
-export type RegisteredScheduleTargetName = Extract<keyof ScheduleTargetRegistry, string>
+type RegisteredScheduleTargetKeys = Extract<keyof ScheduleTargetRegistry, string>
+export type RegisteredScheduleTargetName = [RegisteredScheduleTargetKeys] extends [never] ? ScheduleTargetName : RegisteredScheduleTargetKeys
 export type ScheduleTargetInput<TTarget extends RegisteredScheduleTargetName> = TTarget extends keyof ScheduleTargetRegistry
   ? ScheduleTargetRegistry[TTarget] extends { handler: (context: infer TContext) => unknown }
-  ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
-  : never
+    ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
+    : never
   : unknown
 
 // Durable records and operational calls can reference targets outside this build.

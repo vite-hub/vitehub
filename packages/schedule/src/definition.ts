@@ -80,11 +80,15 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (input.timeZone !== undefined) {
     definition.timeZone = input.timeZone
   }
+  const definitionOptions: ScheduleDefinitionOptions = {}
   if (typeof input.allowRuntimeSchedules !== "undefined") {
-    definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
+    definitionOptions.allowRuntimeSchedules = input.allowRuntimeSchedules
   }
   if (input.manual !== undefined) {
-    definition.options = { manual: input.manual }
+    definitionOptions.manual = input.manual
+  }
+  if (Object.keys(definitionOptions).length > 0) {
+    definition.options = definitionOptions
   }
   return definition
 }
