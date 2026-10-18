@@ -72,25 +72,35 @@ function isRequest(value: unknown): value is Request {
           // established a concrete candidate. A proxy can otherwise recurse
           // while resolving Symbol.toStringTag before cycle detection runs.
           if (Object.prototype.toString.call(value) !== "[object Request]") return false
-          const descriptors = Object.getOwnPropertyDescriptors(prototype)
+          const findDescriptor = (name: string): PropertyDescriptor | undefined => {
+            let current: object | null = prototype
+            const seen = new Set<object>()
+            for (let level = 0; current !== null && level < maxPrototypeDepth; level++) {
+              if (seen.has(current)) return undefined
+              seen.add(current)
+              const descriptor = Object.getOwnPropertyDescriptor(current, name)
+              if (descriptor) return descriptor
+              current = Object.getPrototypeOf(current)
+            }
+            return undefined
+          }
           const accessorNames = ["body", "headers", "method", "url", "signal"] as const
-          if (accessorNames.some(name => {
-            const descriptor = descriptors[name]
-            return !descriptor || typeof descriptor.get !== "function"
-          })) return false
+          const accessors = Object.fromEntries(accessorNames.map(name => [name, findDescriptor(name)])) as Record<typeof accessorNames[number], PropertyDescriptor | undefined>
+          if (accessorNames.some(name => typeof accessors[name]?.get !== "function")) return false
           // Request's body operations are part of the host-provided Fetch
           // surface. Requiring the complete method set prevents a plain
           // object from passing solely by imitating a handful of accessors.
           const bodyMethodNames = ["arrayBuffer", "blob", "formData", "json", "text", "clone"] as const
-          if (bodyMethodNames.some(name => typeof descriptors[name]?.value !== "function")) return false
+          const methods = Object.fromEntries(bodyMethodNames.map(name => [name, findDescriptor(name)])) as Record<typeof bodyMethodNames[number], PropertyDescriptor | undefined>
+          if (bodyMethodNames.some(name => typeof methods[name]?.value !== "function")) return false
           // A foreign Request must not merely inherit this realm's methods on a
           // caller-controlled prototype. Such copied methods brand-check the
           // receiver against this realm's internal slots and identify a spoof,
           // rather than a genuine foreign Request implementation.
           const nativeClone = Object.getOwnPropertyDescriptor(Request.prototype, "clone")?.value
-          if (descriptors.clone?.value === nativeClone) return false
+          if (methods.clone?.value === nativeClone) return false
           bodyGetter.call(value)
-          const headers = descriptors.headers.get?.call(value)
+          const headers = accessors.headers?.get?.call(value)
           const headersPrototype = headers && Object.getPrototypeOf(headers)
           const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
           if (typeof headersGet !== "function") return false
