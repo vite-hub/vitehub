@@ -177,7 +177,7 @@ describe("Auth access handlers", () => {
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects unbranded objects with a Response prototype from the %s runtime", async (_runtime, ResponseConstructor) => {
     const spoof = Object.create(ResponseConstructor.prototype) as never
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => spoof }] },
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
@@ -192,7 +192,7 @@ describe("Auth access handlers", () => {
       [Symbol.toStringTag]: "Response",
     }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => spoof }] },
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
@@ -603,11 +603,16 @@ describe("Auth access handlers", () => {
         releaseLock: () => {},
       }),
     })
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
-    }))
+    try {
+      const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+        access: { routes: [{ route: "/**", authorize: () => source as never }] },
+      }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+      await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    }
+    finally {
+      if (original) Object.defineProperty(prototype, "getReader", original)
+    }
   })
 
   it.each(["response", "headers"] as const)("rejects a %s carrier whose descriptor reflection throws", async carrier => {
