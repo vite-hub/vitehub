@@ -97,6 +97,15 @@ describe("Auth below an application base path", () => {
     expect(await access(new Request("https://example.com/public"))).toBeUndefined()
   })
 
+  it("preserves the trailing slash for exact root access routes", async () => {
+    vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
+    const definition = defineAuth({ access: { routes: ["/"] }, appName: "ViteHub", runtime: { secret } })
+    const access = createAuthAccessHandler([{ route: "/" }], definition)
+
+    expect((await access(new Request("https://example.com/app/")))?.status).toBe(401)
+    expect(await access(new Request("https://example.com/app"))).toBeUndefined()
+  })
+
   it("keeps a base path that already includes the application base path", () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     // Console Auth mounts its Definition below the app base path itself.

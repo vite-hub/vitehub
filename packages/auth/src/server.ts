@@ -1043,8 +1043,9 @@ export function createAuthAccessHandler(
     method: route.method?.toUpperCase(),
     // Request URLs keep the application base path, so match each route below it.
     path: (() => {
-      const resolved = resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route)
-      return resolved.length > 1 ? resolved.replace(/\/$/, "") : resolved
+      const recursive = route.route.endsWith("/**")
+      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      return recursive && resolved.length > 1 ? resolved.replace(/\/$/, "") : resolved
     })(),
     recursive: route.route.endsWith("/**"),
   }))
