@@ -500,7 +500,7 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   // authenticated as the runtime's intrinsic without invoking it. Fail closed
   // before executing caller-controlled code; supported runtimes expose the
   // accessor on their native Headers prototype.
-  if (cookieEntry && (cookieEntry.owner === headers
+  if (cookieEntry && cookieEntry.value !== undefined && (cookieEntry.owner === headers
     || !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", false, false))) return
   // Some supported runtimes expose getSetCookie as an instance-level wrapper
   // while forEach remains on the Headers prototype. Validate each callable
