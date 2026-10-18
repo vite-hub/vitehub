@@ -405,6 +405,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let prototype: object | null = Object.getPrototypeOf(candidate)
     let locked: (() => boolean) | undefined
     let getReader: ((...args: []) => unknown) | undefined
+    let streamConstructor: (new (...args: []) => object) | undefined
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
@@ -413,15 +414,17 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       if (typeof lockedGetter === "function") {
         locked = lockedGetter as () => boolean
         getReader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value as ((...args: []) => unknown) | undefined
+        streamConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as (new (...args: []) => object) | undefined
         break
       }
       prototype = Object.getPrototypeOf(prototype)
     }
     if (typeof locked !== "function" || typeof getReader !== "function") return false
     if (Reflect.apply(locked, candidate, [])) return false
-    // Validate the native reader against a fresh stream. The candidate's
-    // inherited reader overrides are intentionally ignored.
-    const freshStream = new ReadableStream()
+    // Validate the reader against a fresh stream from the body's realm. A
+    // reader method from another Web Streams realm rejects a local stream.
+    if (typeof streamConstructor !== "function") return false
+    const freshStream = new streamConstructor()
     const reader = Reflect.apply(getReader, freshStream, [])
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
