@@ -63,7 +63,7 @@ export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Sn
   // base was tested. Force a retest before allowing a direct merge.
   if (!testedBase) return [...changed];
   // The first page has the complete file list; later pages only add commits.
-  const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=1`,
+  const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=${compareFileLimit}`,
     "{ahead: .ahead_by, files: [.files[]? | .filename, .previous_filename]}", signal);
   if (!isRuntimeRecord(compare) || !compare.ahead) return [];
   if (!Array.isArray(compare.files) || compare.files.length >= compareFileLimit) return [...changed];
@@ -82,10 +82,14 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
   if (!head || !baseRef) return undefined;
   const testedBase = await checksTestedBase(reader, snapshot, head, baseRef, failed, signal);
   if (!testedBase) return undefined;
-  const compare = await reader.page(`repos/${snapshot.repository}/compare/${testedBase}...${encodeURIComponent(baseRef)}?per_page=1`, "{ahead: .ahead_by}", signal);
+  const compare = await reader.page(`repos/${snapshot.repository}/compare/${testedBase}...${encodeURIComponent(baseRef)}?per_page=${compareFileLimit}`, "{ahead: .ahead_by}", signal);
   if (!isRuntimeRecord(compare) || !hasRuntimeType(compare.ahead, "number") || !compare.ahead) return undefined;
   // While the base itself fails, the update inherits the same failures.
-  const baseFailures = await reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
-    `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal);
-  return baseFailures === 0 ? compare.ahead : undefined;
+  const [baseFailures, baseStatuses] = await Promise.all([
+    reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
+      `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal),
+    reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
+      `[.[] | select(.state as $s | ${JSON.stringify([...failed])} | index($s))] | length`, signal),
+  ]);
+  return baseFailures === 0 && (baseStatuses === undefined || baseStatuses === 0) ? compare.ahead : undefined;
 }

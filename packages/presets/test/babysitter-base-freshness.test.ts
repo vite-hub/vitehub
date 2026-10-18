@@ -47,7 +47,7 @@ describe("Babysitter base freshness", () => {
   it("returns the files that both the PR and the base changed after the checks ran", async () => {
     const read = reader({ files: [["src/a.ts", null as unknown as string], ["src/b.ts", "src/old-b.ts"]], compare: { ahead: 2, files: ["src/old-b.ts", "README.md", null] } });
     expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/old-b.ts"]);
-    expect(read.paths).toContain(`repos/acme/app/compare/${tested}...main?per_page=1`);
+    expect(read.paths).toContain(`repos/acme/app/compare/${tested}...main?per_page=300`);
   });
 
   it("finds no overlap when the base did not move", async () => {
