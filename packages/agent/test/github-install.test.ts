@@ -15,9 +15,9 @@ async function fixture() {
   await mkdir(join(root, ".git")); await mkdir(join(root, "bin"));
   await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.34.6" }));
   await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
-  await writeFile(join(root, "bin", "corepack"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/../args.txt"\nif [ -n "$GITHUB_APP_PRIVATE_KEY" ]; then exit 99; fi\nif [ "$COREPACK_ENV_FILE" != 0 ] || [ "$COREPACK_NPM_REGISTRY" != https://registry.npmjs.org ]; then exit 98; fi\nmkdir -p node_modules\n', { mode: 0o755 });
+  await writeFile(join(root, "bin", "corepack"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/../args.txt"\nif [ -n "$VITEHUB_GITHUB_PRIVATE_KEY" ]; then exit 99; fi\nif [ "$COREPACK_ENV_FILE" != 0 ] || [ "$COREPACK_NPM_REGISTRY" != https://registry.npmjs.org ]; then exit 98; fi\nmkdir -p node_modules\n', { mode: 0o755 });
   vi.stubEnv("PATH", `${join(root, "bin")}:${process.env.PATH}`);
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", "host-secret");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "host-secret");
   return root;
 }
 it("classifies malformed installation inputs separately from host failures", async () => {
@@ -60,7 +60,7 @@ it("publishes cached runner output only through the validated snapshot", async (
   const root = await fixture();
   await installGitHubPullRequestWorkspace(root, undefined, async input => {
     expect(input.cwd).not.toBe(root);
-    expect(input.env.GITHUB_APP_PRIVATE_KEY).toBeUndefined();
+    expect(input.env.VITEHUB_GITHUB_PRIVATE_KEY).toBeUndefined();
     expect(input.command).toContain("--ignore-scripts");
     await mkdir(join(input.cwd, "node_modules"));
     await writeFile(join(input.cwd, "node_modules", "cached.txt"), "isolated");

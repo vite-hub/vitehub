@@ -12,7 +12,7 @@ import { Frontmatter } from "./frontmatter.ts"
 
 const RealtimeDocument = Document.extend({ content: "frontmatter? block+" })
 
-export const emptyRealtimeEditorDocument: JSONContent = { type: "doc", content: [{ type: "paragraph" }] }
+const emptyRealtimeEditorDocument: JSONContent = { type: "doc", content: [{ type: "paragraph" }] }
 
 function createMarked(): typeof import("marked").marked {
   const instance: unknown = new Marked()

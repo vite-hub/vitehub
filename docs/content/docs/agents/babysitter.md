@@ -12,11 +12,10 @@ Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 
@@ -28,7 +27,7 @@ Select the preset in a discovered Agent. The repository filter is required: the 
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { babysitter } from 'vite-hub/agent/presets/babysitter'
+import { babysitter } from 'vite-hub/presets/babysitter'
 
 export default defineAgent({
   extends: babysitter,
@@ -65,6 +64,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `concurrency` | `1` | Pull requests repaired at the same time. |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
+| `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
 
 Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 
@@ -118,9 +118,11 @@ The health route shows the decision in `admission` and the token use, the limits
 
 Start with one concurrent repair on a shared Linux host. Use `options.capacity.memory.perInvocationBytes` for each worker's growth budget and `reserveBytes` for memory that other services need. Use `serviceReserveBytes` for the reserve inside the process or cgroup budget (1 GiB by default); the host reserve is applied only to host memory. Linux admission checks host pressure and each visible cgroup ancestor, including a delegated service parent. It uses the least remaining cgroup memory headroom and observes ancestor pressure and high events. It does not read above a namespaced cgroup mount. An unreadable known cgroup uses the configured sample fallback. Admission reserves growth headroom for active workers. Set `options.capacity.fallbackConcurrency` to zero if a failed sample must pause admission.
 
-A Babysitter Box uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
+A Babysitter Sandbox uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
 
-Admission only gates new work. Configure [Box memory limits](/docs/agents/boxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
+To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ sandbox?, release }`. A pass with a `sandbox` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Sandbox installs through its session's `refreshDependencies`. A pass without a `sandbox` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `sandbox` always takes precedence over placement.
+
+Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
 ## Share the Console journal
 
@@ -155,15 +157,15 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 | Variable | Purpose |
 | --- | --- |
-| `GITHUB_APP_ID` | The App ID. |
-| `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH` | The App private key. |
-| `GITHUB_WEBHOOK_SECRET` | The webhook secret. Deliveries without a valid signature are rejected. |
-| `GITHUB_APP_INSTALLATION_ID` | Optional fixed installation. Requires `GITHUB_APP_OWNER`; it applies only to that owner. |
-| `GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
-| `GITHUB_APP_INSTALLATIONS` | Optional JSON object mapping repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
+| `VITEHUB_GITHUB_APP_ID` | The App ID. |
+| `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | The App private key. |
+| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The webhook secret. Deliveries without a valid signature are rejected. |
+| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional fixed installation. Requires `VITEHUB_GITHUB_APP_OWNER`; it applies only to that owner. |
+| `VITEHUB_GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
+| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object mapping repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
 | `VITEHUB_AGENT_STATE_URL` | Agent State, for example `file:/var/lib/babysitter/state.sqlite`. Production builds require it. |
 
-Declare the fixed ID as `env.server.github.appInstallationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
+Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
 The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
 
@@ -191,6 +193,8 @@ To replace the process, send SIGUSR2, wait until the drain route reports `draine
 5. With `merge: 'direct'`, passing required checks also wake it. The host merges when every check passed, every review thread is resolved, and GitHub reports the pull request as clean on the default branch. It never merges into another branch.
 
 Feedback that a pass assessed, or answered with a repair push, stays assessed on later heads. A later head needs a model pass only for new feedback, so a pull request whose push satisfied every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment does not cause a pass. Without required checks on the base branch, the newest run of every current-head check must finish before a merge. An earlier run of a rerun check is ignored.
+
+A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
 
 A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. Stack parents are claimed before other work, and a restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
 

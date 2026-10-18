@@ -31,7 +31,7 @@ export default defineConfig({
     schedule: true,
     ...(providerSandboxClosure
       ? {
-          sandbox: preset === "vercel" || preset === "cloudflare",
+          sandboxTask: preset === "vercel" || preset === "cloudflare",
         }
       : {
           agent: true,
