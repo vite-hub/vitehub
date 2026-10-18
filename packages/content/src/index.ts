@@ -324,7 +324,11 @@ export function defineContent<
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
     // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
-    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
+    ? createContentCollections({
+      workspace: workspace!,
+      collections: Object.fromEntries(collectionEntries),
+      defaultRef: () => preview.active() ? "draft" : "published",
+    })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
   for (const [name, definition] of collectionEntries) {
