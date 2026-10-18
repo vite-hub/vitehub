@@ -155,6 +155,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
           }
+          for (const contribution of contributions) {
+            definitionFiles.add(contribution.definition.module)
+          }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles])]
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
