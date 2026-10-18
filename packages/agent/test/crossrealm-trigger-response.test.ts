@@ -78,6 +78,12 @@ describe("agent trigger cross realm responses", () => {
     expect(isResponse(Object.create(HostResponse.prototype))).toBe(false)
   })
 
+  it("accepts subclasses of a registered foreign Response implementation", () => {
+    class SubResponse extends ForeignFetchResponse {}
+    const response = new SubResponse("subclass")
+    expect(isResponse(response)).toBe(true)
+  })
+
   it("contains hostile inspection and does not read user response properties", () => {
     const hostile = runInNewContext(`Object.defineProperty({ input: { context: {} } }, Symbol.toStringTag, {
       get() { throw new Error("hostile") }

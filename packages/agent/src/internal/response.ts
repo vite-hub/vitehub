@@ -23,11 +23,25 @@ export function isResponse(value: unknown): value is Response {
   catch {
     try {
       const constructor = (value as { constructor?: unknown }).constructor
-      if (!isTrustedResponseConstructor(constructor)) return false
-      // Use the registered implementation's intrinsic headers accessor as the
-      // brand check. `instanceof` alone accepts Object.create(Response.prototype)
-      // even though it has none of the implementation's internal state.
-      const headers = Object.getOwnPropertyDescriptor(constructor.prototype, "headers")?.get
+      if (typeof constructor !== "function") return false
+      // Walk the constructor inheritance chain so subclasses of a registered
+      // Fetch implementation retain its intrinsic internal-state brand check.
+      // `instanceof` alone accepts Object.create(Response.prototype), which
+      // has none of the implementation's internal state.
+      let registeredConstructor: Function | undefined
+      let candidate: Function | undefined = constructor
+      const visitedConstructors = new Set<Function>()
+      while (candidate && !visitedConstructors.has(candidate)) {
+        visitedConstructors.add(candidate)
+        if (isTrustedResponseConstructor(candidate)) {
+          registeredConstructor = candidate
+          break
+        }
+        const parent = Object.getPrototypeOf(candidate)
+        candidate = typeof parent === "function" ? parent : undefined
+      }
+      if (!registeredConstructor) return false
+      const headers = Object.getOwnPropertyDescriptor(registeredConstructor.prototype, "headers")?.get
       if (typeof headers !== "function") return false
       headers.call(value)
       return true
