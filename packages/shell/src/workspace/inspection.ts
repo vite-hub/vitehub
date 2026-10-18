@@ -7,11 +7,13 @@ import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
 
 import type { ShellExecutionProvider, ShellObservation } from "../runtime/types.ts"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
+  budget?: ExecutionBudget
   broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
@@ -29,6 +31,9 @@ export async function runWorkspaceInspectionCommand(
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
   throwIfAborted(options.signal)
+  // Charge every attempted workspace shell call before syntax, path, and
+  // command-policy preflight can reject it.
+  options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   const maxOutputLength = options.maxOutputLength === undefined
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
@@ -58,9 +63,11 @@ export async function runWorkspaceInspectionCommand(
   })
   const cwd = options.cwd || workspaceMountPoint
   const result = await runtime.exec(command, {
+    budget: options.budget,
     cwd,
     signal: options.signal,
     timeout,
+    recordInputBytes: false,
     workspacePaths: workspaceSessionPaths(command, cwd),
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)

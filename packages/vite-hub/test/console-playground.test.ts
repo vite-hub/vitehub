@@ -68,22 +68,13 @@ it("paginates Blob fixtures when the Console omits a limit", async () => {
   expect(filtered).toHaveProperty("blobs.length", 2)
 })
 
-it("returns succeeded Schedule runs and consistent run history", async () => {
+it("runs a manual Schedule Definition and lists it as runnable", async () => {
   await expect(playgroundRequest("/api/_vitehub/console/schedule-run", { name: "nightly-digest" }))
     .resolves.toMatchObject({ run: { scheduleId: "nightly-digest", status: "succeeded" } })
   const history = await playgroundRequest("/api/_vitehub/console/definitions?section=schedules")
-  expect(history).toMatchObject({ records: expect.arrayContaining([
+  expect(history).toMatchObject({ records: [
     expect.objectContaining({ id: "definition:nightly-digest", runnable: true }),
-    expect.objectContaining({
-      id: "runtime:sched_console_reindex",
-      cells: expect.objectContaining({ lastRun: expect.stringContaining("succeeded at") }),
-      fields: expect.arrayContaining([
-        { label: "Run 1", value: expect.stringContaining(", succeeded,") },
-        { label: "Run 2", value: expect.stringContaining(", failed,") },
-        { label: "Run 3", value: expect.stringContaining(", succeeded,") },
-      ]),
-    }),
-  ]) })
+  ] })
 })
 
 it("rejects unknown Agents without changing the Agent catalog or invocation history", async () => {

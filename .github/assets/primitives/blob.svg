@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1850ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.card {
+  fill: var(--tile-bg, var(--ui-bg));
+  stroke: color-mix(in srgb, currentColor 55%, transparent);
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.wf-rail-1,
+.wf-rail-2,
+.sh-command,
+.ws-file,
+.blob-progress {
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+.blob-stack { animation-name: blob-stack; }
+.blob-progress { animation-name: blob-progress; }
+.blob-front { animation-name: blob-front; }
+.blob-next { animation-name: blob-next; }
+.blob-last { animation-name: blob-last; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes blob-stack {
+  0%, 50% { transform: translate(0, 0); }
+  72%, 99.9% { transform: translate(4px, -4px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes blob-progress {
+  0%, 6% { transform: scaleX(0); }
+  44%, 99.9% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
+}
+@keyframes blob-front {
+  0%, 50% { opacity: 1; }
+  62%, 99.9% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes blob-next {
+  0%, 50% { opacity: 0; }
+  72%, 99.9% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes blob-last {
+  0%, 50% { opacity: 1; }
+  70%, 99.9% { opacity: 0; }
+  100% { opacity: 1; }
+}
+</style>
+            <g class="a blob-stack">
+        <rect x="14" y="6" width="16" height="20" rx="2" class="card a blob-last" />
+        <rect x="10" y="10" width="16" height="20" rx="2" class="card" />
+        <g>
+          <rect x="6" y="14" width="16" height="20" rx="2" class="card" />
+          <g class="a blob-front">
+            <rect x="9" y="18" width="8" height="2" rx="1" class="soft" />
+            <rect x="9" y="22" width="6" height="2" rx="1" class="soft" />
+            <rect x="9" y="29" width="10" height="1.5" rx="0.75" class="soft" />
+            <rect x="9" y="29" width="10" height="1.5" rx="0.75" class="ink a blob-progress" />
+          </g>
+        </g>
+        <g class="a blob-next">
+          <rect x="2" y="18" width="16" height="20" rx="2" class="card" />
+          <rect x="5" y="22" width="8" height="2" rx="1" class="soft" />
+          <rect x="5" y="26" width="6" height="2" rx="1" class="soft" />
+          <rect x="5" y="33" width="10" height="1.5" rx="0.75" class="soft" />
+        </g>
+      </g>
+</svg>

@@ -1,0 +1,136 @@
+{
+  "name": "@vite-hub/sandbox-task",
+  "version": "0.0.4",
+  "description": "Run named package projects as Sandbox Tasks, with Vite integration for ViteHub.",
+  "keywords": [
+    "cloudflare",
+    "sandbox",
+    "vercel",
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/sandbox-task"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub-sandbox-task-provider-loader": {
+      "types": "./dist/runtime/provider-loader.d.ts",
+      "default": "./dist/runtime/provider-loader.js"
+    },
+    "#vitehub-sandbox-task-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "default": "./dist/runtime/empty-registry.js"
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./runtime/empty-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "import": "./dist/runtime/empty-registry.js",
+      "require": "./dist/runtime/empty-registry.js",
+      "default": "./dist/runtime/empty-registry.js"
+    },
+    "./runtime/provider-loader": {
+      "types": "./dist/runtime/provider-loader.d.ts",
+      "import": "./dist/runtime/provider-loader.js",
+      "require": "./dist/runtime/provider-loader.js",
+      "default": "./dist/runtime/provider-loader.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./package.json": "./package.json",
+    "./_internal/runtime": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./_internal/runtime/providers/cloudflare": {
+      "types": "./dist/runtime/providers/cloudflare.d.ts",
+      "import": "./dist/runtime/providers/cloudflare.js",
+      "require": "./dist/runtime/providers/cloudflare.js",
+      "default": "./dist/runtime/providers/cloudflare.js"
+    },
+    "./_internal/runtime/providers/vercel": {
+      "types": "./dist/runtime/providers/vercel.d.ts",
+      "import": "./dist/runtime/providers/vercel.js",
+      "require": "./dist/runtime/providers/vercel.js",
+      "default": "./dist/runtime/providers/vercel.js"
+    }
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/sandbox-task#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
+    "esbuild": "catalog:tooling",
+    "local-pkg": "catalog:tooling",
+    "mlly": "catalog:unjs",
+    "nostics": "catalog:runtime",
+    "pathe": "catalog:unjs",
+    "typescript": "catalog:tooling",
+    "unimport": "catalog:unjs",
+    "yaml": "catalog:tooling"
+  },
+  "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
+    "ofetch": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "rollup": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "zod": "catalog:runtime"
+  },
+  "peerDependencies": {
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/sandbox": "catalog:sandbox",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/sandbox": {
+      "optional": true
+    },
+    "@vercel/sandbox": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

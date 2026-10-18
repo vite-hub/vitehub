@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { defineChannel, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
 import { defineAgent, runAgentTrigger } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 

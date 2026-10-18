@@ -83,7 +83,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
 
-export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
+function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
   const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
@@ -395,6 +395,13 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
     normalizedMaxAgeMs(triggerHistory.maxAgeMs) === undefined
   ) return
   return normalizedMaxMessages(triggerHistory.maxMessages)
+}
+
+/** Returns how many recent history images to send again, and how old they may be. */
+export function chatTriggerHistoryImages(triggerHistory: AgentChatTriggerHistory | undefined): { maxAgeMs: number, maxImages: number } {
+  if (!chatTriggerHistoryLimit(triggerHistory) || !triggerHistory || triggerHistory === "none") return { maxAgeMs: Infinity, maxImages: 0 }
+  const maxImages = typeof triggerHistory.maxImages === "number" && Number.isFinite(triggerHistory.maxImages) ? Math.max(0, Math.floor(triggerHistory.maxImages)) : 0
+  return { maxAgeMs: normalizedMaxAgeMs(triggerHistory.maxAgeMs) ?? Infinity, maxImages }
 }
 
 function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {

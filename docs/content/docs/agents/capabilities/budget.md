@@ -123,7 +123,7 @@ Use all of them when an Agent needs both spend visibility and safe host concurre
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Applies `maxOutputTokens` where the AI SDK provider accepts it and checks normalized usage and cost. |
-| Provider-backed | Checks the usage record reported by the provider Driver. Provider-specific process limits stay in Driver and Box options. |
+| Provider-backed | Checks the usage record reported by the provider Driver. Provider-specific process limits stay in Driver and Sandbox options. |
 | Custom-run-backed | Checks the `usage` or `usageRecord` returned by `driver.run`. |
 
 If a Driver reports no usage, ViteHub cannot compare token or cost limits. The invocation remains successful in `observe` mode.

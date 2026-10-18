@@ -12,12 +12,18 @@ concurrency:
   group: pkg-pr-new-${{ github.ref }}
   cancel-in-progress: true
 
+# No step receives the job token, so it only needs to read the repository.
+permissions:
+  contents: read
+
 jobs:
   publish:
     name: publish preview packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       # Published packages come from a fresh build, not from task cache

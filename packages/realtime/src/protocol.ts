@@ -3,6 +3,7 @@ import * as encoding from "lib0/encoding"
 import { normalizeSafeWorkspacePath } from "@vite-hub/workspace/internal/path"
 
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const messageWorkspaceChange = 4
@@ -39,9 +40,7 @@ export function encodeRealtimeControl(message: RealtimeControlMessage): Uint8Arr
 export function decodeRealtimeControlPayload(decoder: decoding.Decoder): RealtimeControlMessage | undefined {
   try {
     const value: unknown = JSON.parse(decoding.readVarString(decoder))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The control frame is untrusted JSON.
     if (!value || typeof value !== "object" || !("epoch" in value) || !("type" in value)) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The control frame is untrusted JSON; epochs are non-empty strings.
     if (typeof value.epoch !== "string" || !value.epoch) return
     if (value.type === "session" && "access" in value && (value.access === "read" || value.access === "write")) {
       if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document")) {
@@ -64,6 +63,7 @@ function validPath(value: unknown): value is string {
   catch {
     return false
   }
+
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
@@ -95,7 +95,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_R0002({ message: "Awareness update contains too many clients." })
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))
