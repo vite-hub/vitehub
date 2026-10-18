@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest, getDocsPageByPath, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
@@ -7,6 +7,7 @@ const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
+const hasCodePanel = computed(() => getDocsPageByPath(normalizeDocsPath(route.path))?.codePanel === true);
 
 // On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
@@ -17,7 +18,7 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain>
+  <UMain class="vh-docs-shell" :class="{ 'has-header': isSupportMatrix }">
     <UContainer v-if="isSupportMatrix">
       <AnnouncementBanner />
       <slot />
@@ -29,12 +30,12 @@ const docsShellUi = {
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside">
-          <DocsSidebars panel />
+        <UPageAside class="vh-docs-aside hidden lg:flex">
+          <DocsSidebars class="vh-docs-aside-sidebars" panel />
         </UPageAside>
       </template>
 
-      <div class="vh-docs-main">
+      <div :class="hasCodePanel ? 'vh-docs-split' : 'vh-docs-main'">
         <AnnouncementBanner />
         <slot />
       </div>
@@ -44,7 +45,8 @@ const docsShellUi = {
 
 <style scoped>
 .vh-docs-main,
-.vh-docs-landing {
+.vh-docs-landing,
+.vh-docs-split {
   margin: 0 auto;
   padding: 0 1rem;
 }
@@ -57,9 +59,18 @@ const docsShellUi = {
   max-width: 84rem;
 }
 
+.vh-docs-split {
+  max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
+}
+
+@media (min-width: 80rem) {
+  .vh-docs-split { padding-right: 0; }
+}
+
 @media (min-width: 40rem) {
   .vh-docs-main,
-  .vh-docs-landing {
+  .vh-docs-landing,
+  .vh-docs-split {
     padding: 0 2rem;
   }
 }

@@ -233,7 +233,7 @@ async function createSignInResponse(
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
   const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
-  const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
+  const response = await auth.handler(new Request(`${origin}${resolveAuthMountPath(basePath)}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
