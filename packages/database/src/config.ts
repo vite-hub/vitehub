@@ -417,8 +417,11 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       const normalized = stripLeadingEntryComments(property).trim()
       if (!normalized) continue
       if (normalized.startsWith("...")) {
-        const spread = readOpaqueResourceOwnership(normalized.slice(3), source, seen)
-        ownership = spread
+        const spreadExpression = normalized.slice(3)
+        const spread = readOpaqueResourceOwnership(spreadExpression, source, seen)
+        if (opaqueObjectContainsKey(spreadExpression, source, "databaseId") || opaqueObjectContainsKey(spreadExpression, source, "databaseName")) {
+          ownership = spread
+        }
         continue
       }
       const key = readEntryKey(normalized)
@@ -451,6 +454,23 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   return readOpaqueResourceOwnership(readOpaqueDeclarationExpression(identifier, source), source, seen)
 }
 
+function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean {
+  const trimmed = expression.trim()
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    return splitTopLevel(body).some(property => {
+      const normalized = stripLeadingEntryComments(property).trim()
+      if (!normalized) return false
+      if (readEntryKey(normalized) === key) return true
+      return normalized.startsWith("...") && opaqueObjectContainsKey(normalized.slice(3), source, key, seen)
+    })
+  }
+  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return false
+  seen.add(identifier)
+  return opaqueObjectContainsKey(readOpaqueDeclarationExpression(identifier, source) ?? "", source, key, seen)
+}
+
 function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
   const trimmed = expression?.trim()
   if (!trimmed) return undefined
@@ -472,8 +492,9 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
         continue
       }
       if (normalized.startsWith("...")) {
-        const spread = readOpaqueHttpOnly(normalized.slice(3), source, seen)
-        httpOnly = spread
+        const spreadExpression = normalized.slice(3)
+        const spread = readOpaqueHttpOnly(spreadExpression, source, seen)
+        if (opaqueObjectContainsKey(spreadExpression, source, "http")) httpOnly = spread
       }
     }
     return httpOnly
