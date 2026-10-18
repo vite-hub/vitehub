@@ -1,4 +1,4 @@
-import { findTrustedResponseConstructor } from "./internal/response.ts"
+import { findTrustedResponseConstructor, isResponse } from "./internal/response.ts"
 
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
