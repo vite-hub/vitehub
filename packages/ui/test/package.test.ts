@@ -69,7 +69,16 @@ const compactInvocationRules = `  .vh-invocation-thread__content {
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [
+        ".",
+        "./code-block",
+        "./headless",
+        "./nuxt",
+        "./package.json",
+        "./primitive-rail",
+        "./styles.css",
+        "./vite",
+      ].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -99,6 +108,7 @@ describe("@vite-hub/ui package contract", () => {
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
   it.each([
     ".",
+    "./code-block",
     "./headless",
     "./nuxt",
     "./primitive-rail",
