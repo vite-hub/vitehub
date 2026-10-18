@@ -41,7 +41,21 @@ export function isResponse(value: unknown): value is Response {
         candidate = typeof parent === "function" ? parent : undefined
       }
       if (!registeredConstructor) return false
-      const headers = Object.getOwnPropertyDescriptor(registeredConstructor.prototype, "headers")?.get
+      // A subclass may inherit the implementation's intrinsic accessor from
+      // its registered base prototype. Resolve that accessor through the full
+      // prototype chain while retaining the brand check on the candidate.
+      let headers: ((this: unknown) => unknown) | undefined
+      let prototype: object | null = registeredConstructor.prototype
+      const visitedPrototypes = new Set<object>()
+      while (prototype && !visitedPrototypes.has(prototype)) {
+        visitedPrototypes.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "headers")
+        if (descriptor) {
+          headers = descriptor.get
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype) as object | null
+      }
       if (typeof headers !== "function") return false
       headers.call(value)
       return true
