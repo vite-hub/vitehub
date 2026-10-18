@@ -8284,24 +8284,24 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
+    resolution: {integrity: sha512-O4vQ+ZsHBiWMkhD9yOKsL7aiz+Jhl4yXdMw7ZgxZ3Fev2V6gFxE0sF6o92EzuQLHrM/xzVy2/nadjQkVGka5nQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.5
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041}
+    resolution: {integrity: sha512-cqIoHttz6lHs39bDhvLv0m0gYwqvATawQhUiwP1z8RLDGBE7qCT6vVPtjDLlDRRz3g47bjHtQVakmRnhI/prmA==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041}
     version: 0.0.37
     peerDependencies:
       effect: 4.0.0-beta.103
 
   '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca}
+    resolution: {integrity: sha512-Sbe2Ugm2px69IZ5VgRV1at4zZZt5GJPj1JfrGBYkMU6IhtMREso2cGx4bCIYY/Zf6HycTENmihU4vymw7EjPRg==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
   '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
+    resolution: {integrity: sha512-EWRQubkdu2WuZMPkM1zMyszNTFJ4v0BLu+ZslAdpuwZdoOTM+jUOCz3HeACC3YKbufGpzXLgV1oFwnZhfp3kJQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
@@ -10930,7 +10930,7 @@ packages:
     engines: {node: '>=18'}
 
   docus@https://pkg.pr.new/docus@c229a86:
-    resolution: {tarball: https://pkg.pr.new/docus@c229a86}
+    resolution: {integrity: sha512-5C5f4exQotrify/t3wrTEprTUe3yj67ALwWEttyS1IvJGkHVBN4UsNgMZMXGf+6OU61DGI/OW4ctPAhpNDzmQQ==, tarball: https://pkg.pr.new/docus@c229a86}
     version: 5.13.0
     peerDependencies:
       better-sqlite3: 12.x
@@ -11574,6 +11574,73 @@ packages:
       vite:
         optional: true
 
+  evlog@2.33.0:
+    resolution: {integrity: sha512-QXu0QCrkY3jw+Wr8s6Pj0W0HLtXXDCnSjNMeYxi4WX6IXuyJqeT9iKp9zn6lJBUGm4a+pFjNccL7eAQq/UrM3A==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+    peerDependencies:
+      '@nestjs/common': '>=11.2.7'
+      '@nestjs/core': '>=11.2.7'
+      '@nuxt/kit': ^4.4.2
+      '@orpc/server': '>=1.15.4'
+      '@tanstack/start-client-core': ^1.170.34
+      ai: 7.0.143
+      effect: ^4.0.0
+      elysia: '>=1.4.30'
+      eve: '>=0.30.0'
+      express: '>=5.2.1'
+      fastify: '>=5.12.5'
+      h3: ^1.15.11
+      hono: '>=4.13.12'
+      next: '>=16.3.8'
+      nitro: ^3.0.260311-beta
+      nitropack: ^2.13.4
+      ofetch: ^1.5.1
+      react: '>=19.3.0'
+      react-router: '>=7.18.4'
+      vite: ^7.0.0 || ^8.0.0
+    peerDependenciesMeta:
+      '@nestjs/common':
+        optional: true
+      '@nestjs/core':
+        optional: true
+      '@nuxt/kit':
+        optional: true
+      '@orpc/server':
+        optional: true
+      '@tanstack/start-client-core':
+        optional: true
+      ai:
+        optional: true
+      effect:
+        optional: true
+      elysia:
+        optional: true
+      eve:
+        optional: true
+      express:
+        optional: true
+      fastify:
+        optional: true
+      h3:
+        optional: true
+      hono:
+        optional: true
+      next:
+        optional: true
+      nitro:
+        optional: true
+      nitropack:
+        optional: true
+      ofetch:
+        optional: true
+      react:
+        optional: true
+      react-router:
+        optional: true
+      vite:
+        optional: true
+
   execa@5.1.1:
     resolution: {integrity: sha512-8uSpZZocAZRBAPIEINJj3Lo9HyGitllczc27Eh5YYojjMFMn8yHMDMaUHE2Jqfq05D/wucwI4JGURyXt1vchyg==}
     engines: {node: '>=10'}
@@ -11967,7 +12034,7 @@ packages:
     engines: {node: '>= 0.4'}
 
   forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
-    resolution: {tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
     version: 0.1.0
     engines: {node: '>=22.18'}
 
@@ -15830,7 +15897,7 @@ packages:
       vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0-0 || ^5.0.0-0 || ^6.0.1 || ^7.0.0-0 || ^8.0.0
 
   vite-doctor@https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1:
-    resolution: {tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
+    resolution: {integrity: sha512-niOZ6/ftv7MPnMlrppb44lIiJMdk/Y22cCX8wwsK2GCTmBEEMCqcNiNHyCLkn2nbPWcwdunAT9/EaaqJuB0d1Q==, tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
     version: 0.0.12
     engines: {node: '>=22.20.0'}
     hasBin: true
@@ -18298,9 +18365,9 @@ snapshots:
       '@floating-ui/utils': 0.2.12
       vue: 3.5.44(typescript@6.0.3)
 
-  '@github-tools/eve-extension@0.8.1(f105fb964ba7fd106d9ea8420a8bc20a)':
+  '@github-tools/eve-extension@0.8.1(da058420352687aac46bbc053aaf36c6)':
     dependencies:
-      '@github-tools/sdk': 1.18.0(a6bdeb182fb3d5ae79f5b27bf84ae9de)
+      '@github-tools/sdk': 1.18.0(fa7202fd2f4a0437a976387c7e2d793e)
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       zod: 4.6.7
     optionalDependencies:
@@ -18315,6 +18382,7 @@ snapshots:
       - '@tanstack/ai-vercel-gateway'
       - '@tanstack/start-client-core'
       - ai
+      - effect
       - elysia
       - express
       - fastify
@@ -18345,6 +18413,36 @@ snapshots:
       - '@nuxt/kit'
       - '@orpc/server'
       - '@tanstack/start-client-core'
+      - elysia
+      - express
+      - fastify
+      - h3
+      - hono
+      - next
+      - nitro
+      - nitropack
+      - ofetch
+      - react
+      - react-router
+      - vite
+
+  '@github-tools/sdk@1.18.0(fa7202fd2f4a0437a976387c7e2d793e)':
+    dependencies:
+      ai: 7.0.143(zod@4.6.7)
+      evlog: 2.33.0(1280fb0d1ea32b1a7b470c5e57929d20)
+      octokit: 5.0.5
+      zod: 4.6.7
+    optionalDependencies:
+      '@vercel/connect': 2.5.2(d0346f005d2e6b2cc13b0494ce312fbf)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      workflow: 5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
+    transitivePeerDependencies:
+      - '@nestjs/common'
+      - '@nestjs/core'
+      - '@nuxt/kit'
+      - '@orpc/server'
+      - '@tanstack/start-client-core'
+      - effect
       - elysia
       - express
       - fastify
@@ -27954,6 +28052,24 @@ snapshots:
       '@nestjs/core': 11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.2)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.8))
       ai: 7.0.143(zod@4.6.7)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      express: 5.2.1
+      fastify: 5.12.5
+      h3: 1.15.11
+      hono: 4.13.12
+      nitro: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
+      nitropack: 2.13.4(@azure/identity@4.14.0)(@azure/storage-blob@12.34.0)(@libsql/client@0.18.0)(@netlify/blobs@10.7.5)(@parcel/watcher@2.5.6)(@upstash/redis@1.39.0)(@vercel/blob@2.8.2(patch_hash=7db2e11e23fa7dc8684790de4335388d84d5926b1dc2a33f08a78ac4585e2fa3))(@vercel/functions@3.10.1(@aws-sdk/credential-provider-web-identity@3.972.80)(ws@8.22.0))(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261016.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(oxc-parser@0.153.0)(rolldown@1.2.12)(srvx@1.0.5)(uploadthing@7.7.4(express@5.2.1)(fastify@5.12.5)(h3@1.15.11)(tailwindcss@4.3.3))
+      ofetch: 1.5.1
+      react: 19.2.6
+      vite: '@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)'
+
+  evlog@2.33.0(1280fb0d1ea32b1a7b470c5e57929d20):
+    optionalDependencies:
+      '@nestjs/common': 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core': 11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.2)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.8))
+      ai: 7.0.143(zod@4.6.7)
+      effect: 4.0.5
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       express: 5.2.1
       fastify: 5.12.5
