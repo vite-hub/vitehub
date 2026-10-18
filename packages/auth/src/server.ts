@@ -406,6 +406,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const getReader = ReadableStream.prototype.getReader
     if (typeof locked !== "function" || typeof getReader !== "function") return false
     if (Reflect.apply(locked, candidate, [])) return false
+    // The stream can be released after consumption, leaving `locked` false
+    // while the stream is still disturbed.  Fetch's Response constructor
+    // performs the platform disturbed-state check without taking ownership.
+    new nativeResponseConstructor(candidate)
     // Validate the native reader against a fresh stream. The candidate's
     // inherited reader overrides are intentionally ignored.
     const freshStream = new ReadableStream()
