@@ -16,12 +16,14 @@ import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./interna
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { renderContributionImport } from "./internal/generated.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { renderPostgresDatabaseExpression } from "./internal/runtime-config-expression.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
+import type { ResolvedDatabaseContribution } from "./contributions.ts"
 import type { CollectedDatabaseContribution } from "./contributions.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
@@ -339,17 +341,24 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
+  const contributionsByDatabase = runtime.tableContributionsByDatabase
+  const definitionContributions = (definition: (typeof runtime.definitions)[number]) => contributionsByDatabase[definition.name] ?? []
+  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1 || definitionContributions(definition).length > 0
   const imports = runtime.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
     ...merged(definition)
       ? definition.schemaSources.map((source, sourceIndex) =>
           `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
       : [],
+    ...definitionContributions(definition).map((contribution, contributionIndex) =>
+      renderContributionImport(file, contribution as ResolvedDatabaseContribution, `contributedSchema_${index}_${contributionIndex}`)),
   ])
   // Nuxt layers can add tables to one database, so the runtime uses the merged schema.
   const schemas = runtime.definitions.flatMap((definition, index) => merged(definition)
-    ? [`const schema_${index} = { ${definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`).join(", ")} }`]
+    ? [`const schema_${index} = { ${[
+        ...definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`),
+        ...definitionContributions(definition).map((_, contributionIndex) => `...contributedSchema_${index}_${contributionIndex}`),
+      ].join(", ")} }`]
     : [])
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
