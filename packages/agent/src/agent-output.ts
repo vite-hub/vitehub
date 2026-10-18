@@ -966,10 +966,11 @@ function isResponseLike(value: unknown): value is Response {
         // The other supported Fetch implementation may own this response.
       }
     }
-    // The supported independent ponyfill uses its own constructor name. An
-    // own-tagged value claiming to be `Response` without the host brand is a
-    // caller-created structural spoof.
-    if (ownResponseTag && !trustedResponse && constructorDescriptor.value.name === "Response") return false
+    // The supported independent ponyfill uses a distinct constructor name.
+    // Reject arbitrary caller-defined constructors in the unbranded own-tag
+    // path; accepting any caller-chosen name would make the structural checks
+    // below a spoofable escape hatch.
+    if (ownResponseTag && !trustedResponse && constructorDescriptor.value.name !== "PonyfillResponse") return false
     if (!trustedResponse && !ownResponseTag) return false
     const status = read("status")
     const statusText = read("statusText")
