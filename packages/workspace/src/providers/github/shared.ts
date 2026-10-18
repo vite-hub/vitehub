@@ -6,6 +6,7 @@ import {
   forgeEnv,
   forgeErrorStatus,
   forgeProvider,
+  ForgeResponseError,
   readForgeEnv,
 } from "@vite-hub/forge";
 import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
@@ -142,7 +143,7 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    if (status === undefined && response && error instanceof TypeError) {
+    if (status === undefined && response && error instanceof ForgeResponseError) {
       throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
