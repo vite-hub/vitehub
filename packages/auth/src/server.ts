@@ -147,7 +147,7 @@ function isRequestLike(value: AuthRequest): value is Request {
             ]
             const happyDomState = happyDomSymbols.every(name =>
               ownSymbols.some(symbol => symbol.description === name),
-            ) && ownSymbols.length === happyDomSymbols.length
+            )
               && prototypeSymbols.some(symbol => symbol.description === "window")
             if (!happyDomState) return false
             // Happy DOM keeps the owning Window on the Request prototype. Tie
