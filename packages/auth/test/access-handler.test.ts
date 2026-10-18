@@ -626,6 +626,28 @@ describe("Auth access handlers", () => {
     expect(source.locked).toBe(false)
   })
 
+  it("rejects a nested computed concise foreign stream operation without invoking it", async () => {
+    const source = new ReadableStream<Uint8Array>()
+    let invoked = false
+    const pollutedPrototype = {
+      get locked() { return Reflect.apply(Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")!.get!, this, []) },
+      [["getReader"][0]]() {
+        invoked = true
+        return ReadableStream.prototype.getReader.call(this)
+      },
+    }
+    Object.setPrototypeOf(pollutedPrototype, ReadableStream.prototype)
+    Object.setPrototypeOf(source, pollutedPrototype)
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(invoked).toBe(false)
+    expect(source.locked).toBe(false)
+  })
+
   it("rejects a polluted stream constructor without invoking it", async () => {
     const source = new ReadableStream<Uint8Array>()
     const constructor = vi.fn(function ReadableStream() {
