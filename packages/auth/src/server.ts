@@ -466,36 +466,69 @@ function getNativeAuthorizationReaderMethods(reader: object) {
   return { read, cancel, releaseLock }
 }
 
+function releaseAuthorizationReader(reader: unknown): void {
+  if (Object(reader) !== reader) return
+  let prototype: object | null = Object.getPrototypeOf(reader)
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+    if (typeof releaseLock === "function") {
+      try { Reflect.apply(releaseLock, reader, []) } catch { /* best effort during initialization failure */ }
+      return
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
+  getReader: () => unknown,
+  initialReader?: ReadableStreamDefaultReader<Uint8Array>,
 ) {
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = initialReader
   let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
   let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
   let released = false
+  const initializeReader = (acquired: unknown) => {
+    if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+    let prototype: object | null = Object.getPrototypeOf(acquired)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) break
+      seen.add(prototype)
+      const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+      const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+      const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+      read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+      cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+      releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+      if (read && cancel && releaseLock) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+    return acquired as ReadableStreamDefaultReader<Uint8Array>
+  }
+  if (initialReader) {
+    try { initializeReader(initialReader) }
+    catch (error) {
+      releaseAuthorizationReader(initialReader)
+      throw error
+    }
+  }
   const acquire = async () => {
+    if (reader) return reader
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
-      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
-      let prototype: object | null = Object.getPrototypeOf(acquired)
-      const seen = new Set<object>()
-      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-        if (seen.has(prototype)) break
-        seen.add(prototype)
-        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
-        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
-        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
-        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
-        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
-        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
-        if (read && cancel && releaseLock) break
-        prototype = Object.getPrototypeOf(prototype)
+      try { return initializeReader(acquired) }
+      catch (error) {
+        releaseAuthorizationReader(acquired)
+        throw error
       }
-      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
-      return acquired as ReadableStreamDefaultReader<Uint8Array>
     })
     reader = await initializing
     return reader
@@ -513,7 +546,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(result.value)
+        else controller.enqueue(new Uint8Array(result.value))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
@@ -523,7 +556,7 @@ function bridgeAuthorizationBody(
       } finally { release() }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -625,17 +658,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     // The trusted brand probe above establishes native Header internal slots;
     // method identities may legitimately differ across Web realms.
-    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
-    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || typeof cookieDescriptor.value === "function")
-    if (!nativeCookieMethod) return
-    const bodyReader = body === null ? undefined : getNativeAuthorizationBodyReader(body)
-    if (body !== null && (!bodyReader || !isSerializableAuthorizationBody(body))) return
-    if (!trustedGet || !trustedForEach) return
-    const cookieMethod = typeof cookieDescriptor?.value === "function"
-      ? cookieDescriptor.value as (this: Headers) => unknown
-      : trustedGetSetCookie
-    const cookies: unknown = cookieMethod ? Reflect.apply(cookieMethod, headers, []) : []
+    // Cookie extraction must use the trusted intrinsic selected by the brand probe.
+    const cookies: unknown = trustedGetSetCookie ? Reflect.apply(trustedGetSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
@@ -674,6 +698,30 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
+    // Foreign and shadowed values require a serializable local snapshot.
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : body === null
+        ? new Response(null, { status, statusText, headers: normalizedHeaders })
+        : (() => {
+            const bodyReader = authorizationBodyReader(Object(serializableBody)) ?? (() => undefined)
+            const initialReader = bodyReader !== ReadableStream.prototype.getReader
+              ? Reflect.apply(bodyReader, serializableBody, []) as ReadableStreamDefaultReader<Uint8Array>
+              : undefined
+            // Keep foreign stream ownership visible immediately; local streams
+            // stay unlocked until the normalized response is consumed.
+            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader, initialReader)
+            void bridge.ready
+            try {
+              return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
+            }
+            catch (error) {
+              bridge.release()
+              throw error
+            }
+          })()
+    // Foreign implementations and shadowed native values become stable local responses.
+    return normalizedResponse
   }
   catch {
     return
