@@ -604,11 +604,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    // Validate status and native body state before acquiring reader ownership.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
+    // Preserve Fetch's status-zero error response without constructing from a
+    // foreign body. Constructing a temporary Response would claim or consume
+    // the stream before bridgeAuthorizationBody acquires its reader.
+    if (body === null) {
+      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+        ? Response.error()
+        : new Response(null, { status, statusText, headers: normalizedHeaders })
+    }
     const bodyReader = authorizationBodyReader(body)
     if (!bodyReader) return
     const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
