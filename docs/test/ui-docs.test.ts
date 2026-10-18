@@ -177,14 +177,14 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("vh-docs-panel");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
-    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
-    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-aside\s*\{[^}]*display: flex;[^}]*flex: none;/);
+    expect(desktopStyles).toMatch(/:deep\(\.vh-docs-sidebars\)\s*\{[^}]*flex-direction: row;/);
     expect(sidebarPanel).toContain("overflow: auto;");
     expect(layout).toContain("overflow-x: clip;");
 
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside\s*\{[^}]*display: flex;/);
+    expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("flex: 1;");
   });
 
