@@ -496,6 +496,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (!nativeHeaderMethods) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
+    const cookieDescriptor = headerPrototype
+      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")
+      : undefined
+    const getSetCookie = cookieDescriptor?.value
+    const nativeGetSetCookie = typeof getSetCookie === "function"
+      && !Object.prototype.hasOwnProperty.call(headerCarrier, "getSetCookie")
+      && (!Object.getPrototypeOf(headerPrototype)
+        || !Object.prototype.hasOwnProperty.call(Object.getPrototypeOf(headerPrototype), "getSetCookie"))
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -505,6 +513,21 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       }
       normalizedHeaders.append(key, value)
     }])
+    if (nativeGetSetCookie) {
+      try {
+        const cookies = Reflect.apply(getSetCookie, headers, [])
+        if (Array.isArray(cookies)) {
+          combinedCookies = undefined
+          for (const cookie of cookies) {
+            if (typeof cookie !== "string") return
+            normalizedHeaders.append("set-cookie", cookie)
+          }
+        }
+      }
+      catch {
+        return
+      }
+    }
     // Preserve one cookie when the fallback exposes only a combined value. A comma
     // followed by another cookie assignment at the cookie-pair boundary proves that
     // multiple values were merged. Assignment-like text after an extension attribute
