@@ -18,7 +18,7 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
+  <UMain class="vh-docs-shell" :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
     <UContainer v-if="isSupportMatrix">
       <AnnouncementBanner />
       <slot />
