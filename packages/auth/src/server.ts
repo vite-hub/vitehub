@@ -331,12 +331,35 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
   if (value instanceof Response) return true
   const UndiciResponse = await getUndiciResponse()
-  if (!UndiciResponse || !(value instanceof UndiciResponse)) return false
+  if (UndiciResponse && value instanceof UndiciResponse) {
+    try {
+      const bodyGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "body")?.get
+      if (!bodyGetter) return false
+      Reflect.apply(bodyGetter, value, [])
+      return true
+    }
+    catch {
+      return false
+    }
+  }
+  // A Response created by an independent VM realm has a distinct constructor.
+  // Probe that realm's own branded accessors instead of relying on instanceof.
   try {
-    const bodyGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "body")?.get
-    if (!bodyGetter) return false
-    Reflect.apply(bodyGetter, value, [])
-    return true
+    let prototype = Object.getPrototypeOf(value)
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++, prototype = Object.getPrototypeOf(prototype)) {
+      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+      const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+      const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+      if (bodyGetter && statusGetter && headersGetter) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof constructor !== "function" || constructor.name !== "Response") continue
+        Reflect.apply(bodyGetter, value, [])
+        Reflect.apply(statusGetter, value, [])
+        const headers = Reflect.apply(headersGetter, value, [])
+        if (headers && typeof headers === "object") return true
+      }
+    }
+    return false
   }
   catch {
     return false

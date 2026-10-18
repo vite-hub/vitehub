@@ -74,6 +74,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (options.nitro !== false && !nitroRegistered.has(nuxt)) {
     nitroRegistered.add(nuxt)
     nuxt.hook?.("nitro:config", async (nitroConfig) => {
+      const definitionHandler = (authPlugin as { api?: { getConfig?: () => { definition?: { handler?: string } } } }).api?.getConfig?.()?.definition?.handler
+      if (definitionHandler) {
+        nitroConfig.alias = {
+          ...(nitroConfig.alias as Record<string, string> | undefined),
+          "#vitehub/auth/definition": definitionHandler,
+        }
+      }
       Object.assign(nitroConfig, createAuthNitroConfig(authPlugin as ReturnType<typeof hubAuth>, {
         nitro: nitroConfig,
         projectRoot: viteRoot,
