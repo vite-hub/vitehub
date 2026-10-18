@@ -28,6 +28,19 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
+
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -282,11 +295,19 @@ function isRuntimeResponse(value: unknown): value is Response {
   if (!nativeResponseStatus || value === null || typeof value !== "object") return false
   try {
     Reflect.apply(nativeResponseStatus, value, [])
-    return true
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (prototype === Response.prototype) return true
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
-    return false
+    // Foreign responses and malformed objects fail the current-realm check.
   }
+  return false
 }
 
 /**
@@ -311,19 +332,6 @@ const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
 const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-const nativeTypedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  try {
-    // The captured %TypedArray%.prototype Symbol.toStringTag getter reads the
-    // value's intrinsic typed-array brand and does not consult species or tags.
-    return nativeTypedArrayTag !== undefined
-      && Reflect.apply(nativeTypedArrayTag, value, []) === "Uint8Array"
-  }
-  catch {
-    return false
-  }
-}
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   return value === nativeReaderMethods[key]
 }
@@ -664,6 +672,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
         release()
         controller.error(error)
       }
+
     },
     async cancel(reason) {
       try {
@@ -688,6 +697,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     let body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
+    const localResponseIdentity = value instanceof Response
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && headers instanceof Headers
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))
+    if (localResponseIdentity) return value
     // Read the response's intrinsic bodyUsed getter as well as the ordinary
     // snapshot. A consumed stream may release its reader and shadow bodyUsed
     // with false; the source-runtime getter still reports its disturbed state
@@ -762,6 +777,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
 
+    // Null-body responses have no stream to validate. Preserve the standard
+    // status-zero error response across realms, while rejecting other foreign
+    // null-body response-shaped values.
+    if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)
+      && !(status === 0 && statusText === "" && [...new Headers(headers)].length === 0)) return
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
@@ -806,6 +826,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       return
     }
+
 
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
@@ -853,6 +874,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       bridgedBody.release()
       throw error
     }
+
   }
   catch {
     return
