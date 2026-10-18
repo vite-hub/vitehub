@@ -91,6 +91,16 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
       // A genuine SqlStorage getter rejects unrelated receivers.
     }
 
+    // %TypedArray%.prototype.byteLength is another finite-number native
+    // accessor that can be copied onto a decorated typed-array carrier.
+    try {
+      const byteLength = Reflect.apply(databaseSize, new Uint8Array(0), [])
+      if (Number.isFinite(byteLength)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
     // will also return a finite value for an object that merely copies the
