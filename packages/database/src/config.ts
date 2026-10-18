@@ -53,9 +53,7 @@ function readDefinitionObjectBody(file: string) {
   const call = calls.find(item => /(?:^|[;\n])\s*export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
     || calls[0]
   const argument = call?.arguments[0]?.trim()
-  if (!argument?.startsWith("{")) return
-  const closeIndex = findMatching(argument, 0, "{", "}")
-  return closeIndex === undefined || argument.slice(closeIndex + 1).trim() ? undefined : argument.slice(1, closeIndex)
+  return objectLiteralBody(argument)
 }
 
 function objectLiteralBody(value: string | undefined) {
