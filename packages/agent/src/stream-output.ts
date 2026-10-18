@@ -197,9 +197,9 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
     const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
     const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
     const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
-    if (!read && hasRuntimeType(readDescriptor?.value, "function")) read = readDescriptor.value as typeof read
-    if (!cancel && hasRuntimeType(cancelDescriptor?.value, "function")) cancel = cancelDescriptor.value as typeof cancel
-    if (!releaseLock && hasRuntimeType(releaseDescriptor?.value, "function")) releaseLock = releaseDescriptor.value as typeof releaseLock
+    if (!read && hasRuntimeType(readDescriptor?.value, "function")) read = readDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["read"]
+    if (!cancel && hasRuntimeType(cancelDescriptor?.value, "function")) cancel = cancelDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    if (!releaseLock && hasRuntimeType(releaseDescriptor?.value, "function")) releaseLock = releaseDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
     readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
   }
   if (!read || !cancel || !releaseLock) throw new TypeError("Foreign stream reader is incomplete")
@@ -286,7 +286,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     if (normalizedHeaders.get("x-vercel-ai-ui-message-stream") !== "v1") return
     // Consumption uses a stable local snapshot and the branded stream, never
     // methods supplied by a Response-shaped carrier.
-    const bridgedBody = bridgeUIMessageBody(body, registered)
+    const bridgedBody = bridgeUIMessageBody(body as ReadableStream<Uint8Array>, registered)
     try {
       const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
       return isUIMessageStreamResponse(response) ? response : undefined
