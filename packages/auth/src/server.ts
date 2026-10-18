@@ -560,6 +560,22 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
   }
 }
 
+function releaseAuthorizationReader(reader: unknown): void {
+  if (Object(reader) !== reader) return
+  let prototype: object | null = Object.getPrototypeOf(reader)
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+    if (typeof releaseLock === "function") {
+      try { Reflect.apply(releaseLock, reader, []) } catch { /* best effort during initialization failure */ }
+      return
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: () => unknown,
@@ -590,12 +606,22 @@ function bridgeAuthorizationBody(
     if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
     return acquired as ReadableStreamDefaultReader<Uint8Array>
   }
-  if (initialReader) initializeReader(initialReader)
+  if (initialReader) {
+    try { initializeReader(initialReader) }
+    catch (error) {
+      releaseAuthorizationReader(initialReader)
+      throw error
+    }
+  }
   const acquire = async () => {
     if (reader) return reader
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
-      return initializeReader(acquired)
+      try { return initializeReader(acquired) }
+      catch (error) {
+        releaseAuthorizationReader(acquired)
+        throw error
+      }
     })
     reader = await initializing
     return reader
