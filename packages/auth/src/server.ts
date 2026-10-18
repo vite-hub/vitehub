@@ -496,7 +496,12 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   const forEachEntry = findMethod("forEach")
   const cookieEntry = findMethod("getSetCookie")
   if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach", false, false)) return
-  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", false, false)) return
+  // Some supported runtimes expose a receiver-bound getSetCookie wrapper as
+  // an own property on the Headers instance. Preserve that contract while
+  // still requiring the optional accessor to be callable and correctly named.
+  if (cookieEntry && (cookieEntry.owner !== headers
+    ? !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", false, false)
+    : typeof cookieEntry.value !== "function" || cookieEntry.value.name !== "getSetCookie")) return
   // Some supported runtimes expose getSetCookie as an instance-level wrapper
   // while forEach remains on the Headers prototype. Validate each callable
   // independently and allow those carrier-owned accessors.
