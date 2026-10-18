@@ -191,9 +191,16 @@ export async function resolveEnvEntries(
 }
 
 export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
-  const registry = buildRegistry(declarations, options.path ?? "env", options.prefix)
-  assertUniqueCanonicalNames(registry, options.path ?? "env")
-  return registry
+  const path = options.path ?? "env"
+  try {
+    const registry = buildRegistry(declarations, path, options.prefix)
+    assertUniqueCanonicalNames(registry, path)
+    return registry
+  }
+  catch (error) {
+    if (isViteHubError(error)) throw error
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
 }
 
 // A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
