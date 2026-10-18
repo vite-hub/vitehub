@@ -58,6 +58,7 @@ describe("Auth access handlers", () => {
     }
   })
 
+
   it("preserves foreign cookie methods that require their Headers receiver", async () => {
     const source = new ForeignResponse("Policy rejected", {
       status: 409,
@@ -141,6 +142,7 @@ describe("Auth access handlers", () => {
     expect(result?.status).toBe(403)
   })
 
+
   it("assimilates a stateful thenable with one then lookup", async () => {
     let reads = 0
     const result = {
@@ -173,6 +175,11 @@ describe("Auth access handlers", () => {
     finally {
       Promise.prototype.then = originalThen
     }
+    finally {
+      reader.releaseLock()
+    }
+  })
+
 
     await expect(pending!).resolves.toBeUndefined()
   })

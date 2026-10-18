@@ -199,12 +199,16 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
-  const scheduledAt = scheduledTime instanceof Date
-    ? scheduledTime
-    : scheduledTime === undefined
+  let scheduledAt: Date
+  try {
+    scheduledAt = scheduledTime === undefined
       ? new Date()
-      : new Date(scheduledTime)
-  if (Number.isNaN(scheduledAt.getTime())) {
+      : scheduledTime instanceof Date
+        ? new Date(Date.prototype.getTime.call(scheduledTime))
+        : new Date(scheduledTime)
+    if (Number.isNaN(Date.prototype.getTime.call(scheduledAt))) throw new Error("invalid date")
+  }
+  catch {
     throw scheduleErrorDiagnostics.SCHEDULE_R0028({ message: "[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime." })
   }
   return { cron, scheduledAt }

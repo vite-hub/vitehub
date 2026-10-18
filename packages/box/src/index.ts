@@ -438,6 +438,7 @@ function isBoxRuntime(value: unknown): value is BoxRuntime {
   return hasDeclaredBoxRuntimeMember(runtime, "name")
     && hasDeclaredBoxRuntimeMember(runtime, "open")
     && hasDeclaredBoxRuntimeMember(runtime, "prepare")
+
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime detection validates the name and callable operations after checking their declaring prototypes.
     && typeof runtime.name === "string"
     && typeof runtime.open === "function"
@@ -669,6 +670,7 @@ function normalizeFiles<Context>(
       const target = relativePath(path, `${label} target`);
       if (!value || typeof value !== "object")
         throw boxErrorDiagnostics.BOX_R0044({ message: `[vitehub] Box file ${path} requires from or contents.` });
+
       const hasFrom = "from" in value;
       const hasContents = "contents" in value;
       const ownsFrom = Object.hasOwn(value, "from");
@@ -681,6 +683,7 @@ function normalizeFiles<Context>(
         const source = relativePath(value.from, `${label} source`);
         return [target, { resolve: async () => await readProjectFile(source) }];
       }
+
       if (!(hasContents && ownsContents) || Object.keys(value).length !== 1)
         throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
       return [
