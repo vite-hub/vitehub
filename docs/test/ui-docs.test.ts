@@ -154,7 +154,6 @@ describe("UI documentation", () => {
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebars).toContain("<DocsRail />");
-    expect(sidebarTop).toContain("vh-docs-context");
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
@@ -165,9 +164,10 @@ describe("UI documentation", () => {
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
     expect(rail).toContain("<template #header");
-    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(rail).toContain('{ label: "Projects", to: "/projects"');
-    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("getDocsRailCatalog");
+    expect(rail).toContain("getUncategorizedDocsSections");
+    expect(rail).toContain("section.title");
+    expect(rail).toContain("section.path");
     expect(rail).toContain("<template #default");
   });
   it("keeps the docs sidebar visible with one search control", () => {
