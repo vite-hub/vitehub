@@ -202,11 +202,20 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               || !("status" in factoryResult)
               || !("headers" in factoryResult)
               || !("body" in factoryResult)
-              || (!constructorSource.includes("[native code]")
-                && (!Object.prototype.hasOwnProperty.call(factoryResult, "status")
-                  || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
-                  || !Object.prototype.hasOwnProperty.call(factoryResult, "body")))
               ) {
+              hasFactoryBrand = false
+              break
+            }
+            const hasFactoryField = (field: "status" | "headers" | "body"): boolean => {
+              if (Object.prototype.hasOwnProperty.call(factoryResult, field)) return true
+              let fieldPrototype = Object.getPrototypeOf(factoryResult)
+              while (fieldPrototype) {
+                if (typeof Object.getOwnPropertyDescriptor(fieldPrototype, field)?.get === "function") return true
+                fieldPrototype = Object.getPrototypeOf(fieldPrototype)
+              }
+              return false
+            }
+            if (!hasFactoryField("status") || !hasFactoryField("headers") || !hasFactoryField("body")) {
               hasFactoryBrand = false
               break
             }
