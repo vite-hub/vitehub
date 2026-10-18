@@ -92,6 +92,12 @@
       "require": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./owned-paths": {
+      "types": "./dist/owned-paths.d.ts",
+      "import": "./dist/owned-paths.js",
+      "require": "./dist/owned-paths.js",
+      "default": "./dist/owned-paths.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",
@@ -253,12 +259,6 @@
       "import": "./dist/build/vercel-config.js",
       "require": "./dist/build/vercel-config.js",
       "default": "./dist/build/vercel-config.js"
-    },
-    "./build/vercel-runtime-package-copy": {
-      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
-      "import": "./dist/build/vercel-runtime-package-copy.js",
-      "require": "./dist/build/vercel-runtime-package-copy.js",
-      "default": "./dist/build/vercel-runtime-package-copy.js"
     },
     "./build/vercel-runtime-packages": {
       "types": "./dist/build/vercel-runtime-packages.d.ts",

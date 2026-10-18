@@ -82,6 +82,22 @@ describe("hubConnections", () => {
     );
   });
 
+  it("writes the resolved activity retention into the registry", async () => {
+    const registryFor = async (activityRetention?: { maxAgeMs?: number, maxRecords?: number } | false) => {
+      const root = await createTempProject();
+      const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+      await (hubConnections({ activityRetention }).config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+      return readFile((config.nitro as { alias: Record<string, string> }).alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
+    };
+    await expect(registryFor()).resolves.toContain('export const activityRetention = {"maxAgeMs":1209600000,"maxRecords":10000}');
+    await expect(registryFor({ maxRecords: 50 })).resolves.toContain('export const activityRetention = {"maxAgeMs":1209600000,"maxRecords":50}');
+    await expect(registryFor(false)).resolves.toContain("export const activityRetention = false");
+  });
+
+  it.each([{ maxRecords: 0 }, { maxAgeMs: -1 }, { maxRecords: 1.5 }, { maxAgeMs: Number.MAX_SAFE_INTEGER + 1 }])("rejects activity retention %j when the plugin is created", (activityRetention) => {
+    expect(() => hubConnections({ activityRetention })).toThrow(/activityRetention\.max(AgeMs|Records) must be a positive integer/);
+  });
+
   it("mounts the management API under the configured Vite base", async () => {
     const root = await createTempProject();
     const config = { base: "/portal/", nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
