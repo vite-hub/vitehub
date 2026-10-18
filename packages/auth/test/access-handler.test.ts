@@ -120,7 +120,7 @@ describe("Auth access handlers", () => {
 
   })
 
-  it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
+  describe("foreign status, body, and separate Set-Cookie headers", () => {
     const foreign = new ForeignResponse("Policy rejected", {
       status: 409,
       statusText: "Policy conflict",
