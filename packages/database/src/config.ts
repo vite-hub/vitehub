@@ -118,7 +118,15 @@ function findAngleAssertionClose(source: string): number | undefined {
       continue
     }
     if (char === "<") depth++
-    else if (char === ">" && --depth === 0) return index
+    else if (char === ">") {
+      depth--
+      if (depth === 0) {
+        let nextIndex = index + 1
+        while (/\s/.test(source[nextIndex] || "")) nextIndex++
+        if (source[nextIndex] === "{") return index
+        depth++
+      }
+    }
   }
 }
 
@@ -330,7 +338,7 @@ function readStaticStringLiteral(expression: string): string | undefined {
       continue
     }
     if (escaped === "\n" || escaped === "\u2028" || escaped === "\u2029") continue
-    if (escaped === "u" && expression[index + 1] === "{") {
+    if (escaped === "u" && normalized[index + 1] === "{") {
       const match = /^\{([\da-f]+)\}/i.exec(normalized.slice(index + 1, -1))
       const codePoint = match ? Number.parseInt(match[1]!, 16) : Number.NaN
       if (!match || codePoint > 0x10FFFF) return
