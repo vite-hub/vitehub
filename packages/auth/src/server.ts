@@ -465,10 +465,23 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
+  let prototype: object | null = Object.getPrototypeOf(body)
+  const seen = new Set<object>()
+  let locked: (() => boolean) | undefined
+  let getReader: (() => unknown) | undefined
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return false
+    seen.add(prototype)
+    const lockedDescriptor = Object.getOwnPropertyDescriptor(prototype, "locked")
+    const readerDescriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+    if (!locked && typeof lockedDescriptor?.get === "function") locked = lockedDescriptor.get
+    if (!getReader && typeof readerDescriptor?.value === "function") getReader = readerDescriptor.value
+    if (locked && getReader) break
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  if (!locked || !getReader || Reflect.apply(locked, body, [])) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+  return !ownReader || ownReader.value === getReader
 }
 
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
