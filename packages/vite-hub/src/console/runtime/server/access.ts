@@ -312,6 +312,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       if (value.body !== null) return invalidAuthorizationResponse
       return new Response(null, init)
     }
+    // A consumed foreign response is still a valid authorization result, but
+    // its clone algorithm must reject the already-used body. Preserve the
+    // response metadata without turning that normal state into a 403.
+    if (value.bodyUsed === true) return new Response(null, init)
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
