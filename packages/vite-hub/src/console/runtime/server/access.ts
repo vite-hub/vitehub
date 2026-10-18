@@ -61,6 +61,23 @@ const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | und
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open"])
 
+function isResponseLike(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  if (value === null || typeof value !== "object") return false
+  try {
+    const response = value as Record<string, unknown>
+    const headers = response.headers as { get?: unknown } | undefined
+    return Object.prototype.toString.call(value) === "[object Response]"
+      && typeof response.status === "number"
+      && typeof response.statusText === "string"
+      && typeof response.bodyUsed === "boolean"
+      && headers !== undefined
+      && typeof headers.get === "function"
+      && ["arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof response[method] === "function")
+  }
+  catch { return false }
+}
+
 /** The warning that a production server logs once when anyone can open the Console. */
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -144,7 +161,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (policy.authorize) {
     const request = consoleRequest(event)
     const result: unknown = await policy.authorize(user ? { request, user } : { request })
-    if (result instanceof Response) return result
+    if (isResponseLike(result)) return result
     if (result === false) return rejection(403, "Forbidden.")
     if (result !== true) {
       const allowed = authorizedSections(result)
