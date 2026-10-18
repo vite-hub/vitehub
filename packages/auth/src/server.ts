@@ -448,7 +448,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
     if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
-      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream)/.test(source)) return false
+      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream|super\.getReader)/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
     if (/^\s*(?:get\s+)?\[[\s\S]*\]\s*\([^)]*\)\s*\{/.test(source)) return false
@@ -486,8 +486,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const locked = nativeStreamIntrinsic(stream, "locked", nativeStreamLocked, "locked")
   const getReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
   if (!locked || !getReader
-    || locked.owner !== getReader.owner
-    || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader", false, false)) return false
+    || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader", false, false)
+    || (getReader.owner !== locked.owner && !/(?:\[native code\]|super\.getReader|readableStream)/.test(Function.prototype.toString.call(getReader.value)))) return false
   if (Reflect.apply(locked.value, stream, [])) return false
   // The Web Streams API exposes the disturbed state only through brand checks:
   // constructing a Response rejects a stream that has already been consumed,
@@ -536,9 +536,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const locked = nativeStreamIntrinsic(body, "locked", nativeStreamLocked, "locked")
   const getReaderIntrinsic = nativeStreamIntrinsic(body, "getReader", nativeStreamGetReader, "getReader")
   if (!locked || !getReaderIntrinsic
-    || locked.owner !== getReaderIntrinsic.owner
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false)
-    || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)) throw new Error("Non-native response stream")
+    || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)
+    || (getReaderIntrinsic.owner !== locked.owner && !/(?:\[native code\]|super\.getReader|readableStream)/.test(Function.prototype.toString.call(getReaderIntrinsic.value)))) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
