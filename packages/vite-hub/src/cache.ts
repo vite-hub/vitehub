@@ -21,7 +21,7 @@ export interface ResolvedCacheStorage {
   cloudflareNamespace?: { binding: string, id?: string }
 }
 
-export const defaultCacheBase = ".vitehub/data/cache"
+const defaultCacheBase = ".vitehub/data/cache"
 const defaultCloudflareCacheBinding = "CACHE"
 
 // Each driver needs a runtime that only one preset provides.

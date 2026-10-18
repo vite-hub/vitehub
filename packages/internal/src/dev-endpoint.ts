@@ -517,7 +517,7 @@ export interface ViteHubNitroDevHandlerSource {
   arguments?: readonly string[]
   /** Named export of `module` that takes a Fetch `Request` and returns a `Response`. */
   export: string
-  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/console`. */
+  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/dev`. */
   module: string
 }
 

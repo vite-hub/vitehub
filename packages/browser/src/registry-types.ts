@@ -16,6 +16,3 @@ export type BrowserDefinitionInputArgs<TDefinition>
     : undefined extends BrowserDefinitionInput<TDefinition>
       ? [input?: BrowserDefinitionInput<TDefinition>]
       : [input: BrowserDefinitionInput<TDefinition>]
-
-export type BrowserDefinitionResult<TDefinition>
-  = TDefinition extends { run: (...args: any[]) => infer TResult } ? Awaited<TResult> : unknown

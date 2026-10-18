@@ -36,7 +36,7 @@ import type {
   WorkspaceSourceMaterializationStatus,
 } from "../core/types.ts"
 
-export interface LazyMaterializedMetadata {
+interface LazyMaterializedMetadata {
   source: string
   sourcePath: string
   materializedAt: string

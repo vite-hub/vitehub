@@ -9,6 +9,7 @@ import {
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 
 import { workspaceError } from "./errors.ts"
 import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
@@ -19,7 +20,6 @@ import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
-import { setWorkspaceRawWriteTarget } from "../storage/raw-write-target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
@@ -116,6 +116,7 @@ export interface UseWorkspaceOptions {
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
   broadSearchPaths?: string[]
   cwd?: string
+  executionBudget?: ExecutionBudget
   maxShellCalls?: number
   maxOutputLength?: number
   sourceRequests?: boolean
@@ -652,7 +653,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       tools,
     }
     forwardWorkspaceMetadataTarget(workspace, facade)
-    setWorkspaceRawWriteTarget(facade, facade.fs)
     return facade
   }
 

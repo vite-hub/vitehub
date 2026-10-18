@@ -15,14 +15,13 @@ import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
-import type { BoxDefinition } from "vite-hub/box"
+import type { SandboxDefinition } from "vite-hub/sandbox"
 import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
 import { defineEnvProvider } from "vite-hub/env/provider"
 import type { SecretEnv } from "vite-hub/env/secret"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
-import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
@@ -44,7 +43,6 @@ export const appFacingModules = [
   agentSqliteState,
   authAgent,
   markdownTemplate,
-  scheduleDriver,
   scheduleProcess,
   justBashShell,
   cloudflareWorkspace,
@@ -66,7 +64,7 @@ export const builtInAgent = defineAgent({
   driver: "codex",
   runtime: false,
 })
-export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
+export const builtInSandbox = { runtime: "trusted-host" } satisfies SandboxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
 export const configuredCodex = { kind: "codex", permissions: "ask" } satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions

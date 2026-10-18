@@ -18,7 +18,7 @@ const childProcessTimeout = 60_000
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const packedPackages = [
   "agent",
-  "box",
+  "sandbox",
   "env",
   "markdown-template",
   "rate-limit",

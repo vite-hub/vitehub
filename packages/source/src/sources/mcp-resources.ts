@@ -1,6 +1,5 @@
-import { createEffectBoundary } from "@vite-hub/internal/effect"
+import { abortable } from "@vite-hub/internal/abort"
 import { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema } from "@modelcontextprotocol/sdk/types.js"
-import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath } from "../core/path.ts"
@@ -128,10 +127,7 @@ interface ResourceEntry<TKey extends string = string> {
   resource: McpResourceDescriptor
 }
 
-const mcpEffectBoundary = createEffectBoundary({
-  aggregateMessage: "[vitehub] MCP Resource Source operation failed for multiple reasons.",
-  interruptionMessage: "[vitehub] MCP Resource Source operation was interrupted.",
-})
+const mcpInterruptedMessage = "[vitehub] MCP Resource Source operation was interrupted."
 
 function isMcpResourcesClient(value: unknown): value is McpResourcesClient {
   return typeof value === "object"
@@ -226,28 +222,30 @@ async function withMcpClient<T>(
   request: McpResourcesRequestOptions | undefined,
   callback: (client: McpResourcesClient, request: McpResourcesRequestOptions) => Promise<T>,
 ) {
-  const effect = Effect.flatMap(
-    mcpEffectBoundary.tryPromise(() => resolveMcpServer(server, ctx)),
-    (resolved) => {
-      if (isMcpResourcesClient(resolved)) {
-        return mcpEffectBoundary.tryPromise(
-          signal => callback(resolved, withRequestSignal(request, signal)),
-        )
-      }
-      return Effect.acquireUseRelease(
-        mcpEffectBoundary.tryPromise(() => createMcpClient(resolved)),
-        ({ client, transport }) => mcpEffectBoundary.tryPromise(
-          signal => client.connect(transport, { signal }),
-        ).pipe(
-          Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client, withRequestSignal(request, signal)),
-          )),
-        ),
-        ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),
-      )
-    },
-  )
-  return await mcpEffectBoundary.run(effect, { signal: ctx.abortSignal })
+  const signal = ctx.abortSignal
+  const requestSignal = signal ?? new AbortController().signal
+  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, ctx))
+  if (isMcpResourcesClient(resolved)) {
+    return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
+  }
+  // Create the owned client without interruption, so this function always closes it.
+  const { client, transport } = await createMcpClient(resolved)
+  let result: T
+  try {
+    await abortable(signal, mcpInterruptedMessage, () => client.connect(transport, { signal: requestSignal }))
+    result = await abortable(signal, mcpInterruptedMessage, () => callback(client, withRequestSignal(request, requestSignal)))
+  }
+  catch (error) {
+    try {
+      await client.close?.()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] MCP Resource Source operation failed for multiple reasons.")
+    }
+    throw error
+  }
+  await client.close?.()
+  return result
 }
 
 function extensionForMimeType(mimeType: string | undefined) {

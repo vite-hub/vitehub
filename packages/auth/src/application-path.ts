@@ -5,7 +5,7 @@
 declare const __VITEHUB_AUTH_APP_BASE_URL__: string | undefined
 
 /** Return the application base path without a trailing slash, or an empty string at the root. */
-export function authApplicationBasePath(): string {
+function authApplicationBasePath(): string {
   const configured = typeof __VITEHUB_AUTH_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_AUTH_APP_BASE_URL__
   const segments = configured.split("/").filter(Boolean)
   return segments.length ? `/${segments.join("/")}` : ""

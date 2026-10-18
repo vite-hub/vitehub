@@ -38,7 +38,7 @@ export interface ResolvedMcpToolServer {
   owned?: boolean
 }
 
-export interface McpToolServerDefinition<
+interface McpToolServerDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {

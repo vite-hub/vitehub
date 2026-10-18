@@ -2,12 +2,12 @@ import { resolveViteHubBundleDefines } from "./esbuild.ts"
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputContribution } from "./deployment-output.ts"
 
-export interface CloudflareQueueConsumer {
+interface CloudflareQueueConsumer {
   queue: string
   [key: string]: unknown
 }
 
-export interface CloudflareQueueProducer {
+interface CloudflareQueueProducer {
   binding: string
   queue: string
   [key: string]: unknown
@@ -19,7 +19,7 @@ export interface CloudflareR2Bucket {
   [key: string]: unknown
 }
 
-export interface CloudflareRateLimit {
+interface CloudflareRateLimit {
   name: string
   [key: string]: unknown
 }
@@ -51,9 +51,6 @@ interface ProviderRuntimeModulesByProduct {
     "cloudflare-definition-defaults"?: string
     vercel?: string
     "vercel-definition-defaults"?: string
-  }
-  "rate-limit": {
-    cloudflare?: string
   }
 }
 
@@ -152,6 +149,14 @@ export class ProviderOutputCatalog {
 
   resetRuntimeContributions(): void {
     this.#runtimeContributions.clear()
+  }
+
+  resetRuntimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): void {
+    if (!generation) {
+      this.#runtimeContributions.delete(product)
+      return
+    }
+    this.#runtimeContributionsByGeneration.get(generation)?.delete(product)
   }
 
   createDeploymentGeneration(): ProviderDeploymentOutputGeneration {
