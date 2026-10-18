@@ -50,7 +50,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
   })
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
   // The build checks contribution dialects, so inspection does too.
-  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions, dialects)
+  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },

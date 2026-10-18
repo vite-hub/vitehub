@@ -34,7 +34,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution, CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
+import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -180,7 +180,24 @@ function stripBoundaryParentheses(value: string): string {
     if (end === undefined || result.slice(end + 1).trim()) break
     result = result.slice(1, end).trim()
   }
-  return result
+  return stripLeadingComments(result).trim()
+}
+
+function stripLeadingComments(value: string): string {
+  let result = value.trim()
+  while (true) {
+    const block = /^\/\*[\s\S]*?\*\//.exec(result)
+    if (block) {
+      result = result.slice(block[0].length).trim()
+      continue
+    }
+    const line = /^\/\/[^\r\n]*(?:\r?\n|$)/.exec(result)
+    if (line) {
+      result = result.slice(line[0].length).trim()
+      continue
+    }
+    return result
+  }
 }
 
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
@@ -196,6 +213,7 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
         ?.split(",")
+        .filter(value => value.trim())
         .map(value => readStaticStringLiteral(value.trim()))
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
