@@ -24,7 +24,7 @@ src/server.ts         application HTTP boundary and Runtime Helper
 
 Add a discovered Definition under a documented discovery path only when the
 primitive's docs require discovery. Check [File conventions](https://vitehub.dev/raw/docs/reference/file-conventions.md)
-for suffix-based paths such as `*.workflow.ts` or `*.sandbox.ts`. The proof
+for suffix-based paths such as `*.workflow.ts` or `*.sandbox-task.ts`. The proof
 must call the Runtime Helper and observe provider-backed behavior.
 
 ### Agent application
@@ -37,7 +37,7 @@ server/agents/<name>/agent.ts
 src/server.ts or framework route
 ```
 
-Use the folder form when the Agent owns instructions, a Workspace, or Skills. Add Sources, Capabilities, Channels, Boxes, Schedules, and Workflows only when the outcome needs them.
+Use the folder form when the Agent owns instructions, a Workspace, or Skills. Add Sources, Capabilities, Channels, Sandboxes, Schedules, and Workflows only when the outcome needs them.
 
 ### Scheduled Agent
 

@@ -961,6 +961,28 @@ describe("schedule provider output", () => {
     })).rejects.toThrow(/must declare a static cron string/)
   })
 
+  it("rejects a non-UTC timeZone before provider output generation", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-time-zone-")
+    const write = async (definition: string) => await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), `export default ${definition}\n`, "utf8")
+    const generate = async () => await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: () => 'ok' })")
+    await expect(generate()).rejects.toThrow(/Schedule "cleanup" declares timeZone "Europe\/Madrid", but provider cron output supports only UTC\. Remove timeZone .* or run Schedules with the process driver/)
+
+    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'Europe/Madrid' })")
+    await expect(generate()).rejects.toThrow(/declares timeZone "Europe\/Madrid"/)
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone, handler: () => 'ok' })")
+    await expect(generate()).rejects.toThrow(/declares timeZone with a value that is not a static string/)
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'UTC', handler: () => 'ok' })")
+    await generate()
+    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 8 * * *",
+    }])
+  })
+
   it("reads cron from the top-level schedule object", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-top-level-cron-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [

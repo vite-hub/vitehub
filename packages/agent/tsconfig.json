@@ -5,11 +5,11 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "@vite-hub/box": [
-        "packages/box/src/index.ts"
+      "@vite-hub/sandbox": [
+        "packages/sandbox/src/index.ts"
       ],
-      "@vite-hub/box/_internal/toolchain": [
-        "packages/box/src/internal/host-toolchain.ts"
+      "@vite-hub/sandbox/_internal/toolchain": [
+        "packages/sandbox/src/internal/host-toolchain.ts"
       ],
       "#vitehub/agent/registry": [
         "packages/agent/src/runtime/empty-registry.ts"
@@ -17,20 +17,20 @@
       "#vitehub/agent/provider-agent": [
         "packages/agent/src/provider-agent.ts"
       ],
-      "#vitehub-sandbox-provider-loader": [
-        "packages/sandbox/src/runtime/provider-loader.ts"
+      "#vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
       ],
-      "virtual:vitehub-sandbox-provider-loader": [
-        "packages/sandbox/src/runtime/provider-loader.ts"
+      "virtual:vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
       ],
-      "vitehub-sandbox-provider-loader": [
-        "packages/sandbox/src/runtime/provider-loader.ts"
+      "vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
       ],
-      "@vite-hub/sandbox/runtime/provider-loader": [
-        "packages/sandbox/src/runtime/provider-loader.ts"
+      "@vite-hub/sandbox-task/runtime/provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
       ],
-      "#vitehub-sandbox-registry": [
-        "packages/sandbox/src/runtime/empty-registry.ts"
+      "#vitehub-sandbox-task-registry": [
+        "packages/sandbox-task/src/runtime/empty-registry.ts"
       ],
       "#vitehub-workspace-assets-registry": [
         "packages/workspace/src/runtime/empty-assets-registry.ts"
@@ -56,11 +56,11 @@
       "@vite-hub/rate-limit/*": [
         "packages/rate-limit/src/*"
       ],
-      "@vite-hub/sandbox": [
-        "packages/sandbox/src/index.ts"
+      "@vite-hub/sandbox-task": [
+        "packages/sandbox-task/src/index.ts"
       ],
-      "@vite-hub/sandbox/runtime/state": [
-        "packages/sandbox/src/runtime/state.ts"
+      "@vite-hub/sandbox-task/runtime/state": [
+        "packages/sandbox-task/src/runtime/state.ts"
       ],
       "@vite-hub/shell": [
         "packages/shell/src/index.ts"

@@ -192,6 +192,7 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   return cron
 }
 
+
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   const workflowRuntime = provider === "vercel" ? workflow : undefined
@@ -383,6 +384,7 @@ async function writeProviderEntries(
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = await readRuntimeDefinitionCrons(definitions)
   for (const [name, cron] of crons) validateProviderCron(cron, name)
+  for (const definition of staticScheduleDefinitions(definitions)) assertProviderTimeZone(definition.handler, definition.name)
   return crons
 }
 

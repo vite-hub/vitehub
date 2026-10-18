@@ -244,9 +244,40 @@ export function writeSource(grant: ReturnType<typeof checkSourceWrite>, data: st
 - Each definition has its own registry. A grant from another definition, another bundled copy of the package, or a forged object fails closed. The kind string brands the grant type, so use a unique `vitehub.<package>.<name>` kind.
 - Grants are request-scoped. Never persist one. Durable or resumed work must run the check again.
 
+### Errors
+
+Every primitive follows one error contract:
+
+1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
+2. Definition and config errors throw, at build time, at define time, or when an operation starts.
+3. A package defines a small catalog with `defineErrors()`. Each code has a guessable name, a `why`, and a `fix`.
+4. Each method type lists the union of the codes that it can return.
+5. Each code has a heading on the `limits-and-errors` docs page of the package, so `error.docs` opens it.
+
+```ts
+import { defineErrors, type Result } from "@vite-hub/runtime"
+
+const errors = defineErrors({
+  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  codes: {
+    KV_INVALID_LIMIT: { why: "`limit` must be a positive integer.", fix: "Pass a positive integer." },
+  },
+})
+
+async function list(limit: number): Promise<Result<string[], "KV_INVALID_LIMIT">> {
+  if (!Number.isInteger(limit) || limit <= 0) return [errors.KV_INVALID_LIMIT(), undefined]
+  return [undefined, []]
+}
+
+const [error, keys] = await list(0)
+if (error) error.code // "KV_INVALID_LIMIT"
+```
+
+A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`, so code can return it from a route or an Agent tool without the `cause` or the stack.
+
 ### Developer diagnostics
 
-Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 `normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
 preserves Nostics codes, fixes, documentation links, and source locations from
