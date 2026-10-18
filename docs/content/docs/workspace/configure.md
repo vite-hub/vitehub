@@ -75,7 +75,7 @@ export default defineWorkspace({ store: dropStore })
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. Install `drizzle-orm` when using this subpath. Configure the selected Blob store and Database connection through their integrations. The Store does not create cloud resources or apply migrations at runtime.
 
-Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. The default prefix is `vitehub/workspace-history`; custom prefixes accept letters, numbers, underscores, dashes, and single slashes. Each Store owns its Blob namespace. Do not write its objects through another API.
+Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. History objects always live under `_vitehub/workspace-history/`. An optional `prefix` adds a namespace below it: `prefix: 'handbook'` stores objects under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides paths under `_vitehub/` by default. Each Store owns its Blob namespace. Do not write its objects through another API.
 
 Normal `fs` writes stage changes in the Store instance and follow the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`. A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone. Failed commits preserve staged changes. Staged changes are lost when the instance stops; committed revisions are durable. Other instances observe committed heads, and a staged checkpoint fails if its base head moved.
 

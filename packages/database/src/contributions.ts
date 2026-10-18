@@ -4,19 +4,6 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { CollectedContribution, ContributingPlugin, Contribution, ContributionContext, ContributionFactory } from "@vite-hub/internal/contributions"
-import type { DatabaseDialect } from "./types.ts"
-
-const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
-
-/** Fields that only Database contributions have. */
-export interface DatabaseContributionFields {
-  /** Database Definition that receives the tables. Omit it to target the default or only Database. */
-  database?: string
-  /** SQL dialect of the tables. When set, the target Database must use this dialect. */
-  dialect?: DatabaseDialect
-}
-
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
  * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
@@ -58,8 +45,6 @@ export interface DatabaseContributionContext {
   rootDir: string
   /** Server directories that Database Definitions are discovered from, for example Nuxt's `serverDir`. */
   serverDirs?: string[]
-  /** Vite plugins participating in this discovery pass. */
-  plugins?: readonly unknown[]
 }
 
 export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>
@@ -186,53 +171,69 @@ export function describeDatabaseContribution(contribution: DatabaseContribution 
 }
 
 /**
- * Collects `vitehub.databases` contributions from Vite plugins. Invalid entries and two
- * contributions with one name fail with `DATABASE_INVALID_CONTRIBUTION`.
+ * Collects `vitehub.databases` contributions from Vite plugins. The same contribution from two plugin instances is
+ * kept once. Two plugins that contribute different Definitions with one name fail with `DATABASE_B0013`.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
   context: DatabaseContributionContext,
-): Promise<CollectedDatabaseContribution[]> {
-  return await collectContributions(plugins, {
-    context,
-    duplicate: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
-    fields: readDatabaseFields,
-    invalid: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
-    key: "databases",
-    kind: "Database tables",
-  })
+): Promise<CollectedDatabaseContributions> {
+  const candidates: object[] = []
+  flattenPluginOptions(plugins ?? [], candidates, new Set())
+  const contributions: CollectedDatabaseContribution[] = []
+  const definitions: CollectedDatabaseDefinitionContribution[] = []
+  for (const plugin of candidates) {
+    if (!Object.hasOwn(plugin, "vitehub")) continue
+    const metadata: unknown = Reflect.get(plugin, "vitehub")
+    const value: unknown = isPlainObject(metadata) ? metadata.databases : undefined
+    if (!value) continue
+    const pluginName: unknown = Reflect.get(plugin, "name")
+    const contributor = isNonEmptyString(pluginName) ? pluginName : "unnamed plugin"
+    const entries: unknown = value instanceof Function ? await Reflect.apply(value, undefined, [context]) : value
+    if (!entries) continue
+    if (!Array.isArray(entries)) throw invalidContribution(contributor, "`vitehub.databases` must be an array or return one.")
+    for (const entry of entries) {
+      if (isPlainObject(entry) && Object.hasOwn(entry, "definition")) {
+        const definition = validateDefinitionContribution(entry, contributor)
+        const existing = definitions.find(candidate => candidate.name === definition.name)
+        if (!existing) definitions.push(definition)
+        else if (existing.definition !== definition.definition) {
+          throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${definition.name}" is contributed more than once:\n  - ${existing.definition} (contributed by "${existing.contributor}")\n  - ${definition.definition} (contributed by "${contributor}")\nEach Database name must have one Definition.` })
+        }
+        continue
+      }
+      const contribution = validateContribution(entry, contributor)
+      if (!contributions.some(existing => sameContribution(existing, contribution))) contributions.push(contribution)
+    }
+  }
+  return { definitions, tables: contributions }
 }
 
 /**
  * Assigns each contribution to a Database Definition. A contribution without `database` targets the default or only
- * Database. A missing, ambiguous, or absent target, or a target with another dialect, fails with
- * `DATABASE_INVALID_CONTRIBUTION_TARGET` and names the choices.
+ * Database. A missing, ambiguous, or absent target fails with `DATABASE_B0011` and names the choices.
  */
 export function resolveDatabaseContributionTargets(
   databaseNames: readonly string[],
   contributions: readonly CollectedDatabaseContribution[],
 ): Record<string, ResolvedDatabaseContribution[]> {
   const byDatabase: Record<string, ResolvedDatabaseContribution[]> = Object.create(null)
-  const choices = [...databaseNames].sort()
+  const choices = databaseNames.length ? [...databaseNames].sort().map(name => JSON.stringify(name)).join(", ") : "none"
   for (const contribution of contributions) {
     const source = describeDatabaseContribution(contribution)
     let database = contribution.database
     if (database === undefined) {
       const resolution = resolveDefaultDatabase(databaseNames)
       if (resolution.status === "none") {
-        throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ reason: "none", source })
+        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} need a Database, but the app has no Database Definition. Add \`server/databases/config.ts\` with \`defineDatabase({ schema: {} })\`.` })
       }
       if (resolution.status === "ambiguous") {
-        throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ choices, reason: "ambiguous", source })
+        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} target the default or only Database, but the app has several Database Definitions and none is named "default": ${choices}. Choose one with the contribution's \`database\` option.` })
       }
       database = resolution.name
     }
     else if (!databaseNames.includes(database)) {
-      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ choices, database, reason: "missing", source })
-    }
-    const targetDialect = dialects[database]
-    if (contribution.dialect && targetDialect && contribution.dialect !== targetDialect) {
-      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({ database, dialect: contribution.dialect, reason: "dialect", source, targetDialect })
+      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} target Database ${JSON.stringify(database)}, which has no Database Definition. Database Definitions: ${choices}.` })
     }
     ;(byDatabase[database] ??= []).push({ ...contribution, database })
   }
