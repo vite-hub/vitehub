@@ -20,7 +20,7 @@ Choose your frontend separately from your server features.
 ## Start with a complete block
 
 The [Chat App](/docs/ui/blocks/chat-app) combines a session list and chat view.
-The [Invocation Dashboard](/docs/ui/blocks/invocation-dashboard) shows Agent
+The Console shows Agent
 runs and their recorded steps. Start with one of these blocks, then replace
 its slots when your app needs different controls.
 

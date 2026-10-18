@@ -133,19 +133,6 @@ describe("UI documentation", () => {
     expect(article).toContain('aria-label="Page outline"');
   });
 
-  it("gives invocation previews fixed-height containing blocks", () => {
-    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
-    const inspector = readFileSync(
-      resolve(examplesRoot, "InvocationInspectorExample.vue"),
-      "utf8",
-    );
-
-    expect(invocation).toContain('<div class="h-[34rem]');
-    expect(invocation).toContain('class="h-full"');
-    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
-    expect(inspector).toContain('class="h-full border-x border-default"');
-  });
-
   it("switches sections with the primitive rail instead of a product selector", () => {
     const sidebarTop = readFileSync(
       resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
