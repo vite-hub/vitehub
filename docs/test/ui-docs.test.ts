@@ -121,13 +121,12 @@ describe("UI documentation", () => {
 
   it("uses the wide component layout without the desktop outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
+    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
+    expect(layout).toContain("vh-docs-main");
+    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(layout).toContain("max-width: none;");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -143,11 +142,11 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("uses a static context link instead of a product disclosure control", () => {
+  it("keeps only search in the panel head, without a product context link or disclosure control", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain('<NuxtLink');
+    expect(sidebarTop).toContain("<UContentSearchButton");
+    expect(sidebarTop).not.toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -160,6 +159,8 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
+    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
+    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");

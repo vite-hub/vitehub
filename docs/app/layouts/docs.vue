@@ -3,6 +3,7 @@ import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
+// The support matrix brings its own navigation panel and needs the full width for its table.
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
@@ -54,7 +55,7 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: 84rem;
 }
 
 @media (min-width: 40rem) {
@@ -65,6 +66,11 @@ const docsShellUi = {
 }
 
 @media (min-width: 64rem) {
+  /* AppHeader hides itself on wide docs pages. Sticky offsets and full-height columns read this variable. */
+  .vh-docs-shell:not(.has-header) {
+    --ui-header-height: 0px;
+  }
+
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
@@ -75,6 +81,31 @@ const docsShellUi = {
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+  }
+
+  /* The aside container is a flex column. Without a flex basis the sidebars shrink to the rail header and the panel loses its page list. */
+  .vh-docs-aside-sidebars {
+    min-height: 0;
+    flex: 1 1 0;
+  }
+
+  /* A denser rail on desktop, so every product fits without scrolling on common laptop heights. The mobile menu keeps touch-size items. */
+  .vh-docs-aside-sidebars :deep(.vh-primitive-rail) {
+    --vh-primitive-rail-item: 2rem;
+  }
+
+  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__surface) {
+    padding-block: 0.25rem;
+  }
+
+  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__group) {
+    gap: 0;
+    padding-block: 0.1875rem;
+  }
+
+  /* The aside draws the right border. */
+  .vh-docs-aside-sidebars :deep(.vh-docs-panel) {
+    border-right: 0;
   }
 }
 </style>

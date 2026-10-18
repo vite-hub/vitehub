@@ -22,6 +22,7 @@ describe("workspace inventory", () => {
       "forge",
       "kv",
       "markdown-template",
+      "presets",
       "queue",
       "rate-limit",
       "realtime",

@@ -228,7 +228,7 @@ export function resolveCloudflareD1Bindings(
     if (projection.d1Database) {
       const previous = bindingDatabases.get(projection.bindingName)
       if (previous) {
-        throw databaseErrorDiagnostics.DATABASE_B0006({ message: `[vitehub] Database Definitions ${JSON.stringify(previous)} and ${JSON.stringify(name)} use the same Cloudflare D1 binding ${JSON.stringify(projection.bindingName)}. Set cloudflare.binding to a distinct name for each Definition.` })
+        throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: projection.bindingName, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${name}"` })
       }
       bindingDatabases.set(projection.bindingName, name)
       d1Databases.push(projection.d1Database)
@@ -290,7 +290,7 @@ export function resolveCloudflareHyperdriveBindings(config: ResolvedDBViteConfig
     const previous = owners.get(hyperdrive.binding)
     if (previous?.id === id) continue
     if (previous) {
-      throw databaseErrorDiagnostics.DATABASE_B0007({ message: `[vitehub] Database Definitions ${JSON.stringify(previous.database)} and ${JSON.stringify(name)} use the same Cloudflare Hyperdrive binding ${JSON.stringify(hyperdrive.binding)} for different Hyperdrive ids. Set cloudflare.binding to a distinct name for each Definition.` })
+      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: hyperdrive.binding, first: `The Database Definitions "${previous.database}"`, kind: "Hyperdrive", second: `"${name}"` })
     }
     owners.set(hyperdrive.binding, { database: name, id })
     bindings.push({ binding: hyperdrive.binding, id })

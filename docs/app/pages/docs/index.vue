@@ -8,8 +8,6 @@ import { getDocsPageFallback } from "~~/modules/vitehub-docs/runtime/utils/docs-
 
 definePageMeta({
   layout: "docs",
-  // The docs layout renders the site footer inside its content column.
-  footer: false,
 });
 
 const docsPage = getDocsPageByPath("/docs");

@@ -8,7 +8,7 @@ import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgn
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
 import { collectWorkspaceContributions } from "../../build/contributions.ts"
@@ -1197,17 +1197,6 @@ type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
   nitro?: NitroConfig
 }
 
-function resolveWorkspaceHosting(
-  hosting: string | undefined,
-  nitro: unknown,
-  env: Record<string, string | undefined> = process.env,
-): string | undefined {
-  const preset = isRecord(nitro) && typeof nitro.preset === "string" ? nitro.preset : undefined
-  return [hosting, preset, env.NITRO_PRESET, env.SERVER_PRESET, env.VITEHUB_HOSTING]
-    .map(value => value?.trim())
-    .find(Boolean)
-}
-
 type WorkspacePluginRoots = {
   projectRoot: string
   viteRoot: string
@@ -1596,7 +1585,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   const workspaceOptions = stripWorkspaceInternalOptions(options.workspace)
   const roots = resolveWorkspacePluginRoots(options.viteRoot || process.cwd(), workspaceOptions)
   const env = options.env || process.env
-  const hosting = resolveWorkspaceHosting(options.hosting, options.nitro, env)
+  const hosting = resolveHostPreset({ env, hosting: options.hosting, nitro: options.nitro })
   const normalized = normalizeWorkspaceOptions(workspaceOptions, {
     dev: options.command !== "build",
     env,
@@ -1722,10 +1711,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? publicOptions,
       )
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
-      const resolvedHosting = resolveWorkspaceHosting(
-        typeof hosting === "function" ? hosting() : hosting,
-        (config as ViteConfigWithWorkspaceNitro).nitro,
-      )
+      const resolvedHosting = resolveHostPreset({
+        hosting: typeof hosting === "function" ? hosting() : hosting,
+        nitro: (config as ViteConfigWithWorkspaceNitro).nitro,
+      })
       const normalized = normalizeWorkspaceOptions(workspaceOptions, {
         dev: env?.command !== "build",
         env: process.env,
@@ -1778,10 +1767,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
-      const resolvedHosting = resolveWorkspaceHosting(
-        typeof hosting === "function" ? hosting() : hosting,
-        (config as ResolvedConfig & { nitro?: NitroConfig }).nitro,
-      )
+      const resolvedHosting = resolveHostPreset({
+        hosting: typeof hosting === "function" ? hosting() : hosting,
+        nitro: (config as ResolvedConfig & { nitro?: NitroConfig }).nitro,
+      })
       if (config.command !== "build")
         process.env.VITEHUB_WORKSPACE_DEV = "true"
       else

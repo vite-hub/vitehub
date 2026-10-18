@@ -65,9 +65,11 @@ describe("built-in deployment preset integration", () => {
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {
+      // `vitehub()` includes Nitro, so the dev config resolves this module.
+      const localModule = { name: "local-module", setup() {} }
       const developmentConfig = {
         nitro: {
-          modules: ["local-module"],
+          modules: [localModule],
           preset: "node-server",
         },
         root,
@@ -82,14 +84,14 @@ describe("built-in deployment preset integration", () => {
           marker: "preserved",
         },
       } as Parameters<typeof resolveConfig>[0] & {
-        nitro: { modules: string[], preset: string }
+        nitro: { modules: unknown[], preset: string }
         vitehub: { marker: string }
       }
       const development = await resolveConfig(developmentConfig, "serve")
       expect((development as typeof development & {
         nitro?: { modules?: unknown[], preset?: string }
       }).nitro).toMatchObject({
-        modules: ["local-module"],
+        modules: [localModule],
         preset: "node-server",
       })
       expect(development.vitehub).toEqual({
