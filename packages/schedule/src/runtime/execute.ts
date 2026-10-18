@@ -308,6 +308,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const runtimeOptions = typeof options === "string" ? { id: options } : options
   assertRuntimeExecuteOptionsObject(runtimeOptions)
   assertRuntimeScheduleId(runtimeOptions.id)
+
   const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt)
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
