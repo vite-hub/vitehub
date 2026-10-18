@@ -197,6 +197,14 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   let contentOptions: AstNode | undefined
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement)) continue
+    if (statement.type === "ExportDefaultDeclaration") {
+      const init = unwrap(statement.declaration)
+      if (isNode(init) && init.type === "CallExpression" && isNode(init.callee) && init.callee.type === "Identifier" && defineContentBindings.has(String(init.callee.name))) {
+        const argument = unwrap(Array.isArray(init.arguments) ? init.arguments[0] : undefined)
+        if (isNode(argument) && argument.type === "ObjectExpression") contentOptions = argument
+      }
+      continue
+    }
     const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
     if (!isNode(declaration) || declaration.type !== "VariableDeclaration") continue
     for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {

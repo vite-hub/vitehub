@@ -72,6 +72,38 @@ function stripLeadingEntryComments(entry: string) {
   return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
 }
 
+function stripEntryComments(entry: string): string {
+  let result = ""
+  let quote: string | undefined
+  let escaped = false
+  for (let index = 0; index < entry.length; index++) {
+    const char = entry[index]!
+    const next = entry[index + 1]
+    if (quote) {
+      result += char
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      while (index < entry.length && entry[index] !== "\n") index++
+      result += "\n"
+    }
+    else if (char === "/" && next === "*") {
+      index += 2
+      while (index < entry.length && !(entry[index] === "*" && entry[index + 1] === "/")) index++
+      index++
+    }
+    else result += char
+  }
+  return result
+}
+
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
   return match?.[1] || match?.[2] || match?.[3]
@@ -213,7 +245,7 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
         ? splitTopLevel(/^\[(.*)\]$/s.exec(sourceValue)![1]!)
-            .map(value => stripLeadingComments(value).trim())
+            .map(value => stripEntryComments(value).trim())
             .filter(value => value)
             .map(value => readStaticStringLiteral(value))
         : undefined
