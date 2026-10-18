@@ -14,7 +14,7 @@ Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare-emai
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
 | `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
-| `vite-hub/runtime` | `ViteHubError`, `getViteHubErrorShape` | Shared operational error contract. |
+| `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/server` | `email` | None |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
@@ -42,7 +42,7 @@ The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/mar
 
 The active driver owns field support, validation, address rules, message limits, and sender authorization. Check the ViteHub driver reference and provider documentation before using optional fields.
 
-Every successful send returns `Promise<EmailSendResult>`:
+`send()` returns `Promise<Result<EmailSendResult, EmailErrorCode>>`, an `[error, sent]` tuple. When `error` is set, read `error.code`, `error.why`, and `error.fix`. See [Limits and errors](/docs/email/limits-and-errors). On success, `sent` is an `EmailSendResult`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -70,12 +70,14 @@ export async function sendWelcome(name: string, to: string) {
     data: { user: { name, trial: true } },
   })
 
-  return await email.send({
+  const [error, sent] = await email.send({
     ...body,
     from: 'verified-sender@example.com',
     to,
     subject: 'Your workspace is ready',
   })
+  if (error) throw error
+  return sent
 }
 ```
 
@@ -101,12 +103,14 @@ export async function sendWelcome(name: string, to: string) {
   const markdown = await renderWelcome({ user: { name } })
   const body = await renderEmailMarkdown(markdown)
 
-  return await email.send({
+  const [error, sent] = await email.send({
     ...body,
     from: 'verified-sender@example.com',
     to,
     subject: 'Your workspace is ready',
   })
+  if (error) throw error
+  return sent
 }
 ```
 
@@ -144,7 +148,7 @@ it('sends the welcome message', async () => {
     to: 'you@example.com',
     subject: 'Welcome',
     text: 'Hello',
-  })).resolves.toEqual({ driver: 'memory', id: 'memory-1' })
+  })).resolves.toEqual([undefined, { driver: 'memory', id: 'memory-1' }])
 
   expect(mail.messages[0]?.subject).toBe('Welcome')
 })

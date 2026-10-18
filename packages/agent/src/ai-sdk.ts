@@ -168,11 +168,23 @@ function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefine
   return content.length ? content : undefined
 }
 
+function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): boolean {
+  return part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
+}
+
+/** Chat context parts may carry the exact text for the model in `data.modelText`. */
+function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
+  const data = part.data
+  return isChatModelTextPart(part) && hasRuntimeType(data, "object") && data !== null && "modelText" in data && hasRuntimeType(data.modelText, "string")
+    ? data.modelText
+    : JSON.stringify(data)
+}
+
 function toTextModelMessageContent(parts: MessagePart[]): string {
   return parts.map((part) => {
     if (part.type === "text") return part.text
     if (part.type === "error") return part.error
-    if (isDataMessagePart(part)) return JSON.stringify(part.data)
+    if (isDataMessagePart(part)) return dataPartModelText(part)
     if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: "tool-call" })
     if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: "tool-result" })
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.id, toolName: part.name, type: "approval-request" })
@@ -223,8 +235,9 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
     return { text: part.text, type: "text" as const }
   }
   if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
+    const text = dataPartModelText(part)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-    return { text: JSON.stringify(part.data), type: "text" as const }
+    return text ? { text, type: "text" as const } : undefined
   }
   if (part.type === "tool-call") {
     return {
@@ -424,39 +437,44 @@ function channelCurrentMessageId(context: AgentAdapterRunContext): string | null
 async function resolveModelAttachments(messages: Message[], options: AiSdkAttachmentOptions | undefined, currentMessageId?: string | null): Promise<Message[]> {
   const maxBytes = aiSdkAttachmentMaxBytes(options)
   let remainingBytes = maxBytes
-  const resolvedMessages: Message[] = []
   const currentMessageIndex = currentMessageId === null
     ? messages.findLastIndex(message => message.role === "user")
     : undefined
-  for (const [messageIndex, message] of messages.entries()) {
-    if (message.role !== "user") {
-      resolvedMessages.push(message)
-      continue
-    }
-    const parts: MessagePart[] = []
-    for (const part of message.parts) {
-      if (!isAttachmentPart(part)) {
-        parts.push(part)
-        continue
-      }
-      const isHistoricalChannelMessage = currentMessageId !== undefined
-        && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
-      if (isHistoricalChannelMessage) {
-        const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...reference } = part
-        if (reference.data) {
-          const resolved = await resolveModelAttachmentPart(reference, remainingBytes)
+  const isHistorical = (message: Message, messageIndex: number) => currentMessageId !== undefined
+    && (currentMessageId === null ? messageIndex !== currentMessageIndex : message.id !== currentMessageId)
+  const resolvedParts = new Map<AttachmentPart, AttachmentPart | undefined>()
+  // Current attachments use the byte budget first. History attachments use what remains.
+  for (const historical of [false, true]) {
+    for (const [messageIndex, message] of messages.entries()) {
+      if (message.role !== "user" || isHistorical(message, messageIndex) !== historical) continue
+      for (const part of message.parts) {
+        if (!isAttachmentPart(part)) continue
+        if (!historical) {
+          const resolved = await resolveModelAttachmentPart(part, remainingBytes)
           remainingBytes -= resolved.byteLength
-          if (resolved.part) parts.push(resolved.part)
+          resolvedParts.set(part, resolved.part)
+          continue
         }
-        continue
+        // A history attachment is optional context. A failed read or a full budget drops only that attachment.
+        if ((!part.data && !part.fetchData) || remainingBytes <= 0) continue
+        try {
+          const resolved = await resolveModelAttachmentPart(part, remainingBytes)
+          remainingBytes -= resolved.byteLength
+          resolvedParts.set(part, resolved.part)
+        } catch {}
       }
-      const resolved = await resolveModelAttachmentPart(part, remainingBytes)
-      remainingBytes -= resolved.byteLength
-      if (resolved.part) parts.push(resolved.part)
     }
-    resolvedMessages.push({ ...message, parts })
   }
-  return resolvedMessages
+  return messages.map(message => message.role === "user"
+    ? {
+        ...message,
+        parts: message.parts.flatMap((part): MessagePart[] => {
+          if (!isAttachmentPart(part)) return [part]
+          const resolved = resolvedParts.get(part)
+          return resolved ? [resolved] : []
+        }),
+      }
+    : message)
 }
 
 async function getCallInput(context: AgentAdapterRunContext, attachments?: AiSdkAttachmentOptions) {

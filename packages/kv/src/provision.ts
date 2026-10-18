@@ -21,15 +21,15 @@ const CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE = 100
 const CLOUDFLARE_KV_DUPLICATE_TITLE_CODE = 10014
 
 function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
-  if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
+  if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
   for (const namespace of value) {
     if (!namespace || Object(namespace) !== namespace) {
-      throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
+      throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
     }
     const id = Reflect.get(namespace, "id")
     const title = Reflect.get(namespace, "title")
     if (!Object.hasOwn(namespace, "id") || !Object.hasOwn(namespace, "title") || typeof id !== "string" || typeof title !== "string") {
-      throw kvErrorDiagnostics.KV_R0019({ message: "Cloudflare provisioning returned an invalid KV namespace list." })
+      throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
     }
   }
   // SAFETY: The structural checks above validate every namespace's required fields.
@@ -37,10 +37,10 @@ function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
 }
 
 function parseCreatedNamespace(value: unknown): { id: string } {
-  if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+  if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace." })
   const id = Reflect.get(value, "id")
   if (!Object.hasOwn(value, "id") || typeof id !== "string") {
-    throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+    throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace." })
   }
   return { id }
 }
@@ -124,7 +124,7 @@ export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOp
         exists: existing.has(namespaceName),
         apply: async () => {
           const id = existing.get(namespaceName) ?? await createNamespace(request, namespaceName)
-          if (!id) throw kvErrorDiagnostics.KV_R0021({ message: `Cloudflare KV provisioning did not return an id for namespace ${JSON.stringify(namespaceName)}.` })
+          if (!id) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: `Cloudflare did not return an id for namespace ${JSON.stringify(namespaceName)}.` })
           return { ids: { cloudflare: { [KV_CLOUDFLARE_PROVISION_CATEGORY]: Object.fromEntries(stores.map(store => [store, id])) } } }
         },
       }))

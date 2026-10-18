@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
@@ -24,7 +25,10 @@ export interface BlobDatabaseWorkspaceStoreOptions {
   database: RuntimeDrizzleDatabase<Record<string, unknown>>
   /** Stable workspace identity. Deleted identities cannot be reused. */
   workspace: string
-  /** A dedicated Blob key prefix. Defaults to vitehub/workspace-history. */
+  /**
+   * A dedicated namespace under `_vitehub/workspace-history/`. For example, `handbook`
+   * stores objects under `_vitehub/workspace-history/handbook/`.
+   */
   prefix?: string
 }
 
@@ -49,8 +53,8 @@ function publicRevision(row: RevisionRow): WorkspaceRevision {
 }
 
 class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
-  #namespace: Promise<string>
-  #ready?: Promise<void>
+  #namespace: Promise<string[]>
+  #ready?: Promise<string>
   // The working tree follows the default ref and lives only in this instance.
   #draft?: Promise<{ store: WorkspaceStore, head: WorkspaceRevision | null }>
   #dirty = false
@@ -59,9 +63,18 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
     if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
-    const prefix = options.prefix ?? "vitehub/workspace-history"
-    if (!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
-    this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
+    if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
+    // ViteHub owns every history object, so a custom prefix only nests below the owned root.
+    const root = `${vitehubOwnedPrefix}workspace-history`
+    const prefix = options.prefix === undefined ? root : `${root}/${options.prefix}`
+    // Prefer the owned namespace, but keep reading the namespace used before
+    // this change when its database identity already exists.
+    const legacyPrefix = options.prefix === undefined ? "vitehub/workspace-history" : options.prefix
+    this.#namespace = sha256(options.workspace).then(digest => {
+      const current = `${prefix}/${digest}`
+      const legacy = `${legacyPrefix}/${digest}`
+      return legacy === current ? [current] : [current, legacy]
+    })
   }
 
   [workspaceStoreTarget]() {
@@ -98,13 +111,30 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async #key() {
-    const workspace = await this.#namespace
-    this.#ready ??= this.options.database.insert(workspaces).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
+    const candidates = await this.#namespace
+    this.#ready ??= this.options.database.batch([
+      // Read existing identities before claiming the new one. This preserves
+      // legacy history when an installation upgrades, while the insert below
+      // atomically claims the owned identity for new workspaces.
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
+      // Claim the owned identity only when no legacy identity exists. Keeping
+      // this condition in the atomic batch avoids leaving an empty current row
+      // that would shadow legacy history on the next process restart.
+      this.options.database.insert(workspaces).select(sql`
+        select ${candidates[0]!}, 0
+        where not exists (
+          select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
+        )
+      `).onConflictDoNothing(),
+    ]).then((results: [Array<{ workspace: string }>, Array<{ workspace: string }>, unknown]) => {
+      const [current, legacy] = results
+      return current[0]?.workspace ?? legacy[0]?.workspace ?? candidates[0]!
+    }).catch((error: unknown) => {
       this.#ready = undefined
       throw error
     })
-    await this.#ready
-    return workspace
+    return await this.#ready
   }
 
   #active(workspace: string) {
@@ -165,12 +195,48 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const limit = options.limit ?? 20
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     const ref = normalizeHistoryRef(options.ref)
+    const path = options.path === undefined ? undefined : normalizeHistoryPath(options.path)
     const workspace = await this.#key()
     const cursor = options.cursor ? await this.#revision(options.cursor) : undefined
     if (cursor && cursor.ref !== ref) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor belongs to ref "${cursor.ref}". Pass it with the ref that returned it.` })
+    const previousEntries = sql`
+      coalesce((
+        select previous.entries
+        from ${revisions} as previous
+        where previous.workspace = ${revisions.workspace}
+          and previous.id = ${revisions.parentId}
+          and previous.committed = 1
+      ), '{}')
+    `
+    // Compare manifests with substr, not LIKE, so `%` and `_` in paths stay literal.
+    const pathFilter = path === undefined ? undefined : sql`(
+      exists (
+        select 1
+        from json_each(${revisions.entries}) as current_file
+        left join json_each(${previousEntries}) as previous_file
+          on previous_file.key = current_file.key
+        where (current_file.key = ${path} or substr(current_file.key, 1, length(${path}) + 1) = ${path} || '/')
+          and (
+            previous_file.key is null
+            or json_extract(current_file.value, '$.digest') is not json_extract(previous_file.value, '$.digest')
+            or json_extract(current_file.value, '$.size') is not json_extract(previous_file.value, '$.size')
+            or json_extract(current_file.value, '$.mediaType') is not json_extract(previous_file.value, '$.mediaType')
+            or json_extract(current_file.value, '$.metadata') is not json_extract(previous_file.value, '$.metadata')
+          )
+      )
+      or exists (
+        select 1
+        from json_each(${previousEntries}) as previous_file
+        left join json_each(${revisions.entries}) as current_file
+          on current_file.key = previous_file.key
+        where (previous_file.key = ${path} or substr(previous_file.key, 1, length(${path}) + 1) = ${path} || '/')
+          and current_file.key is null
+      )
+    )`
     const rows = await this.options.database.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
       cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
+      pathFilter,
       this.#active(workspace),
     )).orderBy(desc(revisions.sequence)).limit(limit + 1)
     const result: WorkspaceHistoryListResult = { revisions: rows.slice(0, limit).map(publicRevision) }

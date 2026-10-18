@@ -94,8 +94,11 @@ const movedLearningPages = new Map(Object.entries({
 }));
 
 export const docsPageRedirects = {
+  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
+  "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",
+  "/docs/agents/boxes": "/docs/agents/sandboxes",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -108,6 +111,7 @@ export const docsPageRedirects = {
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
+  "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",

@@ -58,9 +58,13 @@ export interface ConnectionProvider<TApis extends object = object> {
   /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
-  readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /** Read the account identity from the token response of an authorization code exchange. */
-  account: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
+  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
+  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /**
+   * Read the account identity from the token response of an authorization code exchange.
+   * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
+   */
+  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
   /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }
@@ -96,6 +100,13 @@ export interface ConnectionAccessRule<TPattern extends string = string> {
   approve?: boolean
 }
 
+/** A key, a sealed Server Env secret, or nothing. */
+export type ConnectionApiKeyFallback = () =>
+  | string
+  | { unseal: () => string }
+  | undefined
+  | Promise<string | { unseal: () => string } | undefined>
+
 /** Result of an API key `verify` check. `false` rejects the key. `account` labels the Connection in inspection. */
 export type ConnectionApiKeyVerification = boolean | { account?: ConnectionAccount }
 
@@ -117,6 +128,8 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
   /** Origins that `fetch` may send the key to. API catalog root URLs are also allowed. */
   readonly origins: readonly string[]
   readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The key to use while no key was ever stored, or while the store cannot open. A revoked key does not fall back. */
+  fallback?: ConnectionApiKeyFallback
   /** Check a new key before ViteHub stores it. */
   verify?: (key: string, context: ConnectionApiKeyVerifyContext) => Promise<ConnectionApiKeyVerification>
   /** Type-only method map. It has no runtime value. */
@@ -167,6 +180,17 @@ export type ConnectionDefinitionRegistry = Record<string, () => Promise<unknown>
 
 /** Loads the ViteHub Database that the default store uses. */
 export type ConnectionsDatabaseLoader = () => Promise<EnvDatabase>
+
+/**
+ * How long the database keeps Connection activity. Connections write one activity event per
+ * provider request. Each limit is a positive integer.
+ */
+export interface ConnectionActivityRetention {
+  /** Delete events older than this many milliseconds. Defaults to 14 days. */
+  maxAgeMs?: number
+  /** Keep at most this many events, the newest first. Defaults to 10,000. */
+  maxRecords?: number
+}
 
 export interface DiscoveredConnectionDefinition {
   handler: string
@@ -265,6 +289,8 @@ export interface ConnectionInspection {
   connectedAt?: string
   /** `oauth2` Connections connect through the provider. `api-key` Connections store a key that an admin sets. */
   credential: "api-key" | "oauth2"
+  /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
+  keySource?: "fallback" | "stored"
   name: string
   provider: string
   refreshedAt?: string

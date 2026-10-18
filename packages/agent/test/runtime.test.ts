@@ -2786,11 +2786,11 @@ describe("agent message protocol", () => {
     expect(toAiSdkModelMessages([
       createMessage({
         id: "m1",
-        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+        parts: [{ data: { city: "Seattle", modelText: "reserved by the consumer" }, type: "data-weather" }],
         role: "user",
       }),
     ])).toEqual([
-      { content: "{\"city\":\"Seattle\"}", role: "user" },
+      { content: "{\"city\":\"Seattle\",\"modelText\":\"reserved by the consumer\"}", role: "user" },
     ])
 
     expect(toAiSdkModelMessages([

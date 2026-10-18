@@ -33,7 +33,7 @@ it.each([
     const options = {
       agent: false, auth: false, blob: false, database: false,
       env: false, kv: false, preset, queue: true, rateLimit: false,
-      realtime: false, sandbox: false, schedule: true, workflow: false, workspace: false,
+      realtime: false, sandboxTask: false, schedule: true, workflow: false, workspace: false,
     } as const
     if (framework === "nuxt") {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
@@ -57,7 +57,8 @@ it.each([
     await expect(readFile(join(root, ".vitehub/schedule.d.ts"), "utf8")).rejects.toThrow()
     await writeFile(join(root, "consumer.mts"), [
       'import { runQueue, getQueue } from "vite-hub/queue"',
-      'await runQueue("welcome", { email: "ada@example.test" })',
+      'const [error] = await runQueue("welcome", { email: "ada@example.test" })',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
       'await (await getQueue("welcome")).send({ email: "ada@example.test" })',
       '// @ts-expect-error Queue payload comes from the generated public map.',
       'await runQueue("welcome", { count: 1 })',

@@ -158,6 +158,35 @@ On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/a
 
 If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
 
+### Verify a webhook signature
+
+Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+| `signature` | The header carries |
+| --- | --- |
+| Not set | The `secretToken` value itself. |
+| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
+| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
+
+`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
+
+```ts [server/agents/support.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export const airtable = defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    secretHeader: 'x-airtable-content-mac',
+    secretToken: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+  },
+})
+```
+
 ## Replay Channel history
 
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.
@@ -602,7 +631,7 @@ Channel instructions are trusted text from code. ViteHub reads them when the Inv
 
 ## Handle attachments
 
-Adapter Channels preserve incoming images, audio, and files as typed message parts. An attachment on the message selected by the current reply is also current Agent input automatically. Replies reached only through fetched history remain metadata references, so ViteHub does not repeatedly download old media.
+Adapter Channels preserve incoming images, audio, and files as typed message parts. An attachment on the message selected by the current reply is also current Agent input automatically. Attachments on history messages are not Agent input, so ViteHub does not repeatedly download old media. The message header names each one with `(not shown)`. To send recent history photos again, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
 
 Model-backed Drivers can consume inline data and adapter-owned `fetchData` within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. A URL-only attachment remains a typed reference; ViteHub does not fetch it from the Agent server. Resolve private or provider-owned files in the Channel adapter so its authentication, destination checks, timeouts, and size limits stay in force.
 

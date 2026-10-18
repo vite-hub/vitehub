@@ -1,9 +1,10 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
-import { normalizeSafeWorkspacePath } from "@vite-hub/workspace/internal/path"
 
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 export const messageWorkspaceChange = 4
 /** Server-to-client JSON control frame: the room session on open, or a reset before closing. */
@@ -55,13 +56,16 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 }
 
 function validPath(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0") || value.replaceAll("\\", "/").includes("//")) return false
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\")) return false
+  if (value.includes("//")) return false
   try {
     return normalizeSafeWorkspacePath(value) === value
   }
   catch {
     return false
   }
+
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
@@ -93,7 +97,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_R0002({ message: "Awareness update contains too many clients." })
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))

@@ -6,7 +6,7 @@ packages:
   - "playground/console"
 catalog:
   "@cloudflare/vitest-plugin": ^1.4.4
-  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
   "@types/proper-lockfile": 4.1.4
   forges: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
   proper-lockfile: 4.1.2
@@ -161,11 +161,11 @@ catalogs:
     ocache: ^0.3.0
     ofetch: ^1.5.1
     pathe: ^2.0.3
-    unimport: ^6.5.0
+    unimport: ^7.0.2
   vercel:
     "@vercel/functions": ^3.10.1
     "@vercel/nft": ^1.11.0
-    "@vercel/queue": ^0.5.1
+    "@vercel/queue": ^0.8.0
   vite:
     vite: ^8.2.2
   vite-compat:
@@ -173,7 +173,7 @@ catalogs:
   workflow:
     "@workflow/builders": 5.0.5
     cron-schedule: ^6.0.0
-    openworkflow: ^0.9.2
+    openworkflow: ^0.11.0
     workflow: 5.2.2
   workspace:
     isomorphic-git: ^1.44.2

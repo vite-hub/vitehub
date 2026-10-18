@@ -79,7 +79,7 @@ describe("realtime awareness ownership", () => {
     owners.apply(room, peer, update([1], { user: { id: "forged" }, cursor: 2 }), identity)
     expect(room.getStates().get(1)).toEqual({ user: identity, cursor: 2 })
 
-    expect(() => owners.apply(room, peer, update([2], "invalid"), identity)).toThrow("Invalid awareness state")
+    expect(() => owners.apply(room, peer, update([2], "invalid"), identity)).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_AWARENESS" }))
     expect(owners.apply(room, {}, update([2]), identity)).toEqual([2])
     expect(owners.release(peer)).toEqual([1])
   })
@@ -90,7 +90,7 @@ describe("realtime awareness ownership", () => {
     const peer = {}
     owners.apply(room, peer, update(Array.from({ length: 1024 }, (_, index) => index), null))
 
-    expect(() => owners.apply(room, peer, update([1024]))).toThrow("too many awareness clients")
+    expect(() => owners.apply(room, peer, update([1024]))).toThrow(expect.objectContaining({ code: "REALTIME_TOO_MANY_AWARENESS_CLIENTS" }))
     expect(owners.apply(room, {}, update([1024]))).toEqual([1024])
     expect(owners.release(peer)).toHaveLength(1024)
   })
@@ -101,7 +101,7 @@ describe("realtime awareness ownership", () => {
     const peer = {}
     const identity = { color: "#2563EB", id: "user", name: "Max" }
 
-    expect(() => owners.apply(room, peer, update([1], state), identity)).toThrow("Invalid awareness state")
+    expect(() => owners.apply(room, peer, update([1], state), identity)).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_AWARENESS" }))
     expect(room.getStates().size).toBe(0)
     expect(owners.release(peer)).toEqual([])
     expect(owners.apply(room, {}, update([1]), identity)).toEqual([1])
