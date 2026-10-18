@@ -48,7 +48,9 @@ function isRequest(value: unknown): value is Request {
     } catch {
       let prototype: object | null = value
       const visited = new Set<object>()
+      let depth = 0
       while (prototype !== null) {
+        if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
         visited.add(prototype)
         // Every ordinary class prototype owns its constructor. A proxy that
