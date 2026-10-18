@@ -120,14 +120,14 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
   color: var(--ui-text-dimmed);
   font-size: 0.625rem;
   font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .vh-docs-context-title {
   overflow: hidden;
-  color: var(--ui-text-highlighted);
+  color: inherit;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.25;

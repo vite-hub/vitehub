@@ -895,7 +895,8 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
 }
 
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
-  if (ownSourceOption(source, "materialize") || source.mount && typeof source.mount === "object" && ownSourceOption(source.mount, "materialize")) {
+  const mount = ownSourceOption(source, "mount")
+  if (ownSourceOption(source, "materialize") || mount && typeof mount === "object" && ownSourceOption(mount, "materialize")) {
     return source
   }
   if (ownSourceOption(source, "sync")) return source
