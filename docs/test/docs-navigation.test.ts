@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
