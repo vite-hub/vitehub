@@ -34,6 +34,12 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // descriptor shape only ensures that invoking discovery cannot run an
     // arbitrary inherited getter.
     if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
+    // Built-in container constructors identify counterfeit carriers when a
+    // branded accessor (for example Map.prototype.size) is copied onto them.
+    // A real workerd SqlStorage has its own platform constructor identity.
+    if (constructor === Map || constructor === Set || constructor === ArrayBuffer || constructor === DataView || constructor === Uint8Array) return false
+    if (typeof URLSearchParams === "function" && constructor === URLSearchParams) return false
+    if (typeof SharedArrayBuffer === "function" && constructor === SharedArrayBuffer) return false
     // Workerd may place the constructor and accessors on different levels of
     // its internal prototype chain. Their descriptors are inspected above; the
     // native getter brand probe below provides the receiver validation.
