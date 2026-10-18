@@ -492,7 +492,10 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           // closed without relying on a host-realm releaseLock operation.
           const probeStream = Reflect.construct(constructor, [{ start(controller: ReadableStreamDefaultController<Uint8Array>) { controller.close() } }]) as ReadableStream<Uint8Array>
           const probeReader = Reflect.apply(descriptor.value, probeStream, []) as object
-          if (!hasNativeAuthorizationReaderPrototype(probeReader)) return
+          // A genuine getReader() must lock the stream it was called on.
+          // This rejects branded-looking prototypes that return a reader for
+          // an unrelated stream.
+          if (!probeStream.locked || !hasNativeAuthorizationReaderPrototype(probeReader)) return
           const probePrototype = Object.getPrototypeOf(probeReader)
           const probeMethods = Object.fromEntries((["read", "cancel", "releaseLock"] as const).map(key => [
             key,
@@ -569,6 +572,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
   // Invoke the source stream's native operations so separate realms retain their brand.
   const reader = Reflect.apply(getReader, body, [])
+  // Ensure the returned reader owns the supplied body; an override that
+  // returns a reader for another stream must never cross the boundary.
+  if (!body.locked) throw new Error("Authorization response reader does not own body")
   const nativeReaderMethod = (key: "read" | "cancel" | "releaseLock") => {
     if (Object.prototype.hasOwnProperty.call(reader, key)) throw new Error("Malformed authorization response reader")
     let prototype: object | null = Object.getPrototypeOf(reader)
@@ -643,7 +649,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   let released = false
   const acquire = async () => reader
   const release = () => {
-    if (released || !reader || !releaseLock) return
+    if (released) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
