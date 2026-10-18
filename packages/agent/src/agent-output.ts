@@ -1,4 +1,4 @@
-import { isTrustedResponseConstructor } from "./internal/response.ts"
+import { findTrustedResponseConstructor } from "./internal/response.ts"
 
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
@@ -1100,7 +1100,9 @@ function isResponseLike(value: unknown): value is Response {
     // The supported independent ponyfill stores its body machinery on each
     // instance. Require that implementation surface for unbranded own-tag
     // responses instead of trusting caller-controlled constructor metadata.
-    const registeredResponse = isTrustedResponseConstructor(constructorDescriptor.value)
+    // Subclasses inherit the registered implementation's brand. Resolve the
+    // constructor chain just as trigger response classification does.
+    const registeredResponse = !!findTrustedResponseConstructor(constructorDescriptor.value)
     if (ownResponseTag && !trustedResponse) {
       // Foreign Fetch implementations must opt in at their adapter boundary.
       // Public fields such as `_bodyFactory` are copyable and do not establish provenance.

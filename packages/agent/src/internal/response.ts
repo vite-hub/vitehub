@@ -14,6 +14,24 @@ export function isTrustedResponseConstructor(constructor: unknown): constructor 
   return typeof constructor === "function" && trustedResponseConstructors.has(constructor)
 }
 
+/** Return the registered Fetch constructor in a candidate's inheritance chain. */
+export function findTrustedResponseConstructor(constructor: unknown): Function | undefined {
+  let candidate = typeof constructor === "function" ? constructor : undefined
+  const visited = new Set<Function>()
+  while (candidate && !visited.has(candidate)) {
+    visited.add(candidate)
+    if (isTrustedResponseConstructor(candidate)) return candidate
+    let parent: unknown
+    try {
+      parent = Object.getPrototypeOf(candidate)
+    }
+    catch {
+      return undefined
+    }
+    candidate = typeof parent === "function" ? parent : undefined
+  }
+}
+
 export function isResponse(value: unknown): value is Response {
   try {
     if (!responseHeaders) return false
@@ -28,18 +46,7 @@ export function isResponse(value: unknown): value is Response {
       // Fetch implementation retain its intrinsic internal-state brand check.
       // `instanceof` alone accepts Object.create(Response.prototype), which
       // has none of the implementation's internal state.
-      let registeredConstructor: Function | undefined
-      let candidate: Function | undefined = constructor
-      const visitedConstructors = new Set<Function>()
-      while (candidate && !visitedConstructors.has(candidate)) {
-        visitedConstructors.add(candidate)
-        if (isTrustedResponseConstructor(candidate)) {
-          registeredConstructor = candidate
-          break
-        }
-        const parent = Object.getPrototypeOf(candidate)
-        candidate = typeof parent === "function" ? parent : undefined
-      }
+      const registeredConstructor = findTrustedResponseConstructor(constructor)
       if (!registeredConstructor) return false
       // Some registered Fetch implementations (including node-fetch) expose
       // `headers` as an own instance field rather than a prototype accessor.
