@@ -414,8 +414,6 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
     const methods = getNativeAuthorizationReaderMethods(reader)
     if (!methods) return false
     Reflect.apply(methods.releaseLock, reader, [])
-    const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-    if (typeof bodyUsed !== "function" || bodyUsed.call(new Response(body as ReadableStream<Uint8Array>))) return false
     return ReadableStream.prototype.getReader
   }
   catch {
@@ -598,11 +596,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-
-      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
+    // Constructing a Response with a foreign body here would claim or disturb
+    // the source stream before the lazy bridge can acquire it.
+    if (body === null) {
+      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+        ? Response.error()
+        : new Response(null, { status, statusText, headers: normalizedHeaders })
+    }
     if (typeof nativeBodyReader !== "function") return
     const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, nativeBodyReader)
     try {
