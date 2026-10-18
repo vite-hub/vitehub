@@ -51,8 +51,16 @@ function hasConfiguredPublicUrl(): boolean {
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
   const state = getAuthRuntimeState()
   if (definition) {
-    if (resolver) state.envResolvers?.set(definition, resolver)
-    else state.envResolvers?.delete(definition)
+    if (resolver) {
+      state.envResolvers?.set(definition, resolver)
+      // Keep a process-local fallback for dev server reloads. The generated
+      // initializer is not re-evaluated when the definition module changes,
+      // so the new definition cannot look up the old WeakMap key.
+      state.envResolver = resolver
+    }
+    else {
+      state.envResolvers?.delete(definition)
+    }
     return
   }
   state.envResolver = resolver
@@ -404,6 +412,10 @@ function streamIntrinsics(body: object) {
   try {
     if (!Reflect.apply(locked, body, [])) return
     Reflect.apply(releaseLock, reader, [])
+    // A forged getReader() may return a reader owned by another stream. A
+    // genuine reader releases the candidate stream it locked; otherwise the
+    // candidate remains unlocked (or the release has no effect).
+    if (Reflect.apply(locked, body, [])) return
   }
   catch { return }
   return { locked, getReader, read, cancel, releaseLock }
