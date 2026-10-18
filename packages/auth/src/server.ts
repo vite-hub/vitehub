@@ -703,6 +703,22 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let intrinsicHeaders: unknown
     let intrinsicBody: unknown
     try {
+      const trustedGetters = new Map<string, Set<unknown>>([
+        ["status", new Set<unknown>()],
+        ["statusText", new Set<unknown>()],
+        ["headers", new Set<unknown>()],
+        ["body", new Set<unknown>()],
+      ])
+      for (const responsePrototype of [
+        Response.prototype,
+        (await getUndiciResponse())?.prototype,
+      ]) {
+        if (!responsePrototype) continue
+        for (const key of trustedGetters.keys()) {
+          const getter = Object.getOwnPropertyDescriptor(responsePrototype, key)?.get
+          if (getter) trustedGetters.get(key)?.add(getter)
+        }
+      }
       let prototype: object | null = Object.getPrototypeOf(candidate)
       const seen = new Set<object>()
       for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
@@ -712,7 +728,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         const statusTextGetter = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
         const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-        if (statusGetter && statusTextGetter && headersGetter && bodyGetter) {
+        if (statusGetter && statusTextGetter && headersGetter && bodyGetter
+          && trustedGetters.get("status")?.has(statusGetter)
+          && trustedGetters.get("statusText")?.has(statusTextGetter)
+          && trustedGetters.get("headers")?.has(headersGetter)
+          && trustedGetters.get("body")?.has(bodyGetter)) {
           intrinsicStatus = Reflect.apply(statusGetter, candidate, [])
           intrinsicStatusText = Reflect.apply(statusTextGetter, candidate, [])
           intrinsicHeaders = Reflect.apply(headersGetter, candidate, [])
