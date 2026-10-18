@@ -572,7 +572,7 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(usageMetadataValue(result, "usage") ?? usageMetadataValue(result, "totalUsage")), result, undefined, run)
+  return usageRecordFromUsage(await resolveUsageValue(readableRecordValue(result, "usage") ?? readableRecordValue(result, "totalUsage")), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
