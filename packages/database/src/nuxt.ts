@@ -1,4 +1,5 @@
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -57,7 +58,7 @@ type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
-    (name: "prepare:types", callback: (context: { references: { path: string }[], sharedTsConfig: { include?: string[] }, serverTsConfig: { include?: string[] } }) => void): void
+    (name: "prepare:types", callback: (context: { references: { path: string }[], sharedTsConfig?: { include?: string[] }, serverTsConfig?: { include?: string[] } }) => void): void
   }
   options: Record<string, unknown> & {
     alias?: Record<string, string>
@@ -156,7 +157,13 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionDirectories.add(dirname(source.handler))
           }
           for (const contribution of contributions) {
-            definitionFiles.add(contribution.definition.module)
+            const module = contribution.definition.module.split("#", 1)[0]!
+            try {
+              definitionFiles.add(createRequire(pathToFileURL(resolve(root, "package.json"))).resolve(module))
+            }
+            catch {
+              definitionFiles.add(resolve(root, module))
+            }
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles])]
         }
@@ -226,7 +233,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         const generated = resolve(root, ".vitehub/types/database.d.ts")
         context.references.push({ path: generated })
         const include = (target: "sharedTsConfig" | "serverTsConfig") => {
-          const list = context[target].include ??= []
+          const config = context[target]
+          if (!config) return
+          const list = config.include ??= []
           if (!list.includes(generated)) list.push(generated)
         }
         include("sharedTsConfig")
