@@ -23,7 +23,10 @@ const hasPanel = computed(
         <slot />
       </UContainer>
 
-      <slot v-else-if="isLanding" />
+      <template v-else-if="isLanding">
+        <AnnouncementBanner />
+        <slot />
+      </template>
 
       <template v-else>
         <AnnouncementBanner />

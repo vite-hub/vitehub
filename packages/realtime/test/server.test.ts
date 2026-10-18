@@ -1542,26 +1542,11 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
+    for (const path of ["docs/git~1/config", "vitehu~1/config", "docs/.git./config", "docs/.git /config", ".vitehub./config", ".vitehub /config", ".VITEHUB/config", "docs/.git::$INDEX_ALLOCATION/config", "docs/.git. /config", "docs/..:stream/config", "docs/.:stream/config", "docs/.git:stream", "docs/.git:stream/config", "docs//file", "C:/outside/file", "C:outside", "docs/.. ", "docs/.git "]) {
+      expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
+      expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/page.md", to: path }))).toBeUndefined()
+    }
 
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1/config" }))).toBeUndefined()
-
-
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git./config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git. /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs//file" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:/outside/file" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:outside" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.. " }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/..:stream/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.:stream/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git " }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "vitehu~1/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
     for (const path of ["docs/git~1", "vitehu~1/config", "docs/.git ", "docs/.git:stream", ".VITEHUB/config"]) {
       expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
