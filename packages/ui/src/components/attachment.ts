@@ -62,9 +62,13 @@ export const AttachmentAction = defineComponent({
 export const AttachmentTrigger = defineComponent({
   name: "AttachmentTrigger",
   props: { as: asProp("button") },
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     // A `type` attribute from the caller still overrides this default.
     return () =>
-      h(props.as, { "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined }, slots.default?.());
+      h(
+        props.as,
+        { ...attrs, "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined },
+        slots.default?.(),
+      );
   },
 });
