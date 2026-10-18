@@ -424,6 +424,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     sections: ConsoleSectionId[]
     authConfig: ResolvedConsoleAuthConfig
     handlers?: ConsoleAuthHandlers
+    blobStores: typeof blobStores
+    kvStores: typeof kvStores
+    fixture?: string
+    invoke: boolean
+    observations: typeof observations
+    journal: typeof journal
+    consoleAuthMode: typeof consoleAuthMode
+    retention: typeof retention
+    runtimeCapabilityImports: typeof options.runtimeCapabilityImports
   }
 
   function consoleAccess(): ConsoleAccessBuild | undefined {
@@ -644,6 +653,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             sections: [...sections],
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
+            blobStores,
+            kvStores,
+            fixture,
+            invoke,
+            observations,
+            journal,
+            consoleAuthMode,
+            retention,
+            runtimeCapabilityImports: options.runtimeCapabilityImports,
           }
         : undefined
       resolvedPlugins = config.plugins
@@ -677,18 +695,18 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
               callbackState.sections,
               callbackState.catalog.agents,
               callbackState.catalog,
-              blobStores,
-              kvStores,
-              fixture,
+              callbackState.blobStores,
+              callbackState.kvStores,
+              callbackState.fixture,
               options.invocationRootState?.binding,
-              invoke,
-              observations,
+              callbackState.invoke,
+              callbackState.observations,
               () => !options.invocationRootState?.closed,
-              journal,
-              consoleAuthMode,
-              retention,
+              callbackState.journal,
+              callbackState.consoleAuthMode,
+              callbackState.retention,
               access,
-              options.runtimeCapabilityImports,
+              callbackState.runtimeCapabilityImports,
             )
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
             const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers)
