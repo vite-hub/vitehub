@@ -1364,7 +1364,8 @@ async function createAgent(
   const budgetRetryLimit = context.executionBudget
     ? Math.min(configuredRetries, remainingRetries ?? Number.POSITIVE_INFINITY)
     : undefined
-  const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
+  const middlewareActive = Boolean(context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function"))
+  const budgetedModel = middlewareActive
     ? aiSdk.wrapLanguageModel({
         model: observedModel as never,
         middleware: executionBudgetMiddleware(context.executionBudget, budgetRetryLimit),
@@ -1373,8 +1374,10 @@ async function createAgent(
   const budgetedSettings = context.executionBudget
     ? {
         ...settings,
-        // Provider retries are charged and performed by executionBudgetMiddleware.
-        maxRetries: 0,
+        // Provider retries are charged and performed by executionBudgetMiddleware
+        // when it is available. Preserve the configured setting for unwrapped
+        // runtimes so provider retries are not silently discarded.
+        ...(middlewareActive ? { maxRetries: 0 } : {}),
       }
     : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
