@@ -165,7 +165,9 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
         responseType,
         signal: ctx.abortSignal,
       })
-      const transformed = options.transform ? await options.transform(result.data as TResponse) : result.data
+      const transformed = options.transform
+        ? await Reflect.apply(options.transform, options, [result.data as TResponse])
+        : result.data
       return {
         key,
         path: key,
@@ -363,7 +365,7 @@ async function defaultFetchSourceRequest(
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
   const additions = typeof options.request === "function"
-    ? await options.request(context)
+    ? await Reflect.apply(options.request, options, [context])
     : options.request
   return {
     body,
@@ -429,7 +431,9 @@ async function executeFetchSourceRequest(
     responseType,
     signal: ctx.abortSignal,
   })
-  const transformed = options.transform ? await options.transform(result.data) : result.data
+  const transformed = options.transform
+    ? await Reflect.apply(options.transform, options, [result.data])
+    : result.data
 
   return {
     content: serializeFetchSourceContent(transformed, responseType),
