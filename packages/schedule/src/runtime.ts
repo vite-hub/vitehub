@@ -1,6 +1,7 @@
 export { createScheduleRun, executeRuntimeSchedule, executeRuntimeScheduleWake, executeSchedule, executeStaticSchedule, runSchedule } from "./runtime/execute.ts"
 export { normalizeCron, unwrapScheduleDefinition } from "./runtime/static.ts"
 export { createScheduleKVStorage } from "./runtime/kv-storage.ts"
+export { schedules } from "./runtime/client.ts"
 export { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./runtime/store.ts"
 export {
   getRuntimeScheduleStore,
