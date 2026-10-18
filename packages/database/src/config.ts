@@ -47,15 +47,15 @@ export function serializeGeneratedRegistry(value: unknown): string {
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
-function readDefinitionObjectBody(file: string, exact = false) {
+function readDefinitionObjectBody(file: string) {
   const source = readFileSync(file, "utf8")
   const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
+  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
     || calls[0]
   const argument = call?.arguments[0]?.trim()
   if (!argument?.startsWith("{")) return
   const closeIndex = findMatching(argument, 0, "{", "}")
-  return closeIndex === undefined || (exact && argument.slice(closeIndex + 1).trim()) ? undefined : argument.slice(1, closeIndex)
+  return closeIndex === undefined || argument.slice(closeIndex + 1).trim() ? undefined : argument.slice(1, closeIndex)
 }
 
 function objectLiteralBody(value: string | undefined) {
@@ -223,7 +223,7 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
+  const fallbackParts = splitTopLevelOperator(expression)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
     if (envName) return createRuntimeEnvConfigValue([envName])
@@ -239,6 +239,25 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   }
 }
 
+function splitTopLevelOperator(expression: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let depth = 0
+  let quote: string | undefined
+  for (let i = 0; i < expression.length - 1; i++) {
+    const c = expression[i]!
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = undefined; continue }
+    if (c === "\"" || c === "'") { quote = c; continue }
+    if ("([{".includes(c)) { depth++; continue }
+    if (")]}".includes(c)) { depth--; continue }
+    if (depth === 0 && ((c === "|" && expression[i + 1] === "|") || (c === "?" && expression[i + 1] === "?"))) {
+      parts.push(expression.slice(start, i).trim()); start = i + 2; i++
+    }
+  }
+  parts.push(expression.slice(start).trim())
+  return parts
+}
+
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
   const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
   const body = objectLiteralBody(match?.[1])
@@ -251,8 +270,8 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const names = typeof singleName !== "undefined"
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ?.split(",")
-        .map(value => readStaticStringLiteral(value.trim()))
+        ? splitTopLevel(sourceValue.slice(1, -1)).map(value => readStaticStringLiteral(value.trim()))
+        : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
   return createRuntimeEnvConfigValue(names as string[], defaultValue)
@@ -591,7 +610,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
 // Partial scanner results cannot prove HTTP stays enabled after runtime spreads.
 export function isStaticD1HttpDefinition(file: string) {
   if (!existsSync(file)) return false
-  const definitionBody = readDefinitionObjectBody(file, true)
+  const definitionBody = readDefinitionObjectBody(file)
   if (definitionBody === undefined) return false
   const definitionEntries = splitTopLevel(definitionBody).filter(entry => entry.trim())
   if (definitionEntries.some(entry => !readEntryKey(entry))) return false
