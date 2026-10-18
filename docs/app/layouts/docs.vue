@@ -28,6 +28,7 @@ const docsShellUi = {
     </UPage>
 
     <div v-else-if="isLanding" class="vh-docs-landing">
+      <AnnouncementBanner />
       <slot />
       <AppFooter class="vh-docs-footer" />
     </div>
