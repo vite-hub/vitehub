@@ -10,11 +10,15 @@ const docsShellUi = {
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
   center: "lg:!flex-1 lg:!min-w-0",
 };
+const supportDocsShellUi = {
+  ...docsShellUi,
+  left: "lg:!w-(--vh-rail-width) lg:shrink-0",
+};
 </script>
 
 <template>
   <UMain class="vh-docs-shell" :class="{ 'vh-docs-shell-support': isSupportMatrix }">
-    <UPage v-if="isSupportMatrix" :ui="docsShellUi" class="vh-docs-page">
+    <UPage v-if="isSupportMatrix" :ui="supportDocsShellUi" class="vh-docs-page">
       <template #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
           <DocsSidebars :panel="false" />
