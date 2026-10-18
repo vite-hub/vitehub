@@ -1307,12 +1307,6 @@ async function createAgent(
   if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
     throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
   }
-  const instrumentedModel = context.executionBudget && wrapLanguageModel
-    ? wrapLanguageModel({
-        model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
-        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(copyCallSettings(execution?.callSettings).maxRetries, "number") ? copyCallSettings(execution?.callSettings).maxRetries : undefined),
-      })
-    : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1364,12 +1358,18 @@ async function createAgent(
     context: context.context,
     input: context.input,
     invoker: context.invoker,
-    model: instrumentedModel,
+    model: observedModel,
     run: context.runtime.run,
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
+  const instrumentedModel = context.executionBudget && wrapLanguageModel
+    ? wrapLanguageModel({
+        model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
+        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+      })
+    : observedModel
   // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
   const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
