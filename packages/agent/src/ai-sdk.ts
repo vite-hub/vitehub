@@ -1750,11 +1750,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         const error = getRepairBudgetError()
         if (error) throw error
       })()
-      const streamWithBudget = result.stream ? propagateRepairBudgetError(result.stream) : undefined
-      const fullStreamWithBudget = result.fullStream
-        ? result.fullStream === result.stream && streamWithBudget
+      const stream = result.stream
+      const fullStream = result.fullStream
+      const streamWithBudget = stream ? propagateRepairBudgetError(stream) : undefined
+      const fullStreamWithBudget = fullStream
+        ? fullStream === stream && streamWithBudget
           ? streamWithBudget
-          : propagateRepairBudgetError(result.fullStream)
+          : propagateRepairBudgetError(fullStream)
         : undefined
       const budgetedResult = streamWithBudget || fullStreamWithBudget
         ? cloneStreamTextResult(result, {
