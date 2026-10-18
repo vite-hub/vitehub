@@ -180,9 +180,9 @@ describe("UI documentation", () => {
     expect(layout).toContain("overflow-x: clip;")
     expect(layout).toContain(".vh-docs-aside")
     expect(layout).toContain("overflow: visible;")
-    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
-    expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
+    expect(layout).toContain('<DocsSidebars class="vh-docs-desktop-nav"');
+    expect(layout).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav \{\s*display: none;/);
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*:deep\(\.vh-docs-aside\) \{[^}]*display: flex;/);
 
   });
 
