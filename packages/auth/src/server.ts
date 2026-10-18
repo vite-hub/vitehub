@@ -437,10 +437,30 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    const locked = Reflect.get(body, "locked")
-    if (locked !== false) return false
-    const getReader = Reflect.get(body, "getReader")
-    if (typeof getReader !== "function") return false
+    if (Object.prototype.hasOwnProperty.call(body, "locked") || Object.prototype.hasOwnProperty.call(body, "getReader")) return false
+    let prototype: object | null = Object.getPrototypeOf(body)
+    const seen = new Set<object>()
+    let lockedGetter: ((this: object) => unknown) | undefined
+    let getReader: ((this: object) => unknown) | undefined
+    let owner: object | undefined
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const lockedDescriptor = Object.getOwnPropertyDescriptor(prototype, "locked")
+      const readerDescriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (!lockedGetter && typeof lockedDescriptor?.get === "function") {
+        lockedGetter = lockedDescriptor.get as (this: object) => unknown
+        owner = prototype
+      }
+      if (!getReader && typeof readerDescriptor?.value === "function") {
+        getReader = readerDescriptor.value as (this: object) => unknown
+        if (owner && owner !== prototype) return false
+        owner = prototype
+      }
+      if (lockedGetter && getReader) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!lockedGetter || !getReader || Reflect.apply(lockedGetter, body, []) !== false) return false
     return getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
   }
   catch {
