@@ -879,6 +879,12 @@
       "require": "./dist/ui.js",
       "default": "./dist/ui.js"
     },
+    "./ui/code-block": {
+      "types": "./dist/ui/code-block.d.ts",
+      "import": "./dist/ui/code-block.js",
+      "require": "./dist/ui/code-block.js",
+      "default": "./dist/ui/code-block.js"
+    },
     "./ui/headless": {
       "types": "./dist/ui/headless.d.ts",
       "import": "./dist/ui/headless.js",
