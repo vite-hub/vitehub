@@ -93,7 +93,7 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "undici": "8.12.2",
+    "undici": "^7.30.0",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
@@ -104,7 +104,8 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "undici": "^7.30.0"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {
@@ -114,6 +115,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "undici": {
       "optional": true
     }
   },

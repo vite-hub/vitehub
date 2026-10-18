@@ -9,6 +9,11 @@ function moduleSpecifiers(source: string): string[] {
   return [...source.matchAll(moduleSpecifierPattern)].map(match => match[1]!)
 }
 
+// The build bundles the provider runtime with its own Effect copy. Check only the Agent's own code.
+function withoutBundledDependencies(source: string): string {
+  return source.replace(/^\/\/#region \S*\/node_modules\/[\s\S]*?^\/\/#endregion$/gm, "")
+}
+
 function containsForbiddenPublicReference(source: string): boolean {
   return /\bFiberFailure\b/.test(source)
     || moduleSpecifiers(source).some(specifier => /^effect(?:\/|$)/.test(specifier))
@@ -67,7 +72,7 @@ it("does not depend on Effect or leak its runtime failures", async () => {
       .filter(path => /\.[cm]?js$/.test(path))
       .map(path => readFile(new URL(path, dist), "utf8")),
   )).join("\n")
-  expect(javascript).not.toContain("FiberFailure")
+  expect(withoutBundledDependencies(javascript)).not.toContain("FiberFailure")
   expect(manifest).not.toMatchObject({ dependencies: { effect: expect.anything() } })
   expect(manifest).not.toMatchObject({ devDependencies: { effect: expect.anything() } })
   expect(manifest).not.toMatchObject({ optionalDependencies: { effect: expect.anything() } })
@@ -96,16 +101,13 @@ it("keeps Effect out of provider and browser bundle graphs", async () => {
   }
 })
 
-it("statically imports the provider runtime in the published Agent build", async () => {
+it("bundles the preview-only provider runtime and forges into the published Agent build", async () => {
   const dist = new URL("../dist/", import.meta.url)
-  const javascript = (await Promise.all(
-    (await readdir(dist, { recursive: true }))
-      .filter(path => /\.[cm]?js$/.test(path))
-      .map(path => readFile(new URL(path, dist), "utf8")),
-  )).join("\n")
+  const files = (await readdir(dist, { recursive: true })).filter(path => /\.(?:[cm]?js|d\.ts)$/.test(path))
+  const output = (await Promise.all(files.map(path => readFile(new URL(path, dist), "utf8")))).join("\n")
 
-  expect(javascript).toMatch(/\bfrom\s*["']@t3tools\/provider-runtime["']/)
-  expect(javascript).not.toMatch(/\bimport\s*\(\s*["']@t3tools\/provider-runtime["']/)
+  expect(output).toContain("function createProviderRuntime(")
+  expect(output).not.toMatch(/(?:\bfrom\s*|\bimport\s*\(\s*)["'](?:@t3tools\/|forges(?:\/|["']))/)
 })
 
 it("keeps the generated Console runtime out of the base Agent bundle", async () => {

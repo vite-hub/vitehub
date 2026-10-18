@@ -12,9 +12,14 @@ interface QueueResolutionInput {
 
 const knownProviders = new Set(["cloudflare", "vercel"])
 
+function readOwnOption(options: Record<string, unknown>, key: string): unknown {
+  return Object.hasOwn(options, key) ? options[key] : undefined
+}
+
 function resolveProvider(options: Record<string, unknown>, hosting: string): ResolvedQueueOptions {
-  const shared: QueueSharedOptions = typeof options.cache === "boolean" ? { cache: options.cache } : {}
-  const provider = options.provider
+  const cache = readOwnOption(options, "cache")
+  const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
+  const provider = readOwnOption(options, "provider")
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_PROVIDER({ provider })
@@ -27,18 +32,21 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
 
   if (resolved === "cloudflare") {
+    const binding = readOwnOption(options, "binding")
+    const namePrefix = readOwnOption(options, "namePrefix")
     return defu(
       {
-        ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
-        ...(typeof options.namePrefix === "string" ? { namePrefix: options.namePrefix } : {}),
+        ...(typeof binding === "string" ? { binding } : {}),
+        ...(typeof namePrefix === "string" ? { namePrefix } : {}),
       },
       shared,
       { provider: "cloudflare" as const },
     )
   }
 
+  const region = readOwnOption(options, "region")
   return defu(
-    typeof options.region === "string" ? { region: options.region } : {},
+    typeof region === "string" ? { region } : {},
     shared,
     { provider: "vercel" as const },
   )

@@ -59,7 +59,7 @@ The provider rejected a send, a batch send, or the start of a client. `error.why
 
 ### QUEUE_PROVIDER_INVALID_RESPONSE
 
-Vercel accepted the job, but its response has a missing or invalid `messageId`. The job can be in the queue, so do not send it again without an `idempotencyKey`. Check the installed `@vercel/queue` version.
+Vercel accepted the job for deferred processing when its response has `messageId: null`; `result.messageId` is then `undefined`. A response with a missing or invalid `messageId` is an error. The job can be in the queue, so do not send it again without an `idempotencyKey`. Check the installed `@vercel/queue` version.
 
 ### QUEUE_UNSUPPORTED_OPTION
 

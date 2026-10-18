@@ -214,6 +214,8 @@ describe("Postgres build configuration", () => {
 
     const code = await load((await resolveId("#vitehub/database/databases"))!)
     expect(code).toContain("runtime/postgres")
+    // Contributed tables live in the generated schema, so the client gets that schema, not the Definition's own.
+    expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: schema_0 },")
     expect(code).not.toContain("runtime/hosted")
   })
 
@@ -255,7 +257,7 @@ describe("Postgres build configuration", () => {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       expect(code).toContain("import { createPostgresDatabase } from")
       expect(code).toContain("runtime/postgres")
-      expect(code).toContain("db: createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).not.toContain("createHostedDrizzleDb")
     }
   })

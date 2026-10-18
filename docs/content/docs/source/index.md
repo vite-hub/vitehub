@@ -1,118 +1,117 @@
 ---
 title: Source
 navigation.title: Overview
-description: Retrieve read-only files, records, and external resources through typed source loaders.
+description: Read files and data from your project, a GitHub repository, or your own code without changing them, and serve lists as paged API routes.
 navigation.order: 1
 icon: i-lucide-folder-input
 ---
 
-::agent-only{skill="source"}
-Use Source to read files, records, or external resources through a typed, read-only loader. Sources provide context; they do not grant write authority.
-
-Read [Get started](/docs/source/get-started), [Configure](/docs/source/configure), [Server API](/docs/source/server-api), or [Hosts](/docs/source/hosts).
-
-Choose the narrowest loader and scope its root, branch, or query. Validate source provenance and access before passing content to an Agent or route.
-
-Prove a successful read, an out-of-scope path, missing content, and the returned metadata or revision.
-::
-
-::product-hero{tagline="Typed read-only loaders for files, GitHub, and MCP Resources, defined once and shared by routes, Content, and Workspaces." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
-  ```ts [Collection]
-  import { eq } from 'drizzle-orm'
-  import * as v from 'valibot'
-  import { useDatabase } from 'vite-hub/database/drizzle'
-  import { defineCollection, table } from 'vite-hub/source'
-
-  const { db, schema } = useDatabase('default')
-
-  export const articles = defineCollection({
-    source: table({
-      db,
-      table: schema.articles,
-      orderBy: {
-        column: schema.articles.createdAt,
-        direction: 'desc',
-        tieBreaker: schema.articles.id,
-      },
-      defaultLimit: 25,
-      maxLimit: 100,
-      querySchema: v.object({ author: v.optional(v.string()) }),
-      where: ({ query, table }) => query.author
-        ? eq(table.author, query.author)
-        : undefined,
-    }),
-    transform: article => ({ id: article.id, title: article.title }),
-  })
-  ```
-
-  ```ts [Definition]
-  import { defineSources, registerSources } from 'vite-hub/source'
-  import { file } from 'vite-hub/source/file'
+::product-hero{tagline="Read files from your project, GitHub, or your own data with one reader, and turn lists into paged API routes." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
+  ```ts [server/sources/docs.ts]
   import { github } from 'vite-hub/source/github'
+  import { glob } from 'vite-hub/source/glob'
 
-  export const sources = defineSources({
-    readme: file('README.md'),
-    docs: github({
-      repo: 'acme/docs',
-      ref: 'main',
-      root: 'docs',
-      include: ['**/*.md'],
-    }),
+  // Markdown files from your docs folder
+  export const docs = glob({
+    cwd: 'docs',
+    include: '**/*.md',
   })
 
-  registerSources(sources)
-  ```
-
-  ```vue [Client]
-  <script setup lang="ts">
-  const author = ref<string>()
-  const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
-    filter: computed(() => ({ author: author.value })),
+  // Files from a GitHub repository
+  export const handbook = github({
+    repo: 'acme/handbook',
+    ref: 'main',
   })
-  </script>
   ```
 
-  ```ts [Workspace]
-  import { defineWorkspace } from 'vite-hub/workspace'
+  ```ts [server/api/intro.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { createSource } from 'vite-hub/source'
   import { docs } from '../sources/docs'
 
-  export default defineWorkspace({
-    sources: {
-      docs: { source: docs, mount: 'docs', materialize: 'lazy' },
-    },
+  // Read one file: docs/intro.md
+  export default defineEventHandler(async () => {
+    const reader = createSource(docs)
+    return reader.read('intro.md')
   })
+  ```
+
+  ```ts [server/api/handbook.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { createSource } from 'vite-hub/source'
+  import { handbook } from '../sources/docs'
+
+  // List the path of every file in the repository
+  export default defineEventHandler(async () => {
+    const reader = createSource(handbook)
+    return reader.keys()
+  })
+  ```
+
+  ```ts [server/collections/articles.ts]
+  import {
+    array,
+    defineCollection,
+  } from 'vite-hub/source'
+
+  // ViteHub serves this list at /api/articles
+  export const articles = defineCollection({
+    source: array([
+      { slug: 'hello', title: 'Hello', tag: 'news' },
+      { slug: 'vite', title: 'Why Vite', tag: 'guide' },
+    ], {
+      filters: ['tag'],
+      search: ['title'],
+    }),
+  })
+  ```
+
+  ```vue [app/pages/articles.vue]
+  <script setup lang="ts">
+  import { useCollection } from 'vite-hub/source/client'
+
+  // Load the guides, one page at a time
+  const { items, hasMore, loadMore } =
+    useCollection('articles', {
+      filter: { tag: 'guide' },
+    })
+  </script>
+
+  <template>
+    <p v-for="article in items" :key="article.slug">
+      {{ article.title }}
+    </p>
+    <button v-if="hasMore" @click="loadMore()">
+      More
+    </button>
+  </template>
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Local files, GitHub, and MCP share one reader" icon="i-lucide-files" to="/docs/source/configure"}
-  `file()`, `markdown()`, `glob()`, `github()`, and `mcpResources()`, with no provider configuration.
+  :::product-feature-item{title="Ready-made readers" icon="i-lucide-files" to="/docs/source/configure#source-loader-options"}
+  Read one file, a folder of files, or a GitHub repository. Your files do not change.
   :::
 
-  :::product-feature-item{title="Keys, items, and metadata infer from the loader" icon="i-lucide-code-2" to="/docs/source/configure#source-object-contract"}
-  `defineSource()` needs `name`, `getKeys()`, and `getItem()`; no type registry.
+  :::product-feature-item{title="Read from any route" icon="i-lucide-code-2" to="/docs/source/server-api#source-reader-api"}
+  `createSource()` opens a reader. `keys()`, `read()`, and `list()` get the files you need.
   :::
 
-  :::product-feature-item{title="Cache a keyed reader with Nitro cache options" icon="i-lucide-box" to="/docs/source/server-api#cache-a-reader"}
-  `cachedSource()` caches a reader; `combineSources()` merges readers by key.
+  :::product-feature-item{title="Bring your own data" icon="i-lucide-blocks" to="/docs/source/configure#source-object-contract"}
+  `defineSource()` reads from anywhere. Give it a list of keys and a way to load one item. TypeScript infers the types.
   :::
 
-  :::product-feature-item{title="A Drizzle table becomes a paginated GET route" icon="i-lucide-database" to="/docs/source/server-api#expose-a-typed-collection"}
-  Each `server/collections` module gets a cursor-paged GET route and `useCollection()`.
+  :::product-feature-item{title="Turn a list into an API route" icon="i-lucide-list" to="/docs/source/server-api#expose-a-typed-collection"}
+  Add a file to `server/collections` to get a GET route. In Vue, `useCollection()` loads it one page at a time.
   :::
 
-  :::product-feature-item{title="An array becomes a filtered, faceted route" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
-  `array()` and `workspaceFile()` add filters, search, `total`, and `facets`.
+  :::product-feature-item{title="Filter and search a list" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
+  `array()` adds filters, search, and counts to a list that fits in server memory.
   :::
 
-  :::product-feature-item{title="The route checks Auth before it loads rows" icon="i-lucide-shield-check" to="/docs/source/server-api#protect-a-collection"}
-  `authorize` checks the session; the client gets `401` or `403`.
-  :::
-
-  :::product-feature-item{title="Sources mount cleanly" icon="i-lucide-folder-tree" to="/docs/source/server-api"}
-  Mount a named source when an operation needs a stable file root.
+  :::product-feature-item{title="Keep a list private" icon="i-lucide-shield-check" to="/docs/source/server-api#protect-a-collection"}
+  Set `authorize` to allow only signed-in users. Other requests get a `401` or `403` error.
   :::
 ::
