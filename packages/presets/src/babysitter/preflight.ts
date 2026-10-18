@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, open, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -10,17 +10,47 @@ import { isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const execute = promisify(execFile);
 
+async function validateExecutable(path: string): Promise<void> {
+  await access(path, constants.X_OK);
+  const info = await stat(path);
+  if (!info.isFile()) throw new Error(`Executable is not a file: ${path}`);
+  // An executable text file must name an interpreter, otherwise execve reports
+  // ENOEXEC even though the executable permission bit is present.
+  if (process.platform !== "win32") {
+    const file = await open(path, "r");
+    const buffer = Buffer.alloc(256);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0).finally(() => file.close());
+    const header = buffer.subarray(0, bytesRead).toString("utf8");
+    if (!header.startsWith("#!")) {
+      const bytes = Buffer.from(header);
+      if (!(bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46)) {
+        throw new Error(`Executable has no interpreter: ${path}`);
+      }
+    } else {
+      const line = header.slice(2, header.indexOf("\n") < 0 ? undefined : header.indexOf("\n")).trim();
+      const parts = line.split(/\s+/).filter(Boolean);
+      const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env" ? parts.find(part => !part.startsWith("-")) : parts[0];
+      if (!interpreter) throw new Error(`Executable has no interpreter: ${path}`);
+      await resolveExecutable(interpreter);
+    }
+  }
+}
+
 async function resolveExecutable(program: string): Promise<void> {
   if (isAbsolute(program) || program.includes("/") || program.includes("\\")) {
-    await access(program, constants.X_OK);
+    await validateExecutable(program);
     return;
   }
   const path = process.env.PATH ?? "";
-  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").some(extension => program.toLowerCase().endsWith(extension.toLowerCase()))
+      ? [""]
+      : ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")]
+    : [""];
   for (const directory of path.split(delimiter)) {
     for (const extension of extensions) {
       try {
-        await access(join(directory || ".", `${program}${extension}`), constants.X_OK);
+        await validateExecutable(join(directory || ".", `${program}${extension}`));
         return;
       } catch {}
     }

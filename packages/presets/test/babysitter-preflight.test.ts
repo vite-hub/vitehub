@@ -46,4 +46,9 @@ describe("Babysitter host prerequisites", () => {
     expect((await createBabysitterPreflight({ command: "/opt/vitehub/install" }, command)()).pause).toBeUndefined();
     expect(command.mock.calls).toEqual([["git", "version"], ["/opt/vitehub/install", "path"]]);
   });
+
+  it("rejects an absolute directory even when it has executable permissions", async () => {
+    const result = await createBabysitterPreflight({ command: "/tmp" })();
+    expect(result.pause).toMatchObject({ reason: "host-prerequisite", detail: expect.stringContaining("Install /tmp") });
+  });
 });
