@@ -437,31 +437,65 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    if (!locked || Reflect.apply(locked, body, [])) return false
-    const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-    if (ownReader && ownReader.value !== ReadableStream.prototype.getReader) return false
-    const reader = Reflect.apply(ReadableStream.prototype.getReader, body, [])
-    const methods = getNativeAuthorizationReaderMethods(reader)
-    if (!methods) return false
-    Reflect.apply(methods.releaseLock, reader, [])
-    return ReadableStream.prototype.getReader
+    const locked = Reflect.get(body, "locked")
+    if (locked !== false) return false
+    const getReader = Reflect.get(body, "getReader")
+    if (typeof getReader !== "function") return false
+    return getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
   }
   catch {
     return false
   }
 }
 
-function getNativeAuthorizationReaderMethods(reader: object) {
+type AuthorizationReaderMethods = {
+  read: (this: object, ...args: unknown[]) => unknown
+  cancel: (this: object, ...args: unknown[]) => unknown
+  releaseLock: (this: object, ...args: unknown[]) => unknown
+}
+
+function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReaderMethods | undefined {
   const prototype = ReadableStreamDefaultReader.prototype
   const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
   const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
   const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
   const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
-  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return
-  // Intrinsic methods perform the reader brand check and cannot be shadowed by the source object.
-  Reflect.apply(closed, reader, [])
-  return { read, cancel, releaseLock }
+  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
+    const foreign = {
+      read: Reflect.get(reader, "read"),
+      cancel: Reflect.get(reader, "cancel"),
+      releaseLock: Reflect.get(reader, "releaseLock"),
+    }
+    if (Object.values(foreign).every(method => typeof method === "function")) return foreign as AuthorizationReaderMethods
+    return
+  }
+  // Intrinsic methods perform the reader brand check. Foreign readers use
+  // their own methods when the local brand check rejects them.
+  try {
+    Reflect.apply(closed, reader, [])
+    return { read, cancel, releaseLock }
+  }
+  catch {
+    const foreign = {
+      read: Reflect.get(reader, "read"),
+      cancel: Reflect.get(reader, "cancel"),
+      releaseLock: Reflect.get(reader, "releaseLock"),
+    }
+    if (Object.values(foreign).every(method => typeof method === "function")) return foreign as AuthorizationReaderMethods
+    return
+  }
+}
+
+function releaseAuthorizationReader(reader: object): void {
+  try {
+    const release = Reflect.get(reader, "releaseLock")
+    if (typeof release === "function") Reflect.apply(release, reader, [])
+  }
+  catch { /* best effort cleanup */ }
+}
+
+function isSerializableAuthorizationBody(body: unknown, reader: unknown): body is ReadableStream<Uint8Array> {
+  return body !== null && typeof body === "object" && typeof reader === "function"
 }
 
 const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
