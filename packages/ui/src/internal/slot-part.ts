@@ -6,7 +6,7 @@ export function slotPart(name: string, slot: string, tag: string = "div", attrs:
   return defineComponent({
     name,
     setup(_props, { attrs: fallthroughAttrs, slots }) {
-      return () => h(tag, { "data-slot": slot, ...attrs, ...fallthroughAttrs }, slots.default?.());
+      return () => h(tag, { ...fallthroughAttrs, ...attrs, "data-slot": slot }, slots.default?.());
     },
   });
 }

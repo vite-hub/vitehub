@@ -12,9 +12,9 @@ export const Bubble = defineComponent({
     align: { default: "start", type: String as PropType<BubbleAlign> },
     variant: { default: "default", type: String as PropType<BubbleVariant> },
   },
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-align": props.align, "data-slot": "bubble", "data-variant": props.variant }, slots.default?.());
+      h("div", { ...attrs, "data-align": props.align, "data-slot": "bubble", "data-variant": props.variant }, slots.default?.());
   },
 });
 
