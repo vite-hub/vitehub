@@ -1,1 +1,1 @@
-export { AgentCodeView } from "./components/agent-code-view.ts";
+export * from "./components/agent-code-view.ts";

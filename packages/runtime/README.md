@@ -132,12 +132,31 @@ task. If the task needs its own background-work controller, create a separate
 Runtime Context and flush that context instead.
 
 For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
-`vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
-methods. The Runtime owner package has no H3 dependency.
+`@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
+event bindings and lifetime methods. It reads the event by shape, so the Runtime
+owner package has no H3 dependency.
 
 `createExecutionContext()` always returns a complete Execution Context. It creates
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
 and preserves the supplied objects when the host provides them.
+
+### Invocation execution budgets
+
+`createExecutionBudget()` gives one Invocation a shared deadline, cancellation
+signal, and counters for tool calls, input bytes, output bytes, and retries.
+`child()` adds stricter limits while sharing usage with its parent. The budget
+returns a serializable `snapshot()` for inspection and throws
+`ExecutionBudgetExceededError` before a counter can exceed its limit.
+Call `dispose()` when code owns a budget outside an Agent Invocation. It is
+idempotent and releases deadline timers and cancellation listeners for the
+budget and all children. The Agent runtime disposes its Invocation budget after
+the result finishes, including streamed results, and on setup or finish errors.
+Children created after disposal are inert and do not acquire new timers or
+listeners.
+
+Agent input accepts `executionBudget` limits. The Agent runtime creates one
+Invocation-owned budget and Workspace Shell tools spend it, so separate tool
+calls cannot bypass the same limit.
 
 ## Understand the boundaries
 
@@ -228,9 +247,40 @@ export function writeSource(grant: ReturnType<typeof checkSourceWrite>, data: st
 - Each definition has its own registry. A grant from another definition, another bundled copy of the package, or a forged object fails closed. The kind string brands the grant type, so use a unique `vitehub.<package>.<name>` kind.
 - Grants are request-scoped. Never persist one. Durable or resumed work must run the check again.
 
+### Errors
+
+Every primitive follows one error contract:
+
+1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
+2. Definition and config errors throw, at build time, at define time, or when an operation starts.
+3. A package defines a small catalog with `defineErrors()`. Each code has a guessable name, a `why`, and a `fix`.
+4. Each method type lists the union of the codes that it can return.
+5. Each code has a heading on the `limits-and-errors` docs page of the package, so `error.docs` opens it.
+
+```ts
+import { defineErrors, type Result } from "@vite-hub/runtime"
+
+const errors = defineErrors({
+  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  codes: {
+    KV_INVALID_LIMIT: { why: "`limit` must be a positive integer.", fix: "Pass a positive integer." },
+  },
+})
+
+async function list(limit: number): Promise<Result<string[], "KV_INVALID_LIMIT">> {
+  if (!Number.isInteger(limit) || limit <= 0) return [errors.KV_INVALID_LIMIT(), undefined]
+  return [undefined, []]
+}
+
+const [error, keys] = await list(0)
+if (error) error.code // "KV_INVALID_LIMIT"
+```
+
+A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`, so code can return it from a route or an Agent tool without the `cause` or the stack.
+
 ### Developer diagnostics
 
-Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 `normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
 preserves Nostics codes, fixes, documentation links, and source locations from

@@ -80,15 +80,8 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
     async rm(path, options) {
       await files.rm(path, options)
     },
-    async publish(options) {
-      const { publishWorkspace } = await import("../lifecycle.ts")
-      await publishWorkspace(definition, store, options)
-    },
     async snapshot(options) {
-      const snapshot = await store.snapshot(options)
-      const { publishWorkspaceSnapshot } = await import("../lifecycle.ts")
-      await publishWorkspaceSnapshot(definition, store, snapshot)
-      return snapshot
+      return await store.snapshot(options)
     },
     async rebase(options) {
       if (!store.rebase) throw workspaceErrorDiagnostics.WORKSPACE_R0026({ message: "[vitehub] Workspace Store does not support rebasing." })

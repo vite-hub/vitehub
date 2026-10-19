@@ -7,7 +7,6 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     entry: [
       "src/index.ts",
-      "src/providers/cloudflare.ts",
       "src/providers/just-bash.ts",
       { workspace: "src/workspace/index.ts" },
     ],

@@ -1,4 +1,3 @@
-import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
@@ -117,6 +116,9 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
 }
 
 function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
+  // Runtime options are part of the public Source configuration contract and
+  // must not be inherited from an options object's prototype.
+  options = normalizeFetchSourceOptions(options)
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)
@@ -163,7 +165,9 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
         responseType,
         signal: ctx.abortSignal,
       })
-      const transformed = options.transform ? await options.transform(result.data as TResponse) : result.data
+      const transformed = options.transform
+        ? await Reflect.apply(options.transform, options, [result.data as TResponse])
+        : result.data
       return {
         key,
         path: key,
@@ -192,6 +196,33 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
   })
 
   return workspacePath ? markLiveWorkspaceSource(source, { [workspacePath]: key }) : source
+}
+
+const fetchRuntimeOptionKeys = ["cache", "materialize", "probeKeys", "sync"] as const
+
+function normalizeFetchSourceOptions<TResponse, TOutput>(options: FetchSourceOptions<TResponse, TOutput>) {
+  const normalized = Object.create(Object.getPrototypeOf(options)) as FetchSourceOptions<TResponse, TOutput>
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(options))) {
+    if ("value" in descriptor) {
+      Object.defineProperty(normalized, key, descriptor)
+      continue
+    }
+    // Forward accessors to the caller's options object. Defining the original
+    // accessor on `normalized` would change its `this` receiver, while
+    // evaluating it here would change its lazy and repeated-read behavior.
+    Object.defineProperty(normalized, key, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get: descriptor.get ? () => Reflect.get(options, key, options) : undefined,
+      set: descriptor.set ? (value: unknown) => Reflect.set(options, key, value, options) : undefined,
+    })
+  }
+  for (const key of fetchRuntimeOptionKeys) {
+    if (!Object.hasOwn(options, key)) {
+      Object.defineProperty(normalized, key, { configurable: true, enumerable: true, value: undefined, writable: true })
+    }
+  }
+  return normalized
 }
 
 function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource {
@@ -227,12 +258,13 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    : hasRuntimeType(method, "string")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can bypass the method union; reject non-string values before calling toUpperCase.
+    : typeof method === "string"
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report the primitive representation of malformed opaque configuration without coercing objects or invoking their getters.
-    const label = hasRuntimeType(method, "string") ? method : typeof method
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report invalid JavaScript inputs without calling their custom string conversion.
+    const label = typeof method === "string" ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
@@ -333,7 +365,7 @@ async function defaultFetchSourceRequest(
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
   const additions = typeof options.request === "function"
-    ? await options.request(context)
+    ? await Reflect.apply(options.request, options, [context])
     : options.request
   return {
     body,
@@ -399,7 +431,9 @@ async function executeFetchSourceRequest(
     responseType,
     signal: ctx.abortSignal,
   })
-  const transformed = options.transform ? await options.transform(result.data) : result.data
+  const transformed = options.transform
+    ? await Reflect.apply(options.transform, options, [result.data])
+    : result.data
 
   return {
     content: serializeFetchSourceContent(transformed, responseType),
@@ -478,10 +512,9 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  // Recognize byte arrays from other realms, but copy them into this realm before
-  // handing them to workspace storage. Returning a foreign Uint8Array preserves
-  // bytes but leaks its foreign prototype to consumers that expect native bytes.
-  if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
+  if (isWorkspaceBytes(value)) {
+    return value instanceof Uint8Array ? value : Uint8Array.from(value)
+  }
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)

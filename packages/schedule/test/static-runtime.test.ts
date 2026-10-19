@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
-import type { ScheduleDefinitionRegistry } from "../src/types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry } from "../src/types.ts"
 
 describe("Static Schedule runtime", () => {
   it("identifies a missing generated Schedule Definition", () => {
@@ -23,6 +23,19 @@ describe("Static Schedule runtime", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
       details: { field: "scheduledAt", valueType: "date" },
+    })
+  })
+
+  it("normalizes scheduledAt values with throwing cross-realm tags", async () => {
+    const scheduledAt = { get [Symbol.toStringTag]() { throw new Error("tag access") } } as unknown as Date
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt,
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "object" },
     })
   })
 
@@ -70,10 +83,8 @@ describe("Static Schedule runtime", () => {
         cron: "0 4 * * *",
         handler: async ({ scheduledAt }) => calls.push(`report:${scheduledAt.toISOString()}`),
       }),
-      runtimeOnly: async () => ({
-        handler: async () => calls.push("runtime-only"),
-        options: { allowRuntimeSchedules: true },
-      }),
+      // A registry entry without a cron is not a Static Schedule Definition, so cron dispatch skips it.
+      cronless: async () => ({ handler: async () => calls.push("cronless") }) as unknown as ScheduleDefinition,
       skipped: async () => ({
         default: {
           cron: "0 5 * * *",

@@ -16,7 +16,7 @@ import type { ConsoleSectionId } from "../sections.ts"
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize }
-  | { mode: "local" }
+  | { mode: "local", authorize?: ConsoleAuthorize }
   | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
@@ -30,8 +30,8 @@ export interface ConsoleAccess {
 }
 
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -60,19 +60,22 @@ function rejection(status: number, code: ConsoleDiagnosticCode, message?: string
   })
 }
 
+async function authorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
+}
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if (!(policy instanceof Object) || !modes.has(policy.mode)) {
     throw new TypeError("[vitehub] Console access requires a known access mode.")
   }
-  if ("check" in policy && policy.check !== undefined && !(policy.check instanceof Function)) {
+  if ("check" in policy && policy.check !== undefined && typeof policy.check !== "function") {
     throw new TypeError("[vitehub] Console access check must be a function.")
   }
-  if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
-    throw new TypeError("[vitehub] console.authorize must default-export a function.")
-  }
-  if ("user" in policy && policy.user !== undefined && !(policy.user instanceof Function)) {
+  if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
+  }
+  if (policy.authorize !== undefined && typeof policy.authorize !== "function") {
+    throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
   if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
@@ -87,7 +90,7 @@ function productionRuntime(): boolean {
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+  if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
   const copyHeaders = (source: unknown, overwrite = true): void => {
     const setHeader = (name: string, value: string): void => {
@@ -102,6 +105,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
+      return
     }
     if (!(source instanceof Object)) return
     for (const [name, value] of Object.entries(source)) {
@@ -116,27 +120,31 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Record<string, unknown>
+    const headers = request.headers
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
+      && "body" in request && "bodyUsed" in request && "signal" in request
+  }
+  catch { return false }
+}
+
 function isSectionId(value: unknown): value is ConsoleSectionId {
   return typeof value === "string" && value.length > 0
 }
 
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
-  if (!(result instanceof Object)) return
-  const sectionsValue = Reflect.get(result, "sections")
-  if (!Array.isArray(sectionsValue)) return
-  const sections: unknown[] = sectionsValue
+  if (result === null || typeof result !== "object" || !("sections" in result) || !Array.isArray(result.sections)) return
+  const sections: unknown[] = result.sections
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
-}
-
-function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
-  if ("section" in routeScope) {
-    const section = routeScope.section
-    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
-  }
-  if ("anySection" in routeScope && routeScope.anySection === true) return
-  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
@@ -155,7 +163,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
     }
     const result = await policy.authorize({ request: consoleRequest(event) })
-    if (result instanceof Response) return result
+    const response = await authorizationResponse(result)
+    if (response) return response
     authorization = result
   }
   else {
@@ -169,10 +178,13 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
   let sections: ConsoleAccess["sections"]
-  if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (result instanceof Response) return result
+  if (policy.authorize && policy.mode !== "host-managed") {
+    const request = consoleRequest(event)
+    const result: unknown = await policy.authorize(user ? { request, user } : { request })
+    const response = await authorizationResponse(result)
+    if (response) return response
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
+
     if (result !== true) {
       const allowed = authorizedSections(result)
       if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
@@ -243,6 +255,22 @@ export async function consoleConnectionsActor(
   return `user:${access.mode}`
 }
 
+function resolveRouteSection(routeScope: ConsoleRouteScope, event: ConsoleRequestEvent): { section: ConsoleSectionId | undefined } | undefined {
+  if (!("section" in routeScope)) return
+  return { section: typeof routeScope.section === "function" ? routeScope.section(event) : routeScope.section }
+}
+
+function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
+  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if ("section" in routeScope) {
+    const section = routeScope.section
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route scopes cross the JavaScript module boundary.
+    if (typeof section === "function" || (typeof section === "string" && section.length > 0)) return
+  }
+  if ("anySection" in routeScope && routeScope.anySection === true) return
+  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+}
+
 /**
  * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
  * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
@@ -251,19 +279,19 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
   routeScope: ConsoleRouteScope = { anySection: true },
 ): (event: TEvent) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
+  if (typeof handler !== "function") throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
       if (checked instanceof Response) return checked
       access = checked
       checkedEvents.set(event, access)
     }
     if ("section" in declared) {
-      const section = declared.section instanceof Function ? declared.section(event) : declared.section
+      const section = resolveRouteSection(declared, event)?.section
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
@@ -274,7 +302,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
 }
 
 export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
-  return route instanceof Function ? routeScopes.get(route) : undefined
+  return typeof route === "function" ? routeScopes.get(route) : undefined
 }
 
 /**

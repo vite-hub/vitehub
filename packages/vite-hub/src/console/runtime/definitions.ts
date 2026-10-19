@@ -84,7 +84,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function text(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   return typeof value === "string"
 }
 

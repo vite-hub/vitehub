@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { DatabaseSync } from "node:sqlite"
 
@@ -21,6 +22,7 @@ import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -115,6 +117,91 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
+  it("accepts access callbacks created in another runtime realm", async () => {
+    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
+    const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    await expect(withConsoleAccess(handler, { anySection: true })(event({ "x-role": "admin" }))).resolves.toBe("open")
+  })
+
+  it("accepts section results created in another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ sections: ['content'] })") as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess((_event, access) => access.sections, { section: "content" })(event())
+
+    expect(result).toEqual(["content"])
+  })
+
+  it("preserves genuine responses and rejects spoofed response-shaped values", async () => {
+    const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
+
+    const spoofed = await run({ mode: "open", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
+    expect(spoofed.handler).not.toHaveBeenCalled()
+    await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 500 })
+
+    const inheritedGetter = await run({ mode: "open", authorize: () => Object.create({ get status() { return 401 } }) as Response })
+    expect(inheritedGetter.handler).not.toHaveBeenCalled()
+    await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 500 })
+
+    const completeSpoof = Object.create({
+      [Symbol.toStringTag]: "Response",
+      get status() { return 401 },
+      get statusText() { return "Unauthorized" },
+      get headers() { return new Headers() },
+      get bodyUsed() { return false },
+      get body() { return null },
+      clone() { return this },
+      arrayBuffer() { return new ArrayBuffer(0) },
+    }) as Response
+    const spoofedPrototype = await run({ mode: "open", authorize: () => completeSpoof })
+    expect(spoofedPrototype.handler).not.toHaveBeenCalled()
+    await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 500 })
+  })
+
+  it("preserves genuine Response subclasses", async () => {
+    class CustomResponse extends Response {}
+    const authorize = () => new CustomResponse("Subclass response.", { status: 202 })
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 202 })
+    await expect((result as Response).text()).resolves.toBe("Subclass response.")
+  })
+
+  it("ignores overridden clone methods on genuine responses", async () => {
+    class SpoofedCloneResponse extends Response {
+      override clone(): Response {
+        return { arrayBuffer: () => Promise.resolve(new TextEncoder().encode("spoofed").buffer) } as unknown as Response
+      }
+    }
+    const authorize = () => new SpoofedCloneResponse("Original.", { status: 401 })
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Original.")
+  })
+
+  it("rejects a consumed response from another runtime realm", async () => {
+    const authorize = runInNewContext("async () => { const response = new Response('Consumed.', { status: 401 }); await response.text(); return response }", { Response }) as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 500 })
+    await expect((result as Response).json()).resolves.toMatchObject({ status: 500 })
+  })
+
   it("rejects unknown legacy access and exposure values", () => {
     expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
     expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)

@@ -215,7 +215,7 @@ describe("normalizeKVOptions", () => {
     }, {
       env: {},
       hosting: "",
-    })).toThrow("`kv.stores.default` is required when using named KV stores.")
+    })).toThrow(expect.objectContaining({ code: "KV_MISSING_DEFAULT_STORE" }))
   })
 
   it("ignores named stores inherited from an untrusted prototype", () => {

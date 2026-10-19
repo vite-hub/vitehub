@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { clearSources, createSource, defineSources, registerSources, useSource } from "../../src/index.ts"
 import { file } from "../../src/file.ts"
+import type { FileSourceOptions } from "../../src/file.ts"
 import { glob } from "../../src/glob.ts"
 import { markdown } from "../../src/markdown.ts"
 
@@ -49,6 +50,52 @@ describe("@vite-hub/source local file sources", () => {
       path: "docs/README.md",
       mediaType: "text/markdown",
     })
+  })
+
+  it("ignores inherited file options", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "safe.md"), "# Safe\n")
+    await writeFile(join(root, "outside.md"), "# Outside\n")
+
+    const pathOptions = Object.assign(
+      Object.create({ content: "inherited", mediaType: "text/plain", workspacePath: "inherited.md" }),
+      { path: "safe.md" },
+    ) as FileSourceOptions
+    const pathSource = file(pathOptions)
+
+    await expect(pathSource.getKeys({ rootDir: root })).resolves.toEqual(["safe.md"])
+    await expect(pathSource.getItem("safe.md", { rootDir: root })).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Safe\n"),
+      key: "safe.md",
+      mediaType: "text/markdown",
+    })
+
+    const inlineOptions = Object.assign(
+      Object.create({ path: "outside.md" }),
+      { content: "# Inline\n", workspacePath: "inline.md" },
+    ) as FileSourceOptions
+    const inlineSource = file(inlineOptions)
+    await expect(inlineSource.getKeys({ rootDir: root })).resolves.toEqual(["inline.md"])
+    await expect(inlineSource.getItem("inline.md", { rootDir: root })).resolves.toMatchObject({
+      content: "# Inline\n",
+    })
+
+    const pathlessOptions = Object.assign(
+      Object.create({ path: "outside.md" }),
+      { workspacePath: "pathless.md" },
+    ) as FileSourceOptions
+    const pathlessSource = file(pathlessOptions)
+    await expect(pathlessSource.getItem("pathless.md", { rootDir: root }))
+      .rejects.toThrow("file requires path when content is not provided")
+  })
+
+  it("accepts Windows separators in portable glob patterns", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    await expect(glob({ include: "docs\\*.md" }).getKeys({ rootDir: root }))
+      .resolves.toEqual(["docs/README.md"])
   })
 
   it("loads file, markdown, and glob providers", async () => {

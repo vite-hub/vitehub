@@ -1,7 +1,7 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
-import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -161,12 +161,21 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
 
 function validateScheduledAt(scheduledAt: Date | undefined): Date {
   const value = scheduledAt ?? new Date()
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+  let time: number
+  try {
+    time = Date.prototype.getTime.call(value)
+  }
+  catch {
     throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
       details: invalidScheduleValueDetails("scheduledAt", value),
     })
   }
-  return value
+  if (Number.isNaN(time)) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return new Date(time)
 }
 
 export async function executeCloudflareStaticSchedules(
@@ -191,12 +200,22 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
-  const scheduledAt = scheduledTime instanceof Date
-    ? scheduledTime
-    : scheduledTime === undefined
-      ? new Date()
-      : new Date(scheduledTime)
-  if (Number.isNaN(scheduledAt.getTime())) {
+  let scheduledAt: Date
+  try {
+    if (scheduledTime === undefined) {
+      scheduledAt = new Date()
+    }
+    else {
+      try {
+        scheduledAt = new Date(Date.prototype.getTime.call(scheduledTime))
+      }
+      catch {
+        scheduledAt = new Date(scheduledTime)
+      }
+    }
+    if (Number.isNaN(Date.prototype.getTime.call(scheduledAt))) throw new Error("invalid date")
+  }
+  catch {
     throw scheduleErrorDiagnostics.SCHEDULE_R0028({ message: "[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime." })
   }
   return { cron, scheduledAt }

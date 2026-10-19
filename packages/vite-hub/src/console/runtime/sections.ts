@@ -72,7 +72,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",
-  sandboxes: "runtime",
+  "sandbox-tasks": "runtime",
   env: "platform",
   connections: "platform",
   email: "platform",
@@ -148,11 +148,11 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("email", "Email", "i-lucide-mail", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API."),
   primitive("rate-limits", "Rate Limits", "i-lucide-gauge", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
-  primitive("sandboxes", "Sandboxes", "i-lucide-container", "sandbox", "Run named package projects in an isolated Cloudflare or Vercel Sandbox."),
+  primitive("sandbox-tasks", "Sandbox Tasks", "i-lucide-container", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
   primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
   primitive("workflows", "Workflows", "i-ph-git-branch-light", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
   primitive("queues", "Queues", "i-ph-tray-light", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and run them on the host."),
 ]
 
 /** Guides that the Overview links next to the primitives. */
@@ -179,7 +179,7 @@ export const consoleSectionRailIcons: Readonly<Record<string, PrimitiveIconName>
   workflows: "workflow",
   queues: "queue",
   schedules: "schedule",
-  sandboxes: "sandbox",
+  "sandbox-tasks": "sandbox",
   env: "env",
   connections: "connection",
   email: "email",
@@ -209,7 +209,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   workflows: "f",
   queues: "q",
   schedules: "s",
-  sandboxes: "x",
+  "sandbox-tasks": "x",
   env: "e",
   connections: "c",
   email: "m",
@@ -233,7 +233,6 @@ const consoleSectionIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Returns true for a lowercase route segment. Built-in and contributed section ids use this form. */
 export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Section ids come from untrusted JSON and browser storage.
   return typeof value === "string" && consoleSectionIdPattern.test(value)
 }
 
@@ -246,7 +245,6 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   const connections = options.connections
   if (!connections) return false
   if (development) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Options cross the host boundary as unknown values.
   if (typeof connections !== "object" || connections === null) return false
   return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }
@@ -257,10 +255,10 @@ export function consoleSectionRouteName(section: ConsoleSectionId): string {
 }
 
 /**
- * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandboxes`,
+ * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandbox-tasks`,
  * `workspaces`, `workflows`, `queues`, and `schedules`. `console/contributions.ts` maps each id to its owner.
  */
-export function resolveConsoleSectionIds(options: { env?: unknown; connections?: unknown; agent?: unknown; blob?: unknown; database?: unknown; email?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandbox?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: { env?: unknown; connections?: unknown; agent?: unknown; blob?: unknown; database?: unknown; email?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandboxTask?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
@@ -272,7 +270,7 @@ export function resolveConsoleSectionIds(options: { env?: unknown; connections?:
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),
     ...(options.rateLimit ? ["rate-limits"] : []),
-    ...(options.sandbox ? ["sandboxes"] : []),
+    ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),
     ...(workflowEnabled ? ["workflows"] : []),
     ...(options.queue ? ["queues"] : []),

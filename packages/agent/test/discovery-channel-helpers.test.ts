@@ -472,7 +472,7 @@ async function commentReactionEffect() {}
 
 it("inspects a first-party Channel imported from a relative module", async () => {
   const definition = await discover(
-    'import { defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ box: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: { kind: "codex" } })\n',
+    'import { defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ sandbox: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: { kind: "codex" } })\n',
     { "portal.github.ts": portalChannel },
   )
   expect(definition?.workspace).toBeUndefined()
@@ -879,7 +879,7 @@ it.each([
   'driver: { ignored: (String) => String, instructions: ({ input }) => `${String(input.id)}` }',
   'driver: { instructions: ({ input }) => `${Number(input.id)} ${Boolean(input.id)}` }',
   'driver: { instructions: ({ input }) => `${`${String(input.id)}`}` }',
-  'box: { env: { THREAD_ID: ({ input }) => `pr-${input.id}` } }',
+  'sandbox: { env: { THREAD_ID: ({ input }) => `pr-${input.id}` } }',
   'driver: { instructions: ({ input }) => `portal ${input.id}` }',
   'driver: { instructions: ({ input }) => `${input.id} portal` }',
   'driver: { instructions: ({ input }) => `portal ${input.id} portal ${input.name}` }',
@@ -1131,7 +1131,7 @@ import portal from "../../portal.ts"
 const authPath = join(process.env.HOME || "/tmp", "config")
 const setup = String.raw\`prepare\`
 export default defineAgent({
-  box: { home: { files: existsSync(authPath) ? { config: { contents: () => readFile(authPath) } } : {} }, env: { THREAD_ID: ({ input }) => \`pr-\${input.id}\` } },
+  sandbox: { home: { files: existsSync(authPath) ? { config: { contents: () => readFile(authPath) } } : {} }, env: { THREAD_ID: ({ input }) => \`pr-\${input.id}\` } },
   channels: { github: portal },
 })`, {
     "portal.ts": `${imports} export default github({ pullRequest: false })`,
@@ -1730,7 +1730,7 @@ it.each([
   ['defineCapability({ workspace: 0 })', false],
   ...["NaN", "+NaN", "-NaN", "(NaN)", "NaN as number", "NaN && {}", "NaN ?? {}"].map(value => [`{ id: "stateless", workspace: ${value} }`, false] as const),
   ['{ id: "storage", workspace: NaN || {} }', true],
-  ...["0.0", "-0.0", "+0.0", ".0", "0.", "0e3", "0e-3", "0x0", "0b0", "0o0", "0_0.0_0", "0n", "0x0n", "1e-999"].flatMap(zero => [
+  ...["0.0", "-0.0", "+0.0", ".0", "0.", "0e3", "0e-3", "0x0", "0b0", "0o0", "0.0_0", "0n", "0x0n", "1e-999"].flatMap(zero => [
     [`{ id: "stateless", workspace: ${zero} }`, false],
     [`{ id: "stateless", workspace: false || ${zero} }`, false],
     [`{ id: "storage", workspace: ${zero} || {} }`, true],

@@ -6,7 +6,7 @@ import {
   agentInvocationExternalUrl,
   agentInvocationProject,
   agentInvocationTitle,
-} from "@vite-hub/ui";
+} from "./invocation";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -26,7 +26,7 @@ import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
   AgentInvocationView,
-} from "@vite-hub/ui";
+} from "./invocation";
 import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
@@ -58,6 +58,7 @@ import {
 } from "./console-session-bootstrap";
 import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
+import "./invocation/invocation.css";
 
 const route = useRoute();
 const router = useRouter();
@@ -419,7 +420,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -434,7 +434,6 @@ function capabilityLabel(id: string): string {
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -632,7 +631,6 @@ async function loadAgents(): Promise<void> {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
           return typeof name === "string" && Boolean(name.trim());
         })
       : [];
@@ -1170,7 +1168,6 @@ onBeforeUnmount(() => {
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
-          :remaining-statuses="list.remainingStatuses.value"
           group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"
@@ -1222,7 +1219,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel
       v-else
-      id="agent-session"
+      id="chat-session"
       class="vitehub-console__session-panel"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >

@@ -36,7 +36,7 @@ The Vite config key is `workspace`.
 | Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Defaults: prefix `.vitehub/workspaces`, access `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
@@ -75,7 +75,7 @@ export default defineWorkspace({ store: dropStore })
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. Install `drizzle-orm` when using this subpath. Configure the selected Blob store and Database connection through their integrations. The Store does not create cloud resources or apply migrations at runtime.
 
-Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. The default prefix is `vitehub/workspace-history`; custom prefixes accept letters, numbers, underscores, dashes, and single slashes. Each Store owns its Blob namespace. Do not write its objects through another API.
+Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. History objects always live under `_vitehub/workspace-history/`. An optional `prefix` adds a namespace below it: `prefix: 'handbook'` stores objects under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides paths under `_vitehub/` by default. Each Store owns its Blob namespace. Do not write its objects through another API.
 
 Normal `fs` writes stage changes in the Store instance and follow the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`. A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone. Failed commits preserve staged changes. Staged changes are lost when the instance stops; committed revisions are durable. Other instances observe committed heads, and a staged checkpoint fails if its base head moved.
 
@@ -126,7 +126,6 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
-| `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 
 Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and file-backed bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 
