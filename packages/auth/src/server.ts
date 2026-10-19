@@ -140,54 +140,12 @@ function isRequestLike(value: AuthRequest): value is Request {
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
-            // Undici keeps its request state in private fields. Its exported
-            // constructor provides the non-forgeable brand that structural
-            // symbol checks cannot establish.
+            // Undici's private request fields are intentionally not inspected:
+            // their symbols and values are observable and reproducible by a
+            // caller. Preserve only the constructor brand owned by this
+            // package; other Undici copies follow the normalization path.
             if (value instanceof UndiciRequest) return true
-            // A caller can manufacture an accessor that throws a convincing
-            // cross-realm TypeError for both probe receivers. Do not treat
-            // that exception alone as a Request brand. Undici exposes a
-            // private state layout on the instance, and the accessor must
-            // also reject an object inheriting from its prototype.
-            const symbols = Object.getOwnPropertySymbols(value)
-            const symbolNames = new Set(symbols.map(symbol => symbol.description))
-            if (symbols.length !== 4 || !["dispatcher", "state", "signal", "headers"].every(name => symbolNames.has(name))) {
-              return false
-            }
-            // Undici's private slots carry host state, rather than merely
-            // marker symbols. Require the expected object shape so a
-            // lookalike cannot pass by attaching four arbitrary symbols.
-            const privateState = new Map(symbols.map(symbol => [symbol.description, Reflect.get(value, symbol)]))
-            const dispatcher = privateState.get("dispatcher")
-            const requestState = privateState.get("state")
-            const privateSignal = privateState.get("signal")
-            const privateHeaders = privateState.get("headers")
-            const hasValidDispatcher = dispatcher === undefined
-              || (typeof dispatcher === "object" && dispatcher !== null && typeof Reflect.get(dispatcher, "dispatch") === "function")
-            if (!hasValidDispatcher || !requestState || typeof requestState !== "object"
-              || !privateSignal || typeof privateSignal !== "object"
-              || !privateHeaders || typeof privateHeaders !== "object") return false
-            // The default dispatcher is intentionally undefined, but a
-            // caller-created object must still reproduce Undici's request
-            // state rather than merely omit that slot. These fields are
-            // populated for ordinary Requests, including the default path.
-            if (typeof Reflect.get(requestState, "method") !== "string"
-              || typeof Reflect.get(requestState, "url") !== "string"
-              || (Reflect.get(requestState, "client") !== null
-                && typeof Reflect.get(requestState, "client") !== "object")
-              || !Array.isArray(Reflect.get(requestState, "urlList"))
-              || !Reflect.get(requestState, "headersList")
-              || typeof Reflect.get(requestState, "headersList") !== "object") return false
-            // A genuine Web IDL accessor checks its internal slot even when
-            // invoked on an object carrying the same prototype. Structural
-            // spoofs commonly only throw for the null-prototype probe.
-            try {
-              descriptor.get.call(Object.create(current))
-              return false
-            }
-            catch (prototypeError) {
-              return isBrandCheckError(prototypeError)
-            }
+            return false
           }
         }
         current = Object.getPrototypeOf(current)
