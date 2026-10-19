@@ -54,8 +54,6 @@ const chevron = () =>
 export const TraceCollapsibleTrigger = defineComponent({
   name: "TraceCollapsibleTrigger",
   setup(_props, { attrs, slots }) {
-    const rootContext = injectCollapsibleRootContext();
-    rootContext.contentId ||= useId();
     return () =>
       h(CollapsibleTrigger, { ...attrs, "data-slot": "trace-collapsible-trigger" }, {
         default: () => [slots.default?.(), chevron()],

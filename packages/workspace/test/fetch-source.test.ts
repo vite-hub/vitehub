@@ -2,6 +2,7 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch, resolveRegisteredWorkspaceDefinition, useWorkspace } from "../src/index.ts"
+import type { FetchSourceOptions } from "../src/sources/fetch.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceRequestExecution } from "../src/sources/request-execution.ts"
@@ -199,6 +200,27 @@ describe("fetch sources", () => {
     await expect(workspace.readFile("api/summary.json")).resolves.toBe(JSON.stringify({ status: "next" }, null, 2))
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
     expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves the original options receiver for accessor callbacks", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const options = {
+      marker: "original",
+      url: "https://status.example.com/health",
+    } as FetchSourceOptions<{ status: string }, string> & { marker: string }
+    Object.defineProperty(options, "transform", {
+      configurable: true,
+      get() {
+        return function (this: typeof options, data: { status: string }) {
+          return `${this.marker}:${data.status}`
+        }
+      },
+    })
+
+    const source = fetch(options)
+    const view = createWorkspaceSourceView({ name: "fetch-accessor-receiver", sources: { status: source } }, createMemoryWorkspaceStore())
+
+    await expect(view.readFile("status")).resolves.toBe('"original:ok"')
   })
 
   it("preserves plain-object fetch source paths", async () => {
