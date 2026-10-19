@@ -649,9 +649,19 @@ function getNativeAuthorizationStreamDescriptors(body: object) {
   try {
     // Host ReadableStream intrinsics perform an internal-slot check that works
     // across realms and cannot be forged by an interposed prototype.
-    const getReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    const getReader = nativeStreamGetReader
+    const locked = nativeStreamLocked
     if (typeof getReader !== "function" || typeof locked !== "function") return
+    if (!nativeStreamReaderValidated) {
+      const probe = new ReadableStream<Uint8Array>()
+      const probeReader = Reflect.apply(getReader, probe, [])
+      if (Reflect.apply(locked, probe, []) !== true) return
+      const release = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(probeReader), "releaseLock")?.value
+      if (typeof release !== "function") return
+      Reflect.apply(release, probeReader, [])
+      if (Reflect.apply(locked, probe, []) !== false) return
+      nativeStreamReaderValidated = true
+    }
     Reflect.apply(locked, body, [])
     return {
       getReader: getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>,
