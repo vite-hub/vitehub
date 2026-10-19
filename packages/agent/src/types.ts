@@ -28,6 +28,7 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceDefinitionInput,
+  WorkspaceMaterializeMode,
   WorkspaceName,
   WorkspaceRules,
   WorkspaceSourceInput,
@@ -1293,6 +1294,12 @@ export interface AgentCapabilityDefinition<
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  /**
+   * Combine this Capability with the parent's Capability of the same `id` when an Agent uses
+   * `defineAgent({ extends })`. Return the Capability that the child uses; it must keep the same `id`.
+   * Without `extend`, the child's Capability replaces the parent's.
+   */
+  extend?: (inherited: AgentCapabilityDefinition<TRuntimeConfig, Name>) => AgentCapabilityDefinition<TRuntimeConfig, Name>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
@@ -1573,8 +1580,11 @@ export interface AgentProviderDriverOptions<
    * Commands the Driver shell needs, such as `git`, `gh`, or `unzip`.
    * `status()` checks them where the Driver runs. With `driver.launch`, a resolver is required
    * and each inspection probe checks commands in its shell before starting the provider.
+   *
+   * In `defineAgent({ extends })`, an array replaces the parent's list and a function receives it:
+   * `requirements: inherited => [...inherited, 'kubectl']`. Without a parent the function receives `[]`.
    */
-  requirements?: readonly string[]
+  requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
   /**
@@ -2669,6 +2679,11 @@ export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
   commit?: boolean | string
+  /**
+   * Default `materialize` mode for every Source in `sources` that does not set its own, including
+   * Sources inherited through `extends`. Sources that Capabilities contribute keep their own mode.
+   */
+  materialize?: WorkspaceMaterializeMode
   mode?: AgentCapabilityMode
   name?: never
 }
