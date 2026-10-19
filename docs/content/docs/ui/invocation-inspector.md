@@ -49,7 +49,7 @@ Set `:show-timeline="false"` to hide the timeline. Set `:show-capabilities="fals
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::
 
-The default keeps all recorded tool contracts and the embedded Capability summary in the inspector. Set `showCapabilities` to `false` to hide Capability details, or use the separate [Capability inspector](/docs/ui/capability-inspector) as in the Console.
+By default, the inspector hides the embedded Capability summary. Set `showCapabilities` to `true` to show Capability details, or use the separate [Capability inspector](/docs/ui/capability-inspector) as in the Console.
 
 ## Captured configuration
 
@@ -88,8 +88,8 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showStatus`       | `boolean`             | `true`   | Shows the status row in the outcome section.          |
 | `showError`        | `boolean`             | `true`   | Shows the terminal error in the outcome section.      |
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
-| `showCapabilities` | `boolean`             | `true`   | Shows the embedded Capability summary.                |
-| `showSources`      | `boolean`             | `true`   | Shows captured Workspace Sources in Agent setup.      |
+| `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
+| `showSources`      | `boolean`             | `true`   | Shows recorded Workspace Sources in the configuration. |
 
 #### Events
 

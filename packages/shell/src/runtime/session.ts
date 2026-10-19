@@ -76,9 +76,7 @@ class RuntimeShellSession implements ShellSession {
     }
     // Count every attempted shell invocation against the shared Invocation budget,
     // including calls rejected by the per-session shell cap below.
-    if (options.recordInputBytes !== false) {
-      options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
-    }
+    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
         command,
@@ -89,9 +87,6 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
-    const signal = options.budget && options.signal && options.signal !== options.budget.signal
-      ? AbortSignal.any([options.signal, options.budget.signal])
-      : options.budget?.signal ?? options.signal
     const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
     const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
     const maxOutputLength = requestedOutputLength === undefined
@@ -110,6 +105,9 @@ class RuntimeShellSession implements ShellSession {
         consume(chunk.length)
         if (chunk) callback(chunk)
       })
+    const signal = options.budget && options.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },

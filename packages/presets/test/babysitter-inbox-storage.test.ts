@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
+import { looksMergeReady, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
 import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"
 
 const repository = 'vite-hub/vitehub'
@@ -60,7 +60,7 @@ it('keeps summaries equal to the stored snapshots after every mutation', async (
   const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository] })
   const consistent = async () => {
     const snapshots = await inbox.all()
-    expect(await inbox.summary()).toEqual(snapshots.map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha,
+    expect(await inbox.summary()).toEqual(snapshots.map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha, mergeReady: looksMergeReady(s),
       generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons, wait: s.wait, dirty: s.generation > s.handled,
       attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget })))
   }

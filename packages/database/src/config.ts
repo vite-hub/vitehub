@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -35,7 +35,6 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
 import type { CollectedDatabaseContribution } from "./contributions.ts"
-import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -47,52 +46,261 @@ export function serializeGeneratedRegistry(value: unknown): string {
 
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
+const identifierPattern = /^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u
+const identifierCapturePattern = "([$_\\u200C\\u200D\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*)"
 
-/** The options object of `defineDatabase({ ... })`. With `exact`, the object cannot have a type assertion. */
-function readDefinitionObjectBody(file: string, exact = false): ObjectExpression | undefined {
-  const module = scanModule(readFileSync(file, "utf8"), file)
-  const exported = defaultExportExpression(module)
-  const call = exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase"
-    ? exported
-    : findCalls(module, ["defineDatabase"])[0]
-  const argument = call?.arguments[0]
-  if (argument === undefined || argument.type === "SpreadElement") return
-  const object = exact ? argument : argumentExpression(argument)
-  return object?.type === "ObjectExpression" ? object : undefined
+function isLineTerminator(char: string): boolean {
+  return char === "\n" || char === "\r" || char === "\u2028" || char === "\u2029"
 }
 
-interface ObjectEntry {
-  /** Undefined for a spread, a method, an accessor, or a computed key that is not a string literal. */
-  key: string | undefined
-  /** The value as written, with its assertions. */
-  raw: Expression | undefined
-  /** The value without assertions. */
-  value: Expression | undefined
-}
-
-function readObjectEntries(body: ObjectExpression | undefined): ObjectEntry[] {
-  if (!body) return []
-  return objectProperties(body).map((property) => {
-    const node = property.node
-    if (node.type === "SpreadElement" || node.kind !== "init" || node.method) return { key: undefined, raw: undefined, value: undefined }
-    return { key: property.key, raw: node.value, value: property.value }
+function readDefinitionObjectBody(file: string) {
+  const source = readFileSync(file, "utf8")
+  const maskedSource = maskCommentsAndStrings(source)
+  const calls = findIdentifierCalls(source, "defineDatabase")
+  // Search from the statement boundary rather than a fixed-size prefix. Long
+  // comments or whitespace between `export default` and the call must not
+  // cause the selector to fall back to an earlier decoy call.
+  const call = calls.find((item) => {
+    const prefix = maskedSource.slice(0, item.start)
+    if (/(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*\s*$/.test(prefix)) return true
+    const assignment = /(?:^|[;\n\r\u2028\u2029])\s*(?:const|let|var)\s+([$_\u200C\u200D\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*)\s*=\s*\(*\s*$/u.exec(prefix)
+    if (!assignment) return false
+    const name = assignment[1]
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const afterCall = maskedSource.slice(item.closeParen)
+    const exportMatch = new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*export\\s+default\\s+${escapedName}\\b`).exec(afterCall)
+    if (!exportMatch) return false
+    const beforeExport = afterCall.slice(0, exportMatch.index)
+    // A later declaration can shadow the binding initialized by this call.
+    // In that case the indirect export refers to the later binding, so this
+    // candidate must not win merely because it appears first in the file.
+    return !new RegExp(
+      `(?:^|[;\\n\\r\\u2028\\u2029])\\s*(?:(?:const|let|var)\\s+)?${escapedName}\\s*(?::[^=;\\n\\r\\u2028\\u2029]+)?\\s*=`,
+    ).test(beforeExport)
   })
+  const argument = call?.arguments[0] ? stripExpressionComments(call.arguments[0]).trim() : undefined
+  return objectLiteralBody(argument)
 }
 
-function readObjectPropertyValue(body: ObjectExpression | undefined, property: string): Expression | undefined {
-  return readObjectEntries(body).find(entry => entry.key === property)?.value
+function objectLiteralBody(value: string | undefined) {
+  let trimmed = value?.trim()
+  for (;;) {
+    if (trimmed) {
+      trimmed = stripStaticTypeAssertions(trimmed)
+      while (trimmed.endsWith("!")) trimmed = trimmed.slice(0, -1).trim()
+    }
+    if (trimmed?.startsWith("<")) {
+      const closeIndex = findAngleAssertionClose(trimmed)
+      if (closeIndex !== undefined) {
+        trimmed = trimmed.slice(closeIndex + 1).trim()
+        continue
+      }
+    }
+    if (trimmed?.startsWith("(")) {
+      const closeIndex = findMatching(trimmed, 0, "(", ")")
+      if (closeIndex !== undefined) {
+        const suffix = trimmed.slice(closeIndex + 1).trim()
+        if (/^(?:as|satisfies)\b/.test(suffix)) {
+          trimmed = trimmed.slice(0, closeIndex + 1).trim()
+          continue
+        }
+        if (closeIndex === trimmed.length - 1) {
+          trimmed = trimmed.slice(1, -1).trim()
+          continue
+        }
+      }
+    }
+    if (trimmed?.startsWith("{")) {
+      const closeIndex = findMatching(trimmed, 0, "{", "}")
+      const suffix = closeIndex === undefined ? undefined : trimmed.slice(closeIndex + 1).trim()
+      if (closeIndex !== undefined && suffix !== undefined && /^(?:as|satisfies)\b/.test(suffix)) {
+        trimmed = trimmed.slice(0, closeIndex + 1).trim()
+        continue
+      }
+    }
+    break
+  }
+  if (!trimmed?.startsWith("{")) return
+  const closeIndex = findMatching(trimmed, 0, "{", "}")
+  return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
 }
 
-function readObjectKeys(body: ObjectExpression | undefined) {
-  return [...new Set(readObjectEntries(body).map(entry => entry.key).filter((key): key is string => Boolean(key)))]
+function findAngleAssertionClose(source: string): number | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (quote) {
+      if (char === "\\") index++
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") { quote = char; continue }
+    if (char === "/" && next === "/") {
+      const match = /[\r\n\u2028\u2029]/g
+      match.lastIndex = index + 2
+      const terminator = match.exec(source)
+      index = terminator ? terminator.index : source.length
+      continue
+    }
+    if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2)
+      index = end === -1 ? source.length : end + 1
+      continue
+    }
+    if (char === "<") depth++
+    else if (char === ">") {
+      // The `>` in an arrow return type is not the assertion delimiter.
+      // This matters when that return type starts with an object literal.
+      if (source[index - 1] === "=") continue
+      depth--
+      if (depth === 0) {
+        let nextIndex = index + 1
+        for (;;) {
+          while (/\s/.test(source[nextIndex] || "")) nextIndex++
+          if (source.startsWith("//", nextIndex)) {
+            const terminator = /[\r\n\u2028\u2029]/g
+            terminator.lastIndex = nextIndex + 2
+            const match = terminator.exec(source)
+            nextIndex = match ? match.index + 1 : source.length
+            continue
+          }
+          if (source.startsWith("/*", nextIndex)) {
+            const end = source.indexOf("*/", nextIndex + 2)
+            nextIndex = end === -1 ? source.length : end + 2
+            continue
+          }
+          break
+        }
+        if (source[nextIndex] === "{") return index
+        depth++
+      }
+    }
+  }
 }
 
-function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
-  return value?.type === "ObjectExpression" ? value : undefined
+function stripLeadingEntryComments(entry: string) {
+  return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
 }
 
-function isUndefinedIdentifier(value: Expression | undefined): boolean {
-  return value?.type === "Identifier" && value.name === "undefined"
+function maskCommentsAndStrings(source: string) {
+  let result = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (quote) {
+      if (char === "\\") {
+        result += "  "
+        index++
+      }
+      else {
+        result += char === "\n" || char === "\r" ? char : " "
+        if (char === quote) quote = undefined
+      }
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      result += " "
+    }
+    else if (char === "/" && next !== "/" && next !== "*") {
+      let previous = index - 1
+      while (previous >= 0 && /\s/.test(source[previous]!)) previous--
+      const preceding = source.slice(0, previous + 1)
+      const followsExpressionKeyword = /(?:return|throw|case|delete|void|typeof|instanceof|in|of|yield|await|else|do)\s*$/.test(preceding)
+      if (previous < 0 || /[=([{,:;!&|?]/.test(source[previous]!) || followsExpressionKeyword) {
+        result += " "
+        index++
+        let inClass = false
+        for (; index < source.length; index++) {
+          const regexChar = source[index]!
+          if (regexChar === "\\") {
+            result += "  "
+            index++
+            continue
+          }
+          if (regexChar === "[") inClass = true
+          else if (regexChar === "]") inClass = false
+          else if (regexChar === "/" && !inClass) {
+            result += " "
+            while (/[A-Za-z]/.test(source[index + 1] || "")) {
+              index++
+              result += " "
+            }
+            break
+          }
+          result += regexChar === "\n" || regexChar === "\r" ? regexChar : " "
+        }
+        continue
+      }
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      result += "  "
+      index++
+      while (index + 1 < source.length && !isLineTerminator(source[index + 1]!)) {
+        result += " "
+        index++
+      }
+      if (index + 1 < source.length && isLineTerminator(source[index + 1]!)) {
+        index++
+        result += source[index]!
+      }
+    }
+    else if (char === "/" && next === "*") {
+      result += "  "
+      index++
+      while (index + 1 < source.length) {
+        index++
+        const commentChar = source[index]!
+        if (commentChar === "*" && source[index + 1] === "/") {
+          result += "  "
+          index++
+          break
+        }
+        result += commentChar === "\n" || commentChar === "\r" ? commentChar : " "
+      }
+    }
+    else result += char
+  }
+  return result
+}
+
+function readEntryKey(entry: string): string | undefined {
+  const match = /^\s*(?:([\p{ID_Start}$_\\][\p{ID_Continue}$\\]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/u.exec(stripLeadingEntryComments(entry))
+  if (match?.[1]) return decodeIdentifierKey(match[1])
+  if (match?.[2]) return match[2]
+  if (match?.[3]) return readStaticStringLiteral(match[3].trim())
+}
+
+function decodeIdentifierKey(identifier: string): string | undefined {
+  const decoded = identifier.replace(/\\u\{([\da-f]{1,6})\}|\\u([\da-f]{4})/gi, (escape, braced, plain) => {
+    const codePoint = Number.parseInt(braced ?? plain, 16)
+    return Number.isInteger(codePoint) && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : escape
+  })
+  return /^[\p{ID_Start}$_][\p{ID_Continue}$]*$/u.test(decoded) ? decoded : undefined
+}
+
+function readEntryValue(entry: string): string | undefined {
+  const normalized = stripLeadingEntryComments(entry)
+  const match = /^\s*(?:[\p{ID_Start}$_\\][\p{ID_Continue}$\\]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/u.exec(normalized)
+  return match ? normalized.slice(match[0].length).trim() : undefined
+}
+
+function readObjectPropertyValue(body: string | undefined, property: string): string | undefined {
+  if (!body) return
+  for (const entry of splitTopLevel(body)) {
+    if (readEntryKey(entry) !== property) continue
+    // Preserve shorthand entries so callers can resolve the referenced value.
+    return readEntryValue(entry) ?? property
+  }
+}
+
+function readObjectKeys(body: string | undefined) {
+  if (!body) return []
+  return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
 export interface StaticDatabaseSchema {
@@ -103,72 +311,211 @@ export interface StaticDatabaseSchema {
 
 /** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
 export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
-  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
   if (body === undefined) return { complete: false, tableNames: [] }
+  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
   return {
-    complete: readObjectEntries(body).every(entry => entry.key !== undefined),
+    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
     tableNames: readObjectKeys(body),
   }
 }
 
-function readConfigValue(body: ObjectExpression | undefined, property: string): DatabaseConfigValue | undefined {
+function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
   const expression = readObjectPropertyValue(body, property)
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const envName = readProcessEnvName(expression)
-  if (envName) return createRuntimeEnvConfigValue([envName])
-  if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
-  const primary = readProcessEnvName(unwrapExpression(expression.left))
-  if (!primary) return
-  const fallback = unwrapExpression(expression.right)
-  const fallbackEnvName = readProcessEnvName(fallback)
-  if (fallbackEnvName) return createRuntimeEnvConfigValue([primary, fallbackEnvName])
-  const staticFallback = readStaticStringLiteral(fallback)
-  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([primary], staticFallback)
+  const fallbackParts = splitTopLevelOperator(expression)
+  if (fallbackParts.length === 1) {
+    const envName = readProcessEnvName(fallbackParts[0]!)
+    if (envName) return createRuntimeEnvConfigValue([envName])
+  }
+  if (fallbackParts.length === 2) {
+    const envName = readProcessEnvName(fallbackParts[0]!)
+    const fallback = fallbackParts[1]!
+    if (!envName) return
+    const fallbackEnvName = readProcessEnvName(fallback)
+    if (fallbackEnvName) return createRuntimeEnvConfigValue([envName, fallbackEnvName])
+    const staticFallback = readStaticStringLiteral(fallback)
+    if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([envName], staticFallback)
+  }
 }
 
-/** Reads `env({ source: env.source("NAME" | ["NAME", ...]), default: "value" })`. */
-function readRuntimeEnvDeclaration(expression: Expression): DatabaseConfigValue | undefined {
-  if (expression.type !== "CallExpression" || expression.callee.type !== "Identifier" || expression.callee.name !== "env") return
-  const body = objectLiteral(argumentExpression(expression.arguments[0]))
+function splitTopLevelOperator(expression: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let depth = 0
+  let quote: string | undefined
+  for (let i = 0; i < expression.length - 1; i++) {
+    const c = expression[i]!
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = undefined; continue }
+    if (c === "\"" || c === "'") { quote = c; continue }
+    if ("([{".includes(c)) { depth++; continue }
+    if (")]}".includes(c)) { depth--; continue }
+    if (depth === 0 && ((c === "|" && expression[i + 1] === "|") || (c === "?" && expression[i + 1] === "?"))) {
+      parts.push(expression.slice(start, i).trim()); start = i + 2; i++
+    }
+  }
+  parts.push(expression.slice(start).trim())
+  return parts
+}
+
+function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
+  const match = /^env\s*\((.*)\)$/s.exec(stripExpressionComments(expression))
+  const body = objectLiteralBody(match?.[1])
   if (!body) return
-  const source = readObjectPropertyValue(body, "source")
-  if (source?.type !== "CallExpression" || source.callee.type !== "MemberExpression" || source.callee.computed
-    || source.callee.object.type !== "Identifier" || source.callee.object.name !== "env"
-    || source.callee.property.type !== "Identifier" || source.callee.property.name !== "source") return
-  const sourceValue = argumentExpression(source.arguments[0])
-  const singleName = sourceValue && readStaticStringLiteral(sourceValue)
+  const source = readObjectPropertyValue(body, "source")?.trim()
+  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(stripExpressionComments(source || ""))
+  if (!sourceMatch) return
+  // `env.source` accepts options as a second argument. Static discovery only
+  // needs the first argument, which may itself be an array or a literal.
+  const sourceValue = splitTopLevel(sourceMatch[1]!)[0]?.trim()
+  if (!sourceValue) return
+  const singleName = readStaticStringLiteral(sourceValue)
   const names = typeof singleName !== "undefined"
     ? [singleName]
-    : sourceValue?.type === "ArrayExpression"
-      ? sourceValue.elements.map(element => element === null || element.type === "SpreadElement" ? undefined : readStaticStringLiteral(unwrapExpression(element)))
-      : undefined
+    : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
+        ? splitTopLevel(sourceValue.slice(1, -1)).filter(value => value.trim()).map(value => readStaticStringLiteral(value.trim()))
+        : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
-  const defaultValue = readObjectPropertyValue(body, "default")
-  return createRuntimeEnvConfigValue(names.filter((name): name is string => name !== undefined), defaultValue && readStaticStringLiteral(defaultValue))
+  const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
+  return createRuntimeEnvConfigValue(names as string[], defaultValue)
 }
 
-/** A quoted string literal. Template literals do not count. */
-function readStaticStringLiteral(expression: Expression): string | undefined {
-  return expression.type === "Literal" ? staticString(expression) : undefined
+const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"]])
+
+function readStaticStringLiteral(expression: string): string | undefined {
+  let normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
+  while (normalized.endsWith("!")) normalized = normalized.slice(0, -1).trim()
+  if (normalized.startsWith("<")) {
+    const closeIndex = findAngleAssertionClose(normalized)
+    if (closeIndex !== undefined) normalized = normalized.slice(closeIndex + 1).trim()
+  }
+  while (normalized.startsWith("(") && findMatching(normalized, 0, "(", ")") === normalized.length - 1) normalized = normalized.slice(1, -1).trim()
+  const quote = normalized[0]
+  if (normalized.length < 2 || (quote !== "'" && quote !== '"') || normalized.at(-1) !== quote) return
+  let value = ""
+  for (let index = 1; index < normalized.length - 1; index += 1) {
+    const char = normalized[index]!
+    if (char === quote || char === "\n" || char === "\r") return
+    if (char !== "\\") {
+      value += char
+      continue
+    }
+    const escaped = normalized[++index]!
+    if (index >= normalized.length - 1) return
+    if (escaped === "\r") {
+      if (normalized[index + 1] === "\n") index += 1
+      continue
+    }
+    if (escaped === "\n" || escaped === "\u2028" || escaped === "\u2029") continue
+    if (escaped === "u" && normalized[index + 1] === "{") {
+      const match = /^\{([\da-f]+)\}/i.exec(normalized.slice(index + 1, -1))
+      const codePoint = match ? Number.parseInt(match[1]!, 16) : Number.NaN
+      if (!match || codePoint > 0x10FFFF) return
+      value += String.fromCodePoint(codePoint)
+      index += match[0].length
+      continue
+    }
+    if (escaped === "u" || escaped === "x") {
+      const length = escaped === "u" ? 4 : 2
+      const hex = normalized.slice(index + 1, index + 1 + length)
+      if (hex.length !== length || !/^[\da-f]+$/i.test(hex)) return
+      value += String.fromCharCode(Number.parseInt(hex, 16))
+      index += length
+      continue
+    }
+    if (/\d/.test(escaped) && (escaped !== "0" || /\d/.test(normalized[index + 1] || ""))) return
+    value += escaped === "0" ? "\0" : staticStringEscapes.get(escaped) ?? escaped
+  }
+  return value
 }
 
-/** The name in `process.env.NAME` or `process.env["NAME"]`. */
-function readProcessEnvName(expression: Expression): string | undefined {
-  if (expression.type !== "MemberExpression" || expression.optional) return
-  const env = expression.object
-  if (env.type !== "MemberExpression" || env.computed || env.object.type !== "Identifier" || env.object.name !== "process"
-    || env.property.type !== "Identifier" || env.property.name !== "env") return
-  const name = expression.computed
-    ? expression.property.type === "Literal" ? staticString(expression.property) : undefined
-    : expression.property.type === "Identifier" ? expression.property.name : undefined
-  return name && /^[A-Za-z_$][\w$]*$/.test(name) ? name : undefined
+function readStaticStringReference(expression: string | undefined, source: string, seen = new Set<string>()): string | undefined {
+  if (!expression) return
+  const direct = readStaticStringLiteral(expression)
+  if (direct !== undefined) return direct
+  const identifier = expression.trim()
+  if (!/^[\p{ID_Start}$_][\p{ID_Continue}$]*$/u.test(identifier) || seen.has(identifier)) return
+  seen.add(identifier)
+  return readStaticStringReference(readOpaqueDeclarationExpression(identifier, source), source, seen)
 }
 
-function readStringValue(body: ObjectExpression | undefined, property: string): string | undefined {
+/** Remove comments while preserving quoted literal contents. */
+function stripExpressionComments(expression: string): string {
+  let result = ""
+  let quote: string | undefined
+  for (let index = 0; index < expression.length; index++) {
+    const char = expression[index]!
+    const next = expression[index + 1]
+    if (quote) {
+      result += char
+      if (char === "\\" && next !== undefined) result += expression[++index]!
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      index += 1
+      while (index + 1 < expression.length && !isLineTerminator(expression[index + 1]!)) index++
+      result += " "
+    }
+    else if (char === "/" && next === "*") {
+      index += 2
+      while (index < expression.length && !(expression[index] === "*" && expression[index + 1] === "/")) index++
+      if (index < expression.length) index++
+      result += " "
+    }
+    else result += char
+  }
+  return result.trim()
+}
+
+function stripStaticTypeAssertions(expression: string): string {
+  let value = expression.trim()
+  for (;;) {
+    let depth = 0
+    let quote: string | undefined
+    let assertionIndex = -1
+    for (let index = 0; index < value.length; index++) {
+      const char = value[index]!
+      if (quote) {
+        if (char === "\\") index++
+        else if (char === quote) quote = undefined
+        continue
+      }
+      if (char === "'" || char === '"' || char === "`") { quote = char; continue }
+      if ("([{<".includes(char)) { depth++; continue }
+      if (")]}>".includes(char)) { depth--; continue }
+      if (depth === 0 && (value.startsWith("as", index) || value.startsWith("satisfies", index))) {
+        const word = value.startsWith("as", index) ? "as" : "satisfies"
+        if (!/[\w$]/.test(value[index - 1] || "") && !/[\w$]/.test(value[index + word.length] || "")) assertionIndex = index
+      }
+    }
+    if (assertionIndex >= 0) { value = value.slice(0, assertionIndex).trim(); continue }
+    if (value.startsWith("(") && findMatching(value, 0, "(", ")") === value.length - 1) {
+      value = value.slice(1, -1).trim(); continue
+    }
+    return value
+  }
+}
+
+function readProcessEnvName(expression: string) {
+  const normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
+  return /^process\.env\.([\p{ID_Start}$_][\p{ID_Continue}$]*)$/u.exec(normalized)?.[1]
+    ?? (() => {
+      const match = /^process\.env\[([\s\S]+)\]$/.exec(normalized)
+      const value = match ? readStaticStringLiteral(match[1]!.trim()) : undefined
+      return typeof value === "string" && identifierPattern.test(value) ? value : undefined
+    })()
+}
+
+function readStringValue(body: string | undefined, property: string): string | undefined {
   const value = readConfigValue(body, property)
   const resolved = resolveConfigValue(value)
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
@@ -176,44 +523,384 @@ function readStringValue(body: ObjectExpression | undefined, property: string): 
 
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
-function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
-  if (isUndefinedIdentifier(expression)) return "inherited"
-  const body = objectLiteral(expression)
+function readDefinitionCloudflareResource(expression: string | undefined): DefinitionCloudflareResource {
+  const normalizedExpression = expression === undefined
+    ? undefined
+    : stripStaticTypeAssertions(stripExpressionComments(expression))
+  if (normalizedExpression?.trim() === "undefined") return "inherited"
+  const body = objectLiteralBody(normalizedExpression)
   if (body === undefined) return "opaque"
   let resource: DefinitionCloudflareResource = "inherited"
-  for (const entry of readObjectEntries(body)) {
-    if (entry.key === undefined) return "opaque"
-    if (entry.key !== "databaseId" && entry.key !== "databaseName") continue
-    if (isUndefinedIdentifier(entry.value)) continue
-    if (readConfigValue(body, entry.key) === undefined) return "opaque"
+  for (const property of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(property)
+    if (!normalized.trim()) continue
+    const key = readEntryKey(normalized)
+    if (normalized.trimStart().startsWith("...") || !key) return "opaque"
+    if (key !== "databaseId" && key !== "databaseName") continue
+    if (readEntryValue(normalized)?.trim() === "undefined") continue
+    if (readConfigValue(body, key) === undefined) return "opaque"
     resource = "configured"
   }
   return resource
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, value?: CloudflareD1BindingConfig } {
+function readOpaqueDeclarationExpression(identifier: string, source: string): string | undefined {
+  const masked = maskCommentsAndStrings(source)
+  // At a top-level newline, any export form starts a new statement. This
+  // includes export-only lists/star exports and exported async functions,
+  // which do not have a declaration keyword immediately after `export`.
+  const topLevelStatementStart = /^\s*(?:export\b|async\s+function\b|abstract\s+class\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare|import)\b)/
+  const declarations = [...masked.matchAll(new RegExp(`(?:^|[;\\n\\r])\\s*(?:export\\s+)?(?:const|let|var)\\s+${identifierCapturePattern}\\s*(?:\\s*:\\s*[^=;\\n]+)?\\s*=\\s*`, "gu"))]
+  for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    const declaration = declarations[declarationIndex]!
+    let depth = 0
+    for (const char of masked.slice(0, declaration.index)) {
+      if (char === "{") depth++
+      else if (char === "}") depth--
+    }
+    if (depth !== 0) continue
+    const valueStart = declaration.index + declaration[0].length
+    const nextDeclaration = declarations.slice(declarationIndex + 1).find((candidate) => {
+      let candidateDepth = 0
+      for (const char of masked.slice(0, candidate.index)) {
+        if (char === "{") candidateDepth++
+        else if (char === "}") candidateDepth--
+      }
+      return candidateDepth === 0
+    })
+    const limit = nextDeclaration?.index ?? masked.length
+    const remainder = masked.slice(valueStart, limit)
+    if (declaration[1] === identifier) {
+      let expressionEnd = remainder.length
+      let nested = 0
+      for (let index = 0; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") nested++
+        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === ";" && nested === 0) { expressionEnd = index; break }
+        else if (nested === 0 && (char === "\n" || char === "\r")) {
+          const following = remainder.slice(index + 1)
+          if (topLevelStatementStart.test(following)) {
+            expressionEnd = index
+            break
+          }
+        }
+      }
+      return stripLeadingEntryComments(source.slice(valueStart, valueStart + expressionEnd))
+    }
+    let partOffset = 0
+    while (partOffset <= remainder.length) {
+      while (/\s/u.test(remainder[partOffset] ?? "")) partOffset++
+      const partStart = partOffset
+      let partEnd = remainder.length
+      let nestedPart = 0
+      for (let index = partStart; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") nestedPart++
+        else if (char === "}" || char === "]" || char === ")") nestedPart = Math.max(0, nestedPart - 1)
+        else if (char === "," && nestedPart === 0) { partEnd = index; break }
+      }
+      const rawPart = remainder.slice(partStart, partEnd)
+      const name = new RegExp(`^\\s*${identifierCapturePattern}\\s*=`, "u").exec(rawPart)?.[1]
+      if (name !== identifier) {
+        partOffset = partEnd + 1
+        continue
+      }
+      const equals = rawPart.indexOf("=")
+      const expressionStart = valueStart + partStart + equals + 1
+      const expression = masked.slice(expressionStart, valueStart + partStart + rawPart.length)
+      let expressionEnd = expression.length
+      let nested = 0
+      for (let index = 0; index < expression.length; index++) {
+        const char = expression[index]!
+        if (char === "{" || char === "[" || char === "(") nested++
+        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === "," && nested === 0) { expressionEnd = index; break }
+        else if (char === ";" && nested === 0) { expressionEnd = index; break }
+        else if (nested === 0 && (char === "\n" || char === "\r")) {
+          const following = remainder.slice(index + 1)
+          if (topLevelStatementStart.test(following)) {
+            expressionEnd = index
+            break
+          }
+        }
+      }
+      return stripLeadingEntryComments(source.slice(expressionStart, expressionStart + expressionEnd))
+    }
+  }
+  return undefined
+}
+
+function isStaticUndefined(expression: string | undefined): boolean {
+  if (!expression) return false
+  let normalized = stripStaticTypeAssertions(stripExpressionComments(expression)).trim()
+  while (normalized.startsWith("(") && findMatching(normalized, 0, "(", ")") === normalized.length - 1) normalized = normalized.slice(1, -1).trim()
+  return normalized === "undefined"
+}
+
+function readOpaqueResourceOwnership(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
+  const trimmed = expression?.trim()
+  if (!trimmed) return undefined
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    const id = readOpaquePropertyExpression(trimmed, "databaseId", source, seen)
+    const name = readOpaquePropertyExpression(trimmed, "databaseName", source, seen)
+    const hasId = opaqueObjectContainsKey(trimmed, source, "databaseId")
+    const hasName = opaqueObjectContainsKey(trimmed, source, "databaseName")
+    // An unresolved spread may provide either resource key at runtime. Keep
+    // ownership unknown until every spread path is proven key-free.
+    if (hasId === undefined || hasName === undefined) return undefined
+    if (!hasId && !hasName) return false
+    const resolving = new Set<string>()
+    const resolve = (value: string | undefined): string | undefined => {
+      if (value === undefined) return undefined
+      const normalized = value.trim()
+      if (isStaticUndefined(normalized)) return "undefined"
+      if (!identifierPattern.test(normalized)) return normalized
+      if (resolving.has(normalized)) return undefined
+      resolving.add(normalized)
+      const declaration = readOpaqueDeclarationExpression(normalized, source)
+      const result = declaration === undefined ? undefined : resolve(declaration)
+      resolving.delete(normalized)
+      return result
+    }
+    const resolvedId = resolve(id)
+    const resolvedName = resolve(name)
+    if ((hasId && resolvedId === undefined) || (hasName && resolvedName === undefined)) return undefined
+    return (resolvedId !== undefined && resolvedId !== "undefined") || (resolvedName !== undefined && resolvedName !== "undefined")
+  }
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return undefined
+  seen.add(identifier)
+  return readOpaqueResourceOwnership(readOpaqueDeclarationExpression(identifier, source), source, seen)
+}
+
+function readOpaquePropertyExpression(expression: string, key: string, source: string, seen = new Set<string>()): string | undefined {
+  const body = objectLiteralBody(expression)
+  if (body === undefined) {
+    const identifier = expression.trim()
+    if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
+    const next = new Set(seen)
+    next.add(identifier)
+    return readOpaquePropertyExpression(readOpaqueDeclarationExpression(identifier, source) ?? "", key, source, next)
+  }
+  let value: string | undefined
+  let found = false
+  let unresolvedOverride = false
+  for (const entry of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(entry).trim()
+    if (!normalized) continue
+    if (normalized.startsWith("...")) {
+      const spreadExpression = normalized.slice(3)
+      const hasKey = opaqueObjectContainsKey(spreadExpression, source, key, new Set(seen))
+      if (hasKey === undefined) {
+        // Keep scanning: a later explicit property overrides an uncertain
+        // spread, while an uncertain spread after the final known property
+        // makes the effective value unknown.
+        unresolvedOverride = true
+        continue
+      }
+      if (hasKey) {
+        const spread = readOpaquePropertyExpression(spreadExpression, key, source, new Set(seen))
+        if (spread === undefined) {
+          unresolvedOverride = true
+          continue
+        }
+        value = spread
+        found = true
+        unresolvedOverride = false
+      }
+      continue
+    }
+    if (readEntryKey(normalized) !== key) continue
+    found = true
+    // A shorthand property has the identifier itself as its value. Preserve
+    // that reference so the declaration resolver can evaluate it below.
+    value = readEntryValue(normalized)?.trim() ?? readEntryKey(normalized)
+    unresolvedOverride = false
+  }
+  return found && !unresolvedOverride ? value : undefined
+}
+
+function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean | undefined {
+  const trimmed = expression.trim()
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    let unresolved = false
+    let found = false
+    for (const property of splitTopLevel(body)) {
+      const normalized = stripLeadingEntryComments(property).trim()
+      if (!normalized) continue
+      // Computed keys whose value is not statically known may denote the
+      // requested property at runtime; absence cannot be proven. Numeric
+      // literals and constant identifiers are safe to evaluate, however.
+      const computed = /^\s*\[\s*([\s\S]*?)\s*\]/.exec(normalized)
+      if (computed) {
+        const computedKey = readStaticComputedKey(computed[1]!, source)
+        if (computedKey === undefined) {
+          unresolved = true
+        } else if (computedKey === key) {
+          found = true
+        }
+        continue
+      }
+      if (readEntryKey(normalized) === key) {
+        found = true
+        continue
+      }
+      if (normalized.startsWith("...")) {
+        const result = opaqueObjectContainsKey(normalized.slice(3), source, key, new Set(seen))
+        if (result === true) found = true
+        if (result === undefined) unresolved = true
+      }
+    }
+    return unresolved ? undefined : found
+  }
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return undefined
+  const next = new Set(seen)
+  next.add(identifier)
+  const declaration = readOpaqueDeclarationExpression(identifier, source)
+  return declaration === undefined ? undefined : opaqueObjectContainsKey(declaration, source, key, next)
+}
+
+function readStaticComputedKey(expression: string, source: string, seen = new Set<string>()): string | undefined {
+  const value = readStaticStringLiteral(expression)
+  if (value !== undefined) return value
+  const numeric = expression.trim()
+  const decimalDigits = String.raw`\d(?:_?\d)*`
+  const bigintLiteral = new RegExp(
+    String.raw`^([+-]?)(0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|${decimalDigits})n$`,
+  ).exec(numeric)
+  if (bigintLiteral) {
+    const sign = bigintLiteral[1] === "-" ? -1n : 1n
+    const value = BigInt(bigintLiteral[2]!.replaceAll("_", "")) * sign
+    return String(value)
+  }
+  const numericLiteral = new RegExp(
+    String.raw`^[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|(?:${decimalDigits}(?:\.${decimalDigits}?)?|\.${decimalDigits})(?:[eE][+-]?${decimalDigits})?)$`,
+  )
+  if (numericLiteral.test(numeric)) {
+    const sign = numeric.startsWith("-") ? -1 : 1
+    const magnitude = numeric.replace(/^[+-]/, "").replaceAll("_", "")
+    return String(sign * Number(magnitude))
+  }
+  const identifier = expression.trim()
+  if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
+  const next = new Set(seen)
+  next.add(identifier)
+  const declaration = readOpaqueDeclarationExpression(identifier, source)
+  if (declaration === undefined) return undefined
+  return readStaticComputedKey(declaration, source, next)
+}
+
+function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
+  const trimmed = expression?.trim()
+  if (!trimmed) return undefined
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    let httpOnly: boolean | undefined = false
+    for (const property of splitTopLevel(body)) {
+      const normalized = stripLeadingEntryComments(property).trim()
+      if (!normalized) continue
+      const key = readEntryKey(normalized)
+      if (key === "http") {
+        const rawValue = readEntryValue(normalized)?.trim() ?? key
+        const value = rawValue === key
+          ? readOpaqueDeclarationExpression(key, source)?.trim()
+          : rawValue
+        if (value === "true" || objectLiteralBody(value) !== undefined) httpOnly = true
+        else if (value === "false") httpOnly = false
+        else httpOnly = undefined
+        continue
+      }
+      if (normalized.startsWith("...")) {
+        const spreadExpression = normalized.slice(3)
+        // Each sibling spread is an independent object traversal. Reusing the
+        // visited set can turn a previously proven HTTP-only value into an
+        // unresolved result when both paths reference the same nested object.
+        const spread = readOpaqueHttpOnly(spreadExpression, source, new Set(seen))
+        const hasHttp = opaqueObjectContainsKey(spreadExpression, source, "http")
+        if (hasHttp === undefined) httpOnly = undefined
+        else if (hasHttp) httpOnly = spread
+      }
+    }
+    return httpOnly
+  }
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return undefined
+  seen.add(identifier)
+  return readOpaqueHttpOnly(readOpaqueDeclarationExpression(identifier, source), source, seen)
+}
+
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, opaqueHttpOnly?: boolean, opaqueBinding?: string, value?: CloudflareD1BindingConfig } {
+  const source = readFileSync(file, "utf8")
   const definitionBody = readDefinitionObjectBody(file)
-  const definitionEntries = readObjectEntries(definitionBody)
-  const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
-  const expression = cloudflareEntries.at(-1)?.value
+  const definitionEntries = definitionBody === undefined
+    ? []
+    : splitTopLevel(definitionBody).map(stripLeadingEntryComments)
+  const cloudflareEntries = definitionEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => readEntryKey(entry) === "cloudflare" || entry.trim() === "cloudflare")
+  const cloudflareEntry = cloudflareEntries.at(-1)
+  const trailingDefinitionSpread = cloudflareEntry !== undefined && definitionEntries
+    .slice(cloudflareEntry.index + 1)
+    .some(entry => {
+      const spread = entry.trimStart().startsWith("...") ? entry.trim().slice(3) : undefined
+      if (spread === undefined) return false
+      return opaqueObjectContainsKey(spread, source, "cloudflare") !== false
+    })
+  // A later definition-level spread can replace the whole Cloudflare value.
+  // Keep the effective expression unresolved rather than inspecting the
+  // earlier property and reporting a binding the runtime may not emit.
+  const expression = cloudflareEntry !== undefined && !trailingDefinitionSpread
+    ? readEntryValue(cloudflareEntry.entry) ?? (cloudflareEntry.entry.trim() === "cloudflare" ? "cloudflare" : undefined)
+    : undefined
   let resource: DefinitionCloudflareResource = definitionBody === undefined ? "opaque" : "inherited"
   for (const entry of definitionEntries) {
-    if (entry.key === undefined) {
+    if (!entry.trim()) continue
+    const key = readEntryKey(entry)
+    if (entry.trimStart().startsWith("...") || !key) {
       resource = "opaque"
     }
-    else if (entry.key === "cloudflare") {
-      resource = readDefinitionCloudflareResource(entry.value)
+    else if (key === "cloudflare") {
+      resource = readDefinitionCloudflareResource(readEntryValue(entry))
     }
   }
-  const body = objectLiteral(expression)
+  const body = objectLiteralBody(expression)
   if (resource === "opaque") {
-    if (cloudflareEntries.length && !isUndefinedIdentifier(expression)) return { resource, value: {} }
-    return { resource }
+    const ownsOpaqueResource = readOpaqueResourceOwnership(expression, source)
+    const opaqueHttpOnly = readOpaqueHttpOnly(expression, source)
+    const resolvedExpression = body === undefined && expression
+      ? readOpaqueDeclarationExpression(expression.trim(), source)
+      : expression
+    const rawBinding = resolvedExpression ? readOpaquePropertyExpression(resolvedExpression, "binding", source)?.trim() : undefined
+    const bindingExpression = rawBinding && identifierPattern.test(rawBinding)
+      ? readOpaqueDeclarationExpression(rawBinding, source)?.trim() ?? rawBinding
+      : rawBinding
+    const binding = readStaticStringReference(bindingExpression, source)
+    if (cloudflareEntries.length && expression?.trim() !== "undefined") {
+      return {
+        resource,
+        configured: true,
+        ownsOpaqueResource,
+        opaqueHttpOnly,
+        ...(binding ? { opaqueBinding: binding } : {}),
+        value: {},
+      }
+    }
+    return { resource, configured: false, ownsOpaqueResource, opaqueHttpOnly }
   }
-  if (body === undefined) return { resource }
-  const httpExpression = readObjectPropertyValue(body, "http")
-  const httpBody = objectLiteral(httpExpression)
-  const http = httpExpression?.type === "Literal" && httpExpression.value === true
+  if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined", ownsOpaqueResource: false }
+  const resolveProperty = (property: string) => {
+    const raw = readObjectPropertyValue(body, property)?.trim()
+    if (!raw || raw === "undefined") return raw
+    if (!identifierPattern.test(raw)) return raw
+    return readOpaqueDeclarationExpression(raw, source)?.trim() ?? raw
+  }
+  const httpExpression = resolveProperty("http")
+  const httpBody = objectLiteralBody(httpExpression)
+  const http = httpExpression === "true"
     ? true
     : httpBody
       ? {
@@ -222,15 +909,17 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
         } satisfies CloudflareD1HttpConfig
       : undefined
   const value: CloudflareD1BindingConfig = {
-    binding: readStringValue(body, "binding"),
-    databaseId: readConfigValue(body, "databaseId"),
-    databaseName: readConfigValue(body, "databaseName"),
-    migrationsTable: readStringValue(body, "migrationsTable"),
-    previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
+    binding: readStringValue(`binding: ${resolveProperty("binding")}`, "binding"),
+    databaseId: readConfigValue(`databaseId: ${resolveProperty("databaseId")}`, "databaseId"),
+    databaseName: readConfigValue(`databaseName: ${resolveProperty("databaseName")}`, "databaseName"),
+    migrationsTable: readStringValue(`migrationsTable: ${resolveProperty("migrationsTable")}`, "migrationsTable"),
+    previewDatabaseId: readConfigValue(`previewDatabaseId: ${resolveProperty("previewDatabaseId")}`, "previewDatabaseId"),
   }
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
     resource,
+    configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined",
+    ownsOpaqueResource: false,
     ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
   }
 }
@@ -238,24 +927,26 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
 // Partial scanner results cannot prove HTTP stays enabled after runtime spreads.
 export function isStaticD1HttpDefinition(file: string) {
   if (!existsSync(file)) return false
-  const definitionBody = readDefinitionObjectBody(file, true)
+  const definitionBody = readDefinitionObjectBody(file)
   if (definitionBody === undefined) return false
-  const definitionEntries = readObjectEntries(definitionBody)
-  if (definitionEntries.some(entry => entry.key === undefined)) return false
-  const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
+  const definitionEntries = splitTopLevel(definitionBody).filter(entry => entry.trim())
+  if (definitionEntries.some(entry => !readEntryKey(entry))) return false
+  const cloudflareEntries = definitionEntries.filter(entry => readEntryKey(entry) === "cloudflare")
   if (cloudflareEntries.length !== 1) return false
-  const body = cloudflareEntries[0]!.raw
-  if (body?.type !== "ObjectExpression") return false
-  const entries = readObjectEntries(body)
-  if (entries.some(entry => entry.key === undefined)) return false
-  const httpEntries = entries.filter(entry => entry.key === "http")
+  const expression = readEntryValue(cloudflareEntries[0]!)?.trim()
+  const body = objectLiteralBody(expression)
+  if (body === undefined || expression !== `{${body}}`) return false
+  const entries = splitTopLevel(body).filter(entry => entry.trim())
+  if (entries.some(entry => !readEntryKey(entry))) return false
+  const httpEntries = entries.filter(entry => readEntryKey(entry) === "http")
   if (httpEntries.length !== 1) return false
-  const http = httpEntries[0]!.raw
-  return (http?.type === "Literal" && http.value === true) || http?.type === "ObjectExpression"
+  const http = readEntryValue(httpEntries[0]!)?.trim()
+  const httpBody = objectLiteralBody(http)
+  return http === "true" || (httpBody !== undefined && http === `{${httpBody}}`)
 }
 
 function readDefinitionConnectionConfig(file: string) {
-  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
   if (!body) return
   const value = {
     authToken: readConfigValue(body, "authToken"),
@@ -266,7 +957,7 @@ function readDefinitionConnectionConfig(file: string) {
 
 /** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
 export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
-  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")?.trim()
   if (expression === undefined) return "sqlite"
   const dialect = readStaticStringLiteral(expression)
   if (dialect === "sqlite" || dialect === "postgresql") return dialect
@@ -274,7 +965,7 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
 }
 
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
-  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
   const hyperdriveId = readConfigValue(body, "hyperdriveId")
   if (hyperdriveId !== undefined) config.hyperdriveId = hyperdriveId
@@ -340,9 +1031,12 @@ function readDefinitionOptionKeys(file: string): Set<string> | undefined {
   const body = readDefinitionObjectBody(file)
   if (body === undefined) return
   const keys = new Set<string>()
-  for (const entry of readObjectEntries(body)) {
-    if (entry.key === undefined) return
-    if (!schemaOnlyDefinitionKeys.has(entry.key)) keys.add(entry.key)
+  for (const entry of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(entry)
+    if (!normalized.trim()) continue
+    const key = readEntryKey(normalized)
+    if (normalized.trimStart().startsWith("...") || !key) return
+    if (!schemaOnlyDefinitionKeys.has(key)) keys.add(key)
   }
   return keys
 }
@@ -353,8 +1047,8 @@ function configuresDatabase(file: string) {
   return keys === undefined || keys.size > 0
 }
 
-function definitionFiles(definitions: Array<{ handler: string }>) {
-  return definitions.map(definition => definition.handler)
+function listDefinitionFiles(definitions: Array<{ handler: string }>) {
+  return definitions.map(definition => `  - ${definition.handler}`)
 }
 
 /**
@@ -367,7 +1061,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const sameLayer = ordered.find((entry, index) => index > 0 && entry.layer === ordered[index - 1]!.layer)
   if (sameLayer) {
     const duplicates = ordered.filter(entry => entry.layer === sameLayer.layer).map(entry => entry.definition)
-    throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: name, files: definitionFiles(duplicates) })
+    throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: name, files: duplicates.map(definition => definition.handler) })
   }
 
   const app = ordered[0]!.layer === 0 ? ordered[0]!.definition : undefined
@@ -380,16 +1074,16 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const layer of configuringLayers) {
       const layerOptions = readDefinitionOptionKeys(layer.handler)
       if (!appOptions || !layerOptions) {
-        throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), reason: "unreadable" })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: [app.handler, layer.handler], reason: "unreadable" })
       }
       const missing = [...layerOptions].filter(key => !appOptions.has(key))
       if (!missing.length) continue
       const options = missing.map(key => `\`${key}\``).join(", ")
-      throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), options, reason: "missing" })
+      throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: [app.handler, layer.handler], options, reason: "missing" })
     }
   }
   if (!appConfigures && configuringLayers.length > 1) {
-    throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles(configuringLayers), reason: "layers" })
+    throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: configuringLayers.map(definition => definition.handler), reason: "layers" })
   }
 
   const appTables = new Set(app?.tableNames)
@@ -398,7 +1092,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
-        throw databaseErrorDiagnostics.DATABASE_LAYER_TABLE_CONFLICT({ database: name, files: definitionFiles([owner, definition]), table: tableName })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_TABLE_CONFLICT({ database: name, files: [owner.handler, definition.handler], table: tableName })
       }
       tableOwners.set(tableName, definition)
     }
@@ -436,6 +1130,7 @@ export interface DatabaseDiscoveryOptions {
    * database always has a default Database.
    */
   implicitDefault?: boolean
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
   serverDirs?: string[]
 }
 
@@ -450,10 +1145,29 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
+        source: "vite-plugin-contribution",
+        tableNames: [],
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
-    throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: definitionFiles(found.map(entry => entry.definition)) })
+    throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: found.map(entry => entry.definition.handler) })
   }
   const byName = new Map<string, typeof found>()
   for (const entry of found) {
@@ -548,7 +1262,7 @@ export function resolveDBViteConfig(
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    contributions?: CollectedDatabaseContributions
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
     provisionRoot?: string
@@ -557,12 +1271,12 @@ export function resolveDBViteConfig(
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
-  if (!definitions.length) {
-    // Contributed tables need a Database, so this fails when a plugin contributes tables.
-    resolveDatabaseContributionTargets([], context.contributions ?? [])
-    return
-  }
+  const definitions = discoverDatabaseDefinitions(rootDir, {
+    definitions: context.contributions?.definitions,
+    implicitDefault: context.implicitDefault,
+    serverDirs: context.serverDirs,
+  })
+  if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
@@ -618,9 +1332,38 @@ export function resolveDBViteConfig(
     }
   }
 
+  const cloudflareBindings = new Map<string, string>()
+  for (const definition of definitions) {
+    // PostgreSQL Definitions never emit native D1 bindings. Their Cloudflare
+    // field is reserved for Hyperdrive settings, so exclude them from this
+    // SQLite/D1 collision check.
+    if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") continue
+    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    // Opaque definitions that prove resource ownership or HTTP-only behavior
+    // do not emit native D1 bindings and must stay out of this check.
+    if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource === true || definitionCloudflare.opaqueHttpOnly === true)) continue
+    const effectiveCloudflare = databases[definition.name]?.cloudflare
+    if (effectiveCloudflare?.http) continue
+    const canSynthesizeOpaqueBinding = definitionCloudflare.resource !== "opaque"
+      || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly === false)
+    const binding = (definitionCloudflare.resource !== "opaque" ? effectiveCloudflare?.binding : undefined)
+      ?? definitionCloudflare.opaqueBinding
+      ?? (canSynthesizeOpaqueBinding
+        ? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
+        : undefined)
+    if (!binding) continue
+    const previousName = cloudflareBindings.get(binding)
+    if (previousName && previousName !== definition.name) {
+      throw databaseErrorDiagnostics.DATABASE_C0008({
+        message: `[vitehub] Database definitions "${previousName}" and "${definition.name}" resolve to the same Cloudflare D1 binding "${binding}". Set a unique \`cloudflare.binding\` for each database.`,
+      })
+    }
+    cloudflareBindings.set(binding, definition.name)
+  }
+
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(
     definitions.map(definition => definition.name),
-    context.contributions ?? [],
+    context.contributions?.tables ?? [],
     Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
   )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }

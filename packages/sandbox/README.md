@@ -256,7 +256,7 @@ The target must expose the same working-directory and credential paths, for exam
 
 The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#commands).
 
-This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups.
+This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
 
 ## Limit trusted-host command memory
 

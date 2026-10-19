@@ -71,11 +71,11 @@ function runtimeScheduleBase(prefix: string): string {
 }
 
 function scheduleRunBase(prefix: string): string {
-  return joinKey(prefix, "schedule-runs")
+  return `${joinKey(prefix, "schedule-runs")}/`
 }
 
 function scheduleRunAttemptBase(prefix: string): string {
-  return joinKey(prefix, "schedule-run-attempts")
+  return `${joinKey(prefix, "schedule-run-attempts")}/`
 }
 
 function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {
@@ -422,7 +422,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
 
   async function readSnapshot() {
     const keys = await store.keys(scheduleRunBase(prefix))
-    const indexKeys = await store.keys(joinKey(prefix, "schedule-run-index"))
+    const indexKeys = await store.keys(`${joinKey(prefix, "schedule-run-index")}/`)
     const metadataById = new Map(indexKeys.flatMap(key => {
       const metadata = runIndexMetadata(key)
       return metadata ? [[metadata.id, metadata] as const] : []
@@ -551,7 +551,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     },
     async listAttempts(runId) {
       const [keys, indexKeys] = await Promise.all([
-        store.keys(`${scheduleRunAttemptBase(prefix)}/`),
+        store.keys(scheduleRunAttemptBase(prefix)),
         store.keys(`${joinKey(prefix, "schedule-run-attempt-index")}/`),
       ])
       const runByAttemptId = new Map<string, string>()

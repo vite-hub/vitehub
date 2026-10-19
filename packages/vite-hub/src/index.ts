@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -35,11 +36,12 @@ import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoo
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
-import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
+import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleConfig } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -71,7 +73,7 @@ import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
-export type { ConsoleOptions } from "./console/vite.ts"
+export type { ConsoleConfig, ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
@@ -322,7 +324,7 @@ export interface ViteHubOptions {
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
-  console?: false | ConsoleOptions
+  console?: false | ConsoleConfig
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
@@ -864,7 +866,12 @@ function doctorPlugin(): Plugin {
   }
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+/**
+ * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
+ * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ */
+/** Builds the ViteHub plugin list for one resolved feature configuration. */
+function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
   const plan = resolveDeploymentPlan(options.preset)
@@ -908,6 +915,9 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
+  // Content owns CMS preset discovery and its contributed Workspace/Database resources.
+  // Keep it in the direct Vite integration list so zero-config presets are actually applied.
+  plugins.push(hubContent())
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -1172,6 +1182,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   plugins.push(includedNitro())
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
+}
+
+export function vitehub(options: ViteHubOptions): PluginOption[] {
+  return withCmsPresetPlugins(options, resolved => createViteHubPlugins(resolved))
 }
 
 declare module "vite" {

@@ -3,10 +3,11 @@ import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
+import { validateScheduledAt } from "./date.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
-import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
 interface ExecuteScheduleOptions {
   /** Return the persisted failed run when the handler throws. Guards still throw. */
@@ -18,21 +19,8 @@ interface ExecuteScheduleOptions {
   scheduleId: string
   source?: "direct" | "manual" | "runtime" | "static"
   scheduledAt?: Date
-  target: ScheduleTargetName
+  target: string
   waitUntil?: (promise: PromiseLike<unknown>) => void
-}
-
-interface ExecuteStaticScheduleOptions {
-  cron: string
-  definition: ScheduleDefinition
-  name: string
-  scheduledAt?: Date
-  waitUntil?: (promise: PromiseLike<unknown>) => void
-}
-
-export interface RunScheduleOptions {
-  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
-  registry?: ScheduleDefinitionRegistry
 }
 
 interface ExecuteRuntimeScheduleOptions {
@@ -58,6 +46,19 @@ function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is
   }
 }
 
+interface ExecuteStaticScheduleOptions {
+  cron: string
+  definition: ScheduleDefinition
+  name: string
+  scheduledAt?: Date
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+export interface RunScheduleOptions {
+  /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
+  registry?: ScheduleDefinitionRegistry
+}
+
 function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
   return source ?? "direct"
 }
@@ -67,24 +68,7 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-function isDate(value: unknown): value is Date {
-  try {
-    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
-  }
-  catch {
-    return false
-  }
-}
-
-function validateScheduledAt(scheduledAt: Date | undefined): Date {
-  const value = scheduledAt ?? new Date()
-  if (!isDate(value)) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", value),
-    })
-  }
-  return new Date(Date.prototype.getTime.call(value))
-}
+export { isScheduleDate } from "./date.ts"
 
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {
@@ -308,14 +292,13 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   const runtimeOptions = typeof options === "string" ? { id: options } : options
   assertRuntimeExecuteOptionsObject(runtimeOptions)
   assertRuntimeScheduleId(runtimeOptions.id)
+
   const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", runtimeOptions.id, scheduledAt))
-  // A persisted run always acknowledges a replay, including provider redeliveries
-  // after the schedule has been disabled or deleted.
-  const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
   if (existingRun && runtimeOptions.intent === "provider") return existingRun
+  const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
   if (schedule && !schedule.enabled) throw createScheduleError("SCHEDULE_DISABLED")
   if (existingRun) return existingRun
   if (!schedule) throw createScheduleError("SCHEDULE_NOT_FOUND")

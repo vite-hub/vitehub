@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -48,6 +50,12 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(docsManifest.sections.filter(section => serverPrimitiveSections.includes(section.id))
+      .every(section => getDocsSectionKind(section) === "Server Primitive")).toBe(true);
+    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "agents")!)).toBe("Agent runtime");
+    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "ui")!)).toBe("UI components");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -63,9 +71,8 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
+      // Concepts pages may sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -150,7 +157,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/getting-started/concepts/runtime-policy-approvals-and-traces")?.title)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
       .toBe("Runtime policy, approvals, and traces");
   });
 

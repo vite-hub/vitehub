@@ -85,6 +85,7 @@ it("keeps custom Buffer subclasses atomic and clones native foreign Buffers", ()
   class CustomBuffer extends globalThis.Buffer {
     marker = true
 
+    // eslint-disable-next-line constructor-super
     constructor(bytes: Uint8Array) {
       const buffer = super(bytes)
       // Node's Buffer constructor returns a Buffer instance. Restore the
@@ -110,6 +111,7 @@ it("keeps a custom Buffer subclass named Buffer atomic", () => {
   class Buffer extends globalThis.Buffer {
     marker = true
 
+    // eslint-disable-next-line constructor-super
     constructor(bytes: Uint8Array) {
       const buffer = super(bytes)
       return Object.setPrototypeOf(buffer, new.target.prototype)
