@@ -449,12 +449,14 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
     let prototype = Object.getPrototypeOf(value)
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++, prototype = Object.getPrototypeOf(prototype)) {
       const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
       const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
       const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-      if (bodyGetter && statusGetter && headersGetter) {
+      if (bodyGetter && typeof bodyUsedGetter === "function" && statusGetter && headersGetter) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof constructor !== "function" || constructor.name !== "Response") continue
         Reflect.apply(bodyGetter, value, [])
+        Reflect.apply(bodyUsedGetter, value, [])
         Reflect.apply(statusGetter, value, [])
         const headers = Reflect.apply(headersGetter, value, [])
         if (headers && typeof headers === "object") return true
