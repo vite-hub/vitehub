@@ -1625,7 +1625,7 @@ export const AgentInvocationInspector = defineComponent({
       messages: (conversation.value.kind === "activities"
         ? conversation.value.activities
         : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup])
-        .filter(activity => activity.kind === "message" && !activityGroup(activity)).length,
+        .filter(activity => activity.kind === "message").length,
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,

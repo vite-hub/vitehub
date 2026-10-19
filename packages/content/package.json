@@ -37,6 +37,18 @@
       "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./presets/cms": {
+      "types": "./dist/presets/cms.d.ts",
+      "import": "./dist/presets/cms.js",
+      "require": "./dist/presets/cms.js",
+      "default": "./dist/presets/cms.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -47,6 +59,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
@@ -64,12 +77,19 @@
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
-    "comark-content": "catalog:markdown"
+    "comark-content": "catalog:markdown",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.0.0"
