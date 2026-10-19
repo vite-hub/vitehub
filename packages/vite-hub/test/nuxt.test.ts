@@ -3842,8 +3842,8 @@ describe("ViteHub Nuxt integration", () => {
     },
   );
 
-  it("exposes Nuxt module metadata for vitehub configuration", () => {
-    expect(viteHubNuxtModule.getMeta()).toEqual({
+  it("exposes Nuxt module metadata for vitehub configuration", async () => {
+    await expect(viteHubNuxtModule.getMeta()).resolves.toEqual({
       configKey: "vitehub",
       name: "vite-hub/nuxt",
     })

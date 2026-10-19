@@ -95,6 +95,15 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (!(value instanceof Object) || Array.isArray(value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
+  if ("access" in value && value.access !== undefined) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access is no longer supported. Use console.auth.' })
+  }
+  if ("exposure" in value && value.exposure !== undefined && value.exposure !== "host-managed") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure is no longer supported. Use console.auth.' })
+  }
+  if (value.exposure === "host-managed" && !('auth' in value)) {
+    return { ...value, auth: false } as ConsoleOptions
+  }
   if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
@@ -332,7 +341,8 @@ export function resolveConsoleAccessBuild(
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
-  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: "open" })
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
+  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: authorize ? "host-managed" : "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
@@ -371,6 +381,9 @@ export function assertConsoleAccess(
 /** Check the app Auth access routes of a production build. */
 export function assertConsoleProductionAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig, base?: string, development?: boolean, sections?: readonly ConsoleSectionId[] }): void {
   if (options.development) return
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed" && !configured.authorize) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize in production." })
+  }
   if (configured.auth === "app" && options.auth) assertConsoleAccess(configured, options)
 }
 

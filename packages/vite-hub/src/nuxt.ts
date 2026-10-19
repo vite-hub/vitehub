@@ -764,16 +764,19 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOp
   return kvPlugin?.api?.getConfig?.().kv ?? (configured === undefined ? false : resolveKVViteConfig(configured).kv)
 }
 
+/** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
-  (inlineOptions: ViteHubNuxtOptions | undefined, nuxt?: NuxtLike): Promise<void>
-  getMeta: () => {
+  (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
+  getMeta: () => Promise<{
     configKey: "vitehub"
     name: "vite-hub/nuxt"
-  }
+  }>
 }
 
-const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxt): Promise<void> {
-  if (!nuxt) return
+const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
+  if (!nuxtInstance) return
+  // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
+  const nuxt = nuxtInstance as NuxtLike
   // Nuxt does not run the Vite Doctor plugin, so `vite-doctor/nuxt` receives the extension through its hook.
   if (nuxt.hook) {
     Reflect.apply(nuxt.hook, nuxt, ["doctor:extendExtensions", (entries: string[]) => {
@@ -1433,7 +1436,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
 }
 
-viteHubNuxtModule.getMeta = () => ({
+viteHubNuxtModule.getMeta = async () => ({
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })

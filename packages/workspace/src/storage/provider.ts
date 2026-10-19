@@ -9,6 +9,7 @@ import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
 import { createMemoryWorkspaceStore } from "./memory.ts"
+import { ownedBlobPrefix } from "./owned-blob-prefix.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -87,9 +88,11 @@ export function resolveVercelBlobWorkspaceStore(
   config: Partial<VercelBlobWorkspaceStoreOptions> = {},
   env: Record<string, string | undefined> = process.env,
 ): VercelBlobWorkspaceStoreOptions {
+  const prefix = config.prefix ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX")
+  ownedBlobPrefix("workspaces", prefix, "Workspace")
   return {
     access: config.access ?? "private",
-    prefix: trimmed(config.prefix) ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX") ?? ".vitehub/workspaces",
+    ...(prefix === undefined ? {} : { prefix }),
     provider: "vercel-blob",
     token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }

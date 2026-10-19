@@ -251,6 +251,7 @@ async function freePathname(storage: BlobStorage, folder: string, name: string):
 
 async function list(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaListing> {
   const folder = folderPath(optionalText(input.folder, "folder") ?? "")
+  if (folder && isHiddenFolder(folder)) throw failure(404, "MEDIA_NOT_FOUND", "This media folder does not exist.")
   const search = optionalText(input.search, "search")?.trim().toLowerCase()
   const type = optionalText(input.type, "type")
   if (type && !["image", "video", "audio", "document", "other"].includes(type)) throw failure(400, "MEDIA_INPUT", "type must be image, video, audio, document, or other.")
