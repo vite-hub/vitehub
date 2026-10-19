@@ -21,7 +21,7 @@ export function claimAwarenessClientIds<Peer extends object>(owners: Map<number,
   )
   for (const client of clients) ownedClients.add(client)
   if (ownedClients.size > maxAwarenessClients) {
-    throw realtimeErrorDiagnostics.REALTIME_R0003({ message: "Peer owns too many awareness clients." })
+    throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
   }
   const claimed = clients.filter(client => !owners.has(client))
   for (const client of clients) owners.set(client, peer)
@@ -30,7 +30,8 @@ export function claimAwarenessClientIds<Peer extends object>(owners: Map<number,
 
 export class AwarenessOwnershipConflict extends Diagnostic {
   constructor() {
-    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
+    const { code, docs, fix, why } = realtimeErrorDiagnostics.REALTIME_AWARENESS_OWNERSHIP_CONFLICT()
+    super({ code, docs, fix, why }, AwarenessOwnershipConflict)
     this.name = "AwarenessOwnershipConflict"
   }
 }
@@ -38,7 +39,7 @@ export class AwarenessOwnershipConflict extends Diagnostic {
 export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIdentity): Uint8Array {
   return awarenessProtocol.modifyAwarenessUpdate(update, (state: unknown) => {
     if (state === null) return null
-    if (!isPlainObject(state)) throw realtimeErrorDiagnostics.REALTIME_R0004({ message: "Invalid awareness state." })
+    if (!isPlainObject(state)) throw realtimeErrorDiagnostics.REALTIME_INVALID_AWARENESS()
     return { ...state, user: identity }
   })
 }
@@ -68,7 +69,7 @@ export function applyRealtimeAwarenessUpdate(
     candidate.destroy()
     candidateDocument.destroy()
   }
-  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0006({ message: "Realtime awareness exceeds its 8 MiB room quota." })
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_AWARENESS_TOO_LARGE()
   awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 

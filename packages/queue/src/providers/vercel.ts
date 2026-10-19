@@ -1,14 +1,13 @@
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { createQueueError, isQueueBoundaryIdentity, runQueueProviderOperation } from "../errors.ts"
+import { queueProviderResult } from "../errors.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
+import type { Result } from "@vite-hub/runtime"
 import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
 
-function invalidVercelSendResponse(cause: unknown): never {
-  throw createQueueError("QUEUE_PROVIDER_RESPONSE_INVALID", {
-    cause,
-    details: { operation: "send", provider: "vercel" },
-  })
+function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
+  return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
 }
 
 function isRuntimeFunction(value: unknown): boolean {
@@ -75,21 +74,23 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
-function parseVercelMessageId(value: unknown): string | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) invalidVercelSendResponse(value)
+function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalidVercelSendResponse(value)
 
   let messageId: unknown
   try {
+    if (!Object.prototype.hasOwnProperty.call(value, "messageId")) return invalidVercelSendResponse(value)
     messageId = Reflect.get(value, "messageId")
   }
   catch (cause) {
-    invalidVercelSendResponse(cause)
+    return invalidVercelSendResponse(cause)
   }
-  if (messageId === undefined || messageId === null) return
+  // `@vercel/queue` returns `messageId: null` when it accepts a message for deferred processing (HTTP 202).
+  if (messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
-    invalidVercelSendResponse(value)
+    return invalidVercelSendResponse(value)
   }
-  return messageId
+  return [undefined, messageId]
 }
 
 async function loadVercelQueueClient(region: string | undefined): Promise<VercelQueueSDK> {
@@ -110,20 +111,14 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
       }
     }
   }
-  catch (error) {
-    if (isQueueBoundaryIdentity(error)) throw error
-    throw createQueueError("VERCEL_QUEUE_SDK_LOAD_FAILED", {
-      cause: error,
-      details: { operation: "load-sdk", provider: "vercel" },
-    })
+  catch (cause) {
+    throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_UNAVAILABLE({ cause })
   }
 
   const { region: resolvedRegion } = resolveVercelQueueRegion(region)
   if (Object.hasOwn(module, "QueueClient") && isRuntimeFunction(module.QueueClient)) {
     if (!resolvedRegion) {
-      throw createQueueError("VERCEL_QUEUE_REGION_REQUIRED", {
-        details: { provider: "vercel" },
-      })
+      throw queueErrorDiagnostics.QUEUE_MISSING_REGION()
     }
 
     // SAFETY: QueueClient is an own callable export; the Vercel SDK defines its region constructor contract.
@@ -137,24 +132,18 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     }
   }
 
-  throw createQueueError("VERCEL_QUEUE_SDK_INVALID", {
-    details: { provider: "vercel" },
-  })
+  throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_INVALID()
 }
 
 export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
-    throw createQueueError("VERCEL_TOPIC_RESOLUTION_REQUIRED", {
-      details: { provider: "vercel" },
-    })
+    throw queueErrorDiagnostics.QUEUE_MISSING_TOPIC()
   }
 
   const client = provider.client === undefined ? await loadVercelQueueClient(provider.region) : provider.client
   if (!isVercelQueueSDK(client)) {
-    throw createQueueError("VERCEL_QUEUE_SDK_INVALID", {
-      details: { provider: "vercel" },
-    })
+    throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_INVALID()
   }
   return {
     provider: "vercel",
@@ -163,22 +152,19 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     async send(payload, options) {
       const normalized = normalizeQueueEnqueueInput(payload, options)
       if (normalized.options.contentType !== undefined) {
-        throw createQueueError("VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS", {
-          details: { provider: "vercel", unsupported: ["contentType"] },
-        })
+        return [queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`contentType`", provider: "vercel" }), undefined]
       }
 
-      const messageId = await runQueueProviderOperation("vercel", "send", async () =>
-        parseVercelMessageId(await client.send(topic, normalized.payload, {
-          delaySeconds: normalized.options.delaySeconds,
-          idempotencyKey: normalized.options.idempotencyKey || normalized.id,
-          region: normalized.options.region ?? provider.region,
-          retentionSeconds: normalized.options.retentionSeconds,
-        })))
-      return {
-        status: "queued",
-        messageId,
-      }
+      const [error, response] = await queueProviderResult("vercel", "send", () => client.send(topic, normalized.payload, {
+        delaySeconds: normalized.options.delaySeconds,
+        idempotencyKey: normalized.options.idempotencyKey || normalized.id,
+        region: normalized.options.region ?? provider.region,
+        retentionSeconds: normalized.options.retentionSeconds,
+      }))
+      if (error) return [error, undefined]
+      const [responseError, messageId] = parseVercelMessageId(response)
+      if (responseError) return [responseError, undefined]
+      return [undefined, { status: "queued", messageId }]
     },
     callback: client.handleCallback.bind(client),
   }

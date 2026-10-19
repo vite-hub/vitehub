@@ -1,0 +1,64 @@
+import { getViteHubErrorShape, ViteHubError } from '@vite-hub/runtime'
+
+import type { ViteHubErrorDetail, ViteHubErrorDetails } from '@vite-hub/runtime'
+
+export interface SandboxTaskErrorMetadata {
+  code?: `SANDBOX_TASK_${string}`
+  provider?: string
+  method?: string
+  httpStatus?: number
+  details?: Record<string, unknown>
+  cause?: unknown
+}
+
+function sanitizeSandboxTaskDetail(value: unknown, depth = 0, seen = new WeakSet<object>()): ViteHubErrorDetail | undefined {
+  if (value === null || typeof value === 'boolean') return value
+  if (typeof value === 'string') return value.slice(0, 16_384)
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  if (!value || typeof value !== 'object' || depth >= 8 || seen.has(value)) return undefined
+
+  seen.add(value)
+  try {
+    if (Array.isArray(value)) {
+      return value.slice(0, 128).flatMap(item => {
+        const sanitized = sanitizeSandboxTaskDetail(item, depth + 1, seen)
+        return sanitized === undefined ? [] : [sanitized]
+      })
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return undefined
+    const result: Record<string, ViteHubErrorDetail | undefined> = {}
+    for (const [key, item] of Object.entries(value).slice(0, 128)) {
+      if (!key || key.length > 128) continue
+      result[key] = sanitizeSandboxTaskDetail(item, depth + 1, seen)
+    }
+    return result
+  }
+  catch {
+    return undefined
+  }
+  finally {
+    seen.delete(value)
+  }
+}
+
+function sanitizeSandboxTaskDetails(details: Record<string, unknown> | undefined) {
+  const sanitized = sanitizeSandboxTaskDetail(details)
+  return sanitized && !Array.isArray(sanitized) && typeof sanitized === 'object' ? sanitized as ViteHubErrorDetails : undefined
+}
+
+export function sandboxTaskError(message: string, metadata: SandboxTaskErrorMetadata = {}): ViteHubError<`SANDBOX_TASK_${string}`> {
+  const { cause, code = 'SANDBOX_TASK_RUNTIME_ERROR', details, httpStatus, method, provider } = metadata
+  return new ViteHubError(code, message.slice(0, 16_384) || 'Sandbox execution failed.', {
+    cause,
+    details: sanitizeSandboxTaskDetails({
+      ...(provider === undefined ? {} : { provider }),
+      ...(method === undefined ? {} : { method }),
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+      ...sanitizeSandboxTaskDetails(details),
+    }),
+  })
+}
+
+export function isSandboxTaskError(value: unknown): value is ViteHubError<`SANDBOX_TASK_${string}`> {
+  return getViteHubErrorShape(value)?.code.startsWith('SANDBOX_TASK_') === true
+}

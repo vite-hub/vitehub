@@ -82,6 +82,33 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
     : undefined
 }
 
+const blobPrototype = Blob.prototype
+const blobSizeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "size")?.get
+const blobTypeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "type")?.get
+const blobSliceMethod = Object.getOwnPropertyDescriptor(blobPrototype, "slice")?.value as ((this: Blob, start?: number, end?: number, contentType?: string) => Blob) | undefined
+
+function isBlobLike(value: unknown): value is Blob {
+  if (value === null || typeof value !== "object" || !blobSizeGetter || !blobTypeGetter) return false
+  try {
+    Reflect.apply(blobSizeGetter, value, [])
+    Reflect.apply(blobTypeGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function normalizeForeignBlob(value: Blob): Blob | undefined {
+  if (!blobSizeGetter || !blobTypeGetter || !blobSliceMethod) return undefined
+  try {
+    const type = Reflect.apply(blobTypeGetter, value, [])
+    Reflect.apply(blobSizeGetter, value, [])
+    return Reflect.apply(blobSliceMethod, value, [0, undefined, type])
+  } catch {
+    return undefined
+  }
+}
+
 const httpInterruptedMessage = "[vitehub] HTTP request was interrupted."
 
 class HttpStatusError extends Diagnostic {
@@ -215,6 +242,10 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
 
 function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
   if (body === undefined) return undefined
+  if (isBlobLike(body) && !(body instanceof Blob)) {
+    const normalized = normalizeForeignBlob(body)
+    if (normalized) return normalized
+  }
   if (
     primitiveRuntimeTag(body) === "[object String]"
     || body instanceof Uint8Array

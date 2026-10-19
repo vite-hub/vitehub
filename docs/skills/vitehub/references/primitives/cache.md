@@ -1,5 +1,9 @@
 # Cache
 
+<!-- Generated from docs/content/docs/reference/config-options.md. Edit the agent-only block there. -->
+
+Source page: https://vitehub.dev/raw/docs/reference/config-options.md
+
 Use the ViteHub `cache` integration when Nitro cache storage should use a host-appropriate driver. Cache is for replaceable values. It is not the source of truth for durable application data.
 
 Read the [configuration reference](https://vitehub.dev/raw/docs/reference/config-options.md#vite-integration-options) and the [host guide](https://vitehub.dev/raw/docs/frameworks-hosts.md). The integration selects Cloudflare KV, Vercel runtime cache, Deno KV, or local filesystem storage from the preset and options.

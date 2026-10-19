@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -21,7 +22,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
-import { hubSandbox } from "@vite-hub/sandbox/vite"
+import { hubSandboxTask } from "@vite-hub/sandbox-task/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -35,11 +36,13 @@ import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoo
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
-import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
+import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleConfig } from "./console/vite.ts"
+import { includedNitro } from "./nitro-plugin.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
@@ -60,7 +63,7 @@ import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deplo
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
-import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
+import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
@@ -70,7 +73,7 @@ import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
-export type { ConsoleOptions } from "./console/vite.ts"
+export type { ConsoleConfig, ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
@@ -97,7 +100,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
   "@vite-hub/browser": true,
-  "@vite-hub/box": true,
+  "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
   "@vite-hub/connections": true,
@@ -111,7 +114,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
-  "@vite-hub/sandbox": true,
+  "@vite-hub/sandbox-task": true,
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
@@ -170,12 +173,12 @@ function packageExportImportTarget(target: unknown): string | undefined {
   return typeof importTarget === "string" ? importTarget : undefined
 }
 
-function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
+function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
   return {
-    ...(sandbox
+    ...(sandboxTask
       ? {
-          sandbox: "vite-hub/sandbox",
-          sandboxRuntimeState: `${generatedImportBase}/sandbox/runtime/state`,
+          sandboxTask: "vite-hub/sandbox-task",
+          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox-task/runtime/state`,
         }
       : {}),
     shellWorkspace: "vite-hub/shell/workspace",
@@ -184,7 +187,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
     .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]) => {
+    .map(([subpath]): [string, string] => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
@@ -321,7 +324,7 @@ export interface ViteHubOptions {
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
-  console?: false | ConsoleOptions
+  console?: false | ConsoleConfig
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
@@ -332,7 +335,8 @@ export interface ViteHubOptions {
   queue?: boolean
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
-  sandbox?: boolean
+  /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
+  sandboxTask?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
   workflow?: boolean | WorkflowModuleOptions
   workspace?: boolean | WorkspaceModuleOptions
@@ -496,7 +500,7 @@ function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
-  sandboxRequested: boolean,
+  sandboxTaskRequested: boolean,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
 ) {
@@ -505,7 +509,7 @@ function deploymentNitroModule(
     options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
-    if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
+    if (plan.preset === "cloudflare" && sandboxTaskRequested && !isDeployCommandOwned()) {
       const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
       const serverDir = /^[\w./-]+$/.test(outputRelative)
         ? `./${outputRelative}`
@@ -598,8 +602,8 @@ function deploymentPlugins(
           }
         }
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
-          ;(config as { sandbox?: unknown }).sandbox = {
-            ...cloneRecord((config as { sandbox?: unknown }).sandbox),
+          ;(config as { sandboxTask?: unknown }).sandboxTask = {
+            ...cloneRecord((config as { sandboxTask?: unknown }).sandboxTask),
             ...(plan.services.sandbox.adapter === "cloudflare"
               ? { name: cloudflareResourceScope(name) + "-sandbox" }
               : {}),
@@ -862,7 +866,12 @@ function doctorPlugin(): Plugin {
   }
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+/**
+ * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
+ * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ */
+/** Builds the ViteHub plugin list for one resolved feature configuration. */
+function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
   const plan = resolveDeploymentPlan(options.preset)
@@ -894,7 +903,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.email === true && plan.preset !== "cloudflare") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets." })
   }
-  const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
+  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
@@ -904,13 +913,16 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
+  // Content owns CMS preset discovery and its contributed Workspace/Database resources.
+  // Keep it in the direct Vite integration list so zero-config presets are actually applied.
+  plugins.push(hubContent())
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
-  if (options.sandbox) requestedServices.push("sandbox")
+  if (options.sandboxTask) requestedServices.push("sandbox")
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
@@ -941,7 +953,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
   const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
-  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
+  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxTaskEnabled)
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
@@ -1033,13 +1045,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       },
     ))
   }
-  if (sandboxEnabled) {
-    const sandboxPolicy = plan.services.sandbox
-    plugins.push(hubSandbox({
-      ...(sandboxPolicy.supported ? { provider: sandboxPolicy.adapter } : {}),
+  if (sandboxTaskEnabled) {
+    const sandboxTaskPolicy = plan.services.sandbox
+    plugins.push(hubSandboxTask({
+      ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox",
-    } as SandboxPublicOptions))
+      providerImportSpecifier: "vite-hub/sandbox-task",
+    } as SandboxTaskPublicOptions))
   }
   if (options.agent) {
     // The Agent package does not own journal selection; the generated plugin below installs it.
@@ -1075,13 +1087,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(hubBlob(
-      configuredBlob,
-      {
-      importBase: `${generatedImportBase}/blob`,
-      nitroOwned: true,
-      },
-    ))
+    plugins.push(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` }))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1172,8 +1178,14 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
+  // Nitro is the host output. Its plugins step aside when the app adds `nitro()` itself.
+  plugins.push(includedNitro())
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
+}
+
+export function vitehub(options: ViteHubOptions): PluginOption[] {
+  return withCmsPresetPlugins(options, resolved => createViteHubPlugins(resolved))
 }
 
 declare module "vite" {

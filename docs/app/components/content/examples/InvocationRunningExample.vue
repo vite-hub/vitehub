@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
+
 import type { AgentInvocationView } from "@vite-hub/ui";
 
+const props = defineProps<{ showTimeline?: boolean }>();
+
 const now = useState("ui-running-clock", () => Date.now());
-onMounted(() => {
-  now.value = Date.now();
-});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+let clock: ReturnType<typeof setInterval> | undefined;
+
 onMounted(() => {
   now.value = Date.now();
+  clock = setInterval(() => {
+    now.value = Date.now();
+  }, 1_000);
+});
+onUnmounted(() => {
+  if (clock) clearInterval(clock);
 });
 
 const invocation = computed<AgentInvocationView>(() => ({
@@ -58,11 +66,11 @@ const invocation = computed<AgentInvocationView>(() => ({
   title: "Polish Console navigation",
   traceId: "trace_console_navigation",
   updatedAt: time(20),
-}));
+}))
 </script>
 
 <template>
   <div class="h-[28rem] min-w-0 bg-default">
-    <AgentInvocation :invocation="invocation" class="h-full" />
+    <AgentInvocation :invocation="invocation" :show-timeline="props.showTimeline" class="h-full" />
   </div>
 </template>

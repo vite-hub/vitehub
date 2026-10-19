@@ -123,6 +123,11 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
   return provisionState?.cloudflare?.d1?.[name]
 }
 
+function resolveNonEmptyConfigValue(value: DatabaseConfigValue | undefined) {
+  const resolved = resolveConfigValue(value)
+  return resolved?.trim() ? resolved : undefined
+}
+
 function resolveBindingName(prefix: string, database: string, binding: string | undefined) {
   const trimmed = typeof binding === "string" ? binding.trim() : ""
   if (trimmed) return trimmed
@@ -143,19 +148,14 @@ export function resolveCloudflareHyperdriveBindingName(database: string, binding
   return resolveBindingName("HYPERDRIVE", database, binding)
 }
 
-function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
-  return resolveConfigValue(config.databases[name]?.cloudflare?.databaseId)
-    ?? resolveProvisionedD1Id(provisionState, name)
-}
-
 function createUnresolvedBinding(
   name: string,
   binding: string,
   database: CloudflareD1BindingInput,
   reason: CloudflareD1UnresolvedBindingReason,
 ): CloudflareD1UnresolvedBinding {
-  const databaseName = resolveConfigValue(database.databaseName)
-  const previewDatabaseId = resolveConfigValue(database.previewDatabaseId)
+  const databaseName = resolveNonEmptyConfigValue(database.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(database.previewDatabaseId)
   const unresolved: CloudflareD1UnresolvedBinding = {
     binding,
     database: name,
@@ -174,9 +174,12 @@ export function resolveCloudflareD1Binding(
 ): ResolvedCloudflareD1Binding {
   const database = input.database?.trim() || "default"
   const bindingName = resolveCloudflareD1BindingName(database, input.binding)
-  const databaseId = resolveConfigValue(input.databaseId) ?? resolveProvisionedD1Id(options.provisionState, database)
-  const databaseName = resolveConfigValue(input.databaseName)
-  const previewDatabaseId = resolveConfigValue(input.previewDatabaseId)
+  const configuredId = resolveConfigValue(input.databaseId)
+  const databaseId = typeof configuredId !== "undefined"
+    ? (configuredId.trim() ? configuredId : undefined)
+    : resolveProvisionedD1Id(options.provisionState, database)
+  const databaseName = resolveNonEmptyConfigValue(input.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
   if (!databaseId?.trim()) {
     return {
@@ -219,16 +222,16 @@ export function resolveCloudflareD1Bindings(
     const projection = resolveCloudflareD1Binding({
       database: name,
       binding: database.binding,
-      databaseId: resolveDatabaseId(config, name, options.provisionState),
+      databaseId: database.databaseId,
       databaseName: database.databaseName,
       migrationsDir: database.migrationsDir,
       migrationsTable: database.migrationsTable,
       previewDatabaseId: database.previewDatabaseId,
-    })
+    }, { provisionState: options.provisionState })
     if (projection.d1Database) {
       const previous = bindingDatabases.get(projection.bindingName)
       if (previous) {
-        throw databaseErrorDiagnostics.DATABASE_B0006({ message: `[vitehub] Database Definitions ${JSON.stringify(previous)} and ${JSON.stringify(name)} use the same Cloudflare D1 binding ${JSON.stringify(projection.bindingName)}. Set cloudflare.binding to a distinct name for each Definition.` })
+        throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: projection.bindingName, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${name}"` })
       }
       bindingDatabases.set(projection.bindingName, name)
       d1Databases.push(projection.d1Database)
@@ -290,7 +293,7 @@ export function resolveCloudflareHyperdriveBindings(config: ResolvedDBViteConfig
     const previous = owners.get(hyperdrive.binding)
     if (previous?.id === id) continue
     if (previous) {
-      throw databaseErrorDiagnostics.DATABASE_B0007({ message: `[vitehub] Database Definitions ${JSON.stringify(previous.database)} and ${JSON.stringify(name)} use the same Cloudflare Hyperdrive binding ${JSON.stringify(hyperdrive.binding)} for different Hyperdrive ids. Set cloudflare.binding to a distinct name for each Definition.` })
+      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: hyperdrive.binding, first: `The Database Definitions "${previous.database}"`, kind: "Hyperdrive", second: `"${name}"` })
     }
     owners.set(hyperdrive.binding, { database: name, id })
     bindings.push({ binding: hyperdrive.binding, id })

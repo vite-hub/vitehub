@@ -1,0 +1,34 @@
+[
+  {
+    "id": "kv-visit-counter",
+    "prompt": "Add a `POST /api/visits` route that increments a visit counter stored in ViteHub KV under the key `visits` and returns `{ \"visits\": <number> }`. Register what the Vite config needs.",
+    "checks": [
+      { "label": "imports KV from ViteHub", "files": "^server/.*\\.ts$", "pattern": "from ['\"](?:vite-hub/kv|@vite-hub/kv)['\"]" },
+      { "label": "reads the [error, value] tuple from kv.get", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*,\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.get" },
+      { "label": "checks the kv.set error slot", "files": "^server/.*\\.ts$", "pattern": "\\[\\s*\\w+\\s*\\]\\s*=\\s*await\\s+kv\\.set" },
+      { "label": "registers KV in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "hubKv\\(|vitehub\\(\\s*\\{[^}]*\\bkv\\b" }
+    ]
+  },
+  {
+    "id": "rate-limit-login",
+    "prompt": "Limit `POST /api/login` to 5 attempts per minute per client with ViteHub Rate Limit. The route body can return `{ \"ok\": true }` after the check. Register what the Vite config needs.",
+    "checks": [
+      { "label": "imports Rate Limit from ViteHub", "files": "^server/.*\\.ts$", "pattern": "from ['\"](?:vite-hub/rate-limit|@vite-hub/rate-limit)['\"]" },
+      { "label": "uses requireRateLimit", "files": "^server/.*\\.ts$", "pattern": "requireRateLimit\\(\\s*event" },
+      { "label": "sets limit 5 per 1m", "files": "^server/.*\\.ts$", "pattern": "limit:\\s*5[\\s\\S]*window:\\s*['\"]1m['\"]|window:\\s*['\"]1m['\"][\\s\\S]*limit:\\s*5" },
+      { "label": "does not build a limiter on KV", "files": "^server/.*\\.ts$", "pattern": "\\bkv\\.(?:get|set)\\(", "expect": false },
+      { "label": "enables Rate Limit in the Vite config", "files": "^vite\\.config\\.ts$", "pattern": "rateLimit|hubRateLimit\\(" }
+    ]
+  },
+  {
+    "id": "schedule-daily-cleanup",
+    "prompt": "Add a ViteHub schedule named `daily-cleanup` that runs every day at 03:00 UTC and logs the occurrence time. It must be possible to trigger it manually.",
+    "checks": [
+      { "label": "Definition lives in server/schedules", "files": "^server/schedules/daily-cleanup\\.ts$", "pattern": "defineSchedule\\(" },
+      { "label": "imports defineSchedule from ViteHub", "files": "^server/schedules/.*\\.ts$", "pattern": "from ['\"](?:vite-hub/schedule|@vite-hub/schedule)['\"]" },
+      { "label": "cron is 0 3 * * *", "files": "^server/schedules/.*\\.ts$", "pattern": "cron:\\s*['\"]0 3 \\* \\* \\*['\"]" },
+      { "label": "allows manual runs", "files": "^server/schedules/.*\\.ts$", "pattern": "manual:\\s*true" },
+      { "label": "logs scheduledAt, not the wall clock", "files": "^server/schedules/.*\\.ts$", "pattern": "scheduledAt" }
+    ]
+  }
+]

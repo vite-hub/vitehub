@@ -399,7 +399,10 @@ function gitTools(
       throw agentDiagnostics.AGENT_R0074({ message: "[vitehub] git command must be a non-empty string." })
     }
     const args = parseGitCommand(input.command)
-    write ? assertGitWrite(args) : assertGitRead(args)
+    if (write)
+      assertGitWrite(args)
+    else
+      assertGitRead(args)
     const cwd = normalizeCwd(input.cwd)
     const handle = await getSession(cwd)
     const { session } = handle

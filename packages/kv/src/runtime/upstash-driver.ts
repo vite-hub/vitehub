@@ -34,10 +34,10 @@ return value
 `
 
 function normalizeTTL(ttl: number): number {
-  if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_R0005({ message: "Atomic KV increment requires a positive TTL in seconds." })
+  if (!Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_INVALID_TTL()
   const seconds = Math.ceil(ttl)
   if (!Number.isSafeInteger(seconds)) {
-    throw kvErrorDiagnostics.KV_R0006({ message: "Atomic KV increment TTL exceeds the supported integer range." })
+    throw kvErrorDiagnostics.KV_INVALID_TTL()
   }
   return seconds
 }
@@ -56,11 +56,11 @@ function decodeCursor(cursor?: string): UpstashCursor {
     // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The structural checks below validate every cursor member before use.
     // SAFETY: value remains confined to this parser until its required fields pass the checks below.
     const value = JSON.parse(decodeURIComponent(cursor)) as UpstashCursor
-    if (typeof value.cursor !== "string" || value.cursor.length === 0) throw kvErrorDiagnostics.KV_R0007()
+    if (typeof value.cursor !== "string" || value.cursor.length === 0) throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
     return value
   }
   catch {
-    throw kvErrorDiagnostics.KV_R0008({ message: "Invalid Upstash KV cursor." })
+    throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
   }
 }
 
@@ -76,7 +76,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
   const maximumContinuationBytes = 1024 * 1024
-  const expired = () => Object.assign(kvErrorDiagnostics.KV_R0011({ message: "Invalid or expired Upstash KV cursor." }), { code: "KV_CURSOR_EXPIRED" })
+  const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
   const continuations = createKVContinuations<UpstashContinuation>({ expired, maximumBytes: maximumContinuationBytes })
   const dispose = driver.dispose
   driver.dispose = async () => {
@@ -87,7 +87,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
   driver.getAndDeleteItem = async key => (await driver.getInstance()).getdel(key)
   driver.incrementItem = async (key, ttl) => {
     const value = Number(await (await driver.getInstance()).eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
-    if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_R0009({ message: "Atomic KV increment exceeds the JavaScript safe integer range." })
+    if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
     return value
   }
 
@@ -95,7 +95,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const encoder = new TextEncoder()
     const bytes = keys.reduce((total, key) => total + encoder.encode(key).byteLength, 0)
     if (bytes > maximumContinuationBytes) {
-      throw kvErrorDiagnostics.KV_R0010({ message: "Upstash KV scan overflow exceeds the continuation size limit." })
+      throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Upstash KV scan overflow exceeds the continuation size limit." })
     }
     return continuations.retain({ cursor: providerCursor, keys }, bytes)
   }
@@ -120,7 +120,7 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
       })
       providerCursor = String(scanned[0])
       if (providerCursor === state.cursor && providerCursor !== "0") {
-        throw kvErrorDiagnostics.KV_R0023({ message: "Upstash KV scan returned a repeated pagination cursor." })
+        throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Upstash KV scan returned a repeated pagination cursor." })
       }
       keys = [...new Set<string>(scanned[1])]
     }

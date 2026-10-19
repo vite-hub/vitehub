@@ -191,9 +191,16 @@ export async function resolveEnvEntries(
 }
 
 export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
-  const registry = buildRegistry(declarations, options.path ?? "env", options.prefix)
-  assertUniqueCanonicalNames(registry, options.path ?? "env")
-  return registry
+  const path = options.path ?? "env"
+  try {
+    const registry = buildRegistry(declarations, path, options.prefix)
+    assertUniqueCanonicalNames(registry, path)
+    return registry
+  }
+  catch (error) {
+    if (isViteHubError(error)) throw error
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
 }
 
 // A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
@@ -325,7 +332,8 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
+  try {
+    return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
       if (isRuntimeStaticValue(value)) {
@@ -363,7 +371,14 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       secret: value.secret,
       source,
     }]
-  }))
+    }))
+  }
+  catch (error) {
+    if (isViteHubError(error)) {
+      throw error
+    }
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
 }
 
 function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
@@ -535,15 +550,25 @@ function segmentToEnvParts(segment: string): string[] {
 }
 
 function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
-  return isPlainRecord(value) && value.kind === "env-variable"
+  try {
+    return isPlainRecord(value) && value.kind === "env-variable"
+  }
+  catch {
+    return false
+  }
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === null || prototype === Object.prototype
+  }
+  catch {
     return false
   }
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === null || prototype === Object.prototype
 }
 
 function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
@@ -551,36 +576,39 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
 }
 
 function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
-  if (value === null) {
-    return true
-  }
-  switch (typeof value) {
-    case "boolean":
-    case "string":
+  try {
+    if (value === null) {
       return true
-    case "number":
-      return Number.isFinite(value)
-    case "object":
-      if (!Array.isArray(value)) {
-        return false
-      }
-      if (ancestors.has(value)) {
-        return false
-      }
-      ancestors.add(value)
-      try {
-        for (let index = 0; index < value.length; index += 1) {
-          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
-            return false
-          }
-        }
+    }
+    switch (typeof value) {
+      case "boolean":
+      case "string":
         return true
-      }
-      finally {
-        ancestors.delete(value)
-      }
-    default:
-      return false
+      case "number":
+        return Number.isFinite(value)
+      case "object":
+        if (!Array.isArray(value)) {
+          return false
+        }
+        if (ancestors.has(value)) return false
+        ancestors.add(value)
+        try {
+          for (let index = 0; index < value.length; index += 1) {
+            if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+              return false
+            }
+          }
+          return true
+        }
+        finally {
+          ancestors.delete(value)
+        }
+      default:
+        return false
+    }
+  }
+  catch {
+    return false
   }
 }
 
@@ -602,6 +630,7 @@ function readPath(value: Record<string, unknown>, path: string): unknown {
     if (typeof current !== "object" || current === null) {
       return undefined
     }
+    if (!Object.hasOwn(current, segment)) return undefined
     return (current as Record<string, unknown>)[segment]
   }, value)
 }

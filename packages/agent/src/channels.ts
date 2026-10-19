@@ -500,8 +500,11 @@ export const pullRequest = {
       ...(value.base?.ref ? { baseRef: value.base.ref } : {}),
       ...(context.trigger.deliveryId ? { deliveryId: context.trigger.deliveryId } : {}),
       ...(value.source.ref || value.head?.ref ? { headRef: value.source.ref || value.head?.ref } : {}),
-      provider: context.forge?.kind || "github",
-      instance: context.forge?.instance || githubInstance(value.htmlUrl),
+      // Queued invocations persisted before the Forge rename used `host` on
+      // the pull-request context. Keep those deliveries tied to their
+      // original provider while new invocations use `forge`.
+      provider: context.forge?.kind || (isRecord((context as unknown as Record<string, unknown>).host) ? ((context as unknown as Record<string, unknown>).host as Record<string, unknown>).kind as "gitlab" | "forgejo" | undefined : undefined) || "github",
+      instance: context.forge?.instance || (isRecord((context as unknown as Record<string, unknown>).host) && hasRuntimeType(((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance, "string") ? (((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance as string) : undefined) || githubInstance(value.htmlUrl),
       repository: context.repository.fullName,
       run: context.run,
       trigger: context.trigger,
@@ -2883,7 +2886,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const accepted = context.queuedInvocation
         const acceptedPullRequest = githubPullRequestRunContextFromUnknown(accepted?.input.context?.pullRequest)
-        const acceptedCommand = githubCommandFromUnknown(services ? forgeCommandForTrigger(accepted?.input.context?.forge) : accepted?.input.context?.github)
+        const acceptedCommand = githubCommandFromUnknown(services
+          ? forgeCommandForTrigger(accepted?.input.context?.forge || accepted?.input.context?.codeHost)
+          : accepted?.input.context?.github)
         if (accepted && acceptedPullRequest && acceptedCommand?.deliveryId) {
           const metadata = await githubPullRequestMetadata(app, context, acceptedCommand, options, undefined, services)
           const refreshed = {
@@ -2909,7 +2914,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             input: {
               ...accepted.input,
               ...pullRequestCommandInput(acceptedCommand, refreshed),
-              context: { ...accepted.input.context, github: acceptedCommand, pullRequest: refreshed },
+              context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
               ...ownership,
@@ -3325,7 +3330,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
         const result = await trigger.invoke(context, normalized)
         if (result instanceof Response) return result
         const value = githubPullRequestRunContextFromUnknown(result.input?.context?.pullRequest)
-        const command = githubCommandFromUnknown(result.input?.context?.github || forgeCommandForTrigger(result.input?.context?.forge))
+        const command = githubCommandFromUnknown(result.input?.context?.github || forgeCommandForTrigger(result.input?.context?.forge || result.input?.context?.codeHost))
         if (!value || !command) return result
         const parts = command.repository.split("/")
         command.repo = parts.pop()!

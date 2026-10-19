@@ -368,6 +368,15 @@ async function assertStorageSdksNotInstalled(appDir: string) {
   expect(JSON.parse(stdout), "storage SDKs must not install without the app").toEqual([])
 }
 
+// vite-hub and @vite-hub/agent must resolve the same ai. A second ai gives a second @vite-hub/workspace,
+// because ai is a Workspace peer, and the two copies reject each other's writable facades.
+async function assertOneWorkspaceCopy(appDir: string) {
+  const entries = await readdir(join(appDir, "node_modules/.pnpm"))
+  const aiVersions = new Set(entries.filter(entry => entry.startsWith("ai@")).map(entry => entry.split("_")[0]))
+  expect([...aiVersions], "one ai version").toHaveLength(1)
+  expect(entries.filter(entry => entry.startsWith("@vite-hub+workspace@")), "one @vite-hub/workspace copy").toHaveLength(1)
+}
+
 function importSpecifierOccurrences(source: string) {
   const pattern = /\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']([^"']+)["']/g
   return [...source.matchAll(pattern)].map(match => ({
@@ -401,7 +410,7 @@ function assertProviderRuntimeReachabilityClosed(
   const forbiddenPackagePaths = [
     "node_modules/@modelcontextprotocol/sdk/",
     "node_modules/@vite-hub/agent/",
-    "node_modules/@vite-hub/box/",
+    "node_modules/@vite-hub/sandbox/",
     "node_modules/@vite-hub/source/",
     "node_modules/@vite-hub/workspace/",
     "node_modules/pkce-challenge/",
@@ -479,7 +488,7 @@ function isRetainedProviderSource(file: string) {
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
   it("serves SSH from a packed vite-hub-only installation without hoisting", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vite-hub-box-consumer-"))
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-sandbox-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
 
@@ -501,7 +510,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([hostKey, identity].map(path => run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path], appDir)))
       const port = await availablePort()
       const child = spawn(join(appDir, "node_modules/.bin/vitehub"), [
-        "box", "serve", "--user", "agent", "--host-key", hostKey,
+        "sandbox", "serve", "--user", "agent", "--host-key", hostKey,
         "--authorized-key", `${identity}.pub`, "--port", String(port), "--cwd", appDir,
       ], { cwd: appDir, stdio: ["ignore", "pipe", "pipe"] })
       const closed = once(child, "close")
@@ -521,7 +530,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           child.once("error", error => { clearTimeout(timeout); reject(error) })
           child.once("close", () => { clearTimeout(timeout); reject(new Error(`SSH runner exited before listening.\n${stdout}${stderr}`)) })
         })
-        expect(JSON.parse(stdout.trim())).toEqual({ event: "box.listening", port })
+        expect(JSON.parse(stdout.trim())).toEqual({ event: "sandbox.listening", port })
         child.kill("SIGTERM")
         expect(await closed).toEqual([0, null])
         expect(stderr).toBe("")
@@ -1060,7 +1069,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
-        "@vite-hub/box",
+        "@vite-hub/sandbox",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",
         "@vite-hub/source",
@@ -1170,6 +1179,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
       await assertStorageSdksNotInstalled(appDir)
+      await assertOneWorkspaceCopy(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 
@@ -1214,9 +1224,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
         VITEHUB_PRESET: "vercel",
       })
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func", "index.mjs"))).toBe(true)
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs"))).toBe(true)
-
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func"))).toBe(false)
       const queueCallback = join(
         appDir,
         ".vercel",
@@ -1226,20 +1234,19 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "vitehub",
         "queues",
         "vercel",
-        "welcome",
         "welcome.func",
         "index.mjs",
       )
+      expect(JSON.parse(await readFile(join(dirname(queueCallback), ".vc-config.json"), "utf8"))).toMatchObject({
+        experimentalTriggers: [{ consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Dfunc", type: "queue/v2beta" }],
+      })
       const callbackInvocation = await run(
         "node",
         [
           "--input-type=module",
           "--eval",
           `
-        import { once } from "node:events"
-        import { createServer } from "node:http"
         import { pathToFileURL } from "node:url"
-        const localFetch = globalThis.fetch
         const oidcPayload = Buffer.from(JSON.stringify({ owner_id: "offline-team", project_id: "offline-project" })).toString("base64url")
         process.env.VERCEL_OIDC_TOKEN = ["e30", oidcPayload, "offline-signature"].join(".")
         const handler = (await import(pathToFileURL(${JSON.stringify(queueCallback)}).href)).default
@@ -1251,30 +1258,24 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           send: async () => ({ messageId: "unused" }),
         }
         globalThis.fetch = async input => { throw new Error("offline provider proof: " + String(input)) }
-        const server = createServer(handler)
-        server.listen(0, "127.0.0.1")
-        await once(server, "listening")
-        const address = server.address()
-        const response = await localFetch("http://127.0.0.1:" + address.port, { method: "POST" })
+        const response = await handler.fetch(new Request("http://127.0.0.1/api/vitehub/queues/vercel/welcome", { method: "POST" }), {})
         const body = await response.text()
-        server.close()
-        await once(server, "close")
         if (response.status !== 200 || body !== "handled") throw new Error("Queue callback failed: " + response.status + " " + body)
-        process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxResult))
+        process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxTaskResult))
       `,
         ],
         appDir,
       )
-      const sandboxResult = JSON.parse(callbackInvocation.stdout) as {
+      const sandboxTaskResult = JSON.parse(callbackInvocation.stdout) as {
         code?: string
         message?: string
         optimized?: boolean
       }
-      expect(sandboxResult.message || "").toContain("offline provider proof:")
-      expect(sandboxResult.message || "").not.toContain('Unknown sandbox "image-optimizer"')
-      expect(sandboxResult.message || "").not.toContain("requires @vercel/sandbox")
-      expect(sandboxResult.message || "").not.toContain("Cannot find package")
-      expect(sandboxResult.code || "").not.toBe("ERR_MODULE_NOT_FOUND")
+      expect(sandboxTaskResult.message || "").toContain("offline provider proof:")
+      expect(sandboxTaskResult.message || "").not.toContain('Unknown Sandbox Task "image-optimizer"')
+      expect(sandboxTaskResult.message || "").not.toContain("requires @vercel/sandbox")
+      expect(sandboxTaskResult.message || "").not.toContain("Cannot find package")
+      expect(sandboxTaskResult.code || "").not.toBe("ERR_MODULE_NOT_FOUND")
 
       const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
       const queueFunctionRoot = dirname(queueCallback)
@@ -1381,8 +1382,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/runtime/state")
-      expect(workflowRegistry).not.toContain("vite-hub/sandbox")
+      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox-task/runtime/state")
+      expect(workflowRegistry).not.toContain("vite-hub/sandbox-task")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
       expect(nativeWorkflow).toContain('"use workflow"')

@@ -28,10 +28,9 @@ The Env declarations read the Google client credentials from the server environm
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true })],
   env: {
     server: {
       google: {
@@ -119,7 +118,9 @@ import { useConnection } from 'vite-hub/connections/server'
 
 export default defineEventHandler(async (event) => {
   const connection = useConnection('google', { event })
-  return await connection.gmail.users.labels.list({ userId: 'me' })
+  const [error, data] = await connection.gmail.users.labels.list({ userId: 'me' })
+  if (error) throw error
+  return data
 })
 ```
 

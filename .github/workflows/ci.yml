@@ -189,9 +189,9 @@ jobs:
           - name: content and workflow
             args: --packages @vite-hub/content,@vite-hub/workflow
           - name: storage and delivery
-            args: --packages @vite-hub/blob,@vite-hub/box,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
+            args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/box,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

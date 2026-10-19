@@ -110,7 +110,7 @@ export function pullRequestCheckoutPlan(context: ContextStore): PullRequestCheck
 
 /**
  * Repositories a GitHub pull request run acts on, even when it opts out of the
- * managed checkout. Babysitter supplies flat repository fields for its prepared
+ * managed checkout. A process host can supply flat repository fields for its prepared
  * checkout. Credentials stay scoped so multi-installation GitHub Apps can resolve access.
  */
 export function pullRequestRepositories(context: ContextStore): { headRepository?: string, repository: string } | undefined {

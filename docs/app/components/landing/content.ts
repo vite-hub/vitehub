@@ -329,7 +329,9 @@ export const portabilityExamples = [
       "",
       "export default defineEventHandler(async (event) => {",
       "  const payload = await readBody<{ email: string }>(event)",
-      '  return runQueue("welcome-email", payload)',
+      '  const [error, result] = await runQueue("welcome-email", payload)',
+      "  if (error) throw error",
+      "  return result",
       "})",
     ],
     hosts: [
@@ -389,10 +391,10 @@ export const portabilityExamples = [
     path: "server/api/release-notes.post.ts",
     code: [
       'import { defineEventHandler } from "h3"',
-      'import { runSandbox } from "vite-hub/sandbox"',
+      'import { runSandboxTask } from "vite-hub/sandbox-task"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const response = await runSandbox("release-notes", { notes: "ship it" })',
+      '  const response = await runSandboxTask("release-notes", { notes: "ship it" })',
       "  if (!response.ok) throw new Error(await response.text())",
       "  return response.json()",
       "})",

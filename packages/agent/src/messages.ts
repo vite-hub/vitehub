@@ -45,6 +45,7 @@ export type AudioData = AttachmentData
 const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
 const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
 const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 
 /** Brand checks that work for values created in another JavaScript realm. */
 export function isBlobValue(value: unknown): value is Blob {
@@ -67,6 +68,11 @@ export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
+export function arrayBufferByteLength(value: ArrayBuffer): number {
+  // SAFETY: The intrinsic ArrayBuffer byteLength getter reads the internal slot.
+  return Reflect.apply(arrayBufferByteLengthGetter!, value, []) as number
+}
+
 export function isUint8ArrayValue(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false
   if (!typedArrayTagGetter) return false
@@ -75,6 +81,11 @@ export function isUint8ArrayValue(value: unknown): value is Uint8Array {
   } catch {
     return false
   }
+}
+
+export function uint8ArrayByteLength(value: Uint8Array): number {
+  // SAFETY: The intrinsic TypedArray byteLength getter reads the internal slot.
+  return Reflect.apply(typedArrayByteLengthGetter!, value, []) as number
 }
 
 export function blobSize(value: Blob): number {

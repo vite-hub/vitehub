@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// Get started lists this page, so it opens in the docs layout with the sidebar.
+definePageMeta({ layout: "docs" });
+
 useSeoMeta({
   title: "Tutorials",
   ogTitle: "Tutorials · ViteHub",

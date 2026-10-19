@@ -43,7 +43,6 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 Select the `cloudflare` preset and enable the features the application uses.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -54,8 +53,6 @@ export default defineConfig({
       database: true,
       queue: true,
     }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
   ],
 })
 ```
@@ -117,17 +114,20 @@ When Sandbox is enabled, ViteHub writes an explicit gradual Container rollout in
 
 With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
-When you compose the owner integration directly, set the Cloudflare provider and namespace yourself. If no Nitro or hosting environment signal selects a provider, plain Vite builds cannot infer one, so the explicit provider is required before Vite writes bindings to the generated `wrangler.json`. An explicit provider and namespace keep standalone builds predictable even when a hosting signal is present.
+When you compose the owner integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider. Nitro writes the bindings to the generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 import { hubRateLimit } from '@vite-hub/rate-limit/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubRateLimit({
-    provider: 'cloudflare',
-    namespace: 'acme-image-service-production',
-  })],
+  nitro: { preset: 'cloudflare-module' },
+  plugins: [
+    hubRateLimit({ namespace: 'acme-image-service-production' }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
+  ],
 })
 ```
 

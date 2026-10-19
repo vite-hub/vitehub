@@ -91,16 +91,16 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       const cursors = continuation.history
       const page = await driver.getInstance().list(listOptions)
       if (!isCloudflareKVListPage(page)) {
-        throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
+        throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV list returned an invalid page." })
       }
       const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
       if (!page.list_complete) {
         if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(page.cursor!)) {
-          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, page.cursor!)) {
-          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected pagination after the cursor history limit was reached." })
         }
         result.cursor = cursorHistories.store(page.cursor!, cursors, requestNamespace)
       }

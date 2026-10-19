@@ -62,7 +62,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
         serverDirs,
         serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,
       })
-        .filter(definition => definition.manual === true && definition.runtimeOnly !== true)
+        .filter(definition => definition.manual === true)
         .map(definition => ({ handler: definition.handler, name: definition.name }))
     : []
   return { agents, content, manualSchedules }

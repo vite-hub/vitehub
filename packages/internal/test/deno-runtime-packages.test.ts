@@ -109,6 +109,10 @@ await import(\`escaped\\u002dtemplate-package\`)
 `)).toEqual(["data-package", "escaped-template-package", "function-options", "identifier-options", "template-package"])
   })
 
+  it("does not read module calls from nested template text", () => {
+    expect(collectDenoRuntimePackageNames('const value = `outer ${`require("inert-runtime")`}`')).toEqual([])
+  })
+
   it("finds packages loaded through createRequire aliases", () => {
     expect(collectDenoRuntimePackageNames(`
 import { createRequire as makeRequire } from "node:module"

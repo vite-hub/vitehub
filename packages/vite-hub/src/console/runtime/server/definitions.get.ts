@@ -30,7 +30,8 @@ function mergeRecords(build: readonly ConsoleRecord[], runtime: readonly Console
 
 function markRunnableSchedules(records: readonly ConsoleRecord[]): ConsoleRecord[] {
   const runnable = getConsoleSchedules()
-  return records.map(record => record.cells.kind === "Definition" && record.cells.schedule && Object.hasOwn(runnable, record.cells.schedule)
+  // Schedule Definition records use the `definition:` id prefix and have no `kind` cell.
+  return records.map(record => record.id.startsWith("definition:") && record.cells.schedule && Object.hasOwn(runnable, record.cells.schedule)
     ? { ...record, runnable: true }
     : record)
 }
