@@ -15,7 +15,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
-import { resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
@@ -36,7 +36,6 @@ import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } fro
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
-import { activeProviderSandbox } from "../internal/provider-box.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
