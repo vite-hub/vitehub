@@ -552,6 +552,7 @@ export type {
   AgentToolStep,
   AgentWaitUntil,
   AgentProviderCredentialContext,
+  AgentProviderReadinessCheck,
   AgentProviderStatus,
   AgentProviderUsageLimits,
   AgentProviderCredentialResolver,
@@ -2307,6 +2308,7 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
+            retention: driver.retention,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
           })))
@@ -4907,7 +4909,8 @@ async function createAgentInvocationContext<
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
+    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object")
+      && !(Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string"))
       ? configuredWorkspace.commit
       : undefined
     const workspaceInstructions = workspaceOptions && activeWorkspace

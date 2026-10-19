@@ -148,10 +148,26 @@ describe("UI documentation", () => {
 
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain("<NuxtLink");
+    expect(sidebarTop).toContain('<NuxtLink');
+  });
+
+  it("keeps the sidebar header focused on search", () => {
+    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
+
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
+
+  it("keeps site catalogs in the rail header above the product sections", () => {
+    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
+
+    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
+    expect(rail).toContain("<template #header");
+    expect(rail).toContain("getDocsRailCatalog(docsManifest.sections)");
+    expect(rail).toContain("getUncategorizedDocsSections(docsManifest.sections)");
+    expect(rail).toContain("<template #default");
+  });
+
 
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
@@ -162,8 +178,11 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-
-    expect(layout).toContain("overflow: hidden;");
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toContain("overflow-x: clip;");
+    expect(desktopStyles).not.toContain("overflow: hidden;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
@@ -173,5 +192,6 @@ describe("UI documentation", () => {
 
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
+    expect(page).toContain("The UI package follows the same choice.");
   });
 });

@@ -1,6 +1,5 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
-
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
 
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -61,20 +60,14 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
-  const normalized = value.replaceAll("\\", "/")
-  if (normalized !== value || normalized.includes("//") || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) return false
-  const parts = normalized.split("/")
-  if (parts.some(part => part.length === 0 || part === "." || part === "..")) return false
-  return !parts.some((part, index) => {
-    const lower = part.toLowerCase()
-    const withoutStream = lower.split(":", 1)[0]!
-    const trimmed = withoutStream.replace(/[ .]+$/, "")
-    const reserved = trimmed === ".git"
-      || /^git~\d+$/.test(trimmed)
-      || (index === 0 && (trimmed === ".vitehub" || /^vitehu~\d+$/.test(trimmed)))
-    return reserved || /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
-  })
-}
+
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || value.includes("//") || /^[a-z]:/i.test(value)) return false
+  try {
+    return normalizeSafeWorkspacePath(value) === value
+  }
+  catch {
+    return false
+  }}
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
   try {
