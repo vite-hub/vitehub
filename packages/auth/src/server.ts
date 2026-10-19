@@ -468,7 +468,22 @@ async function runAccessAuthorize(
   // the response snapshot before any await boundary so an own `then` method
   // cannot assimilate an otherwise valid response.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
-    const normalized = await normalizeAuthorizationResponse(result)
+    const thenDescriptor = Object.getOwnPropertyDescriptor(result, "then")
+    let thenShadowed = false
+    try {
+      if (thenDescriptor?.configurable) {
+        Object.defineProperty(result, "then", { configurable: true, writable: true, value: undefined })
+        thenShadowed = true
+      }
+    }
+    catch { /* normalization will fail closed */ }
+    let normalized: Response | undefined
+    try {
+      normalized = await normalizeAuthorizationResponse(result)
+    }
+    finally {
+      if (thenShadowed && thenDescriptor) Object.defineProperty(result, "then", thenDescriptor)
+    }
     if (normalized) return { response: normalized }
   }
 
@@ -513,9 +528,15 @@ async function runAccessAuthorize(
       })
     }
     catch (error) {
-      // Keep species failures on the native adoption promise so the
-      // authorization boundary observes them consistently.
-      nativePromise = Promise.reject(error)
+      try {
+        // Native resolution adopts the source without creating a species
+        // derived promise, so immutable species descriptors cannot hide the
+        // source settlement.
+        nativePromise = Promise.resolve(result)
+      }
+      catch {
+        nativePromise = Promise.reject(error)
+      }
     }
     finally {
       if (constructorOverridden) {
@@ -822,6 +843,8 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           if (!(body as ReadableStream).locked) return
           Reflect.apply(probeMethods.releaseLock, ownershipReader, [])
           if ((body as ReadableStream).locked) return
+          const readerConstructor = Object.getOwnPropertyDescriptor(probePrototype, "constructor")?.value
+          if (typeof readerConstructor === "function") foreignReaderMethods.set(readerConstructor, probeMethods)
           foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
