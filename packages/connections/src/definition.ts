@@ -97,6 +97,7 @@ const loginDefinitionSchema = v.looseObject({
       requests: requestsSchema,
     }),
     v.check(provider => isValidLoginProvider(provider)),
+    v.check(provider => Object.values(provider.apis ?? {}).every(catalog => isSafeEndpoint(catalog.rootUrl))),
   ),
   scopes: v.optional(v.array(v.string())),
   ...rulesSchema,

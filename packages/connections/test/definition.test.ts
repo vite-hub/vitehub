@@ -19,3 +19,18 @@ it("accepts a provider mcp endpoint only when it can carry a credential", async 
     expect(() => defineConnection({ provider: { ...testProvider(), mcp }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
   }
 })
+
+it("rejects unsafe API catalog roots in login definitions", () => {
+  expect(() => defineConnection({
+    provider: {
+      account: () => undefined,
+      apis: { mail: { methods: {}, rootUrl: "https://user:password@example.com/" } },
+      id: "login",
+      kind: "oauth-login",
+      login: async () => undefined,
+      mcp: "https://mcp.example.com/mcp",
+      origins: [],
+      redirectUri: "http://127.0.0.1/callback",
+    },
+  })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+})
