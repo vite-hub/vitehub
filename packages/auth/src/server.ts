@@ -590,6 +590,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     if (readerPromise) return readerPromise
     readerPromise = (async () => {
       const reader = Reflect.apply(getReader, body, [])
+      let verifiedRelease: ((...args: never[]) => unknown) | undefined
 
       try {
     const readerPrototype = Object.getPrototypeOf(reader)
@@ -606,16 +607,21 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     const read = readerOperation(readerPrototype, "read") as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
     const cancel = readerOperation(readerPrototype, "cancel") as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
     const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+    if (!isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    verifiedRelease = releaseLock
     // Native reader operations have stable names across realms. This rejects
     // replacements installed on a shared reader prototype before any
     // caller-controlled operation is invoked.
     if (!isNativeFunction(read, nativeReaderRead, "read", false, false) || read.name !== "read"
     || !isNativeFunction(cancel, nativeReaderCancel, "cancel", false, false) || cancel.name !== "cancel"
-    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    ) throw new Error("Non-native response reader")
         return { reader, read, cancel, release: releaseLock }
       }
       catch (error) {
-        try { Reflect.apply(nativeReaderReleaseLock, reader, []) } catch { /* best effort */ }
+        try {
+          if (verifiedRelease) Reflect.apply(verifiedRelease, reader, [])
+        }
+        catch { /* best effort */ }
         throw error
       }
     })()
