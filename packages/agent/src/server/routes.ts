@@ -8715,7 +8715,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 waitUntil,
                 async (reserved) => {
                   if (reserved) {
-                    await settleAgentChannelStateCommit(stateCommit)
+                    // The existing delivery remains queued; this invocation was
+                    // not admitted, so discard its staged Channel State.
+                    await releaseAgentChannelStateCommit(stateCommit)
                     return Response.json({
                       accepted: true,
                       duplicate: false,
