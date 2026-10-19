@@ -845,7 +845,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (sourceResponse.body !== body) return
       const converted = sourceResponse
       body = converted.body
+      const convertedReader = nativeStreamGetReader?.call(body)
+      if (!convertedReader) return
       nativeBodyReader = nativeStreamGetReader
+      validatedAuthorizationReaders.set(body, convertedReader)
     }
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
