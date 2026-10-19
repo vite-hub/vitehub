@@ -7,6 +7,7 @@ import { mcp } from "../src/capabilities/mcp.ts"
 import { createAgentEnvIdentity } from "../src/internal/env-identity.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+import { mcpSkillsWorkspaceContribution } from "../src/internal/mcp-skills.ts"
 
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
@@ -132,6 +133,14 @@ describe("mcp() Skills", () => {
     finally {
       await resolved.close()
     }
+  })
+
+  it("keeps first-party materialization paths ahead of MCP Skills regardless of capability order", async () => {
+    const contribution = await mcpSkillsWorkspaceContribution([{
+      server: "drop",
+      skills: [{ name: "review", files: [{ content: "# Drop", mediaType: "text/markdown", path: "SKILL.md" }] }],
+    }], undefined, [".agents/skills", ".agents/skills/review"])
+    expect(contribution).toBeUndefined()
   })
 
   it("does not read Skills from a server with skills: false or pass the option to the MCP client", async () => {

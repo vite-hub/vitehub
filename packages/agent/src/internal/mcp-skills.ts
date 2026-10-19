@@ -170,7 +170,10 @@ export async function mcpSkillsWorkspaceContribution(
   definition: WorkspaceDefinition | undefined,
   materializationPaths: readonly string[] = [],
 ): Promise<AgentCapabilityWorkspaceContribution | undefined> {
-  const occupied = [...await occupiedPaths(definition), ...materializationPaths]
+  // The MCP capability reserves this root for its own transient contribution.
+  // It must not hide MCP Skills from itself; only other capabilities' materialization
+  // paths represent Agent-owned content that takes precedence.
+  const occupied = [...await occupiedPaths(definition), ...materializationPaths.filter(path => path !== mcpSkillsRoot)]
   const taken = new Set<string>()
   const sources: Record<string, WorkspaceSourceInput> = {}
   for (const { server, skills } of servers) {
