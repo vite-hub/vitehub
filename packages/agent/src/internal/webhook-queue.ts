@@ -15,14 +15,12 @@ export interface AgentWebhookQueueDelivery {
   deliveryId: string
   enqueuedAt: number
   invocation?: {
-    /** The name of the Agent that the selected task runs. Unset when the Agent that owns the trigger runs it. */
-    agentName?: string
     input: unknown
     run?: unknown
-    /** The key of the trigger task that `invoke` selected. */
-    task?: string
-    /** Whether the trigger had preparation that must run before execution. */
-    requiresPrepare?: true
+    /** The Channel trigger that admitted a queued dispatch item. Its `failed` callback runs for the item. */
+    trigger?: string
+    /** Ordering marker owned by a queued Channel dispatch item. */
+    order?: { key: string, version: number, previous?: number }
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -97,7 +95,7 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.request.method) ||
     !("url" in value.request) ||
     !isRuntimeString(value.request.url) ||
-    ("invocation" in value && !isRuntimeUndefined(value.invocation) && (!isRuntimeObject(value.invocation) || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
+    ("invocation" in value && !isRuntimeUndefined(value.invocation) && !isRuntimeObject(value.invocation)) ||
     ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
   ) {
     throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })
@@ -189,7 +187,7 @@ export function isWebhookQueueStop(error: unknown): boolean {
 const stoppingWebhookQueues = new Set<Promise<void>>()
 
 /** Grace budget for active deliveries on stop, from VITEHUB_SHUTDOWN_DRAIN_MS. */
-function webhookQueueStopGraceMs(): number {
+export function webhookQueueStopGraceMs(): number {
   const value = Number(globalThis.process?.env?.VITEHUB_SHUTDOWN_DRAIN_MS)
   return Number.isFinite(value) && value > 0 ? value : 0
 }

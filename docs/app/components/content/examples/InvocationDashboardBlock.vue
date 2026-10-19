@@ -19,8 +19,9 @@ onUnmounted(() => {
   if (clockTimer !== undefined) clearInterval(clockTimer);
 });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations = computed<AgentInvocationView[]>(() => [
+const invocations: AgentInvocationView[] = [
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -135,11 +136,11 @@ const invocations = computed<AgentInvocationView[]>(() => [
     traceId: "trace_release",
     updatedAt: time(2280),
   },
-]);
+];
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
-  invocations.value.map((invocation) => ({
+  invocations.map((invocation) => ({
     agent: invocation.agentName,
     context: agentInvocationContext(invocation),
     description: invocation.error?.message,
@@ -150,9 +151,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations.value[0]!.id);
+const selectedId = ref(invocations[0]!.id);
 const selected = computed(() =>
-  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);
