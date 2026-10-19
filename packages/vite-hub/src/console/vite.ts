@@ -115,6 +115,9 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
     const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : false
     return { ...value, auth, ...(legacy.access === "local" ? { local: true } : {}) } as ConsoleOptions
   }
+  if ("auth" in value && (legacy.access !== undefined || legacy.exposure !== undefined)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth cannot be combined with legacy console.access or console.exposure. Use console.auth instead.' })
+  }
   if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
