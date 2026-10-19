@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition";
 import { betterAuth } from "better-auth";
-import { Request as UndiciRequest } from "undici";
 import { resolveAuthMountPath } from "./application-path.ts";
 import { normalizeAuthBasePath } from "./shared.ts";
 import { unwrapAuthRequest } from "./request.ts";
@@ -128,24 +127,14 @@ function isRequestLike(value: AuthRequest): value is Request {
             )
               && prototypeSymbols.some(symbol => symbol.description === "window")
             if (!happyDomState) return false
-            // Happy DOM keeps the owning Window on the Request prototype. Tie
-            // every platform object back to that window and its constructors;
-            // a handful of copied symbols on an arbitrary object is not enough.
-            const windowSymbol = prototypeSymbols.find(symbol => symbol.description === "window")
-            const ownerWindow = windowSymbol && Reflect.get(Object.getPrototypeOf(value), windowSymbol)
-            if (!ownerWindow || Reflect.get(ownerWindow, "Request") !== Reflect.get(value, "constructor")) return false
-            if (Reflect.get(ownerWindow, "Headers") !== Reflect.get(Reflect.get(value, "headers"), "constructor")) return false
-            if (Reflect.get(ownerWindow, "AbortSignal") !== Reflect.get(Reflect.get(value, "signal"), "constructor")) return false
             return true
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
-            // Undici's private request fields are intentionally not inspected:
-            // their symbols and values are observable and reproducible by a
-            // caller. Preserve only the constructor brand owned by this
-            // package; other Undici copies follow the normalization path.
-            if (value instanceof UndiciRequest) return true
-            return false
+            // A genuine Request implementation from another realm or loaded
+            // copy reports the same Web-IDL brand failure. Do not tie this
+            // compatibility path to Auth's particular Undici constructor.
+            return true
           }
         }
         current = Object.getPrototypeOf(current)
@@ -153,6 +142,15 @@ function isRequestLike(value: AuthRequest): value is Request {
       return false
     }
     if (!hasPrototypeTag(value, "Request")) return false
+    const ownSymbols = Object.getOwnPropertySymbols(value)
+    const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+    const happyDomState = [
+      "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+      "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+      "contentType", "referrer", "url", "bodyBuffer",
+    ].every(name => ownSymbols.some(symbol => symbol.description === name))
+      && prototypeSymbols.some(symbol => symbol.description === "window")
+    if (happyDomState) return true
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
@@ -184,10 +182,15 @@ function isRequestLike(value: AuthRequest): value is Request {
 function toRequest(request: AuthRequest): Request {
   if (request instanceof Request || isRequestLike(request)) return request
   const init: RequestInitWithDuplex = {
-    headers: request.headers,
     method: request.method,
-    signal: request.signal,
   };
+  try {
+    init.headers = new Headers(request.headers as HeadersInit);
+  }
+  catch {
+    init.headers = new Headers();
+  }
+  if (request.signal instanceof AbortSignal) init.signal = request.signal;
   if (request.body) {
     init.body = request.body;
     init.duplex = "half";
