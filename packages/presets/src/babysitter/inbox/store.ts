@@ -46,6 +46,7 @@ export interface GitHubInboxSummary {
   mergeReady?: boolean
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  state?: string; dirtyAt?: number
   reviewPushBudget?: ReviewPushBudget
   dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
@@ -1397,14 +1398,15 @@ export class PullRequestInbox {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
-    const rows = await this.read(`SELECT p.repository, p.number, p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+    const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
         AND json_extract(CASE WHEN json_valid(parent.value) THEN parent.value ELSE '{}' END, '$.pr.head.repo.full_name') = COALESCE(json_extract(CASE WHEN json_valid(p.value) THEN p.value ELSE '{}' END, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.flatMap(row => {
-      const summary = this.parseRow(row, parseSummary, 'summary')
-      if (!summary) return []
+      const parsed = this.parseRow(row, parseSummary, 'summary')
+      if (!parsed) return []
+      const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
       if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })
