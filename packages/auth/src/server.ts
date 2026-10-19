@@ -246,7 +246,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -260,7 +260,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver() }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver(definition) }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -285,7 +285,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -339,7 +339,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver() }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -430,7 +430,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getRuntimeEnvResolver() })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getRuntimeEnvResolver(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }

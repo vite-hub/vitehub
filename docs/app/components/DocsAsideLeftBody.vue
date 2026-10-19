@@ -2,11 +2,9 @@
 import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { getDocsCatalog, getDocsRelatedSections, getDocsSidebarGroups } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { useDocsSection } from "../composables/useDocsSection";
+import { getDocsCatalog, getDocsRelatedSections, getDocsSectionForPath, getDocsSidebarGroups } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest, getDocsPageByPath, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
@@ -15,10 +15,6 @@ const docsShellUi = {
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
   center: "lg:!flex-1 lg:!min-w-0",
 };
-const supportMatrixUi = {
-  ...docsShellUi,
-  left: "lg:!w-(--vh-rail-width) lg:shrink-0",
-};
 </script>
 
 <template>
@@ -29,13 +25,15 @@ const supportMatrixUi = {
     </UContainer>
 
     <div v-else-if="isLanding" class="vh-docs-landing">
+      <AnnouncementBanner />
       <slot />
+      <AppFooter class="vh-docs-footer" />
     </div>
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
         <UPageAside class="vh-docs-aside hidden lg:block">
-          <DocsSidebars :panel="false" />
+          <DocsSidebars class="vh-docs-aside-sidebars" panel />
         </UPageAside>
       </template>
 
@@ -46,24 +44,6 @@ const supportMatrixUi = {
       </div>
     </UPage>
 
-    <div v-else-if="isLanding" class="vh-docs-landing">
-      <AnnouncementBanner />
-      <slot />
-      <AppFooter class="vh-docs-footer" />
-    </div>
-
-    <UPage v-else class="vh-docs-shell" :ui="docsShellUi">
-      <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:block">
-          <DocsSidebars panel />
-        </UPageAside>
-      </template>
-      <div class="vh-docs-main">
-        <AnnouncementBanner />
-        <slot />
-        <AppFooter class="vh-docs-footer" />
-      </div>
-    </UPage>
   </UMain>
 </template>
 
@@ -74,6 +54,7 @@ const supportMatrixUi = {
 }
 
 .vh-docs-main {
+  margin: 0 auto;
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
 }
 
@@ -84,19 +65,8 @@ const supportMatrixUi = {
 }
 
 .vh-docs-split {
+  margin: 0 auto;
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
-}
-
-@media (min-width: 80rem) {
-  .vh-docs-split { padding-right: 0; }
-}
-
-@media (min-width: 40rem) {
-  .vh-docs-main,
-  .vh-docs-landing,
-  .vh-docs-split {
-    padding: 0 2rem;
-  }
 }
 
 @media (min-width: 64rem) {
@@ -111,5 +81,23 @@ const supportMatrixUi = {
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
+
+  .vh-docs-aside-sidebars {
+    min-height: 0;
+    flex: 1 1 0;
+  }
 }
+
+@media (min-width: 80rem) {
+  .vh-docs-split { padding-right: 0; }
+}
+
+@media (min-width: 40rem) {
+  .vh-docs-main,
+  .vh-docs-landing,
+  .vh-docs-split {
+    padding: 0 2rem;
+  }
+}
+
 </style>
