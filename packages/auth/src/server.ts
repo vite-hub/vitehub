@@ -740,6 +740,19 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, _getReader: (
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  let fallbackBody: object | undefined
+  let fallbackReader: object | undefined
+  let fallbackTransferred = false
+  const releaseFallback = () => {
+    if (fallbackTransferred || !fallbackBody || !fallbackReader) return
+    try {
+      const release = Object.getPrototypeOf(fallbackReader)?.releaseLock
+      if (typeof release === "function") Reflect.apply(release, fallbackReader, [])
+    }
+    catch {}
+    validatedAuthorizationReaders.delete(fallbackBody)
+    fallbackReader = undefined
+  }
   if (value === null || Object(value) !== value) return
   // A native Response from this Fetch implementation is already safe to
   // return, including responses whose body has been consumed or locked. The
@@ -852,7 +865,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       const convertedReader: object | undefined = nativeStreamGetReader ? (nativeStreamGetReader.call(body) as object) : undefined
       if (!convertedReader) return
       nativeBodyReader = nativeStreamGetReader
-      validatedAuthorizationReaders.set(body as object, convertedReader)
+      fallbackBody = body as object
+      fallbackReader = convertedReader
+      validatedAuthorizationReaders.set(fallbackBody, convertedReader)
     }
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) {
       if (body) {
@@ -941,7 +956,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      fallbackTransferred = true
+      return response
     }
     catch (error) {
       bridgedBody.release()
@@ -951,6 +968,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   }
   catch {
     return
+  }
+  finally {
+    releaseFallback()
   }
 }
 

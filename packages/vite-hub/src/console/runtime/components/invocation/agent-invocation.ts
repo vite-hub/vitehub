@@ -1,6 +1,6 @@
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
+import { useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
@@ -27,7 +27,7 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { AgentMarkdown, AgentPatchDiff } from "@vite-hub/ui";
+import { Markdown, AgentPatchDiff } from "@vite-hub/ui";
 import { AgentToolList } from "@vite-hub/ui";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
@@ -105,7 +105,7 @@ function workspaceLabel(configuration: AgentInvocationConfiguration): string | u
 function markdown(value: string | undefined, className: string) {
   if (!value) return null;
   return h(Suspense, null, {
-    default: () => h(AgentMarkdown, { class: className, value }),
+    default: () => h(Markdown, { class: className, value }),
     fallback: () => h("p", { class: className }, value),
   });
 }

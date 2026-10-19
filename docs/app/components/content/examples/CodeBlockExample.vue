@@ -1,5 +1,11 @@
 <script setup lang="ts">
+import { defineComponent, h, type VNode } from "vue";
 import { useHighlightedCode } from "@vite-hub/ui";
+
+const RenderVNode = defineComponent({
+  props: { node: { required: true, type: Object as () => VNode } },
+  setup(props) { return () => props.node; },
+});
 
 const code = `export default defineEventHandler(async (event) => {
   const { city } = getQuery(event);
@@ -19,7 +25,7 @@ const lines = useHighlightedCode(code, "ts");
     </CodeBlockHeader>
     <CodeBlockContent line-numbers>
       <CodeBlockLine v-for="(line, index) in lines" :key="index">
-        <component :is="line" />
+        <RenderVNode :node="line" />
       </CodeBlockLine>
     </CodeBlockContent>
   </CodeBlock>
