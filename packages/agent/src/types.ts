@@ -728,11 +728,32 @@ export interface AgentChannelDispatchItem {
   input: unknown
   /** Stable key, such as the provider message ID. The Invocation ID derives from it. */
   key: string
+  /**
+   * Queued dispatch only. The item is skipped with reason `"stale"`, before the trigger runs, unless `version` is
+   * greater than the last version admitted or answered for `key` through the same trigger. The new version commits
+   * with the item's admission. An item whose trigger throws or answers 400 or above does not advance it.
+   */
+  order?: AgentChannelDispatchOrder
+}
+
+/** The position of a dispatch item in the stream of changes to one entity, such as one record. */
+export interface AgentChannelDispatchOrder {
+  /** The entity, such as a record ID. */
+  key: string
+  /** A finite number that grows with each change of `key`, such as a provider sequence number. */
+  version: number
 }
 
 export interface AgentChannelDispatchOptions {
-  /** Record Channel message writes in the trace instead of calling the provider. */
+  /** Record Channel message writes in the trace instead of calling the provider. Not available with `queue`. */
   dryRun?: boolean
+  /**
+   * Admit each item to the webhook queue instead of running it now, as if it arrived as its own webhook delivery.
+   * The trigger must answer with `webhook.deliveryId` and a concurrency limit (or `serialize`). Items are admitted in
+   * order, and the first item that cannot be admitted throws. Available while the Channel's webhook route runs the
+   * calling trigger with a queue-capable State, such as SQLite or libSQL.
+   */
+  queue?: boolean
   /** Trigger of the same Channel that receives each item. */
   trigger: string
 }
@@ -741,6 +762,92 @@ export interface AgentChannelDispatchOptions {
 export interface AgentChannelStateBinding {
   keyPrefix: string
   state: StateAdapter
+}
+
+/** One key of a Channel's State while `channelState.transaction()` holds its lock. */
+export interface AgentChannelStateTransaction<T = unknown> {
+  /** The full State key: the Channel's `keyPrefix` followed by the transaction key. */
+  readonly key: string
+  /** The saved value when the lock was taken, or `null`. */
+  readonly value: T | null
+  /** Stage a new value. Nothing is written until the transaction commits. */
+  set(value: T): void
+  /** Stage the removal of the key. */
+  delete(): void
+}
+
+export interface AgentChannelStateTransactionOptions {
+  /** Lock lease in milliseconds. Defaults to 60 000. The commit fails, and writes nothing, after the lease expires. */
+  ttlMs?: number
+  /** How long to wait for another holder of the key, in milliseconds. Defaults to 10 000. Then the transaction throws. */
+  waitMs?: number
+}
+
+/** The State of a Channel inside its trigger callbacks. */
+export interface AgentChannelState extends AgentChannelStateBinding {
+  /**
+   * Reads, decides, and writes one key under its lock. `run` gets the saved `value` and stages `set()` or `delete()`.
+   * `key` is relative to `keyPrefix`. A thrown error, or a returned `Response` with status 400 or above, writes nothing.
+   *
+   * Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned
+   * invocation. On SQLite and libSQL State this is one transaction, so a crash before admission keeps the old value and
+   * the retried delivery decides again. The write commits at once when the trigger answers below 400 without a queued
+   * delivery, such as with `ignored()`, or when the delivery runs inline. In other places, it commits when `run` returns.
+   * Run at most one transaction per key in one trigger call.
+   *
+   * `T` types the saved value. `R` is inferred from `run`; when `T` is given explicitly, `R` defaults to a trigger result.
+   *
+   * @example
+   * invoke: (context, change) => context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+   *   if (record.value && record.value.version >= change.version) return ignored("stale_update")
+   *   record.set({ version: change.version })
+   *   return { input: { prompt: change.text }, webhook: { deliveryId: change.eventId, serialize: change.id } }
+   * })
+   */
+  transaction<T = unknown, R = AgentTriggerInvokeResult>(
+    key: string,
+    run: (state: AgentChannelStateTransaction<T>) => MaybePromise<R>,
+    options?: AgentChannelStateTransactionOptions,
+  ): Promise<R>
+}
+
+/** One page that a `context.pull()` fetch returns. */
+export interface AgentChannelPullPage<TCursor extends string | number = string | number> {
+  /** The items of the page in provider order. An async iterable loads each item just before its admission. */
+  items: Iterable<AgentChannelDispatchItem> | AsyncIterable<AgentChannelDispatchItem>
+  /** The cursor after this page. It is saved after every item of the page is admitted. */
+  next: TCursor
+  /** The provider has more items after `next`, so the pull fetches again. */
+  more: boolean
+  /**
+   * The cursor of the first item of the page, for providers that number their log. A value other than the requested
+   * cursor is a gap, such as expired history, and the pull throws before it admits the page.
+   */
+  first?: TCursor
+}
+
+export interface AgentChannelPullOptions<TCursor extends string | number = string | number> {
+  /** State key of the saved cursor, relative to `channelState.keyPrefix`. The raw cursor value is stored there. */
+  key: string
+  /** The cursor of the first pull, when no cursor is saved. */
+  initialCursor: TCursor
+  /** Fetches the page that starts at `cursor`. */
+  fetch: (cursor: TCursor, signal?: AbortSignal) => MaybePromise<AgentChannelPullPage<TCursor>>
+  /** Trigger of this Channel that admits each item, as `dispatch(items, { trigger, queue: true })` does. */
+  trigger: string
+  /** Checked before each fetch, before each item, and before the cursor is saved. An abort keeps the saved cursor. */
+  signal?: AbortSignal
+}
+
+export interface AgentChannelPullResult<TCursor extends string | number = string | number> {
+  /** The saved cursor after the pull. */
+  cursor: TCursor
+  /** Pages fetched and saved. */
+  pages: number
+  /** Items newly queued. */
+  queued: number
+  /** Items answered without a queued delivery, already queued, or stale. */
+  skipped: number
 }
 
 export interface AgentChannelTriggerContext<
@@ -753,12 +860,41 @@ export interface AgentChannelTriggerContext<
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
   /** The Channel's State Adapter. Present when a webhook route runs the trigger. */
-  channelState?: AgentChannelStateBinding
+  channelState?: AgentChannelState
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
    * Items use the same Invocation IDs as `replayChannel()`, so an item that already has an Invocation is skipped.
+   * With `queue: true`, each item is admitted to the webhook queue instead, and `order` applies.
    */
   dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
+  /**
+   * Drains a provider's change log from the saved cursor. The items of each page are admitted in order through
+   * `trigger` with queued dispatch, so `order` applies. The `next` cursor of the page is saved only after every item
+   * of the page is admitted. A failure or an abort keeps the saved cursor, so the next pull fetches the page again.
+   * A lock on the cursor key serializes pulls. Needs the Channel's State and a queue-capable State.
+   *
+   * @example
+   * invoke: async (context) => {
+   *   await context.pull({
+   *     key: "log-cursor",
+   *     initialCursor: 1,
+   *     trigger: "change",
+   *     async fetch(cursor, signal) {
+   *       const page = await provider.changes({ cursor, signal })
+   *       return {
+   *         items: page.changes.map(change => ({ key: change.id, input: change, order: { key: change.recordId, version: change.sequence } })),
+   *         next: page.cursor,
+   *         more: page.hasMore,
+   *       }
+   *     },
+   *   })
+   *   return ignored("pulled")
+   * }
+   */
+  pull: {
+    (options: AgentChannelPullOptions<number>): Promise<AgentChannelPullResult<number>>
+    (options: AgentChannelPullOptions<string>): Promise<AgentChannelPullResult<string>>
+  }
   trigger: {
     channelId: string
     id: `${string}.${string}`

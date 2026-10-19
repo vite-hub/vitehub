@@ -17,6 +17,8 @@ export interface AgentWebhookQueueDelivery {
   invocation?: {
     input: unknown
     run?: unknown
+    /** The Channel trigger that admitted a queued dispatch item. Its `failed` callback runs for the item. */
+    trigger?: string
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -134,7 +136,15 @@ interface AgentWebhookQueueRegistrar<Options> {
 }
 
 export interface AgentWebhookQueue<Options> {
-  admit: (registration: AgentWebhookQueueRegistration<Options>, delivery: AgentWebhookQueueDelivery) => Promise<boolean>
+  /**
+   * Queues `delivery` and registers its scope. `enqueue` replaces `state.enqueueWebhookDelivery()`, such as to commit
+   * Channel State writes in the same transaction. It returns whether the delivery was newly queued.
+   */
+  admit: (
+    registration: AgentWebhookQueueRegistration<Options>,
+    delivery: AgentWebhookQueueDelivery,
+    enqueue?: (delivery: AgentWebhookQueueDelivery) => Promise<boolean>,
+  ) => Promise<boolean>
   idle: () => Promise<void>
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   resume: (
@@ -346,8 +356,8 @@ export function createAgentWebhookQueue<Options>(
   }
 
   return {
-    async admit(registration, delivery) {
-      const admitted = await registration.state.enqueueWebhookDelivery(delivery)
+    async admit(registration, delivery, enqueue) {
+      const admitted = enqueue ? await enqueue(delivery) : await registration.state.enqueueWebhookDelivery(delivery)
       await register(registration)
       return admitted
     },

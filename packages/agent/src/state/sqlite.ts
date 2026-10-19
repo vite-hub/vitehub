@@ -1,3 +1,4 @@
+import type { AgentChannelStateWrites } from "../internal/channel-state.ts"
 import type { AgentStateCacheMutation } from "../internal/state-lock.ts"
 import { mkdir, realpath } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
@@ -442,30 +443,54 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
-    const inserted = await retrySqliteBusy(async () => {
+    return await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(
-        async (tx) =>
-          await execute(
-            tx,
-            `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+      return await this.transaction(async tx => await this.insertWebhookDelivery(tx, delivery))
+    })
+  }
+
+  /**
+   * In one transaction: throws unless every lock is still held, queues `delivery` unless its ID is already queued,
+   * and applies `mutations`, which apply in both cases. Returns whether `delivery` was newly queued (`true` without one).
+   */
+  async commitWebhookState(writes: AgentChannelStateWrites): Promise<boolean> {
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const now = Date.now()
+        for (const lock of writes.locks) {
+          const held = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? AND token = ? AND expires_at > ?`, [lock.threadId, lock.token, now])
+          if (held.length === 0) throw new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
+        }
+        const queued = writes.delivery ? await this.insertWebhookDelivery(tx, writes.delivery) : true
+        for (const mutation of writes.mutations) {
+          if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
+          else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+        }
+        return queued
+      })
+    })
+  }
+
+  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+    const inserted = await execute(
+      tx,
+      `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0) RETURNING delivery_id`,
-            [
-              delivery.scope,
-              delivery.deliveryId,
-              JSON.stringify(delivery),
-              delivery.concurrencyGroup,
-              delivery.concurrencyKey || null,
-              delivery.concurrencyLimit,
-              delivery.leaseTtlMs,
-              delivery.enqueuedAt,
-              delivery.availableAt ?? delivery.enqueuedAt,
-            ],
-          ),
-      )
-    })
+      [
+        delivery.scope,
+        delivery.deliveryId,
+        JSON.stringify(delivery),
+        delivery.concurrencyGroup,
+        delivery.concurrencyKey || null,
+        delivery.concurrencyLimit,
+        delivery.leaseTtlMs,
+        delivery.enqueuedAt,
+        delivery.availableAt ?? delivery.enqueuedAt,
+      ],
+    )
     return inserted.length > 0
   }
 

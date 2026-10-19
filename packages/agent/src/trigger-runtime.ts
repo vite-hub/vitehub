@@ -17,6 +17,7 @@ import type {
   AgentChannelDeliveryFinishEffect,
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
+  AgentChannelPullOptions,
   AgentChannelStateBinding,
   AgentChannels,
   AgentInput,
@@ -39,6 +40,9 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { createAgentChannelState, pullAgentChannel } from "./internal/channel-state.ts"
+import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
+import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
   if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
@@ -150,6 +154,37 @@ function agentChannelTriggerState(request: Request | undefined, channelId: strin
   return bound?.channelId === channelId ? bound.binding : undefined
 }
 
+/** Admits dispatched items to the webhook queue that serves the current request. */
+export type AgentChannelQueuedDispatch = (
+  context: ResolvedAgentRuntimeContext,
+  items: readonly AgentChannelDispatchItem[],
+  options: AgentChannelDispatchOptions,
+) => Promise<ReplayChannelResult>
+
+const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDispatch, channelId: string }>()
+
+/** Lets `dispatch(items, { queue: true })` of one Channel admit items into the webhook queue of this request. */
+export function bindAgentChannelTriggerQueue(request: Request, channelId: string, admit: AgentChannelQueuedDispatch): void {
+  channelTriggerQueues.set(request, { admit, channelId })
+}
+
+async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
+  channelId: string,
+  items: readonly AgentChannelDispatchItem[],
+  options: AgentChannelDispatchOptions,
+): Promise<ReplayChannelResult> {
+  if (options.dryRun) throw new TypeError(`[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`)
+  const bound = context.request ? channelTriggerQueues.get(context.request) : undefined
+  if (bound?.channelId !== channelId) {
+    throw agentDiagnostics.AGENT_R0931({
+      message: `[vitehub] Channel "${channelId}" can queue dispatched items only from its webhook route with a queue-capable State.`,
+    })
+  }
+  // SAFETY: The queue admits items with the runtime context of the trigger that called dispatch().
+  return await bound.admit(context as ResolvedAgentRuntimeContext, items, options)
+}
+
 async function dispatchAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
@@ -197,13 +232,20 @@ function capabilityWebhookTriggerForChannel<TRuntimeConfig extends AgentRuntimeC
   return triggers[`${channelId}.webhook`] || (kind !== channelId ? triggers[`${kind}.webhook`] : undefined)
 }
 
+interface AgentTriggerResolutionOptions {
+  /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
+  channelStateCommit?: AgentChannelStateCommit
+  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+}
+
 export async function resolveAgentTriggers<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"],
+  options: AgentTriggerResolutionOptions = {},
 ): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
+  const { channelStateCommit, queuedInvocation } = options
   const runtimeContext = createAgentCallbackContext(context)
   const capabilities = normalizeCapabilities(agentCapabilityOptions(agent) as never) as AgentCapabilityDefinition<TRuntimeConfig>[]
   const triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>> = {}
@@ -254,22 +296,31 @@ export async function resolveAgentTriggers<
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke({
-          ...runtimeContext,
-          agentCapabilities: channelCapabilities,
-          agentName: agent.name || runtimeContext.agentIdentity?.name,
-          channel,
-          ...(queuedInvocation ? { queuedInvocation } : {}),
-          ...(channelState ? { channelState } : {}),
-          dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
-            dispatchAgentChannelItems(agent, context, channelId, items, options),
-          trigger: {
-            channelId,
-            id,
-            name,
-            source: "channel",
-          },
-        } as never, input as never),
+        invoke: (input) => {
+          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
+            ? queueAgentChannelItems(context, channelId, items, options)
+            : dispatchAgentChannelItems(agent, context, channelId, items, options)
+          // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
+          const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
+          const triggerContext = {
+            ...runtimeContext,
+            agentCapabilities: channelCapabilities,
+            agentName: agent.name || runtimeContext.agentIdentity?.name,
+            channel,
+            ...(queuedInvocation ? { queuedInvocation } : {}),
+            ...(triggerState ? { channelState: triggerState } : {}),
+            dispatch,
+            pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
+              pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
+            trigger: {
+              channelId,
+              id,
+              name,
+              source: "channel",
+            },
+          }
+          return trigger.invoke(triggerContext as never, input as never)
+        },
         name,
         output: trigger.output,
         source: "channel",
@@ -613,9 +664,9 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-  options?: { verifyWebhook?: boolean; queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"] },
+  options?: AgentTriggerResolutionOptions & { verifyWebhook?: boolean },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
-  const triggers = await resolveAgentTriggers(agent, context, options?.queuedInvocation)
+  const triggers = await resolveAgentTriggers(agent, context, options)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })
