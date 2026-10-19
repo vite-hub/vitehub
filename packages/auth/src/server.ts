@@ -142,6 +142,10 @@ function isRequestLike(value: AuthRequest): value is Request {
       return false
     }
     if (!hasPrototypeTag(value, "Request")) return false
+    const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
+      return typeof Reflect.get(target, method) === "function"
+    })
     const ownSymbols = Object.getOwnPropertySymbols(value)
     const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
     const happyDomState = [
@@ -150,12 +154,15 @@ function isRequestLike(value: AuthRequest): value is Request {
       "contentType", "referrer", "url", "bodyBuffer",
     ].every(name => ownSymbols.some(symbol => symbol.description === name))
       && prototypeSymbols.some(symbol => symbol.description === "window")
-    if (happyDomState) return true
+    if (happyDomState) {
+      // The private-symbol fingerprint identifies Happy DOM, but still verify
+      // the interface Better Auth consumes before preserving the value.
+      if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
+      if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+      if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
+      return true
+    }
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
-    const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
-      return typeof Reflect.get(target, method) === "function"
-    })
     if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
     // Body methods alone are insufficient: structural host inputs can expose
     // them while lacking the Headers and AbortSignal APIs of a Web Request.
