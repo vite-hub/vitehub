@@ -493,6 +493,14 @@ vitehub agent invocations tail INVOCATION_ID
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output. `vitehub agent invocations cancel INVOCATION_ID` sends a cancel request into the Nitro runtime of a Vite + Nitro Development Server. A deployed URL, such as `--url https://app.example.com`, uses that deployment's Console for `list`, `show`, `tail`, and `cancel`. See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
+Export Invocations as JSON Lines for offline analysis or evals:
+
+```sh
+vitehub agent invocations export --url https://app.example.com --origin webhook --since 7d > invocations.jsonl
+```
+
+`export` reads the same target as `list` and prints one line per Invocation, oldest first. Each line is the record without its observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries` (each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason). `--status`, `--origin`, and `--agent` select records, and `--since` takes an age such as `7d` or an ISO date such as `2026-10-01`. Add `--observations` to include every observation. A field is present only when the journal retained it, so content storage settings decide whether `prompt`, `final`, and delivery content appear.
+
 Delete and prune open a SQLite or libSQL journal directly:
 
 ```sh
