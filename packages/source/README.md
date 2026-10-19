@@ -34,13 +34,6 @@ reader. Revision-aware loaders receive the same pinned revision on every
 operation. Loaders without revision support can observe origin changes. Create
 another reader to resolve a new revision. No registration or global type map is needed.
 
-`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
-including before wildcards: the JavaScript string `"docs\\*.md"` means
-`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
-characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
-for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
-The same normalized patterns are used for discovery and final filtering.
-
 `glob()` keeps its cached key listing in each reader. Opening another reader
 refreshes that reader's listing without changing existing readers. File content
 and metadata are read from the current file system. Set `keyCache: false` to
@@ -86,20 +79,6 @@ content receive file methods too. Record readers use `get()` and `items()`.
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
 `auth: false` reads without a token.
-
-`glob()` takes a pattern or options. In a pattern, the folders before the first
-wildcard are `cwd`, so keys are the paths below them:
-
-```ts
-import { glob } from "@vite-hub/source/glob"
-
-export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
-```
-
-Under `vite dev` it reads the files from disk. A server build with `hubSource()`
-bundles the files of a call whose options are literals, through `files()`, so
-hosts without a runtime file system, such as Cloudflare Workers, serve them.
-`files(entries, { base, prefix })` serves files the server already holds.
 
 ## Reuse a definition
 
@@ -277,9 +256,6 @@ every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
 exports `table()` too.
-
-`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
-in a Workspace file.
 
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.
