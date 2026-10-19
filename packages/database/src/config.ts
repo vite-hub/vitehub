@@ -66,7 +66,12 @@ function readDefinitionObjectBody(file: string) {
     const assignment = /(?:^|[;\n\r\u2028\u2029])\s*(?:const|let|var)\s+([$_\u200C\u200D\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*)\s*=\s*\(*\s*$/u.exec(prefix)
     if (!assignment) return false
     const name = assignment[1]
-    return new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*export\\s+default\\s+${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`).test(maskedSource.slice(item.closeParen))
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const afterCall = maskedSource.slice(item.closeParen)
+    const exportMatch = new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*export\\s+default\\s+${escapedName}\\b`).exec(afterCall)
+    if (!exportMatch) return false
+    const beforeExport = afterCall.slice(0, exportMatch.index)
+    return !new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*${escapedName}\\s*=`).test(beforeExport)
   })
   const argument = call?.arguments[0] ? stripExpressionComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)
