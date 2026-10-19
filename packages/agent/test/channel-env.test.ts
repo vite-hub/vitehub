@@ -24,6 +24,20 @@ describe("built-in Channel discovery", () => {
     `)).toEqual([{ kind: "teams", keys: [] }])
   })
 
+  it("keeps Teams Env required for plain adapter options", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { userName: "support" } })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
+  it("omits Teams Env for custom adapter objects", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { name: "custom" } })
+    `)).toEqual([{ kind: "teams", keys: ["adapter"] }])
+  })
+
   it.each(["tele\\u0067ram", "tele\\u{67}ram", "\\u0074elegram"])("decodes escaped identifier Channel keys: %s", (key) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"

@@ -3408,7 +3408,7 @@ function codeHostChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMeth
           message: neutral,
           run,
         }
-        if (result.webhook && result.webhook.concurrencyLimit !== undefined) {
+        if (result.webhook && (result.webhook.concurrencyLimit !== undefined || result.webhook.serialize !== undefined)) {
           const ownership = { ...result.webhook, rehydrate: undefined }
           invocation.webhook = { ...ownership, rehydrate: () => ({ ...invocation, webhook: ownership }) }
         }

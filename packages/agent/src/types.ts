@@ -638,9 +638,17 @@ interface AgentWebhookInvocationOwnershipBase {
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
-  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
-  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
-  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never }
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>, serialize?: undefined }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>, serialize?: undefined }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never, serialize?: undefined }
+  | {
+    busy?: "steer"
+    concurrencyKey?: undefined
+    concurrencyLimit?: undefined
+    rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>
+    /** Queues the delivery and runs it only when no other delivery with this key runs. Same as `{ concurrencyKey: key, concurrencyLimit: 1 }`. */
+    serialize: string
+  }
 )
 
 type AgentWebhookRehydrateResult<CALL_OPTIONS = unknown> =
@@ -2915,6 +2923,8 @@ export interface AgentAdapterRunContext<
   actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   executionBudget?: ExecutionBudget
