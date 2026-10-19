@@ -1365,12 +1365,10 @@ async function createAgent(
   }
   const instrumentedModel = context.executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
-        // SAFETY: materializeAgentModel resolves the configured model before wrapping.
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
         middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
       })
     : observedModel
-  // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
   const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
