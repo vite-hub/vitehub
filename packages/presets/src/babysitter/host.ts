@@ -165,7 +165,11 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
   // the lease is known; the server rechecks prerequisites when hostInstall()
   // is actually selected. Without placement, admission can safely gate the
   // configured host installer up front.
-  const preflight = createBabysitterPreflight(agent.options.placement ? false : (agent.options.install ?? true));
+  const placement = agent.options.placement;
+  // A placement with remote capacity is a remote-only scheduler; local leases
+  // still use hostInstall and must keep the installer prerequisite gate.
+  const hostInstallAdmission = !placement || !placement.remoteActive;
+  const preflight = createBabysitterPreflight(hostInstallAdmission ? (agent.options.install ?? true) : false);
   const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
