@@ -253,15 +253,23 @@ function maskCommentsAndStrings(source: string) {
 }
 
 function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([\p{ID_Start}$_][\p{ID_Continue}$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/u.exec(stripLeadingEntryComments(entry))
-  if (match?.[1]) return match[1]
+  const match = /^\s*(?:([\p{ID_Start}$_\\][\p{ID_Continue}$\\]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/u.exec(stripLeadingEntryComments(entry))
+  if (match?.[1]) return decodeIdentifierKey(match[1])
   if (match?.[2]) return readStaticStringLiteral(match[0].trim().slice(0, -1).trim())
   if (match?.[3]) return readStaticStringLiteral(match[0].trim().replace(/^\[\s*/, "").replace(/\s*\](?::|$)/, ""))
 }
 
+function decodeIdentifierKey(identifier: string): string | undefined {
+  const decoded = identifier.replace(/\\u\{([\da-f]{1,6})\}|\\u([\da-f]{4})/gi, (escape, braced, plain) => {
+    const codePoint = Number.parseInt(braced ?? plain, 16)
+    return Number.isInteger(codePoint) && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : escape
+  })
+  return /^[\p{ID_Start}$_][\p{ID_Continue}$]*$/u.test(decoded) ? decoded : undefined
+}
+
 function readEntryValue(entry: string): string | undefined {
   const normalized = stripLeadingEntryComments(entry)
-  const match = /^\s*(?:[\p{ID_Start}$_][\p{ID_Continue}$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/u.exec(normalized)
+  const match = /^\s*(?:[\p{ID_Start}$_\\][\p{ID_Continue}$\\]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/u.exec(normalized)
   return match ? normalized.slice(match[0].length).trim() : undefined
 }
 
@@ -598,46 +606,42 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   if (!trimmed) return undefined
   const body = objectLiteralBody(trimmed)
   if (body !== undefined) {
-    let ownership: boolean | undefined = false
-    for (const property of splitTopLevel(body)) {
-      const normalized = stripLeadingEntryComments(property).trim()
-      if (!normalized) continue
-      if (normalized.startsWith("...")) {
-        const spreadExpression = normalized.slice(3)
-        const spread = readOpaqueResourceOwnership(spreadExpression, source, seen)
-        if (opaqueObjectContainsKey(spreadExpression, source, "databaseId") || opaqueObjectContainsKey(spreadExpression, source, "databaseName")) {
-          if (spread !== undefined) ownership = ownership === true || spread
-        }
-        continue
-      }
-      const key = readEntryKey(normalized)
-      if (key !== "databaseId" && key !== "databaseName") continue
-      const rawValue = readEntryValue(normalized)?.trim()
-      if (rawValue === "undefined") {
-        ownership = ownership === true
-        continue
-      }
-      if (rawValue === undefined) {
-        const referenced = readOpaqueDeclarationExpression(key, source)?.trim()
-        if (!referenced) {
-          ownership = undefined
-          continue
-        }
-        if (referenced === "undefined") {
-          ownership = ownership === true
-          continue
-        }
-        ownership = true
-        continue
-      }
-      ownership = true
-    }
-    return ownership
+    const id = readOpaquePropertyExpression(trimmed, "databaseId", source, seen)
+    const name = readOpaquePropertyExpression(trimmed, "databaseName", source, seen)
+    if (id === undefined && name === undefined) return false
+    if (id === undefined || name === undefined) return id !== "undefined" || name !== "undefined"
+    return id !== "undefined" || name !== "undefined"
   }
   const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
   return readOpaqueResourceOwnership(readOpaqueDeclarationExpression(identifier, source), source, seen)
+}
+
+function readOpaquePropertyExpression(expression: string, key: string, source: string, seen = new Set<string>()): string | undefined {
+  const body = objectLiteralBody(expression)
+  if (body === undefined) {
+    const identifier = expression.trim()
+    if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
+    const next = new Set(seen)
+    next.add(identifier)
+    return readOpaquePropertyExpression(readOpaqueDeclarationExpression(identifier, source) ?? "", key, source, next)
+  }
+  let value: string | undefined
+  let found = false
+  for (const entry of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(entry).trim()
+    if (!normalized) continue
+    if (normalized.startsWith("...")) {
+      const spread = readOpaquePropertyExpression(normalized.slice(3), key, source, seen)
+      if (spread !== undefined) { value = spread; found = true }
+      continue
+    }
+    if (readEntryKey(normalized) !== key) continue
+    found = true
+    value = readEntryValue(normalized)?.trim() ?? "undefined"
+  }
+  return found ? value : undefined
 }
 
 function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean {
@@ -723,8 +727,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     const resolvedExpression = body === undefined && expression
       ? readOpaqueDeclarationExpression(expression.trim(), source)
       : expression
-    const opaqueBody = objectLiteralBody(resolvedExpression)
-    const rawBinding = opaqueBody ? readObjectPropertyValue(opaqueBody, "binding")?.trim() : undefined
+    const rawBinding = resolvedExpression ? readOpaquePropertyExpression(resolvedExpression, "binding", source)?.trim() : undefined
     const bindingExpression = rawBinding && identifierPattern.test(rawBinding)
       ? readOpaqueDeclarationExpression(rawBinding, source)?.trim() ?? rawBinding
       : rawBinding
@@ -1176,7 +1179,7 @@ export function resolveDBViteConfig(
     if (effectiveCloudflare?.http) continue
     const binding = (definitionCloudflare.resource !== "opaque" ? effectiveCloudflare?.binding : undefined)
       ?? definitionCloudflare.opaqueBinding
-      ?? (definitionCloudflare.resource !== "opaque" || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly !== undefined)
+      ?? (definitionCloudflare.resource !== "opaque" || (definitionCloudflare.ownsOpaqueResource !== true && definitionCloudflare.opaqueHttpOnly !== true)
         ? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
         : undefined)
     if (!binding) continue
