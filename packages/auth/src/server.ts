@@ -278,6 +278,10 @@ function reject(response: Response): AuthCheck {
 }
 
 const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+const nativeResponseBodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+const nativeResponseHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
+const intrinsicToString = Object.prototype.toString
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -295,6 +299,20 @@ function isRuntimeResponse(value: unknown): value is Response {
   }
 }
 
+function getDirectRuntimeResponse(value: Response): Response | undefined {
+  if (nativeResponseBodyUsed && Reflect.apply(nativeResponseBodyUsed, value, [])) return
+  const body = value.body
+  const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (locked && Reflect.apply(locked, body, [])) return
+  const headers = nativeResponseHeaders && Reflect.apply(nativeResponseHeaders, value, [])
+  if (!headers || !nativeHeadersForEach || Reflect.get(headers, "forEach") !== nativeHeadersForEach) return
+  if (Object.prototype.hasOwnProperty.call(value, "then")) {
+    try { return value.clone() }
+    catch { return }
+  }
+  return value
+}
+
 /**
  * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
  */
@@ -307,12 +325,12 @@ async function runAccessAuthorize(
   // expose an own `then` property, but it must still be treated as a response
   // rather than assimilated as a promise.
   if (isRuntimeResponse(result)) {
-    const directResponse = await normalizeAuthorizationResponse(result)
-    if (directResponse) return { response: directResponse }
+    return { response: getDirectRuntimeResponse(result) ?? createForbiddenResponse(context.request) }
   }
 
   let resolved: unknown
-  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+  if (result !== null && (typeof result === "object" || typeof result === "function")
+    && intrinsicToString.call(result) === "[object Promise]") {
     // Promise.prototype.then performs the intrinsic Promise brand check and
     // bypasses an overridden `then` method on Promise subclasses. Plain
     // thenables fall back to normal await semantics below.
@@ -359,12 +377,14 @@ async function runAccessAuthorize(
     resolved = nativePromise ? await nativePromise : await result
   }
   else {
-    resolved = result
+    resolved = result !== null && (typeof result === "object" || typeof result === "function")
+      ? await result
+      : result
   }
   if (resolved === true) return {}
   if (isRuntimeResponse(resolved)) {
-    const normalized = await normalizeAuthorizationResponse(resolved)
-    if (normalized) return { response: normalized }
+    const directResponse = getDirectRuntimeResponse(resolved)
+    if (directResponse) return { response: directResponse }
   } else {
     const normalized = await normalizeAuthorizationResponse(resolved)
     if (normalized) return { response: normalized }
@@ -777,11 +797,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
-  // A native Response from this Fetch implementation is already safe to
-  // return, including responses whose body has been consumed or locked. The
-  // intrinsic status getter is a realm-independent internal-slot check and
-  // does not inspect body state.
-  if (isRuntimeResponse(value)) return value
+  // Native responses are validated below with their intrinsic accessors.
   try {
     const candidate = Object(value)
     const foreignResponse = await getUndiciResponse()
