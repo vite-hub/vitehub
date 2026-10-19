@@ -1289,7 +1289,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|show|tail|export|cancel> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|show|tail|export|wait-idle|cancel> [id] [--url <url>] [--json]",
     },
     {
       description: "Measure and prune a Codex home with the driver.retention rules.",
