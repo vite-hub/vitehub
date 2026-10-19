@@ -1,20 +1,16 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
   getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import {
-  getDocsCatalog,
-  getDocsRelatedSections,
-  getDocsSectionForPath,
-  getDocsSidebarGroups,
-  docsRootSectionId,
-} from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { getDocsCatalog, getDocsRelatedSections, getDocsSidebarGroups } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { useDocsSection } from "../composables/useDocsSection";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const section = useDocsSection();
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
@@ -75,7 +71,7 @@ function isActive(path: string) {
         :to="relatedSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -95,7 +91,7 @@ function isActive(path: string) {
         :to="catalogSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>

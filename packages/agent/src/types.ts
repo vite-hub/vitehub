@@ -842,8 +842,22 @@ export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentT
 
 export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
 
-export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
+/** One task that a trigger's `invoke` selects with `task: name`. Declare exactly one of `agent` or `run`. */
+export interface AgentTriggerTask<
+  TContext = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  /**
+   * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * An unset `run.origin` of the Invocation defaults to the task key.
+   */
   agent?: AgentInput
+  /**
+   * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
+   * The trigger's `failed` stays the fallback for tasks without one.
+   */
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
+  /** Replaces the trigger's `prepare` for this task. A task never runs the trigger's `prepare`. */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
@@ -884,6 +898,7 @@ export interface AgentTriggerDefinition<
 /** A trigger task with its context bound. */
 export interface ResolvedAgentTriggerTask<CALL_OPTIONS = unknown> {
   agent?: AgentInput
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
   prepare?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   run?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
