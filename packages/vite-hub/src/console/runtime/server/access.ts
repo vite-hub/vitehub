@@ -139,7 +139,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
     }
     else if (requestHeaders) {
-      for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
+      for (const name of ["accept", "authorization", "cookie", "content-type", "origin", "host", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
         const value = requestHeaders.get(name)
         if (value !== null) headers.set(name, value)
       }
