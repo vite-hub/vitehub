@@ -611,13 +611,18 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
     const hasId = opaqueObjectContainsKey(trimmed, source, "databaseId")
     const hasName = opaqueObjectContainsKey(trimmed, source, "databaseName")
     if (!hasId && !hasName) return false
+    const resolving = new Set<string>()
     const resolve = (value: string | undefined): string | undefined => {
       if (value === undefined) return undefined
       const normalized = value.trim()
       if (normalized === "undefined") return "undefined"
       if (!identifierPattern.test(normalized)) return normalized
+      if (resolving.has(normalized)) return undefined
+      resolving.add(normalized)
       const declaration = readOpaqueDeclarationExpression(normalized, source)
-      return declaration === undefined ? undefined : resolve(declaration)
+      const result = declaration === undefined ? undefined : resolve(declaration)
+      resolving.delete(normalized)
+      return result
     }
     const resolvedId = resolve(id)
     const resolvedName = resolve(name)
