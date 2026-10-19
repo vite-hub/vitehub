@@ -325,7 +325,28 @@ function hasNativePromiseBrand(value: object): boolean {
     // and its tag may be shadowed. The intrinsic then brand check is the
     // remaining realm-independent way to recognize it. Use no-op handlers so
     // a rejected source promise is observed while probing.
-    const probe = Reflect.apply(nativePromiseThen, value, [() => undefined, () => undefined])
+    const valueDescriptor = Object.getOwnPropertyDescriptor(value, "constructor")
+    let valueOverridden = false
+    try {
+      if (!valueDescriptor || valueDescriptor.configurable) {
+        Object.defineProperty(value, "constructor", { configurable: true, writable: true, value: Promise })
+        valueOverridden = true
+      }
+      else if ("value" in valueDescriptor && valueDescriptor.writable) {
+        Object.defineProperty(value, "constructor", { value: Promise })
+        valueOverridden = true
+      }
+    } catch { /* intrinsic probe below will reject non-promises */ }
+    let probe: unknown
+    try {
+      probe = Reflect.apply(nativePromiseThen, value, [() => undefined, () => undefined])
+    }
+    finally {
+      if (valueOverridden) {
+        if (valueDescriptor) Object.defineProperty(value, "constructor", valueDescriptor)
+        else Reflect.deleteProperty(value, "constructor")
+      }
+    }
     // Consume the derived promise without creating another species-derived
     // rejection. Shadow its constructor while it is configurable, then the
     // intrinsic call returns a native promise whose own cleanup is safe.
@@ -337,9 +358,39 @@ function hasNativePromiseBrand(value: object): boolean {
           Object.defineProperty(probe, "constructor", { configurable: true, writable: true, value: Promise })
           overridden = true
         }
+        else if ("value" in descriptor && descriptor.writable) {
+          Object.defineProperty(probe, "constructor", { value: Promise })
+          overridden = true
+        }
         const cleanup = Reflect.apply(nativePromiseThen, probe, [() => undefined, () => undefined])
         if (cleanup && (typeof cleanup === "object" || typeof cleanup === "function")) {
-          Reflect.apply(nativePromiseThen, cleanup, [() => undefined, () => undefined])
+          // The first cleanup call returns a promise too. Consume that result
+          // while forcing native construction, so hostile species cannot leave
+          // a rejected derived promise unhandled.
+          const cleanupDescriptor = Object.getOwnPropertyDescriptor(cleanup, "constructor")
+          let cleanupOverridden = false
+          try {
+            if (!cleanupDescriptor || cleanupDescriptor.configurable) {
+              Object.defineProperty(cleanup, "constructor", { configurable: true, writable: true, value: Promise })
+              cleanupOverridden = true
+            }
+            else if ("value" in cleanupDescriptor && cleanupDescriptor.writable) {
+              Object.defineProperty(cleanup, "constructor", { value: Promise })
+              cleanupOverridden = true
+            }
+            const cleanupResult = Reflect.apply(nativePromiseThen, cleanup, [() => undefined, () => undefined])
+            // This final result is native by construction and its no-op
+            // handlers ensure any rejection is observed.
+            if (cleanupResult && (typeof cleanupResult === "object" || typeof cleanupResult === "function")) {
+              Reflect.apply(nativePromiseThen, cleanupResult, [() => undefined, () => undefined])
+            }
+          }
+          finally {
+            if (cleanupOverridden) {
+              if (cleanupDescriptor) Object.defineProperty(cleanup, "constructor", cleanupDescriptor)
+              else Reflect.deleteProperty(cleanup, "constructor")
+            }
+          }
         }
       }
       finally {
