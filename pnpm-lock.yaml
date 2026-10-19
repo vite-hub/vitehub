@@ -2457,6 +2457,12 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261016.1
+      '@json-render/core':
+        specifier: 0.21.1
+        version: 0.21.1(zod@4.6.7)
+      '@json-render/vue':
+        specifier: 0.21.1
+        version: 0.21.1(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -2547,6 +2553,9 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@vueuse/core':
+        specifier: catalog:ui
+        version: 15.0.0(vue@3.5.44(typescript@6.0.3))
       '@workflow/builders':
         specifier: catalog:workflow
         version: 5.0.5(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
