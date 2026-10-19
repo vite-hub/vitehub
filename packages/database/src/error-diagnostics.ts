@@ -57,7 +57,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
     DATABASE_D1_INVALID_RESPONSE: {
-      why: "Cloudflare D1 returned a different number of results than the number of queries.",
+      why: "Cloudflare D1 returned an invalid response shape, such as a different number of results than the number of queries or malformed rows.",
       fix: "Retry the query. If it fails again, open a ViteHub issue with the query and the D1 HTTP response.",
     },
     DATABASE_D1_REQUEST_FAILED: {

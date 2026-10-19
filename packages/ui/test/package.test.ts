@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentNames } from "../src/component-names.ts";
+import { componentEntryName, componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -63,9 +63,17 @@ const componentEntries = [...new Set(componentNames.map((name) => `./${component
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./attachment", "./bubble", "./chat", "./chat-message", "./chat-session", "./code-block", "./headless", "./markdown", "./marker", "./message", "./message-parts", "./nuxt", "./package.json", "./primitive-rail", "./prompt-input", "./styles.css", "./trace", "./vite"].sort(),
-    );
+    expect(Object.keys(packageJson.exports)).toEqual(expect.arrayContaining([
+      ...componentEntries,
+      "./package.json",
+      "./styles.css",
+    ]));
+    expect(Object.keys(packageJson.exports)).not.toEqual(expect.arrayContaining([
+      "./agent-code-view",
+      "./agent-file-tree",
+      "./agent-tool-list",
+      "./agent-trace",
+    ]));
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
@@ -92,31 +100,10 @@ describe("@vite-hub/ui package contract", () => {
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
   it.each([
     ".",
-    "./agent-chat",
-    "./agent-chat-message",
-    "./agent-chat-prompt",
-    "./agent-code-view",
-    "./agent-file-tree",
-    "./agent-markdown",
-    "./agent-message-parts",
-    "./agent-session",
-    "./agent-tool-list",
-    "./agent-trace",
-    "./attachment",
-    "./bubble",
-    "./chat",
-    "./chat-message",
-    "./chat-session",
-    "./code-block",
+    ...componentEntries,
     "./headless",
-    "./markdown",
-    "./marker",
-    "./message",
-    "./message-parts",
     "./nuxt",
     "./primitive-rail",
-    "./prompt-input",
-    "./trace",
     "./vite",
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);

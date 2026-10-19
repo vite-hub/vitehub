@@ -30,7 +30,6 @@ export default defineConfig({
       "src/chat.ts",
       "src/chat-message.ts",
       "src/chat-session.ts",
-      "src/components/agent-trace.ts",
       "src/code-block.ts",
       "src/markdown.ts",
       "src/marker.ts",

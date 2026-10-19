@@ -5,17 +5,24 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-// Keep the server clock through hydration, then refresh prerendered timestamps.
-
+// Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
+let clock: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  now.value = Date.now();
+  clock = setInterval(() => { now.value = Date.now(); }, 1_000);
+});
+onBeforeUnmount(() => {
+  if (clock) clearInterval(clock);
+});
 // Keep running timestamps relative to the page load, including server rendering.
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations: AgentInvocationView[] = [
+const invocations = computed<AgentInvocationView[]>(() => [
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -130,11 +137,11 @@ const invocations: AgentInvocationView[] = [
     traceId: "trace_release",
     updatedAt: time(2280),
   },
-];
+]);
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>
-  invocations.map((invocation) => ({
+  invocations.value.map((invocation) => ({
     agent: invocation.agentName,
     context: agentInvocationContext(invocation),
     description: invocation.error?.message,
@@ -145,9 +152,9 @@ const items = computed<AgentInvocationListItem[]>(() =>
     updatedAt: invocation.updatedAt,
   })),
 );
-const selectedId = ref(invocations[0]!.id);
+const selectedId = ref(invocations.value[0]!.id);
 const selected = computed(() =>
-  invocations.find((invocation) => invocation.id === selectedId.value)!,
+  invocations.value.find((invocation) => invocation.id === selectedId.value)!,
 );
 const selectedActivityId = ref<string>();
 const detailsOpen = ref(true);
