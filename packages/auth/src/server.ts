@@ -7,8 +7,6 @@ import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
-import { resolveAuthMountPath } from "./application-path.ts"
-
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
   AuthAccessAuthorize,
@@ -558,7 +556,21 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
   if (ownLocked) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === getReader
+  if (ownReader && ownReader.value !== getReader) return false
+  // Authenticate reader ownership: releasing the probed reader must unlock the
+  // same fresh stream. An override that returns a reader from another stream
+  // leaves the probed stream locked and fails closed.
+  try {
+    const constructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value
+    if (typeof constructor !== "function") return false
+    const fresh = new constructor()
+    const probed = Reflect.apply(getReader, fresh, [])
+    const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
+    if (typeof release !== "function") return false
+    Reflect.apply(release, probed, [])
+    return !Reflect.apply(locked, fresh, [])
+  }
+  catch { return false }
 }
 
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
@@ -587,6 +599,7 @@ function bridgeAuthorizationBody(
   const acquire = async () => {
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
+      try {
       if (!locked) {
         let owner: object | null = Object.getPrototypeOf(body)
         const seenOwners = new Set<object>()
@@ -616,6 +629,17 @@ function bridgeAuthorizationBody(
       }
       if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
       return acquired as ReadableStreamDefaultReader<Uint8Array>
+      }
+      catch (error) {
+        try {
+          const release = Object(acquired) === acquired
+            ? Object.getPrototypeOf(acquired)?.releaseLock
+            : undefined
+          if (typeof release === "function") Reflect.apply(release, acquired, [])
+        }
+        catch { /* preserve the original validation error */ }
+        throw error
+      }
     })
     reader = await initializing
     return reader
