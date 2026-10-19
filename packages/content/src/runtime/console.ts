@@ -223,7 +223,8 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
 
 function bodyUsesPathname(body: string, pathname: string): boolean {
   const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  return new RegExp(`(?:^|[\\s\\\"'\\`(])${escaped}(?=$|[\\s\\\"'\\`),])`).test(body)
+  const boundary = "[\\s\\\"'\\x60()<>]"
+  return new RegExp(`(?:^|${boundary})${escaped}(?=$|${boundary})`).test(body)
 }
 
 /**
@@ -636,16 +637,16 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               documents.set(item.id, { collection: collection.name, id: item.id, title: titleOf(collection, item, item.id), refs: [ref] })
             }
             // Field values: walk every document once for all pathnames. The collection index is cached per revision.
-            let cursor: string | undefined
+            let fieldCursor: string | undefined
             do {
-              const page = await collection.list(cursor ? { ref, limit: referencePageSize, cursor } : { ref, limit: referencePageSize })
+              const page = await collection.list(fieldCursor ? { ref, limit: referencePageSize, cursor: fieldCursor } : { ref, limit: referencePageSize })
               for (const item of page.items) {
                 const used = new Set<string>()
                 usesPathname(item.data, wanted, used)
                 for (const pathname of used) add(pathname, item)
               }
-              cursor = page.nextCursor ?? undefined
-            } while (cursor)
+              fieldCursor = page.nextCursor ?? undefined
+            } while (fieldCursor)
             // Scan Markdown bodies directly. Collection search tokenizes values, so pathnames containing spaces
             // can be omitted before the exact boundary check.
             if (collection.format !== "markdown") continue
