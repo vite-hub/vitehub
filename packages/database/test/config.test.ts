@@ -378,14 +378,14 @@ describe("resolveDBViteConfig", () => {
     expect(resolveDBViteConfig(undefined, rootDir)?.definitionDefaults.cloudflareProjections.default?.resource).toBe("opaque")
   })
 
-  it("retains bindings when a trailing numeric computed spread cannot override cloudflare", async () => {
+  it.each(["1", "0x1", "0b1", "1e0", "1_000"])("retains bindings when a trailing numeric computed spread cannot override cloudflare (%s)", async (key) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
       const file = join(rootDir, "server/databases", name, "config.ts")
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, [
         "import { defineDatabase } from '@vite-hub/database'",
-        `export default defineDatabase({ name: '${name}', cloudflare: { binding: 'DB_SHARED', ...{ [1]: true } }, schema: {} })`,
+        `export default defineDatabase({ name: '${name}', cloudflare: { binding: 'DB_SHARED', ...{ [${key}]: true } }, schema: {} })`,
         "",
       ].join("\n"))
     }

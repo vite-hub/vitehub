@@ -730,7 +730,12 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
 function readStaticComputedKey(expression: string, source: string, seen = new Set<string>()): string | undefined {
   const value = readStaticStringLiteral(expression)
   if (value !== undefined) return value
-  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(expression.trim())) return String(Number(expression))
+  const numeric = expression.trim()
+  const decimalDigits = String.raw`\d(?:_?\d)*`
+  const numericLiteral = new RegExp(
+    String.raw`^[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|(?:${decimalDigits}(?:\.${decimalDigits}?)?|\.${decimalDigits})(?:[eE][+-]?${decimalDigits})?)$`,
+  )
+  if (numericLiteral.test(numeric)) return String(Number(numeric.replaceAll("_", "")))
   const identifier = expression.trim()
   if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
   const next = new Set(seen)
