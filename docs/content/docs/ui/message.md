@@ -59,19 +59,9 @@ Add a utility class to any part to change it, for example `class="max-w-lg"`. Th
 
 | Prop    | Type               | Default   | Description                                       |
 | ------- | ------------------ | --------- | ------------------------------------------------- |
-| `align` | `"start" \| "end"` | `'start'` | The alignment of the message in the conversation. |
+| `align` | `"start" \| "end"` | `"start"` | The alignment of the message in the conversation. |
 
-### MessageGroup
-
-### MessageAvatar
-
-### MessageContent
-
-### MessageHeader
-
-### MessageFooter
-
-These parts have no props. Each one renders a `div` with its `data-slot` and passes `class` and other attributes to it.
+`MessageGroup`, `MessageAvatar`, `MessageContent`, `MessageHeader`, and `MessageFooter` have no props. Each one renders a `div` with its `data-slot` and passes `class` and other attributes to it.
 
 ## Accessibility
 

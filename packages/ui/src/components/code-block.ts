@@ -11,9 +11,10 @@ export const CodeBlock = defineComponent({
     size: { default: "default", type: String as PropType<CodeBlockSize> },
     variant: { default: "default", type: String as PropType<CodeBlockVariant> },
   },
-  setup(props, { slots }) {
+  inheritAttrs: false,
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
+      h("div", { ...attrs, "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
   },
 });
 
@@ -33,14 +34,23 @@ export const CodeBlockCopyButton = defineComponent({
     const copied = ref(false);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
-    const copy = () =>
-      (navigator.clipboard?.writeText(props.value) ?? Promise.reject(new Error("Clipboard API unavailable")))
+    const copy = () => {
+      const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+      if (!clipboard || typeof clipboard.writeText !== "function") return;
+      let result: PromiseLike<void> | void;
+      try {
+        result = clipboard.writeText(props.value);
+      } catch {
+        return;
+      }
+      void Promise.resolve(result)
         .then(() => {
           copied.value = true;
           clearTimeout(timeout);
           timeout = setTimeout(() => (copied.value = false), 2_000);
         })
         .catch(() => {});
+    };
     return () => [
       h(UButton, {
         "aria-label": copied.value ? "Copied" : "Copy",

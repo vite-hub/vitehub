@@ -35,9 +35,10 @@ export function createExecutionFiles(definitionName: string) {
 }
 
 export function resolveSandboxTaskModulePath(baseDir: string, modulePath: string) {
-  if (modulePath === '.')
+  const normalizedPath = modulePath.replaceAll('\\', '/')
+  if (normalizedPath === '.')
     return baseDir
-  return `${baseDir}/${modulePath}`
+  return `${baseDir}/${normalizedPath}`
 }
 
 function normalizeSandboxTaskBundlePath(path: string) {

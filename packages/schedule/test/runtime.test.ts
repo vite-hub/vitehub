@@ -2,9 +2,9 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
-import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
-import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
+import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -26,19 +26,6 @@ function createTestKVStore(): ScheduleKVStorage {
     async set(key, value) {
       data.set(key, value)
     },
-  }
-}
-
-/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
-function createColonKVStore(): ScheduleKVStorage {
-  const store = createTestKVStore()
-  const normalize = (key: string) => key.replaceAll("/", ":")
-  return {
-    del: key => store.del(normalize(key)),
-    get: key => store.get(normalize(key)),
-    has: key => store.has(normalize(key)),
-    keys: base => store.keys(base === undefined ? undefined : normalize(base)),
-    set: (key, value) => store.set(normalize(key), value),
   }
 }
 
@@ -88,7 +75,260 @@ afterEach(() => {
   resetScheduleRuntime()
 })
 
-describe("Schedule registry loading", () => {
+describe("Runtime Schedule helper", () => {
+  it("creates and reads recurring cron schedules for runtime-eligible targets", async () => {
+    setScheduleRuntimeRegistry({
+      "daily-report": async () => ({
+        default: {
+          cron: "0 9 * * *",
+          handler: async () => {},
+          options: { allowRuntimeSchedules: true },
+        },
+      }),
+    })
+
+    const created = await schedules.dynamic.create({
+      cron: "30 8 * * 1-5",
+      id: "schedule-1",
+      target: "daily-report",
+      timeZone: "Europe/Copenhagen",
+    })
+
+    expect(created).toMatchObject({
+      cron: "30 8 * * 1-5",
+      enabled: true,
+      id: "schedule-1",
+      target: "daily-report",
+      timeZone: "Europe/Copenhagen",
+    })
+    expect(created.createdAt).toBeInstanceOf(Date)
+    expect(created.updatedAt).toBeInstanceOf(Date)
+    expect(await schedules.get("schedule-1")).toEqual(created)
+    expect(await schedules.list()).toEqual([created])
+  })
+
+  it("stores Runtime Schedule input as replaceable snapshots", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => defineScheduleTarget({ handler: async () => {} }),
+    })
+    const input = { prompt: "Morning report", settings: { concise: true } }
+
+    const created = await schedules.dynamic.create({
+      cron: "0 9 * * *",
+      id: "schedule-1",
+      input,
+      target: "report",
+    })
+    input.settings.concise = false
+    expect(created.input).toEqual({ prompt: "Morning report", settings: { concise: true } })
+
+    const read = await schedules.get("schedule-1")
+    ;(read!.input as typeof input).settings.concise = false
+    expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Morning report", settings: { concise: true } })
+
+    const replacement = { prompt: "Evening report", settings: { concise: false } }
+    const updated = await schedules.dynamic.update("schedule-1", { input: replacement })
+    replacement.prompt = "mutated"
+    expect(updated.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
+
+    await schedules.dynamic.update("schedule-1", { cron: "0 18 * * *" })
+    expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
+
+    const cleared = await schedules.dynamic.update("schedule-1", { input: undefined })
+    expect(cleared.input).toBeUndefined()
+    expect((await schedules.get("schedule-1"))?.input).toBeUndefined()
+  })
+
+  it("updates, disables, enables, and deletes schedules through the same store", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+      cleanup: async () => ({
+        cron: "0 0 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    const created = await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const updated = await schedules.dynamic.update("schedule-1", { cron: "15 10 * * *", target: "cleanup", timeZone: "Europe/Copenhagen" })
+    expect(updated).toMatchObject({ cron: "15 10 * * *", enabled: true, id: "schedule-1", target: "cleanup", timeZone: "Europe/Copenhagen" })
+    expect(updated.createdAt).toEqual(created.createdAt)
+    expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime())
+
+    expect(await schedules.dynamic.update("schedule-1", { enabled: false })).toMatchObject({ enabled: false, timeZone: "Europe/Copenhagen" })
+    expect(await schedules.dynamic.update("schedule-1", { timeZone: "UTC" })).toMatchObject({ timeZone: "UTC" })
+    expect(await schedules.disable("schedule-1")).toMatchObject({ enabled: false, timeZone: "UTC" })
+    expect(await schedules.enable("schedule-1")).toMatchObject({ enabled: true })
+    expect(await schedules.delete("schedule-1")).toBe(true)
+    expect(await schedules.get("schedule-1")).toBeUndefined()
+  })
+
+  it("fails clearly for duplicate runtime schedule ids", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.create({ cron: "0 10 * * *", id: "schedule-1", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_ALREADY_EXISTS",
+    })
+  })
+
+  it("fails clearly for invalid cron strings", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "99 9 * * *", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_CRON",
+    })
+  })
+
+  it("fails clearly for invalid Runtime Schedule time zones", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "+01:00" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "PST" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+
+    const linked = await schedules.dynamic.create({ cron: "0 9 * * *", id: "linked-zone", target: "report", timeZone: "Asia/Kolkata" })
+    expect(linked).toMatchObject({ timeZone: "Asia/Kolkata" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "Etc/UTC" })).resolves.toMatchObject({ timeZone: "Etc/UTC" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "EST5EDT" })).resolves.toMatchObject({ timeZone: "EST5EDT" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "PST8PDT" })).resolves.toMatchObject({ timeZone: "PST8PDT" })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+    await expect(schedules.dynamic.update("schedule-1", { timeZone: "-05:30" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_TIME_ZONE",
+    })
+  })
+
+  it("rejects unknown Runtime Schedule create and update keys", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timezone: "UTC" } as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      message: "Runtime Schedule input is invalid.",
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { timezone: "UTC" } as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+      message: "Runtime Schedule input is invalid.",
+    })
+  })
+
+  it("rejects explicitly empty ids", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", id: "", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ID",
+    })
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", id: 123 as never, target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ID",
+    })
+  })
+
+  it("rejects non-boolean enabled flags", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", enabled: "false" as never, target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ENABLED",
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_ENABLED",
+    })
+  })
+
+  it("rejects non-object runtime schedule create and update inputs", async () => {
+    await expect(schedules.dynamic.create(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+    })
+    await expect(schedules.dynamic.create("bad" as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+    })
+    await expect(schedules.dynamic.update("schedule-1", null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+    })
+  })
+
+  it("rejects non-object runtime schedule execute options", async () => {
+    await expect(executeRuntimeSchedule(null as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+    })
+    await expect(executeRuntimeSchedule(123 as never)).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_INPUT",
+    })
+  })
+
+  it("fails clearly for unknown targets", async () => {
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "missing" })).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_FOUND",
+    })
+  })
+
+  it("fails clearly for schedule targets that did not opt in", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report" })).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
   it("preserves newer in-flight registry loads when stale loads finish", async () => {
     let finishOld: (() => void) | undefined
     let finishNew: (() => void) | undefined
@@ -145,20 +385,21 @@ describe("Schedule registry loading", () => {
     await expect(loadScheduleDefinition("report")).resolves.toMatchObject({ cron: "0 10 * * *" })
   })
 
-  it("ignores inherited registry entries", async () => {
+  it("ignores inherited runtime registry entries", async () => {
     const inheritedRegistry = {}
     Object.defineProperty(inheritedRegistry, "__proto__", {
-      value: async () => ({ cron: "0 9 * * *", handler: async () => {} }),
+      value: async () => ({ cron: "0 9 * * *", handler: async () => {}, options: { allowRuntimeSchedules: true } }),
     })
     const registry = Object.create(inheritedRegistry) as Record<string, () => unknown>
-    registry.report = async () => ({ cron: "0 9 * * *", handler: async () => {} })
+    registry.report = async () => ({ cron: "0 9 * * *", handler: async () => {}, options: { allowRuntimeSchedules: true } })
     setScheduleRuntimeRegistry(registry as Parameters<typeof setScheduleRuntimeRegistry>[0])
 
-    await expect(loadScheduleDefinition("__proto__")).resolves.toBeUndefined()
-    await expect(loadScheduleDefinition("report")).resolves.toMatchObject({ cron: "0 9 * * *" })
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "__proto__" })).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_FOUND",
+    })
   })
 
-  it("returns early for recursive loads of the same definition", async () => {
+  it("returns early for recursive loads of the same runtime target", async () => {
     setScheduleRuntimeRegistry({
       report: async () => {
         expect(await loadScheduleDefinition("report")).toBeUndefined()
@@ -171,6 +412,142 @@ describe("Schedule registry loading", () => {
     })
   })
 
+  it("fails clearly when updating an unknown schedule", async () => {
+    await expect(schedules.dynamic.update("missing", { enabled: false })).rejects.toBeInstanceOf(ViteHubError)
+    await expect(schedules.dynamic.update("missing", { enabled: false })).rejects.toMatchObject({
+      code: "SCHEDULE_NOT_FOUND",
+    })
+  })
+})
+
+describe("KV Runtime Schedule Store", () => {
+  it("matches the RuntimeScheduleStore create, list, update, get, and delete contract", async () => {
+    const store = createKVRuntimeScheduleStore({ kvStore: createTestKVStore(), prefix: "tests/schedules" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const updatedAt = new Date("2026-05-23T09:01:00.000Z")
+
+    const created = await store.create({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      input: { prompt: "Daily report", settings: { concise: true } },
+      target: "daily/report",
+      timeZone: "Europe/Copenhagen",
+      updatedAt,
+    })
+
+    expect(created).toEqual({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      input: { prompt: "Daily report", settings: { concise: true } },
+      target: "daily/report",
+      timeZone: "Europe/Copenhagen",
+      updatedAt,
+    })
+    expect((await store.get("schedule/1"))?.createdAt).toBeInstanceOf(Date)
+    expect(await store.list()).toEqual([created])
+
+    created.cron = "mutated"
+    ;(created.input as { settings: { concise: boolean } }).settings.concise = false
+    expect((await store.get("schedule/1"))?.cron).toBe("0 9 * * *")
+    expect((await store.get("schedule/1"))?.input).toEqual({ prompt: "Daily report", settings: { concise: true } })
+
+    const changedAt = new Date("2026-05-23T10:00:00.000Z")
+    await expect(store.update("missing", { enabled: false, updatedAt: changedAt })).resolves.toBeUndefined()
+    const replacement = { prompt: "Updated report", settings: { concise: false } }
+    const updated = await store.update("schedule/1", { cron: "30 10 * * *", enabled: false, input: replacement, timeZone: "Asia/Bangkok", updatedAt: changedAt })
+    replacement.prompt = "mutated"
+    expect(updated).toMatchObject({ cron: "30 10 * * *", enabled: false, id: "schedule/1", input: { prompt: "Updated report", settings: { concise: false } }, timeZone: "Asia/Bangkok" })
+    expect(updated?.createdAt).toEqual(createdAt)
+    expect(updated?.updatedAt).toEqual(changedAt)
+    expect((await store.get("schedule/1"))?.timeZone).toBe("Asia/Bangkok")
+
+    const unchanged = await store.update("schedule/1", { cron: undefined, target: undefined, updatedAt: changedAt } as never)
+    expect(unchanged).toMatchObject({ cron: "30 10 * * *", target: "daily/report" })
+
+    const cleared = await store.update("schedule/1", { input: undefined, updatedAt: changedAt })
+    expect(cleared?.input).toBeUndefined()
+    expect((await store.get("schedule/1"))?.input).toBeUndefined()
+
+    await expect(store.create({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      target: "daily/report",
+      updatedAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_ALREADY_EXISTS" })
+
+    await expect(store.delete("missing")).resolves.toBe(false)
+    await expect(store.delete("schedule/1")).resolves.toBe(true)
+    await expect(store.get("schedule/1")).resolves.toBeUndefined()
+  })
+
+  it("serializes concurrent creates for the same KV runtime schedule key", async () => {
+    const kvStore = createDelayedHasKVStore()
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    const record = {
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      target: "daily/report",
+      updatedAt: createdAt,
+    }
+
+    const first = store.create(record)
+    const second = store.create(record)
+    await flushAsyncWork()
+    kvStore.releaseHas()
+
+    const results = await Promise.allSettled([first, second])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    await expect(store.get("schedule/1")).resolves.toMatchObject({ id: "schedule/1" })
+  })
+
+  it("keeps KV runtime schedule deletes serialized with concurrent updates", async () => {
+    const kvStore = createTestKVStore()
+    const originalSet = kvStore.set.bind(kvStore)
+    let releaseUpdateSet: (() => void) | undefined
+    let pauseUpdateSet = false
+    kvStore.set = async (key, value) => {
+      if (pauseUpdateSet && key.includes("runtime-schedules")) {
+        await new Promise<void>(resolve => { releaseUpdateSet = resolve })
+      }
+      await originalSet(key, value)
+    }
+
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules-delete-lock" })
+    const createdAt = new Date("2026-05-23T09:00:00.000Z")
+    await store.create({
+      createdAt,
+      cron: "0 9 * * *",
+      enabled: true,
+      id: "schedule/1",
+      target: "daily/report",
+      updatedAt: createdAt,
+    })
+
+    pauseUpdateSet = true
+    const updating = store.update("schedule/1", {
+      enabled: false,
+      updatedAt: new Date("2026-05-23T10:00:00.000Z"),
+    })
+    await flushAsyncWork()
+
+    const deleting = store.delete("schedule/1")
+    await flushAsyncWork()
+    releaseUpdateSet?.()
+
+    await expect(updating).resolves.toMatchObject({ enabled: false })
+    await expect(deleting).resolves.toBe(true)
+    await expect(store.get("schedule/1")).resolves.toBeUndefined()
+  })
 })
 
 describe("Schedule Run bookkeeping", () => {
@@ -186,6 +563,42 @@ describe("Schedule Run bookkeeping", () => {
     })
   })
 
+  it("records a run and one successful attempt for a Runtime Schedule", async () => {
+    const seen: unknown[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => defineScheduleTarget<{ prompt: string }>({
+        handler: async context => seen.push(context),
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", input: { prompt: "Daily report" }, target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const run = await schedules.run("schedule-1", { scheduledAt })
+    const attempts = await schedules.listAttempts(run.id)
+
+    expect(run).toMatchObject({
+      attemptCount: 1,
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
+      scheduleId: "schedule-1",
+      scheduledAt,
+      status: "succeeded",
+      target: "report",
+    })
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]).toMatchObject({ runId: run.id, status: "succeeded" })
+    expect(seen).toEqual([
+      expect.objectContaining({
+        attemptId: attempts[0]!.id,
+        id: run.id,
+        input: { prompt: "Daily report" },
+        runId: run.id,
+        scheduleId: "schedule-1",
+        scheduledAt,
+        target: "report",
+      }),
+    ])
+  })
+
   it("accepts scheduledAt Date values from another JavaScript realm", async () => {
     const scheduledAt = runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
     const run = await executeStaticSchedule({
@@ -196,6 +609,39 @@ describe("Schedule Run bookkeeping", () => {
     })
     expect(run.scheduledAt).toBeInstanceOf(Date)
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("rejects hostile scheduledAt objects through the Schedule diagnostic", async () => {
+    const handler = vi.fn()
+    const cases = [
+      { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
+      new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
+    ]
+    for (const scheduledAt of cases) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "report", scheduledAt: scheduledAt as never,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
@@ -209,29 +655,12 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-  it.each([
-    { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
-    new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
-  ])("rejects hostile scheduledAt objects through the Schedule diagnostic", async (scheduledAt) => {
-    const handler = vi.fn()
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler },
-      name: "report",
-      scheduledAt: scheduledAt as never,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
-    expect(handler).not.toHaveBeenCalled()
-  })
-
   it("accepts genuine Dates without consulting a caller-defined tag", async () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
     Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
     const run = await executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
-      scheduledAt,
+      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "report", scheduledAt,
     })
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     expect(readTag).not.toHaveBeenCalled()
@@ -249,14 +678,46 @@ describe("Schedule Run bookkeeping", () => {
       const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
       Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
       const run = await executeStaticSchedule({
-        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "custom-tag-date", scheduledAt,
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
       })
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
   })
 
-
+  it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
+    const handler = vi.fn(async () => {})
+    const hostile = vi.fn(() => { throw new Error("must not be called") })
+    const fake = { [Symbol.toStringTag]: "Date", getTime: hostile }
+    const prototypeOnly = Object.create(Date.prototype) as Date
+    const proxy = new Proxy(new Date("2026-05-23T09:00:00.000Z"), {})
+    const revoked = Proxy.revocable(new Date("2026-05-23T09:00:00.000Z"), {})
+    revoked.revoke()
+    const invalid = new Date("bad")
+    Object.defineProperty(invalid, Symbol.toStringTag, { value: "Custom" })
+    for (const scheduledAt of [fake, prototypeOnly, proxy, revoked.proxy, invalid]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "invalid-date-slot", scheduledAt: scheduledAt as Date,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
+    expect(hostile).not.toHaveBeenCalled()
+  })
   it("fails clearly for invalid scheduledAt dates", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    await expect(schedules.run("schedule-1", { scheduledAt: new Date("bad") })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
@@ -265,13 +726,143 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostile = { get [Symbol.toStringTag]() { throw new Error("spoofed tag") } } as unknown as Date
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
-      scheduledAt: hostile,
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
   })
 
   it("uses the same bookkeeping path for static provider-triggered schedules", async () => {
@@ -294,25 +885,30 @@ describe("Schedule Run bookkeeping", () => {
       status: "succeeded",
       target: "static-report",
     })
-    expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
-    expect(await getScheduleRunStore().listAttempts(run.id)).toHaveLength(1)
+    expect(await schedules.getRun(run.id)).toEqual(run)
+    expect(await schedules.listAttempts(run.id)).toHaveLength(1)
   })
 
   it("dedupes repeated due events and does not retry or overlap by default", async () => {
     let calls = 0
-    const definition = {
-      cron: "0 9 * * *",
-      handler: async () => {
-        calls += 1
-      },
-    }
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls += 1
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-    const first = await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt })
-    const second = await executeStaticSchedule({ cron: definition.cron, definition, name: "report", scheduledAt })
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    const second = await schedules.run("schedule-1", { scheduledAt })
 
     expect(second).toEqual(first)
     expect(calls).toBe(1)
-    expect(await getScheduleRunStore().listAttempts(first.id)).toHaveLength(1)
+    expect(await schedules.listAttempts(first.id)).toHaveLength(1)
   })
 
   it("keeps run ids distinct for schedule ids with the same sanitized form", async () => {
@@ -334,6 +930,40 @@ describe("Schedule Run bookkeeping", () => {
     expect(second.id).toBe("srun_static_daily-report_2026-05-23T09:00:00.000Z")
   })
 
+  it("keeps static and Runtime Schedule runs distinct for shared ids", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    let runtimeCalls = 0
+    let staticCalls = 0
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          runtimeCalls++
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "shared-id", target: "report" })
+
+    const runtimeRun = await schedules.run("shared-id", { scheduledAt })
+    const staticRun = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: {
+        cron: "0 9 * * *",
+        handler: async () => {
+          staticCalls++
+        },
+      },
+      name: "shared-id",
+      scheduledAt,
+    })
+
+    expect(runtimeRun.id).toBe("srun_runtime_shared-id_2026-05-23T09:00:00.000Z")
+    expect(staticRun.id).toBe("srun_static_shared-id_2026-05-23T09:00:00.000Z")
+    expect(runtimeCalls).toBe(1)
+    expect(staticCalls).toBe(1)
+  })
+
   it("reloads an existing run when duplicate creation wins the race", async () => {
     const store = createMemoryScheduleRunStore()
     let calls = 0
@@ -344,46 +974,48 @@ describe("Schedule Run bookkeeping", () => {
         throw new Error(`Schedule Run already exists: ${created.id}`)
       },
     })
-    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-    const run = await executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
         cron: "0 9 * * *",
         handler: async () => {
           calls += 1
         },
-      },
-      name: "schedule-1",
-      scheduledAt,
+        options: { allowRuntimeSchedules: true },
+      }),
     })
 
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const run = await schedules.run("schedule-1", { scheduledAt })
+
     expect(run).toMatchObject({
-      id: "srun_static_schedule-1_2026-05-23T09:00:00.000Z",
+      id: "srun_runtime_schedule-1_2026-05-23T09:00:00.000Z",
       status: "pending",
     })
     expect(calls).toBe(0)
   })
 
   it("records failed handler diagnostics on the run and attempt", async () => {
-    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
         cron: "0 9 * * *",
         handler: async () => {
           throw new TypeError("boom")
         },
-      },
-      name: "report",
-      scheduledAt,
-    })).rejects.toThrow("boom")
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
 
-    const [run] = await getScheduleRunStore().listRuns()
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toThrow("boom")
+
+    const [run] = await schedules.listRuns()
     expect(run).toMatchObject({
       error: { message: "boom", name: "TypeError" },
       status: "failed",
     })
-    const [attempt] = await getScheduleRunStore().listAttempts(run!.id)
+    const [attempt] = await schedules.listAttempts(run!.id)
     expect(attempt).toMatchObject({
       error: { message: "boom", name: "TypeError" },
       status: "failed",
@@ -391,21 +1023,22 @@ describe("Schedule Run bookkeeping", () => {
   })
 
   it("isolates stored run errors from returned object mutation", async () => {
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
         cron: "0 9 * * *",
         handler: async () => {
           throw new TypeError("boom")
         },
-      },
-      name: "report",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).rejects.toThrow("boom")
-    const [run] = await getScheduleRunStore().listRuns()
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.run("schedule-1", { scheduledAt: new Date("2026-05-23T09:00:00.000Z") })).rejects.toThrow("boom")
+    const [run] = await schedules.listRuns()
     run!.error!.message = "mutated"
 
-    expect((await getScheduleRunStore().getRun(run!.id))!.error).toMatchObject({ message: "boom" })
+    expect((await schedules.getRun(run!.id))!.error).toMatchObject({ message: "boom" })
   })
 })
 
@@ -431,7 +1064,7 @@ describe("Manual Schedule runs", () => {
     })
     expect(run.id).toMatch(new RegExp(`^srun_manual_sync_${run.scheduledAt.toISOString()}_.+$`))
     expect(calls).toEqual([run.id])
-    expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
+    expect(await schedules.getRun(run.id)).toEqual(run)
   })
 
   it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
@@ -482,7 +1115,7 @@ describe("Manual Schedule runs", () => {
     })
 
     await expect(runSchedule("inherited")).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    expect(await getScheduleRunStore().listRuns()).toEqual([])
+    expect(await schedules.listRuns()).toEqual([])
   })
 
   it("rejects inherited manual schedule definitions", async () => {
@@ -494,23 +1127,23 @@ describe("Manual Schedule runs", () => {
     }
 
     await expect(runSchedule("inherited", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    expect(await getScheduleRunStore().listRuns()).toEqual([])
+    expect(await schedules.listRuns()).toEqual([])
   })
 
   it("rejects definitions that do not allow manual runs", async () => {
     const registry = {
       cron: async () => defineSchedule("0 9 * * *", () => {}),
       disabled: async () => defineSchedule("0 9 * * *", () => {}, { manual: false }),
-      cronless: async () => ({ handler: () => {} }) as unknown as ScheduleDefinition,
+      target: async () => defineScheduleTarget({ handler: () => {} }),
     }
 
     await expect(runSchedule("cron", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
     await expect(runSchedule("disabled", { registry })).rejects.toMatchObject({ code: "SCHEDULE_MANUAL_RUN_DISABLED" })
-    await expect(runSchedule("cronless", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
+    await expect(runSchedule("target", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     await expect(runSchedule("missing", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     await expect(runSchedule("toString", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
     await expect(runSchedule("", { registry })).rejects.toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND" })
-    expect(await getScheduleRunStore().listRuns()).toEqual([])
+    expect(await schedules.listRuns()).toEqual([])
   })
 
   it("resolves with the failed run when the handler fails", async () => {
@@ -526,7 +1159,7 @@ describe("Manual Schedule runs", () => {
       error: { message: "mailbox unavailable", name: "TypeError" },
       status: "failed",
     })
-    expect(await getScheduleRunStore().listAttempts(run.id)).toEqual([expect.objectContaining({ status: "failed" })])
+    expect(await schedules.listAttempts(run.id)).toEqual([expect.objectContaining({ status: "failed" })])
   })
 })
 
@@ -584,36 +1217,18 @@ describe("KV Schedule Run Store", () => {
       const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
       for (const scheduleId of ["digest_with_underscore", "other"]) {
         await store.createRun({
-          id: `srun_static_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`,
+          id: `srun_runtime_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}`,
           scheduleId, target: "report", scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt,
           status: "pending", attemptCount: 0,
         })
       }
     }
     const get = vi.spyOn(kvStore, "get")
-    const runs = await store.listRuns({ scheduleId: "digest_with_underscore", limit: 10 })
+    const runs = await store.listRuns({ scheduleId: "digest_with_underscore", runtimeOnly: true, limit: 10 })
     expect(runs).toHaveLength(10)
     expect(get).toHaveBeenCalledTimes(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
-  })
-
-  it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {
-    const kvStore = createColonKVStore()
-    const store = createKVScheduleRunStore({ kvStore })
-    for (let index = 0; index < 1001; index++) {
-      const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
-      await store.createRun({ id: `srun_static_reconcile_${scheduledAt.toISOString()}`, scheduleId: "reconcile", target: "reconcile",
-        scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    }
-    await store.createAttempt({ id: "attempt/1", runId: "srun_static_reconcile_2026-01-01T16:40:00.000Z", createdAt: new Date(0),
-      startedAt: new Date(0), updatedAt: new Date(0), status: "succeeded" })
-    const get = vi.spyOn(kvStore, "get")
-
-    const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
-    expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
-    expect(get).toHaveBeenCalledTimes(1)
-    expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
   })
 
   it.each([true, false])("preserves newest opaque fallback history when index writes are available: %s", async (indexAvailable) => {
@@ -622,7 +1237,7 @@ describe("KV Schedule Run Store", () => {
     for (let index = 0; index < 30; index++) {
       const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
       for (const scheduleId of ["actual", "other"]) {
-        await store.createRun({ id: `srun_static_${scheduleId}_opaque%_${index}`, scheduleId, target: "report", scheduledAt,
+        await store.createRun({ id: `srun_runtime_${scheduleId}_opaque%_${index}`, scheduleId, target: "report", scheduledAt,
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
@@ -636,14 +1251,14 @@ describe("KV Schedule Run Store", () => {
     }
     const get = vi.spyOn(kvStore, "get")
     const latest = await store.listRuns({ scheduleId: "actual", limit: 1 })
-    expect(latest[0]?.id).toBe("srun_static_actual_opaque%_29")
+    expect(latest[0]?.id).toBe("srun_runtime_actual_opaque%_29")
     expect(get).toHaveBeenCalledTimes(60)
     get.mockClear()
-    const other = await store.listRuns({ scheduleId: "other", limit: 10 })
+    const other = await store.listRuns({ scheduleId: "other", runtimeOnly: true, limit: 10 })
     expect(other).toHaveLength(10)
-    expect(other[0]?.id).toBe("srun_static_other_opaque%_29")
+    expect(other[0]?.id).toBe("srun_runtime_other_opaque%_29")
     expect(get).toHaveBeenCalledTimes(indexAvailable ? 10 : 60)
-    expect(await store.getRun("srun_static_actual_opaque%_29")).toEqual(latest[0])
+    expect(await store.getRun("srun_runtime_actual_opaque%_29")).toEqual(latest[0])
   })
 
   it("reports incomplete history when the unindexed fallback exceeds its safety bound", async () => {
@@ -660,7 +1275,7 @@ describe("KV Schedule Run Store", () => {
       await store.createRun({ id: `legacy_${index}`, scheduleId: "legacy", target: "report", scheduledAt,
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
-    for (const options of [{ limit: 1 }, { scheduleId: "legacy" }, { scheduleId: "legacy", limit: 1 }]) {
+    for (const options of [{ limit: 1 }, { scheduleId: "legacy" }, { runtimeOnly: true }]) {
       await expect(store.listRuns(options)).rejects.toMatchObject({
         code: "SCHEDULE_HISTORY_INCOMPLETE",
         name: "ScheduleHistoryIncompleteError",
@@ -673,12 +1288,12 @@ describe("KV Schedule Run Store", () => {
     const store = createKVScheduleRunStore({ kvStore: createTestKVStore() })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     for (const scheduleId of ["alpha", "beta", "gamma"]) {
-      await store.createRun({ id: `srun_static_${scheduleId}`, scheduleId, target: "report", scheduledAt,
+      await store.createRun({ id: `srun_runtime_${scheduleId}`, scheduleId, target: "report", scheduledAt,
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
     const decode = vi.spyOn(globalThis, "decodeURIComponent")
     try {
-      const results = await store.listRunsBatch!(["alpha", "beta", "gamma"].map(scheduleId => ({ scheduleId, limit: 1 })))
+      const results = await store.listRunsBatch!(["alpha", "beta", "gamma"].map(scheduleId => ({ scheduleId, runtimeOnly: true, limit: 1 })))
       expect(results.map(runs => runs[0]?.scheduleId)).toEqual(["alpha", "beta", "gamma"])
       expect(decode).toHaveBeenCalledTimes(12)
     }
@@ -694,7 +1309,7 @@ describe("KV Schedule Run Store", () => {
     for (const scheduleId of ["alpha", "beta", "gamma", "delta"]) {
       for (let index = 0; index < 8; index++) {
         const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
-        await store.createRun({ id: `${index % 2 ? "srun_static_" : "manual_"}${scheduleId}_opaque%_${index}`,
+        await store.createRun({ id: `${index % 2 ? "srun_runtime_" : "manual_"}${scheduleId}_opaque%_${index}`,
           scheduleId, target: "report", scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt,
           status: "failed", attemptCount: 1, error: { name: "Error", message: "retained" }, response })
       }
@@ -712,13 +1327,13 @@ describe("KV Schedule Run Store", () => {
     try {
       const results = await store.listRunsBatch!([
         ...["alpha", "beta", "gamma", "delta"].map(scheduleId => ({ scheduleId, limit: 1 })),
-        { scheduleId: "alpha", limit: 1 },
-        { limit: 3 }, {}, { scheduleId: "alpha" }, { limit: 16 }, { limit: 0 },
+        { scheduleId: "alpha", runtimeOnly: true, limit: 1 },
+        { runtimeOnly: true, limit: 3 }, {}, { scheduleId: "alpha" }, { runtimeOnly: true }, { limit: 0 },
       ])
       expect(results.slice(0, 4).map(runs => runs[0]?.scheduleId)).toEqual(["alpha", "beta", "gamma", "delta"])
-      expect(results[4]?.[0]?.id).toBe("srun_static_alpha_opaque%_7")
+      expect(results[4]?.[0]?.id).toBe("srun_runtime_alpha_opaque%_7")
       expect(results[5]).toHaveLength(3)
-      expect(results[5]?.every(run => run.scheduledAt.getUTCMinutes() === 7)).toBe(true)
+      expect(results[5]?.every(run => run.id.startsWith("srun_runtime_") && run.scheduledAt.getUTCMinutes() === 7)).toBe(true)
       expect(results.slice(6).map(runs => runs.length)).toEqual([32, 8, 16, 0])
       expect(get).toHaveBeenCalledTimes(32)
       // Retained payloads are decoded once, then copied only for matching output records.
@@ -728,7 +1343,7 @@ describe("KV Schedule Run Store", () => {
       expect(results[4]?.[0]?.error?.message).toBe("retained")
       expect(results[4]?.[0]?.scheduledAt.getUTCFullYear()).toBe(2026)
       get.mockClear()
-      expect((await store.listRunsBatch!([{ scheduleId: "alpha", limit: 1 }]))[0]?.[0]?.id).toBe("srun_static_alpha_opaque%_7")
+      expect((await store.listRunsBatch!([{ scheduleId: "alpha", limit: 1 }]))[0]?.[0]?.id).toBe("srun_runtime_alpha_opaque%_7")
       expect(get).toHaveBeenCalledTimes(indexAvailable ? 1 : 32)
     }
     finally {
@@ -791,24 +1406,24 @@ describe("KV Schedule Run Store", () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     for (const scheduleId of ["actual", "other"]) {
       for (const id of ["first", "second"]) {
-        await store.createRun({ id: `srun_static_${scheduleId}_${id}`, scheduleId, target: "report", scheduledAt,
+        await store.createRun({ id: `srun_runtime_${scheduleId}_${id}`, scheduleId, target: "report", scheduledAt,
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
-    expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id).sort()).toEqual(["srun_static_actual_first", "srun_static_actual_second"])
-    expect(await store.listRuns()).toHaveLength(4)
+    expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id).sort()).toEqual(["srun_runtime_actual_first", "srun_runtime_actual_second"])
+    expect(await store.listRuns({ runtimeOnly: true })).toHaveLength(4)
   })
 
   it.each(["memory", "kv"])("preserves opaque generated-shaped IDs in the %s store", async (kind) => {
     const kvStore = createTestKVStore()
     const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-    const ids = ["srun_static_%_2026-05-23T09:00:00.000Z", "srun_static_other_2026-05-23T09:00:00.000Z"]
+    const ids = ["srun_runtime_%_2026-05-23T09:00:00.000Z", "srun_runtime_other_2026-05-23T09:00:00.000Z"]
     for (const id of ids) {
       await store.createRun({ id, scheduleId: "actual", target: "report", scheduledAt, createdAt: scheduledAt,
         updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
-    expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id)).toEqual(ids)
+    expect((await store.listRuns({ scheduleId: "actual", runtimeOnly: true, limit: 10 })).map(run => run.id)).toEqual(ids)
     if (kind === "kv") {
       // Existing records remain readable when they predate the index.
       for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)

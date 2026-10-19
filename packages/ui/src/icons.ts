@@ -2,7 +2,6 @@
 // Run `vp test test/icons.test.ts -u` in packages/ui after you add or remove a UI icon.
 export const viteHubUIIcons: readonly string[] = [
   "lucide:chevron-down",
-  "lucide:circle-alert",
   "lucide:database",
   "ph:arrow-square-out-light",
   "ph:check-light",

@@ -7,7 +7,6 @@ import * as ui from "../src/index.ts";
 
 // Each public component maps to the docs page that documents it. A new component needs a page here.
 const pages: Record<string, string> = {
-  AgentCapabilityInspector: "capability-inspector",
   AgentChat: "chat",
   AgentChatMessage: "chat-message",
   AgentChatPrompt: "chat-prompt",
@@ -15,10 +14,6 @@ const pages: Record<string, string> = {
   AgentFile: "code-view",
   AgentFileDiff: "diff",
   AgentFileTree: "file-tree",
-  AgentInvocation: "invocation",
-  AgentInvocationInspector: "invocation-inspector",
-  AgentInvocationList: "invocation-list",
-  AgentInvocationTimeline: "timeline",
   AgentMarkdown: "markdown",
   AgentMessageParts: "message-parts",
   AgentMultiFileDiff: "diff",

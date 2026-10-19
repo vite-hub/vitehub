@@ -13,7 +13,7 @@ import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/p
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { writeRuntimeRegistryFile } from "@vite-hub/internal/definition-catalog"
-import { createSourceScanner } from "@vite-hub/internal/source-scanner"
+import { argumentExpression, findDefaultExportCall, findProperty, scanModule, staticString } from "@vite-hub/internal/build/scan-module"
 
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
@@ -182,10 +182,10 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 }
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
-  const { findDefaultExportCall, readObjectProperty } = createSourceScanner(file)
-  const source = readFileSync(file, "utf8")
-  const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
-  const cron = definition && readStaticString(definition.arguments.length > 1 ? definition.arguments[0] : readObjectProperty(definition.argument, "cron"))
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const cron = definition && staticString(definition.call.arguments.length > 1
+    ? argumentExpression(definition.call.arguments[0])
+    : definition.options && findProperty(definition.options, "cron")?.value)
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
@@ -193,14 +193,15 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
 }
 
 /**
- * Reads the `timeZone` option of a `defineSchedule()` call. Returns `undefined` when the call does not declare it,
- * the string when it is a static string, and `null` when it is not a static string.
+ * Reads the `timeZone` option of a `defineSchedule()` call. Returns `undefined`
+ * when the call does not declare it, the string when it is static, and `null`
+ * when it is present but dynamic.
  */
 export function readStaticScheduleTimeZone(file: string): string | null | undefined {
-  const { findDefaultExportCall, readObjectProperty, readObjectPropertyNames } = createSourceScanner(file)
-  const definition = findDefaultExportCall(readFileSync(file, "utf8"), ["defineSchedule"], { positionalOptionsIndex: 2 })
-  if (!definition || !readObjectPropertyNames(definition.argument).includes("timeZone")) return undefined
-  return readStaticString(readObjectProperty(definition.argument, "timeZone")) ?? null
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const property = definition?.options && findProperty(definition.options, "timeZone")
+  if (!property) return undefined
+  return property.value ? staticString(property.value) ?? null : null
 }
 
 function assertProviderTimeZone(file: string, scheduleName: string): void {
@@ -209,16 +210,6 @@ function assertProviderTimeZone(file: string, scheduleName: string): void {
   throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" declares timeZone ${timeZone === null ? "with a value that is not a static string" : JSON.stringify(timeZone)}, but provider cron output supports only UTC. Remove timeZone and write the cron in UTC, or run Schedules with the process driver (\`runtime: { driver: "process" }\`).` })
 }
 
-function readStaticString(source: string | undefined): string | undefined {
-  if (!source || !/^["'`]/.test(source)) return
-  const quote = source[0]
-  let value = ""
-  for (let index = 1; index < source.length; index++) {
-    if (source[index] === "\\") value += source[++index] || ""
-    else if (source[index] === quote) return source.slice(index + 1).trim() ? undefined : value
-    else value += source[index]
-  }
-}
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
@@ -411,7 +402,7 @@ async function writeProviderEntries(
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = await readRuntimeDefinitionCrons(definitions)
   for (const [name, cron] of crons) validateProviderCron(cron, name)
-  for (const definition of staticScheduleDefinitions(definitions)) assertProviderTimeZone(definition.handler, definition.name)
+  for (const definition of definitions) assertProviderTimeZone(definition.handler, definition.name)
   return crons
 }
 
