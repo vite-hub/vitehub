@@ -308,7 +308,21 @@ An inline Agent runs each item before it reads the next one and reports it as `c
 
 Some providers send one webhook for several messages. A Channel trigger can answer the webhook itself and call `context.dispatch(items, { trigger })` to start one Invocation per item through another trigger of the same Channel. Each item has an `input` for that trigger and a `key`. Dispatched items get the same Invocation IDs as a replay, so an item that already has an Invocation is skipped.
 
-On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`.
+On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`. The webhook queue gives a replayed delivery the same State.
+
+A trigger that always needs the State declares `durableState: true`. Its `invoke` gets `context.channelState` typed as present, and ViteHub throws `AGENT_R1005` before `invoke` runs when the State is not bound, for example when code calls the trigger outside the Channel's webhook route. Pair it with the Channel's `webhooks.durableState`, which answers `503` when the configured State is not durable.
+
+```ts
+triggers: {
+  changed: defineChannelTrigger({
+    durableState: true,
+    async invoke(context, input: { cursor: string }) {
+      await context.channelState.state.set(`${context.channelState.keyPrefix}cursor`, input.cursor)
+      return new Response(null, { status: 204 })
+    },
+  }),
+}
+```
 
 ```ts
 triggers: {
@@ -324,6 +338,29 @@ triggers: {
 ```
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
+
+### Decide and write Channel State in one step
+
+A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
+
+```ts
+invoke: (context, change: { id: string, version: number, text: string }) =>
+  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+    if (record.value && record.value.version >= change.version) return ignored('stale_update')
+    record.set({ version: change.version })
+    return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
+  }),
+```
+
+Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+
+How the write and the admission commit depends on the State:
+
+| State | Commit |
+| --- | --- |
+| SQLite and libSQL | One transaction checks the locks, queues the delivery, and writes the values. A crash before the commit keeps the old value and queues nothing. |
+| A custom State with `commitWebhookState()` | The State's own transaction, with the same contract. |
+| Other States, such as Cloudflare Durable Objects | ViteHub extends the locks, queues the delivery, then writes the values. A crash between those steps keeps the delivery and loses the write, so the retried trigger decides again and the delivery ID removes the duplicate admission. These States have no webhook queue, so only `ignored()` and inline deliveries commit there. |
 
 ## Publish Agent activity without opening a chat
 

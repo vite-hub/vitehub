@@ -246,8 +246,8 @@ describe("Connection request policy definitions", () => {
   ])("rejects %o", (requests) => {
     // SAFETY: The test sends invalid values on purpose to check the definition schema.
     const policy = requests as ConnectionRequestPolicy
-    expect(() => defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], requests: policy }) })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
-    expect(() => defineConnection({ provider: { ...testProvider(), requests: policy }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], requests: policy }) })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
+    expect(() => defineConnection({ provider: { ...testProvider(), requests: policy }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
   })
 
   it("accepts a full policy on both provider kinds", () => {

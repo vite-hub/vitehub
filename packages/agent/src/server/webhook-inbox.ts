@@ -189,9 +189,12 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
         catch (error) {
           logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
         }
+        // Keep a settled marker while the replay index entry expires. It is written
+        // before releasing the lock, so replay can never mistake this settlement for
+        // a crashed owner and remove a replacement owner's marker.
+        await state.set(ownerKey, { settled: true }, webhookInboxRetentionMs).catch(() => undefined)
         await state.releaseLock(lock).catch(() => undefined)
         activeWebhookInboxLocks.delete(key)
-        await state.delete(ownerKey).catch(() => undefined)
       },
     }
   }
@@ -309,6 +312,8 @@ export async function replayWebhookInbox(
       const stored = await state.get(key) || indexedEntry
       if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
       const fields = { attempts: stored.attempts, deliveryScope: keyPrefix, inboxId: stored.id }
+      const owner = await state.get(`${key}:owner`)
+      if (isRecord(owner) && owner.settled === true) continue
       if (stored.attempts >= webhookInboxMaxAttempts) {
         logWebhookInbox("inbox.dropped", fields)
         await state.delete(key)

@@ -86,6 +86,21 @@ export interface BabysitterOptions {
    */
   noProgressBudget: number | false;
   /**
+   * Review-driven pushes on one PR after which bot feedback and failed `reviewChecks` no longer wake a
+   * model pass. A push is review-driven when its pass had no merge conflict and no failing check outside
+   * `reviewChecks`. A person's comment or review, another failing check, a conflict or a head that
+   * someone else pushed still start a pass. The PR then merges on its required checks or parks with
+   * the reason. `false` disables the budget. Defaults to 3.
+   */
+  reviewPushBudget: number | false;
+  /**
+   * Model passes on one PR in a rolling 24 hours. After that many, the PR parks until the oldest pass
+   * is 24 hours old; its result and the health route show that time. A person's comment or review, the
+   * first failing required check on a head and a merge conflict on a PR without failing checks or open
+   * threads still start a pass, and count. `false` disables the budget. Defaults to 16.
+   */
+  dailyPassBudget: number | false;
+  /**
    * Wait for running required checks and review checks before a pass, unless a failure or conflict
    * already needs repair. One pass then handles CI and review results together. Defaults to `true`.
    */
@@ -241,6 +256,8 @@ type BabysitterDefinition = AgentDefinition<
   noFindingsReviews: string[];
   ignoreFeedbackAuthors: string[];
   noProgressBudget: number | false;
+  reviewPushBudget: number | false;
+  dailyPassBudget: number | false;
   deferWhilePending: boolean;
   install: BabysitterInstall;
   mentionAllowlist: string[];
@@ -296,6 +313,8 @@ export const babysitter: BabysitterAgent = defineAgent({
     noFindingsReviews: [] as string[],
     ignoreFeedbackAuthors: [] as string[],
     noProgressBudget: 3 as number | false,
+    reviewPushBudget: 3 as number | false,
+    dailyPassBudget: 16 as number | false,
     deferWhilePending: true,
     install: true as BabysitterInstall,
     mentionAllowlist: [] as string[],
@@ -307,7 +326,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     modelConcurrency: undefined as number | undefined,
     providerCooldownMs: 5 * 60_000,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -322,6 +341,12 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (noProgressBudget !== false && (!Number.isSafeInteger(noProgressBudget) || noProgressBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter noProgressBudget must be a positive integer or false.");
+    }
+    if (reviewPushBudget !== false && (!Number.isSafeInteger(reviewPushBudget) || reviewPushBudget < 1)) {
+      throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
+    }
+    if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
+      throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
     }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
@@ -360,6 +385,6 @@ export const babysitter: BabysitterAgent = defineAgent({
         output: { schema: babysitterPassResultSchema },
       },
     });
-    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, lifecycle }), babysitterHost);
+    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, lifecycle }), babysitterHost);
   },
 });
