@@ -527,6 +527,8 @@ async function hasResponsePrototype(value: unknown, localResponsePrototype: obje
   return false
 }
 
+const authorizationReaderMethods = new WeakMap<object, () => unknown>()
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -584,16 +586,19 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
     if (typeof release !== "function") return false
     Reflect.apply(release, probed, [])
-    return !Reflect.apply(locked, fresh, [])
+    const valid = !Reflect.apply(locked, fresh, [])
+    if (valid && Object(body) === body) authorizationReaderMethods.set(body, getReader)
+    return valid
   }
   catch { return false }
 }
 
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
+  const authenticated = authorizationReaderMethods.get(body)
+  if (authenticated) return authenticated
   let prototype: object | null = Object.getPrototypeOf(body)
   const seen = new Set<object>()
   let first: (() => unknown) | undefined
-  let firstOwner: object | undefined
   for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
     if (seen.has(prototype)) return
     seen.add(prototype)
@@ -601,12 +606,6 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
     if (typeof reader === "function") {
       if (!first) {
         first = reader
-        firstOwner = prototype
-      } else if (prototype !== firstOwner) {
-        // Use the implementation inherited by an overriding subclass. This
-        // keeps supported `super.getReader()` wrappers from selecting an
-        // unrelated reader supplied by the override itself.
-        return reader
       }
     }
     prototype = Object.getPrototypeOf(prototype)

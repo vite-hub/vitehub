@@ -170,16 +170,14 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("<details");
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');
+    expect(layout).toContain('<DocsSidebars v-if="!isSupportMatrix" class="vh-docs-desktop-nav" :panel="hasPanel" />');
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("<DocsSidebars panel />");
+    expect(layout).toContain("vh-docs-desktop-nav");
     expect(layout).toContain("overflow-x: clip;");
     expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("hidden lg:flex");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain("<UPage v-else");
-    expect(layout).toContain(':ui="docsShellUi"');
-    expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
+    expect(layout).toContain("<div class=\"vh-docs-content\">");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
