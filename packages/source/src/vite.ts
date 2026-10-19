@@ -308,7 +308,11 @@ async function writeCollectionArtifacts(
   }))
 }
 
-async function discoverContent(options: SourceGenerationOptions): Promise<string | undefined> {
+/**
+ * Find the Content Definition: one `content.{ts,js,mts,mjs,cts,cjs}` file in the server directories that exports
+ * `content`. Returns undefined when the app defines no Content.
+ */
+export async function discoverContentDefinition(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -369,7 +373,7 @@ async function writeContentArtifact(
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const [collections, content] = await Promise.all([
     discoverCollections(options),
-    discoverContent(options),
+    discoverContentDefinition(options),
   ])
   return [
     ...await writeCollectionArtifacts(options, collections),

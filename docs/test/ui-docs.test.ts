@@ -153,12 +153,16 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
+  it("uses a static context link instead of a product disclosure control", () => {
+    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
+
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain('<NuxtLink');
+  });
+
   it("keeps the sidebar header focused on search", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("UContentSearchButton");
-    expect(sidebarTop).not.toContain("vh-docs-context");
-    expect(sidebarTop).not.toContain("<NuxtLink");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -184,18 +188,11 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');
-    expect(sidebar).toContain("overflow-x: hidden;");
-    expect(sidebar).toContain("overflow-y: auto;");
-    expect(layout).toContain("<DocsSidebars panel />");
-    expect(layout).toContain("overflow-x: clip;");
-
-    expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toMatch(/<UPageAside class="vh-docs-aside">/);
-    expect(layout).toContain("flex-direction: column;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
-    expect(layout).toContain("flex: 1;");
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toContain("overflow-x: clip;");
+    expect(desktopStyles).not.toContain("overflow: hidden;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

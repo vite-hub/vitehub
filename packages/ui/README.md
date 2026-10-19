@@ -125,4 +125,4 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 ## Console views
 
-The Agent Invocation list, view, inspector, timeline, and Capability inspector render ViteHub runtime records, so they live in the Console in `vite-hub`. Build an application-owned inspection page from the parts, such as `Trace` and `CodeBlock`, and from `AgentToolList`, which also documents Capability tool contracts. The model maker and provider marks of the Console come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT).
+`AgentToolList` renders recorded tool calls and emits `select` with the tool name when a viewer chooses one. `AgentTrace` renders recorded trace events. These components are available from `@vite-hub/ui` and their dedicated entry points. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.

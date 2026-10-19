@@ -35,6 +35,15 @@ const intrinsicUint8ArrayConstructor = Uint8Array
 const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
 const intrinsicPromiseThen = Promise.prototype.then
+
+function isLikelyNativePromise(value: object): boolean {
+  if (value instanceof Promise) return true
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    return typeof constructor === "function" && constructor.name === "Promise"
+  } catch { return false }
+}
 const intrinsicPromiseConstructor = Promise
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
@@ -378,7 +387,7 @@ async function runAccessAuthorize(
       catch (error) {
         const incompatibleReceiver = error instanceof TypeError
           && /incompatible receiver/i.test(String((error as Error).message))
-        if (!incompatibleReceiver) {
+        if (!incompatibleReceiver || isLikelyNativePromise(resultObject)) {
           reject(error)
           return
         }
