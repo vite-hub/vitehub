@@ -39,10 +39,14 @@ const intrinsicPromiseThen = Promise.prototype.then
 function isLikelyNativePromise(value: object): boolean {
   if (value instanceof Promise) return true
   try {
-    const prototype = Object.getPrototypeOf(value)
-    const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    return typeof constructor === "function" && constructor.name === "Promise"
+    let prototype = Object.getPrototypeOf(value)
+    for (let depth = 0; prototype && depth < 16; depth++) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.name === "Promise") return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
   } catch { return false }
+  return false
 }
 const intrinsicPromiseConstructor = Promise
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
@@ -404,6 +408,7 @@ async function runAccessAuthorize(
       }
     })
     return adopted
+  }
 }
 
 const authorizationResponsePrototypeLimit = 32;
@@ -782,7 +787,7 @@ async function validateAuthorizationBody(
         }
       }
       catch (error) {
-        release()
+        try { await cleanupReader(error) } catch { /* preserve the read error */ }
         controller.error(error)
       }
 
@@ -840,21 +845,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
           intrinsicBodyUsed = Reflect.apply(descriptor.get, candidate, [])
           break
         }
-        const headerValue = Reflect.apply(nativeHeaders, candidate, []);
-        const headerPrototype = Object.getPrototypeOf(headerValue);
-        const nativeHeaderPrototype = Headers.prototype;
-        if (headerPrototype !== nativeHeaderPrototype) return;
-        if (Object.prototype.hasOwnProperty.call(headerValue, "get") || Object.prototype.hasOwnProperty.call(headerValue, "forEach")) return;
-        const nativeGet = Object.getOwnPropertyDescriptor(nativeHeaderPrototype, "get")?.value;
-        const nativeForEach = Object.getOwnPropertyDescriptor(nativeHeaderPrototype, "forEach")?.value;
-        if (Reflect.get(headerValue, "get") !== nativeGet || Reflect.get(headerValue, "forEach") !== nativeForEach) return;
-        return candidate as Response;
-      } catch {
-        return;
+        prototype = Object.getPrototypeOf(prototype)
       }
-    }
-    catch {
-      return
+    } catch {
+        return;
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
@@ -891,8 +885,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
-    const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
     const brandedHeaderMethods = hasNativeHeaderMethods(headerCarrier)
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
@@ -950,38 +942,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       return
     }
 
-
-    const forEach = Reflect.get(headerCarrier, "forEach")
-    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
-    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
-    if (!Array.isArray(cookies)) return
-    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
-    const normalizedHeaders = new Headers()
-    let combinedCookies: string | undefined
-    Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() === "set-cookie") {
-        if (cookies.length === 0) combinedCookies = value
-        return
-      }
-      normalizedHeaders.append(key, value)
-    }])
-    // Preserve one cookie when the fallback exposes only a combined value. A comma
-    // followed by another cookie assignment at the cookie-pair boundary proves that
-    // multiple values were merged. Also reject assignment-like text after a standard
-    // cookie attribute (for example `Path=/, next=2`), which is another merged-cookie
-    // boundary. Arbitrary extension attributes may legitimately contain commas.
-    if (combinedCookies !== undefined) {
-      if (
-        parent &&
-        (Object.prototype.hasOwnProperty.call(parent, key) ||
-          Object.prototype.hasOwnProperty.call(parent, key === "get" ? "forEach" : "get"))
-      )
-        return undefined;
-      return headerPrototype;
-    });
-    const nativeHeaderMethods =
-      headerMethodOwners.every(Boolean) && headerMethodOwners[0] === headerMethodOwners[1];
+    const nativeHeaderMethods = brandedHeaderMethods
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
