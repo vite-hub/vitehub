@@ -440,6 +440,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let getReader: (() => unknown) | undefined;
     let lockedOwner: object | undefined;
     const seen = new Set<object>();
+    const ownReader = Object.getOwnPropertyDescriptor(stream, "getReader")?.value;
+    if (ownReader !== undefined && typeof ownReader !== "function") return false;
+    if (typeof ownReader === "function") getReader = ownReader;
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false;
       seen.add(prototype);
@@ -559,8 +562,11 @@ function bridgeAuthorizationBody(
     Reflect.apply(releaseLock, reader, [])
   }
   const cleanupReader = async (reason?: unknown, shouldCancel = true) => {
-    if (shouldCancel && reader && cancel) await Reflect.apply(cancel, reader, [reason])
-    release()
+    try {
+      if (shouldCancel && reader && cancel) await Reflect.apply(cancel, reader, [reason])
+    } finally {
+      release()
+    }
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -728,18 +734,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    let serializableBody = body === null
-    if (body !== null) {
-      try {
-        serializableBody = isSerializableAuthorizationBody(body)
-      }
-      catch {
-        // A response from another Fetch realm cannot be branded by this realm.
-        // Keep it on the normalization and body-bridge path instead.
-      }
+    let serializableBody: ReadableStream<Uint8Array> | null | undefined
+    try {
+      serializableBody = body === null ? null : isSerializableAuthorizationBody(body) ? body : undefined
+    }
+    catch {
+      serializableBody = undefined
     }
     if (value instanceof localResponseConstructor && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!serializableBody) return
+    if (serializableBody === undefined) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -761,10 +764,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (combinedCookies !== undefined) {
       if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
+    } else {
+      for (const cookie of cookies) {
+        if (typeof cookie !== "string") return
+        normalizedHeaders.append("set-cookie", cookie)
+      }
     }
-    const bodyReader = body === null ? undefined : authorizationBodyReader(body)
-    if (body !== null && !bodyReader) return
-    const normalizedBody = body === null ? null : bridgeAuthorizationBody(body, bodyReader!)
+    const bodyReader = serializableBody === null ? undefined : authorizationBodyReader(serializableBody)
+    if (serializableBody !== null && !bodyReader) return
+    const normalizedBody = serializableBody === null ? null : bridgeAuthorizationBody(serializableBody, bodyReader!)
     const normalizedResponse =
       status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
         ? Response.error()

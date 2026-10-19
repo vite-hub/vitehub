@@ -145,8 +145,18 @@ describe("UI documentation", () => {
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-sidebar-search");
     expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain("<NuxtLink");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
+  });
+
+  it("gives invocation previews fixed-height containing blocks", () => {
+    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
+    const inspector = readFileSync(resolve(examplesRoot, "InvocationInspectorExample.vue"), "utf8");
+    expect(invocation).toContain('<div class="h-[34rem]');
+    expect(invocation).toContain('class="h-full"');
+    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
+    expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
   it("keeps site catalogs in the rail header above the product sections", () => {
@@ -175,10 +185,12 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("vh-docs-desktop-nav");
     expect(layout).toContain("overflow-x: clip;");
-    expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("display: flex;");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain("<div class=\"vh-docs-content\">");
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
