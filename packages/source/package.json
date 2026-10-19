@@ -52,6 +52,12 @@
       "require": "./dist/file.js",
       "default": "./dist/file.js"
     },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "import": "./dist/files.js",
+      "require": "./dist/files.js",
+      "default": "./dist/files.js"
+    },
     "./github": {
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js",
