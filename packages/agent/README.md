@@ -272,7 +272,7 @@ Pass `--json` for the structured inspection contract.
 - `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe); `openRouterTranscriptionModel()` provides OpenRouter transcription without consumer-owned HTTP handling.
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
-- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. A server entry can name a `connection`. Without `transport.url`, it connects to the provider's `mcp` endpoint. `optional: true` skips the server until the Connection is connected, and `tools` limits the exposed tools. A server's `skill://` Skills are installed in the Invocation's Workspace at `.agents/skills/<name>/` for that Invocation only; the Agent's own Skill of the same name wins, and `skills: false` turns this off. Outside an Invocation, `callMcpTool(server, name, args, { retries })` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`. A `connection` entry runs as the `server` actor.
+- `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. A server entry can name a `connection`. Without `transport.url`, it connects to the provider's `mcp` endpoint. `optional: true` skips the server until the Connection is connected, and `tools` limits the exposed tools. A server's `skill://` Skills are installed in the Invocation's Workspace at `.agents/skills/<name>/` for that Invocation only; the Agent's own Skill of the same name wins, and `skills: false` turns this off. In an Agent that `extends` another, a child `mcp()` merges its servers into the parent's by name; `inherit: false` replaces them. Outside an Invocation, `callMcpTool(server, name, args, { retries })` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`. A `connection` entry runs as the `server` actor.
 - `kv()`, `blob()`, `db()`, and `email()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), [`@vite-hub/database`](../database/README.md), and [`@vite-hub/email`](../email/README.md).
 - `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends. `options` can be a function of the Capability context that resolves once per Invocation, before the Driver runs and also in a dry run; a throw fails the Invocation with `CHANNEL_DELIVERY_OPTIONS`. `onDelivered(message, receipt, context)` runs after each successful or dry-run send with a `ChannelDeliveryReceipt` (`{ deliveryId, dryRun, text }`). When it throws, the delivery still counts, the model still receives the receipt, and the Invocation fails with `CHANNEL_DELIVERY_HOOK_FAILED` when it finishes.
 - `sandbox()` runs allowlisted executables through the configured Sandbox primitive. See [`@vite-hub/sandbox`](../sandbox/README.md).
@@ -384,6 +384,8 @@ A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset 
 
 `webhook.debounce: { key, delayMs }` delays a queued delivery by `delayMs`. A later delivery with the same key replaces a queued one that has not started, and its wait starts again. The replaced delivery records a `superseded` Channel delivery event. See [Debounce webhook deliveries](../../docs/content/docs/agents/triggers.md#debounce-webhook-deliveries).
 
+A trigger can declare `prepare` and named `tasks`, and `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain `run` function. The queue stores the task key, the task Agent's name and the accepted JSON input before `prepare`, then runs `prepare` and the task on every attempt. A restart resolves the stored task from the current definition without calling `invoke` again. A task's `prepare` replaces the trigger's. A handled `Response` from `prepare` or `run` settles the delivery (2xx and 4xx) or retries it (5xx). See [Prepare accepted work and run tasks](../../docs/content/docs/agents/triggers.md#prepare-accepted-work-and-run-tasks).
+
 A queued delivery gets three execution attempts. When the queue stops retrying it, after the last failed attempt or after the delivery used all its execution leases, ViteHub dispatches the Trigger's `failed` callback at most once with `{ attempts, deliveryId, error, publicError, input?, invocation?, run? }`. An error from `failed` is logged and does not change the delivery outcome. Pending notifications survive restart with built-in state providers; a process exit after the durable notification claim leaves an uncertain outcome that is not replayed automatically. See [Report a failed webhook delivery](../../docs/content/docs/agents/triggers.md#report-a-failed-webhook-delivery).
 
 You can also wire the adapter manually when `chat({ state })` should own the state provider:
@@ -460,7 +462,29 @@ export default defineAgent({
 
 The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
 
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+
+Three options compose with the parent, so the child does not restate it:
+
+```ts [server/agents/bot-dev/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
+import bot from '../bot/agent'
+
+export default defineAgent({
+  extends: bot,
+  // Receives the parent's list. An array replaces it.
+  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
+  capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
+  // Sets the mode of every Source that does not set its own, including inherited Sources.
+  workspace: { materialize: 'none' },
+})
+```
+
+- `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
+- A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
+- `workspace.materialize` is the default [`materialize` mode](/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Compose shared instruction strings in TypeScript, or import Markdown with `?raw` and assign the composed string to `driver.instructions`. References such as `@../bot/instructions.md` remain literal text. Share Skills through explicit Sources or a directory link.
 
