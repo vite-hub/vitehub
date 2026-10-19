@@ -103,7 +103,7 @@ describe("docs product navigation", () => {
       "Utilities",
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
-      .toEqual(["Chat App", "Invocation Dashboard", "Code Review"]);
+      .toEqual(["Chat App", "Code Review"]);
   });
 
   it("groups every navigable page of a large section", () => {

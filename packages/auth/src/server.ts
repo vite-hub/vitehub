@@ -454,7 +454,6 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
       }
       if (!getReader && typeof readerDescriptor?.value === "function") {
         getReader = readerDescriptor.value as (this: object) => unknown
-        if (owner && owner !== prototype) return false
         owner = prototype
       }
       if (lockedGetter && getReader) break
@@ -475,33 +474,38 @@ type AuthorizationReaderMethods = {
 }
 
 function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReaderMethods | undefined {
-  const prototype = ReadableStreamDefaultReader.prototype
-  const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
-  const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
-  const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
-  const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
-  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
-    const foreign = {
-      read: Reflect.get(reader, "read"),
-      cancel: Reflect.get(reader, "cancel"),
-      releaseLock: Reflect.get(reader, "releaseLock"),
-    }
-    if (Object.values(foreign).every(method => typeof method === "function")) return foreign as AuthorizationReaderMethods
-    return
-  }
-  // Intrinsic methods perform the reader brand check. Foreign readers use
-  // their own methods when the local brand check rejects them.
+  if (Object.prototype.hasOwnProperty.call(reader, "read")
+    || Object.prototype.hasOwnProperty.call(reader, "cancel")
+    || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) return
   try {
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    const methods: Partial<AuthorizationReaderMethods> = {}
+    const owners = new Set<object>()
+    let closed: ((this: object) => unknown) | undefined
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return
+      seen.add(prototype)
+      const closedDescriptor = Object.getOwnPropertyDescriptor(prototype, "closed")
+      if (!closed && typeof closedDescriptor?.get === "function") closed = closedDescriptor.get as (this: object) => unknown
+      for (const key of ["read", "cancel", "releaseLock"] as const) {
+        if (methods[key]) continue
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (typeof descriptor?.value === "function") {
+          methods[key] = descriptor.value as AuthorizationReaderMethods[typeof key]
+          owners.add(prototype)
+        }
+      }
+      if (closed && methods.read && methods.cancel && methods.releaseLock) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!closed || !methods.read || !methods.cancel || !methods.releaseLock || owners.size !== 1) return
+    // Applying the source runtime's closed getter is an unforgeable reader
+    // brand check; callable method shape alone is insufficient.
     Reflect.apply(closed, reader, [])
-    return { read, cancel, releaseLock }
+    return methods as AuthorizationReaderMethods
   }
   catch {
-    const foreign = {
-      read: Reflect.get(reader, "read"),
-      cancel: Reflect.get(reader, "cancel"),
-      releaseLock: Reflect.get(reader, "releaseLock"),
-    }
-    if (Object.values(foreign).every(method => typeof method === "function")) return foreign as AuthorizationReaderMethods
     return
   }
 }
@@ -515,7 +519,7 @@ function releaseAuthorizationReader(reader: object): void {
 }
 
 function isSerializableAuthorizationBody(body: unknown, reader: unknown): body is ReadableStream<Uint8Array> {
-  return body !== null && typeof body === "object" && typeof reader === "function"
+  return (body === null || (typeof body === "object" && typeof reader === "function"))
 }
 
 const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
