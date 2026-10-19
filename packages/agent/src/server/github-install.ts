@@ -94,7 +94,7 @@ export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 *
           reject(error);
         };
         const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`))), queueTimeoutMs);
+        const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`), true, "capacity")), queueTimeoutMs);
         const cleanup = () => {
           clearTimeout(timeout);
           signal?.removeEventListener("abort", abort);
@@ -120,18 +120,6 @@ export async function installGitHubPullRequestWorkspace(target: string, signal?:
   signal?.throwIfAborted();
   const release = await (options.slots ?? defaultInstallSlots).acquire(signal);
   try {
-    await Promise.race([
-      previous,
-      new Promise<never>((_resolve, reject) => {
-        queueTimeout = setTimeout(() => reject(new GitHubWorkspaceInstallError(new Error("Dependency installer capacity remained busy for two minutes; retry when capacity is available."), true, "capacity")), 2 * 60_000);
-      }),
-      new Promise<never>((_resolve, reject) => {
-        abort = () => reject(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        signal?.addEventListener("abort", abort, { once: true });
-        if (signal?.aborted) abort();
-      }),
-    ]);
-    clearTimeout(queueTimeout);
     signal?.throwIfAborted();
     await installWorkspace(target, signal, run);
   } finally {
