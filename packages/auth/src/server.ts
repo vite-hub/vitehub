@@ -567,7 +567,25 @@ function getTrustedAuthorizationReaderRelease(
             seenConstructors.add(streamConstructor)
             try {
               const freshBody = Reflect.construct(streamConstructor, []) as object
-              const freshReader = Reflect.apply(getReader, freshBody, []) as object
+              // Authenticate against the stream runtime's own getReader
+              // operation. Calling the response body's supplied method here
+              // would let a forged stream return the same fabricated reader
+              // for both the acquired and fresh bodies.
+              let sourceGetReader: ((this: object) => unknown) | undefined
+              let streamPrototype: object | null = Object.getPrototypeOf(freshBody)
+              const seenStreamPrototypes = new Set<object>()
+              for (let streamDepth = 0; streamPrototype && streamDepth < authorizationResponsePrototypeLimit; streamDepth++) {
+                if (seenStreamPrototypes.has(streamPrototype)) break
+                seenStreamPrototypes.add(streamPrototype)
+                const descriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+                if (typeof descriptor?.value === "function") {
+                  sourceGetReader = descriptor.value as (this: object) => unknown
+                  break
+                }
+                streamPrototype = Object.getPrototypeOf(streamPrototype)
+              }
+              if (!sourceGetReader) throw new TypeError("Missing source stream reader")
+              const freshReader = Reflect.apply(sourceGetReader, freshBody, []) as object
               const freshPrototype = Object.getPrototypeOf(freshReader)
               const freshClosed = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "closed")?.get
               const freshRead = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "read")?.value
