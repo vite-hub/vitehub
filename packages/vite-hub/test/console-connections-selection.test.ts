@@ -1,11 +1,10 @@
+// @vitest-environment happy-dom
 import { createRenderer, nextTick, ssrContextKey } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
-vi.mock("../src/console/runtime/client/connections-management", () => ({
-  connectionApprovalCountsSchema: {},
-  connectionListSchema: {},
-  connectionStatusLabel: (status: string) => status,
+vi.mock("../src/console/runtime/client/connections-management", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/console/runtime/client/connections-management")>(),
   requestConnectionsManagement: mocks.request,
 }))
 vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default: {} }))

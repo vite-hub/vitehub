@@ -23,6 +23,7 @@ import { getAccessCapabilityOptions } from "../capabilities/access.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import {
   chatMessageHookArgs,
+  chatTriggerHistoryImages,
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
   derivedChatTriggerInvoker,
@@ -43,7 +44,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isAttachmentPart, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -61,6 +62,7 @@ import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDir
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
 import { agentChatInvocationIdHeader } from "../internal/routes.ts"
+import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/chat-reply.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
@@ -209,7 +211,7 @@ export interface AgentChannelWebhookRouteHandler {
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
 }
 
-export interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
+interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
   /**
    * Before the queue resumes, fail this Agent's pending or running invocations that started before this time.
    * Invocations that a persisted queued delivery will run again stay active.
@@ -743,7 +745,6 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
@@ -860,27 +861,31 @@ function logChannelListener(event: string, provider: string, listenerId: string,
 }
 
 function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker): Thread {
+  const observe = async <T>(send: () => Promise<T>): Promise<T> => {
+    await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
+    try {
+      const message = await send()
+      await recordChannelDeliveryEvidence(delivery, {
+        // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
+        messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
+        type: "outbound.completed",
+      })
+      return message
+    } catch (error) {
+      await recordChannelDeliveryEvidence(delivery, {
+        error: channelDeliveryError(error),
+        type: "outbound.failed",
+      })
+      throw error
+    }
+  }
   return new Proxy(thread, {
     get(target, property) {
       if (property === "post") {
-        return async (...args: Parameters<Thread["post"]>) => {
-          await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
-          try {
-            const message = await target.post(...args)
-            await recordChannelDeliveryEvidence(delivery, {
-              // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-              messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
-              type: "outbound.completed",
-            })
-            return message
-          } catch (error) {
-            await recordChannelDeliveryEvidence(delivery, {
-              error: channelDeliveryError(error),
-              type: "outbound.failed",
-            })
-            throw error
-          }
-        }
+        return async (...args: Parameters<Thread["post"]>) => await observe(() => target.post(...args))
+      }
+      if (property === "reply") {
+        return async (...args: Parameters<Thread["reply"]>) => await observe(() => target.reply(...args))
       }
       const value = Reflect.get(target, property, target)
       return isRuntimeFunction(value) ? value.bind(target) : value
@@ -1070,10 +1075,12 @@ function persistedWebhookRequest(
   body: string,
   webhookId: string,
   ownership: {
+    busy?: string
     concurrencyGroup?: string
     concurrencyKey?: string
     concurrencyLimit: number
     concurrencyTtlMs?: number
+    debounce?: { delayMs: number, key: string }
   },
   scope: string,
   agentName: string,
@@ -1081,6 +1088,7 @@ function persistedWebhookRequest(
   rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
+  const debounce = webhookDebounce(ownership)
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
   return {
     channelDeliveryId,
@@ -1089,6 +1097,7 @@ function persistedWebhookRequest(
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
+    ...(debounce ? { availableAt: enqueuedAt + debounce.delayMs, debounceKey: debounce.key } : {}),
     ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
     ...(rehydrate ? { rehydrate: true as const } : {}),
@@ -1314,6 +1323,26 @@ async function steerQueuedWebhookDelivery(
       await state.releaseLock(lock)
     }
   }
+}
+
+function webhookDebounce(ownership: { busy?: string, debounce?: unknown }): { delayMs: number, key: string } | undefined {
+  const debounce = ownership.debounce
+  if (debounce === undefined) return undefined
+  if (ownership.busy === "steer") {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce is not available with busy: \"steer\"." })
+  }
+  if (!isRecord(debounce) || !isRuntimeString(debounce.key) || !debounce.key.trim() || !isRuntimeNumber(debounce.delayMs) || !Number.isSafeInteger(debounce.delayMs) || debounce.delayMs < 0) {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce needs a non-empty key and a non-negative integer delayMs." })
+  }
+  return { delayMs: debounce.delayMs, key: debounce.key }
+}
+
+// A debounced delivery is superseded once a later delivery with the same key is queued in its scope.
+async function supersededWebhookDelivery(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  if (!delivery.debounceKey) return false
+  const queued = await state.queuedWebhookDeliveries(delivery.scope)
+  const index = queued.findIndex(item => item.deliveryId === delivery.deliveryId)
+  return index !== -1 && queued.slice(index + 1).some(item => item.debounceKey === delivery.debounceKey)
 }
 
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
@@ -1558,6 +1587,13 @@ async function executeQueuedWebhookDelivery(
     const retryAt = Date.now() + defaultWebhookQueueRetryMs
     await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: false })
     return retryAt
+  }
+  if (await supersededWebhookDelivery(state, delivery)) {
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
+      await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
+    }
+    return
   }
   if (delivery.attempts >= maxWebhookQueueAttempts) {
     const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
@@ -4140,11 +4176,15 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   const identity: ChatConfig["identity"] =
     options?.identity ?? (options?.transcripts ? ({ author }) => (author.isBot === true ? null : `${adapterName}:${author.userId}`) : undefined)
   const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
+  const debounceMs = chatSdkOption<number>(options, "debounceMs")
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
-    concurrency: concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
+    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
+      ? { debounceMs, strategy: "burst" }
+      : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -4195,11 +4235,12 @@ const imageAttachmentMimeTypes: Record<string, string> = {
 
 interface ChatMessagePartOptions {
   includeReplyAttachmentInput?: boolean
+  rehydrateAttachment?: (attachment: Attachment) => Attachment
   rejectOversizedTextAttachments?: boolean
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isBlobValue(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isBlobValue(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4237,14 +4278,15 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
-      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+      const data = await attachment.fetchData()
+      return checkedTextAttachmentBytes(isBlobValue(data) ? await blobArrayBuffer(data) : data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
     }
   }
   if (isBlobValue(attachment.data)) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
+    return checkedTextAttachmentBytes(await blobArrayBuffer(attachment.data), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -4349,7 +4391,8 @@ async function chatMessageParts(message: ChatSdkMessage, options: ChatMessagePar
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
-  for (const [index, attachment] of message.attachments.entries()) {
+  for (const [index, source] of message.attachments.entries()) {
+    const attachment = options.rehydrateAttachment ? options.rehydrateAttachment(source) : source
     const textPart = await textPartFromAttachment(attachment, index, options)
     if (textPart) {
       parts.push(textPart)
@@ -4451,13 +4494,196 @@ async function chatSdkMessageToUiMessage(
   metadata?: Record<string, unknown>,
   options?: ChatMessagePartOptions,
 ): Promise<UIMessageLike> {
-  return {
+  const uiMessage: UIMessageLike = {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
     parts: await chatMessagePartsWithReply(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
+  chatUiMessageSources.set(uiMessage, message)
+  return uiMessage
+}
+
+// Message headers need the Chat SDK author, attachments, and reply that the UI message does not keep.
+const chatUiMessageSources = new WeakMap<UIMessageLike, ChatSdkMessage>()
+const chatMessageHeaderPartType = "data-chat-message-header"
+const chatReplyQuoteMaxLength = 280
+
+/**
+ * Thread history returns serialized messages without attachment callbacks.
+ * Rebuild image callbacks only when `triggerHistory.maxImages` can send history images again.
+ */
+function chatHistoryPartOptions(thread: Thread, options: AgentChatOptions | undefined): ChatMessagePartOptions {
+  if (!chatTriggerHistoryImages(resolveChatTriggerHistory(options)).maxImages) return {}
+  // SAFETY: Chat SDK adapters may implement this optional method. The Adapter type does not declare it.
+  const adapter = thread.adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }
+  const rehydrate = adapter.rehydrateAttachment
+  if (!isRuntimeFunction(rehydrate)) return {}
+  return {
+    rehydrateAttachment(attachment) {
+      const image = attachment.type === "image" || (isRuntimeString(attachment.mimeType) && attachment.mimeType.startsWith("image/"))
+      if (!image || attachment.fetchData || attachment.data) return attachment
+      try {
+        return rehydrate.call(adapter, attachment)
+      } catch {
+        return attachment
+      }
+    },
+  }
+}
+
+function chatMessageTime(value: unknown): number | undefined {
+  const time = value instanceof Date ? value.getTime() : isRuntimeString(value) ? Date.parse(value) : Number.NaN
+  return Number.isFinite(time) ? time : undefined
+}
+
+function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
+  const timeZone = isRuntimeString(options?.timeZone) && options.timeZone ? options.timeZone : "UTC"
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone })
+    return timeZone
+  } catch {
+    return "UTC"
+  }
+}
+
+function formatChatHeaderTime(time: number, timeZone: string, short = false): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    timeZoneName: "longOffset",
+    weekday: "short",
+    year: "numeric",
+  }).formatToParts(new Date(time)).map(part => [part.type, part.value]))
+  if (short) return `${parts.weekday} ${parts.hour}:${parts.minute}`
+  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "")
+  return `${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${offset}`
+}
+
+function chatHeaderMessageId(id: unknown): string | undefined {
+  return isRuntimeString(id) && id ? id.split(":").pop() : undefined
+}
+
+function chatHeaderName(value: unknown): string {
+  return String(value ?? "").replace(/[[\]]/g, "").replace(/\s+/g, " ").trim()
+}
+
+function chatHeaderAttachmentLabel(attachment: Attachment): string {
+  const mediaType = isRuntimeString(attachment.mimeType) ? attachment.mimeType : ""
+  const label = attachment.type === "image" || mediaType.startsWith("image/")
+    ? "photo"
+    : attachment.type === "audio" || mediaType.startsWith("audio/")
+      ? "voice"
+      : attachment.type === "video" || mediaType.startsWith("video/") ? "video" : "file"
+  const uniqueId = attachment.fetchMetadata?.fileUniqueId
+  return isRuntimeString(uniqueId) && uniqueId ? `${label} ${uniqueId}` : label
+}
+
+function chatHeaderQuote(text: string): string {
+  const quote = text.replace(/\s+/g, " ").trim()
+  return quote.length > chatReplyQuoteMaxLength ? `${quote.slice(0, chatReplyQuoteMaxLength - 1)}…` : quote
+}
+
+type UIMessageLikePart = NonNullable<UIMessageLike["parts"]>[number]
+
+function chatPartType(part: UIMessageLikePart): string | undefined {
+  return isRuntimeString(part.type) ? part.type : undefined
+}
+
+function chatPartId(part: UIMessageLikePart): string | undefined {
+  return "id" in part && isRuntimeString(part.id) ? part.id : undefined
+}
+
+function isChatReplyModelPart(part: UIMessageLikePart): boolean {
+  const type = chatPartType(part)
+  return !!type && (type.startsWith("data-chat-reply-") || type === "data-chat-user-message-context")
+}
+
+function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<string>, shownIds: Set<string>): string {
+  const author = replyTo.author.isMe
+    ? "your"
+    : replyTo.author.isBot === true ? "bot" : `${chatHeaderName(replyTo.author.fullName || replyTo.author.userName || "user")}'s`
+  const time = chatMessageTime(replyTo.metadata.dateSent)
+  const quote = shownIds.has(replyTo.id) ? "(shown above)" : replyTo.text ? `"${chatHeaderQuote(replyTo.text)}"` : ""
+  const media = replyTo.attachments.map((attachment, index) =>
+    `${chatHeaderAttachmentLabel(attachment)}${keptIds.has(`reply-input-attachment-${index + 1}`) ? " attached below" : " (not shown)"}`)
+  const line = `↪ replying to ${author} msg ${chatHeaderMessageId(replyTo.id) ?? "unknown"}${time === undefined ? "" : ` (${formatChatHeaderTime(time, timeZone, true)})`}${quote ? `: ${quote}` : ""}`
+  return [line, ...media].join(" · ")
+}
+
+/**
+ * Give the model one readable header per user message and limit history attachments.
+ * Current and queued messages keep every attachment. History keeps only the newest
+ * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`.
+ */
+function decorateChatTriggerMessages(
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  messageContext: MessageContext | undefined,
+  messages: UIMessageLike[],
+): UIMessageLike[] {
+  const timeZone = chatHeaderTimeZone(options)
+  const { maxAgeMs, maxImages } = chatTriggerHistoryImages(resolveChatTriggerHistory(options))
+  const currentTime = chatMessageTime(message.metadata.dateSent) ?? Date.now()
+  const isRecent = (time: number | undefined) => time !== undefined && currentTime - time <= maxAgeMs
+  const retainedIds = new Set([message.id, ...(messageContext?.skipped ?? []).map(item => item.id)].filter(Boolean))
+  const retainedMessages = new Set([message, ...(messageContext?.skipped ?? [])])
+  const shownIds = new Set(messages.filter(item => isRecent(chatMessageTime(item.createdAt))).map(item => item.id).filter(isRuntimeString))
+  let remainingImages = maxImages
+  const decorated = messages.slice().reverse().map((uiMessage): UIMessageLike => {
+    if (!Array.isArray(uiMessage.parts)) return uiMessage
+    if (uiMessage.role !== "user") return { ...uiMessage, parts: uiMessage.parts.filter(part => !isChatReplyModelPart(part)) }
+    const source = chatUiMessageSources.get(uiMessage)
+    const retained = (!!uiMessage.id && retainedIds.has(uiMessage.id)) || (!!source && retainedMessages.has(source))
+    if (!source) {
+      // A message from an earlier selection already has its header and attachment limit.
+      if (!retained) remainingImages -= uiMessage.parts.filter(part => isAttachmentPart(part) && part.type === "image").length
+      return uiMessage
+    }
+    const parts = uiMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType)
+    if (!parts.length) return uiMessage
+    const time = chatMessageTime(uiMessage.createdAt)
+    const kept = parts.filter((part) => {
+      if (retained || !isAttachmentPart(part) || chatPartId(part)?.startsWith("reply-input-")) return true
+      if (part.type !== "image" || !isRecent(time) || remainingImages <= 0) return false
+      remainingImages--
+      return true
+    })
+    const keptIds = new Set(kept.map(chatPartId).filter(isRuntimeString))
+    const media = source.attachments.map((attachment, index) => {
+      const label = chatHeaderAttachmentLabel(attachment)
+      return keptIds.has(`attachment-${index + 1}`) ? label : `${label} (not shown)`
+    })
+    const messageId = chatHeaderMessageId(uiMessage.id)
+    const sender = thread.isDM
+      ? undefined
+      : `from ${chatHeaderName(source.author.fullName || source.author.userName || "unknown")} (id ${chatHeaderName(source.author.userId)})`
+    const header = [
+      time === undefined ? undefined : formatChatHeaderTime(time, timeZone),
+      messageId ? `msg ${messageId}` : undefined,
+      sender,
+      ...media,
+      source.metadata.edited ? "edited" : undefined,
+    ].filter(Boolean).join(" · ")
+    const replyLine = source.replyTo ? chatReplyLine(source.replyTo, timeZone, keptIds, shownIds) : undefined
+    return {
+      ...uiMessage,
+      parts: [
+        { data: { modelText: header ? `[${header}]` : "" }, id: "message-header", type: chatMessageHeaderPartType },
+        ...kept.map(part => isChatReplyModelPart(part)
+          ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
+          : part),
+      ],
+    }
+  })
+  return decorated.reverse()
 }
 
 function chatAuthorizationUiMessage(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): UIMessageLike {
@@ -4503,11 +4729,23 @@ async function chatTriggerMessages(
   historyThroughCurrent = false,
   previousMessages?: UIMessageLike[],
 ): Promise<UIMessageLike[]> {
+  const messages = await selectChatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent, previousMessages)
+  return decorateChatTriggerMessages(thread, message, options, messageContext, messages)
+}
+
+async function selectChatTriggerMessages(
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  messageContext?: MessageContext,
+  historyThroughCurrent = false,
+  previousMessages?: UIMessageLike[],
+): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
-  const queued = options?.concurrency === "queue"
+  const queued = options?.concurrency === "queue" || options?.concurrency === "steer"
     ? await Promise.all((messageContext?.skipped ?? []).map(item => chatSdkMessageToUiMessage(item, undefined, {
         includeReplyAttachmentInput: true,
         rejectOversizedTextAttachments: true,
@@ -4516,6 +4754,7 @@ async function chatTriggerMessages(
   const retained = [...queued, current]
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return retained
+  const history = chatHistoryPartOptions(thread, options)
 
   const fetchedNewestFirst: UIMessageLike[] = []
   const boundHistory = historyThroughCurrent || options?.concurrency === "steer"
@@ -4526,13 +4765,13 @@ async function chatTriggerMessages(
       if (!reachedCurrent) {
         if (item.id !== message.id) {
           if (!historyThroughCurrent && unindexedNewestFirst.length < limit) {
-            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item, undefined, history))
           }
           continue
         }
         reachedCurrent = true
       }
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, history))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
@@ -4545,7 +4784,7 @@ async function chatTriggerMessages(
     durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
   }
   let messages = [
-    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
+    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, history))))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -4692,6 +4931,20 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
 }
 
+// Chat SDK keeps the triggering message only on the handler's ThreadImpl. Read it by shape, because an adapter can load another copy of `chat`.
+function chatReplyTargetId(thread: Thread): string | undefined {
+  if (!thread.adapter.reply) return undefined
+  const target: unknown = Reflect.get(thread, "_currentMessage")
+  if (!isRecord(target) || target.threadId !== thread.id || (isRecord(target.author) && (target.author.isMe === true || target.author.isBot === true))) return undefined
+  return isChatReplyTargetId(target.id) ? target.id : undefined
+}
+
+/** Answers the triggering message as a native reply when the adapter supports it. */
+async function postChatReply(thread: Thread, message: AdapterPostableMessage): Promise<unknown> {
+  const targetId = chatReplyTargetId(thread)
+  return targetId ? await thread.reply(targetId, message) : await thread.post(message)
+}
+
 async function postChatMessage(thread: Thread, message: AgentChatMessage, abortSignal?: AbortSignal): Promise<void> {
   message = formatChannelCitationMessage(message)
   if (isAsyncIterable(message)) {
@@ -4710,7 +4963,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   if (!isRuntimeObject(message) || message === null) {
     if (await postDiscordSplitContent(thread, message, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(message), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, message), abortSignal)
     return
   }
 
@@ -4719,12 +4972,12 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const postable = isTextChatMessage(message) ? message.text : (message as AdapterPostableMessage)
     if (await postDiscordSplitContent(thread, postable, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(postable), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, postable), abortSignal)
     return
   }
 
   if (isTextChatMessage(message)) {
-    await removeAbortedChatDelivery(await thread.post({ attachments, raw: message.text }), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, { attachments, raw: message.text }), abortSignal)
     return
   }
 
@@ -4736,7 +4989,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   await removeAbortedChatDelivery(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    await thread.post({
+    await postChatReply(thread, {
       ...postable,
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       attachments: [...(Array.isArray(postable.attachments) ? (postable.attachments as Attachment[]) : []), ...attachments],
@@ -5301,6 +5554,11 @@ async function admitChatSdkMessage(
   historyThroughCurrent = false,
   inlineKey?: string,
 ) {
+  // The Chat SDK skips the Agent's own messages. Other bots can loop with the Agent, so they need `allowBots`.
+  if (message.author.isBot === true && options?.allowBots !== true) {
+    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    return
+  }
   let input = createChatTriggerInput(
     chatRegistrationOrigin(registration),
     thread,
@@ -5348,7 +5606,8 @@ async function admitChatSdkMessage(
   }
   const filter = options?.filter
   if (filter) {
-    const [current] = uiMessagesToAgentMessages([currentMessage])
+    // The message header is model input. Filters receive the message as the platform sent it.
+    const [current] = uiMessagesToAgentMessages([{ ...currentMessage, parts: currentMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType) }])
     if (
       !current ||
       !(await filter({
@@ -5409,7 +5668,6 @@ export interface DrainInlineChatInvocationsResult {
 }
 
 const inlineChatInvocations = new Set<InlineChatInvocation>()
-const interruptedChatRetrySuffix = "#vitehub-retry"
 const interruptedChatRetryNote = "[Retry after interruption] A server restart interrupted the previous attempt at this request. Before creating branches, commits, pull requests, comments, or messages, check whether the previous attempt already did it and reuse its results."
 
 function hostRestartedError(retry: "pending" | "exhausted"): ViteHubError<"HOST_RESTARTED", { retry: "pending" | "exhausted" }> {
@@ -6566,7 +6824,7 @@ async function handleChatSdkMessage(
             await deliverPrimaryChatReply(chatFinish, async () => {
               invocationDeadlineAbort?.signal.throwIfAborted()
               if (!(await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal))) {
-                const sent = await thread.post({ markdown: text })
+                const sent = await postChatReply(thread, { markdown: text })
                 if (invocationDeadlineAbort?.signal.aborted) {
                   await deleteManualDeliveryPlaceholder(sent)
                   invocationDeadlineAbort.signal.throwIfAborted()
@@ -7023,19 +7281,6 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
-function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
-  if (!isRuntimeObject(value)) return
-  try {
-    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
-    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
-    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
-    if (!isRuntimeFunction(arrayBuffer)) return
-    return { size, arrayBuffer: () => arrayBuffer.call(value) }
-  } catch {
-    return
-  }
-}
-
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array
   const prototype = Object.getPrototypeOf(Uint8Array.prototype)
@@ -7151,12 +7396,13 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  const blob = isChannelHistoryBlob(data)
-  if (blob) {
-    if (blob.size <= maxBytes) {
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
       try {
-        // SAFETY: Blob.arrayBuffer() is the native method applied to a branded Blob, so it resolves to an ArrayBuffer.
-        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -7167,6 +7413,16 @@ async function channelHistoryAttachment(
     try {
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     } catch {}
+  }
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
+      try {
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
+      } catch { data = undefined }
+    } else data = undefined
   }
   let bytes: Uint8Array | undefined
   try {

@@ -67,5 +67,15 @@ describe("TraceRun", () => {
     await wrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
     expect(wrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
     wrapper.unmount();
+
+    const throwingKeys = new Proxy({ value: 1 }, { ownKeys: () => { throw new Error("cannot inspect attributes"); } });
+    const proxyRun = run("completed");
+    const proxyWrapper = mount(TraceRun, { attachTo: document.body, global, props: { defaultOpen: true, run: proxyRun } });
+    proxyRun.steps.push(step("proxy", "completed", throwingKeys));
+    proxyWrapper.vm.$forceUpdate();
+    await proxyWrapper.vm.$nextTick();
+    await proxyWrapper.get("[data-trace-step] [data-slot=trace-collapsible-trigger]").trigger("click");
+    expect(proxyWrapper.get("[data-slot=code-block-content]").text()).toBe("[Attributes cannot be shown]");
+    proxyWrapper.unmount();
   });
 });

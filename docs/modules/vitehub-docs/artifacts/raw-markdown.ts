@@ -800,6 +800,10 @@ function cardListsOutsideFences(source: string) {
 }
 
 const presentationDirectives = new Set([
+  // The site renders nothing for `agent-only`; agents get its content unwrapped.
+  "agent-only",
+  // Humans expand a collapsible; agents get its content inline.
+  "collapsible",
   "component-preview",
   "important",
   "note",
@@ -829,9 +833,14 @@ function directiveLabel(name: string, attributes: string | undefined) {
   return "";
 }
 
-function stripPresentationDirectives(source: string) {
+function stripPresentationDirectives(source: string, includeAgentOnly: boolean) {
   const output: string[] = [];
   const directives: boolean[] = [];
+  // One entry per open directive: true when its content is left out of the output.
+  const omitted: boolean[] = [];
+  const emit = (...lines: string[]) => {
+    if (!omitted.includes(true)) output.push(...lines);
+  };
   let fence: (Fence & { indent: number }) | null = null;
   let htmlEnd: RegExp | null = null;
   let htmlListIndent: number | null = null;
@@ -854,7 +863,7 @@ function stripPresentationDirectives(source: string) {
         htmlListIndent = null;
         htmlQuoteDepth = 0;
       } else {
-        output.push(deindented);
+        emit(deindented);
         if (htmlEnd.test(withoutMarkdownContainers(deindented))) {
           htmlEnd = null;
           htmlListIndent = null;
@@ -873,7 +882,7 @@ function stripPresentationDirectives(source: string) {
     ) fence = null;
 
     if (!fence && leadingColumns - listIndent >= structuralDepth * 2 + 4) {
-      output.push(deindented);
+      emit(deindented);
       continue;
     }
 
@@ -889,12 +898,12 @@ function stripPresentationDirectives(source: string) {
         };
       }
       else if (closesFence(deindented, fence)) fence = null;
-      output.push(deindented);
+      emit(deindented);
       continue;
     }
 
     if (fence) {
-      output.push(deindented);
+      emit(deindented);
       continue;
     }
 
@@ -903,7 +912,7 @@ function stripPresentationDirectives(source: string) {
     const quoteDepth = leadingQuoteDepth(referenceContainer(deindented));
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     if (nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth <= paragraphQuoteDepth)) {
-      output.push(deindented);
+      emit(deindented);
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(deindented);
         htmlEnd = nextHtmlEnd;
@@ -922,7 +931,8 @@ function stripPresentationDirectives(source: string) {
 
     if (/^\s*:{2,}\s*$/.test(deindented)) {
       const stripped = directives.pop();
-      if (stripped === false || stripped === undefined) output.push(deindented);
+      if (stripped === false || stripped === undefined) emit(deindented);
+      omitted.pop();
       continue;
     }
 
@@ -931,16 +941,17 @@ function stripPresentationDirectives(source: string) {
       const name = (directive[1] || "").toLowerCase();
       const stripped = presentationDirectives.has(name);
       directives.push(stripped);
+      omitted.push(name === "agent-only" && !includeAgentOnly);
       if (!stripped) {
-        output.push(deindented);
+        emit(deindented);
         continue;
       }
       const label = directiveLabel(name, directive[2]);
-      if (label) output.push(`${deindented.match(/^\s*/)?.[0] || ""}${label}`, "");
+      if (label) emit(`${deindented.match(/^\s*/)?.[0] || ""}${label}`, "");
       continue;
     }
 
-    output.push(deindented);
+    emit(deindented);
   }
 
   return rewriteLinks(output.join("\n"));
@@ -972,12 +983,19 @@ function expandCapabilityReferences(source: string, references: CapabilityRefere
     capabilityReferenceMarkdown(attributes, references));
 }
 
-export function toRawMarkdown(source: string, options: { capabilityReferences?: CapabilityReferences } = {}) {
+export type RawMarkdownOptions = {
+  capabilityReferences?: CapabilityReferences;
+  /** Keep `::agent-only` content. Only the agent-docs eval baseline sets this to `false`. */
+  includeAgentOnly?: boolean;
+};
+
+export function toRawMarkdown(source: string, options: RawMarkdownOptions = {}) {
   const { body, frontmatter } = splitFrontmatter(source);
   const titleResult = safeParse(string(), frontmatter.title);
   const title = titleResult.success ? titleResult.output.trim() : undefined;
   const expanded = expandCapabilityReferences(body, options.capabilityReferences);
-  const content = stripPresentationDirectives(cardListsOutsideFences(expanded)).replace(/^\n+|\n+$/g, "");
+  const content = stripPresentationDirectives(cardListsOutsideFences(expanded), options.includeAgentOnly ?? true)
+    .replace(/^\n+|\n+$/g, "");
   const startsWithH1 = /^[ \t]{0,3}#(?:[ \t]+|$)/.test(content)
     || /^[^\n]+\n[ \t]{0,3}=+[ \t]*(?:\n|$)/.test(content);
   const document = title && !startsWithH1 ? `# ${title}\n\n${content}` : content;

@@ -1,5 +1,6 @@
 import { normalizeBlobOptions } from "./config.ts"
-import { readEnv, trimmed } from "@vite-hub/internal/env"
+import { readEnv } from "@vite-hub/internal/env"
+import { resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import type { BlobResolutionInput } from "./config.ts"
 import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "./types.ts"
@@ -14,10 +15,9 @@ export interface BlobViteRuntimeConfig {
 
 function resolveHosting(input: BlobResolutionInput): string | undefined {
   const env = input.env || process.env
-  const explicit = trimmed(input.hosting)
-  if (explicit) return explicit
-  const vitehubHosting = readEnv(env, "VITEHUB_HOSTING")
-  if (vitehubHosting) return vitehubHosting
+  const preset = resolveHostPreset({ env, hosting: input.hosting })
+  if (preset) return preset
+  // Netlify Blobs also work in `netlify dev`, which sets these markers without a preset.
   if (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL")) return "netlify"
   return undefined
 }

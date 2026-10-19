@@ -92,7 +92,7 @@ export function stringToBase64(value: string): string {
 }
 
 export function requiredOption(driver: string, value: unknown, name: string): asserts value {
-  if (!value) throw emailProviderError(driver, "INVALID_OPTIONS", `${name} is required.`);
+  if (!value) throw emailProviderError(driver, "NOT_CONFIGURED", `${name} is required.`);
 }
 
 export function validateAttachments(driver: string, message: EmailMessage): void {

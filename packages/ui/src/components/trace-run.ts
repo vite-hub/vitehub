@@ -69,7 +69,16 @@ export const TraceRun = defineComponent({
         h(TraceTitle, () => value.name),
         h(TraceDescription, () => description(value.status, value.durationMs)),
       ]);
-      const attributes = value.attributes && Object.keys(value.attributes).length > 0 ? value.attributes : undefined;
+      let attributes: Record<string, unknown> | undefined;
+      try {
+        const candidate = value.attributes;
+        if (candidate) {
+          attributes = candidate;
+          if (Object.keys(candidate).length === 0) attributes = undefined;
+        }
+      } catch {
+        // Keep the candidate so attributesText can render its fallback.
+      }
       if (!attributes) return h("div", { "aria-label": value.name, "data-trace-step": value.status, key: value.id, role: "group" }, line);
       return h(TraceCollapsible, { "aria-label": value.name, "data-trace-step": value.status, key: value.id, role: "group" }, () => [
         h(TraceCollapsibleTrigger, () => line),

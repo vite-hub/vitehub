@@ -113,5 +113,5 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   );
 };
 
-const guardedHandler: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler);
+const guardedHandler: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
 export default guardedHandler;

@@ -39,7 +39,7 @@ const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_INVALID_ENABLED: "Runtime Schedule enabled value is invalid.",
   SCHEDULE_INVALID_ID: "Runtime Schedule id is invalid.",
   SCHEDULE_INVALID_INPUT: "Runtime Schedule input is invalid.",
-  SCHEDULE_INVALID_SCHEDULED_AT: "Runtime Schedule scheduledAt value is invalid.",
+  SCHEDULE_INVALID_SCHEDULED_AT: "Schedule scheduledAt value is invalid.",
   SCHEDULE_INVALID_TARGET: "Runtime Schedule target is invalid.",
   SCHEDULE_INVALID_TIME_ZONE: "Runtime Schedule time zone is invalid.",
   SCHEDULE_MANUAL_RUN_DISABLED: "Schedule Definition does not allow manual runs. Set manual: true to allow them.",
