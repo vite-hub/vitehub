@@ -654,7 +654,9 @@ function bridgeAuthorizationBody(
     async pull(controller) {
       try {
         const sourceReader = await acquire()
-        const result = await Reflect.apply(read, sourceReader, []) as { done: boolean; value?: Uint8Array }
+        const sourceRead = read
+        if (!sourceRead) throw new Error("Malformed authorization reader")
+        const result = await Reflect.apply(sourceRead, sourceReader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()

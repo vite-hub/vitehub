@@ -430,23 +430,14 @@ describe("Auth access handlers", () => {
       headers: { get: headers },
       body: { get: body },
     })
-    prototype = createPrototype()
-    const source = new Response(null, { status: 409 })
-    const forEach = source.headers.forEach.bind(source.headers)
-    const headers = new Proxy({}, {
-      get(_target, key) {
-        return key === "forEach" ? forEach : undefined
-      },
-      getPrototypeOf: () => prototype,
-    })
-    Object.defineProperty(source, "headers", { value: headers })
-    const candidate = carrier === "response" ? prototype : source
+    const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-    expect(prototypeReads.mock.calls.length).toBeLessThan(40)
+    expect(headers).not.toHaveBeenCalled()
+    expect(body).not.toHaveBeenCalled()
   })
 
   it.each(["getPrototypeOf", "getOwnPropertyDescriptor"] as const)("rejects a response when %s reflection throws", async operation => {
