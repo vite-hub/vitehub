@@ -4,7 +4,7 @@ import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 import { normalizeWorkflowOptions } from "../src/config.ts"
-import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
+import { createCloudflareWorkflowBindings, getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName, getLegacyCloudflareWorkflowClassName } from "../src/integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
 import { hubWorkflow } from "../src/vite.ts"
 
@@ -171,6 +171,7 @@ describe("workflow config", () => {
     expect(getCloudflareWorkflowBindingName("welcome-email")).toBe("WORKFLOW_77656C636F6D652D656D61696C")
     expect(getCloudflareWorkflowName("welcome-email")).toBe("workflow--77656c636f6d652d656d61696c")
     expect(getCloudflareWorkflowClassName("welcome-email")).toMatch(/^ViteHubWelcomeEmail[a-f0-9]{16}Workflow$/)
+    expect(getLegacyCloudflareWorkflowClassName("welcome-email")).toMatch(/^ViteHubWelcomeEmail[a-f0-9]{8}Workflow$/)
     expect(getVercelWorkflowName("welcome-email")).toBe("workflow--77656c636f6d652d656d61696c")
   })
 

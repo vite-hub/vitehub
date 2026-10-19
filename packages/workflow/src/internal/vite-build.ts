@@ -21,7 +21,7 @@ import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
-import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
+import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
@@ -703,12 +703,14 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
         "",
         ...definitions.map((definition) => {
           const className = getCloudflareWorkflowClassName(definition.name)
+          const legacyClassName = getLegacyCloudflareWorkflowClassName(definition.name)
           return [
             `export class ${className} extends WorkflowEntrypoint {`,
             "  async run(event, step) {",
             `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
             "  }",
             "}",
+            `export { ${className} as ${legacyClassName} }`,
             "",
           ].join("\n")
         }),
@@ -976,12 +978,14 @@ function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition
     "",
     ...definitions.map((definition) => {
       const className = getCloudflareWorkflowClassName(definition.name)
+      const legacyClassName = getLegacyCloudflareWorkflowClassName(definition.name)
       return [
         `export class ${className} extends WorkflowEntrypoint {`,
         "  async run(event, step) {",
         `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
         "  }",
         "}",
+        `export { ${className} as ${legacyClassName} }`,
         "",
       ].join("\n")
     }),
