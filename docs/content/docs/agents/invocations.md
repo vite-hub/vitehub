@@ -201,6 +201,10 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
+`agent.invocation.finish` carries `result.text` for a text result. A plain object or array result, such as `driver.ask` answers, is `result.output` instead.
+
+An Invocation that starts while another Invocation runs its Driver or an outcome hook is a child of that Invocation. For example, `runAgent()` inside `agent:finish` starts a child. A child without its own trace joins the trace of its parent: both records have the same `traceId`, and each observation of the child has `trace.parentId`, the record `id` of the parent. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish` with `agent.invocation.child.id`, `agent.invocation.child.run.id`, and `agent.invocation.child.agent.name`. The finish observation also has `agent.invocation.child.status` and `agent.invocation.child.durationMs`. The `agent.invocation.start` observation of the child has the same attributes for its parent, under `agent.invocation.parent.*`.
+
 Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
 
 Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
@@ -295,8 +299,9 @@ import { defineAgentInvocations } from 'vite-hub/agent/server'
 
 const invocations = defineAgentInvocations({
   store: createLibsqlAgentInvocationStore({
-    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxAge: '30d',
     maxRecords: 10_000,
+    maxSize: '2GB',
     url: 'file:./.data/invocations.db',
   }),
 })
@@ -323,7 +328,54 @@ const record = await invocations.get(invocationId, {
 
 Names match exactly, and matching observations keep their journal order. Other record fields remain unchanged. An empty array returns no observations; omitting `observationNames` returns all retained observations. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter observation payloads in storage. Custom stores may ignore the optional read options; the Invocations wrapper still filters the returned record.
 
-The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies both limits immediately.
+The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Retention takes an `AgentRetentionPolicy`:
+
+| Limit | Value | Default |
+| --- | --- | --- |
+| `maxAge` | A duration such as `'14d'`, `'12h'`, `'30m'`, or `'1.5h'` (units `ms`, `s`, `m`, `h`, `d`, `w`), or a number of milliseconds | `'30d'` |
+| `maxRecords` | A positive integer | `10_000` |
+| `maxSize` | A size such as `'500MB'` or `'3 GB'` (units `B`, `KB`, `MB`, `GB`, `TB`, 1024-based, any case), a number of bytes, or a percent such as `'30%'` | `false` |
+
+All limits that are set apply together. The oldest terminal records go first until every limit holds. Set a limit to `false` to disable it. An invalid limit, `null`, or an unknown key such as `maxAgeMs` fails with `AGENT_R0632` when the store is created.
+
+Age and count retention run on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies every limit immediately.
+
+`maxSize` bounds the live data of the whole database file that holds the journal: its pages minus its free pages. Give the journal its own file, because other tables in the same file count too. A percent is a share of the capacity of the volume that holds the file. It counts only the bytes of this file, not the other files on the volume. The adapter reads the capacity with `statfs` and caches it for 10 minutes. Only a local SQLite file supports `maxSize`. A remote libSQL URL fails when the store is created, and an in-memory database fails on its first operation, both with `AGENT_R0632`.
+
+After a create or a terminal update, the adapter measures the file when the bytes written since the last check reach the larger of 64 KiB and 1% of the budget, or when 60 seconds have passed with writes. When the file is above the budget, it deletes the oldest terminal records in batches until the data fits. It never deletes pending or running records, so a journal of only active records can stay above the budget. A failed size check logs a warning and does not fail the write.
+
+Deletes free pages inside the file. The file shrinks only when it uses `auto_vacuum = INCREMENTAL`. The adapter sets that mode when it creates a new file, and after a size prune it returns up to 1,000 free pages to the file system. A file created before this mode keeps its largest size until a `VACUUM` rebuilds it, but its free pages are reused for new records.
+
+### Choose how storage failures affect a run
+
+The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
+
+```ts
+const invocations = defineAgentInvocations({
+  enforcement: 'strict',
+  store,
+})
+```
+
+| `enforcement` | When the store does not confirm a startup operation |
+| --- | --- |
+| `'best-effort'` (default) | The run starts. The journal retries in the background and logs one warning for the Invocation. |
+| `'strict'` | The run does not start. |
+
+Each store operation has a limit of one second. A timeout, a rejected operation, or a missing result is not a confirmation. Before the Driver starts, a run needs three operations: the execution claim, the `running` state, and the first cancellation check. In best-effort mode, the journal retries the `running` state for up to 60 seconds and reads cancellation requests again every 10 seconds. A failed journal write does not change the result of the run.
+
+Best-effort mode still stops a run when the store answers with a reason to stop:
+
+- The store reports that another execution owner holds the claim. The run fails with `Could not persist the Invocation running state.`
+- The store returns a cancellation request. The run moves to `cancelled`.
+
+For a custom `run` Driver, strict mode also requires the cancellation warning state before dispatch. In best-effort mode, the Driver starts without it, and a remote `cancel()` can throw `AGENT_R0974` until the warning write succeeds.
+
+Best-effort history can be missing or stale. A record can stay `pending`, have no `startedAt` time, or have no observations until a retry succeeds. If the store does not recover, the journal can have no record of the run. Keep the product result in your application data. If the store does not answer, two runs with the same run ID can both start, because neither run can see the claim of the other. Use `'strict'` when the journal claim is your only protection against duplicate runs.
+
+Channel replay is always strict. `replayChannel()` and `dispatchChannelItems()` use the journal claim as the duplicate protection for each item, so this option does not apply to them. When a replay sends its claim to a Workflow worker, that worker is also strict. Other Workflow runs follow the configured enforcement.
+
+Live Channel webhook deliveries do not use the journal to prevent duplicates. The webhook route claims each delivery ID with `setIfNotExists()` in the State Adapter, and Chat SDK Channels, such as Telegram, skip a repeated message ID in the same State Adapter. Thus a provider retry does not start a second run in best-effort mode.
 
 ### Store invocations in a ViteHub Database
 
@@ -337,7 +389,7 @@ import { defineAgentInvocations } from 'vite-hub/agent/server'
 const invocations = defineAgentInvocations({
   store: createDatabaseAgentInvocationStore({
     database: 'default',
-    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
@@ -348,7 +400,7 @@ export default defineAgent({
 })
 ```
 
-The adapter resolves the named Database for each operation and creates the ViteHub journal tables on first use. It supports a local SQLite Database, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. Set `database` to another discovered Database name when the default is not the one the Agent should use. The adapter does not open or close the Database, and it does not migrate an existing custom journal.
+The adapter resolves the named Database for each operation and creates the ViteHub journal tables on first use. It supports `maxAge` and `maxRecords`, not `maxSize`, because the Database also holds other tables. It supports a local SQLite Database, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. Set `database` to another discovered Database name when the default is not the one the Agent should use. The adapter does not open or close the Database, and it does not migrate an existing custom journal.
 
 Use the direct SQLite adapter described above when the journal has its own SQLite or libSQL URL. Use the [`d1` adapter](#store-invocations-in-cloudflare-d1) when the Agent receives a D1 binding directly. The Database adapter is the portable choice when the host configuration already owns Database selection.
 
@@ -357,10 +409,10 @@ Delete or prune terminal records on demand:
 ```ts
 await invocations.delete(invocationId) // 'deleted' | 'not-found' | 'not-terminal'
 await invocations.prune({ olderThanMs: 7 * 24 * 60 * 60 * 1000, dryRun: true })
-await invocations.prune() // applies the store's maxAgeMs and maxRecords now
+await invocations.prune() // applies the store's maxAge, maxRecords, and maxSize now
 ```
 
-`delete(id)` keeps a pending or running record and returns `'not-terminal'`. `prune()` deletes completed, failed, and cancelled records last updated before `olderThanMs`. The age must be a non-negative safe integer that produces a cutoff within JavaScript's Date range. Invalid ages fail with `AGENT_R0929`. Without `olderThanMs`, it applies the store's configured retention. Both return the affected IDs, and `dryRun: true` lists them without deleting. The SQLite and D1 adapters and the memory store implement both operations. A custom store must implement `store.delete()` and `store.prune()` to support them. Deletion removes the journal record and its claim. Artifacts that a Capability wrote to Blob storage are not keyed by the journal record, so the application owns their retention.
+`delete(id)` keeps a pending or running record and returns `'not-terminal'`. `prune()` deletes completed, failed, and cancelled records last updated before `olderThanMs`. The age must be a non-negative safe integer that produces a cutoff within JavaScript's Date range. Invalid ages fail with `AGENT_R0929`. Without `olderThanMs`, it applies the store's configured retention. Both return the affected IDs, and `dryRun: true` lists them without deleting. When the store has `maxSize`, `prune()` also applies it, and the result has `size: { beforeBytes, afterBytes, budgetBytes }`. A dry run makes the same deletes in a transaction and rolls it back, so it reports exactly what a prune would delete. The SQLite and D1 adapters and the memory store implement both operations. A custom store must implement `store.delete()` and `store.prune()` to support them. Deletion removes the journal record and its claim. Artifacts that a Capability wrote to Blob storage are not keyed by the journal record, so the application owns their retention.
 
 Read the recorded prompt of a finished record to start it again:
 
@@ -401,7 +453,7 @@ const invocations = defineAgentInvocations({
 
 `redact` runs after the content policy and before the journal bounds the observation. It applies to streamed observations, persisted observations, and `appendObservation()` evidence. Return `undefined` to drop evidence; `redactError` can likewise return `undefined` to store no error details while the record remains `failed`. Both hooks are synchronous.
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. The initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. With `enforcement: 'strict'`, the initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`. See [Choose how storage failures affect a run](#choose-how-storage-failures-affect-a-run).
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -441,7 +493,16 @@ const invocations = defineAgentInvocations({
 
 Defaults are 32,768 observations, 65,536 UTF-16 code units of content strings per observation value budget, 16 MiB of serialized observation data, and a 1-second finish drain. Maximum values are 32,768 observations, 1,048,576 code units, 64 MiB, and 60 seconds. The byte limit counts the UTF-8 encoded observations array after privacy filtering. It does not limit provider output, the live trace log, or total process memory. A record keeps its resolved limits when another process resumes it.
 
-When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations; each individual store operation remains bounded to one second. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+
+Each store operation waits up to `storeTimeoutMs`: one second by default, at most 60 seconds. An operation that takes longer counts as unconfirmed, even if the write lands later, and an unconfirmed running transition stops the Invocation before its Driver starts. Raise the limit when the store is far from the runtime, such as a Cloudflare D1 primary in another region:
+
+```ts
+const invocations = defineAgentInvocations({
+  store: createDatabaseAgentInvocationStore(),
+  storeTimeoutMs: 10_000,
+})
+```
 
 When an application exposes the standard invocation journal route, inspect it without a dashboard:
 
@@ -453,15 +514,41 @@ vitehub agent invocations tail INVOCATION_ID
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output. `vitehub agent invocations cancel INVOCATION_ID` sends a cancel request into the Nitro runtime of a Vite + Nitro Development Server. A deployed URL, such as `--url https://app.example.com`, uses that deployment's Console for `list`, `show`, `tail`, and `cancel`. See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
+Before a rollout, wait until no Invocation is pending or running, so the restart does not interrupt work:
+
+```sh
+vitehub agent invocations wait-idle --url https://app.example.com --timeout 30m
+```
+
+`wait-idle` reads the same target as `list`. It prints the Invocations that it waits on and exits with status 0 when none is pending or running, or 1 when `--timeout` (default `30m`) passes first. A record that was not updated for `--stale-after` (default `2h`) is reported and does not block, because a crashed process can leave a record running. `--interval` sets the polling interval (default `5s`), `--agent` waits only on one Agent's Invocations, and `--json` prints one `invocations.waiting`, `invocations.idle`, or `invocations.timeout` event per line.
+Export Invocations as JSON Lines for offline analysis or evals:
+
+```sh
+vitehub agent invocations export --url https://app.example.com --origin webhook --since 7d > invocations.jsonl
+```
+
+`export` reads the same target as `list` and prints one line per Invocation, oldest first. Each line is the record without its observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries` (each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason). `--status`, `--origin`, and `--agent` select records, and `--since` takes an age such as `7d` or an ISO date such as `2026-10-01`. Add `--observations` to include every observation. A field is present only when the journal retained it, so content storage settings decide whether `prompt`, `final`, and delivery content appear.
+
 Delete and prune open a SQLite or libSQL journal directly:
 
 ```sh
 vitehub agent invocations delete INVOCATION_ID
 vitehub agent invocations prune --older-than 30d --dry-run --json
 vitehub agent invocations prune --database file:./.data/invocations.db --older-than 12h
+vitehub agent invocations prune --database /data/console.sqlite --max-size 30% --dry-run
+vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+
+`list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or a Console session. This works inside a running container, where the journal is on local disk:
+
+```sh
+vitehub agent invocations list --database /data/console.sqlite --status running
+vitehub agent invocations show INVOCATION_ID --database /data/console.sqlite --json
+```
+
+The command opens the file read-only with `node:sqlite` and does not migrate or write it, so it is safe while the app writes the same file. It reads observations from the record and from the table where running records keep appended observations. It accepts a path or a `file:` URL and refuses a remote libSQL URL; use `--url` for a deployed app. `--table-prefix` applies. `cancel` still needs the running app. A runtime without `node:sqlite` reports that and exits with status 1.
 
 Configured journals also retain failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct invocation IDs. Durable Channel deliveries keep their delivery run ID across preparation attempts.
 
@@ -481,7 +568,7 @@ import { defineAgentInvocations } from 'vite-hub/agent/server'
 export const invocations = defineAgentInvocations({
   store: createD1AgentInvocationStore({
     database: () => env.DB,
-    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxAge: '30d',
     maxRecords: 10_000,
   }),
 })
@@ -499,7 +586,7 @@ console.log(d1AgentInvocationSchema().join(';\n') + ';')
 
 `tablePrefix` defaults to `vitehub_agent_`; pass the same prefix to the schema function and store to use another table name. The table is outside your Drizzle schema, so `vitehub db generate` does not create or drop it. These statements create a new ViteHub-owned schema. They do not convert a custom application journal or the libSQL adapter's tables. Keep an existing journal until its records have been migrated explicitly.
 
-D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It supports Agent, Capability, triggering-person, status, and text filters, lists recorded person labels with `listTriggeredBy()`, and reads summaries without observation payloads. Use `get(id, { observationNames })` to select observation payloads by name.
+D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It rejects `maxSize` with `AGENT_R0911`, because D1 reports the size of the whole database, not of the journal. Use `maxAge` and `maxRecords`. It supports Agent, Capability, triggering-person, status, and text filters, lists recorded person labels with `listTriggeredBy()`, and reads summaries without observation payloads. Use `get(id, { observationNames })` to select observation payloads by name.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/). The adapter caps retained observations at 1,000,000 UTF-8 bytes, even when the journal requests a larger limit. Each record exposes this resolved limit in `observationLimits`. It also checks the full row, including repeated summary and search text. If that row is too large, it removes ordinary observations and marks `observationsTruncated` while keeping lifecycle fields and previously appended evidence. If the remaining row still cannot fit, the update rejects before a database write. Use another store when the complete long trace must be retained.
 
@@ -537,7 +624,7 @@ if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${resu
 | `not-found` | The journal has no Invocation with this id and no local run received the request. |
 | `unavailable` | The store did not keep the request and no run in this process holds the Invocation. |
 
-Before setup, active runs check for a journal cancellation request. A rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
+Before setup, active runs check for a journal cancellation request. In strict mode, a rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. In best-effort mode, the run starts and reads the request again at the next poll. A cancellation request that the store returns always stops startup. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
 
 The Development Server command `vitehub agent invocations cancel <id>` checks all registered journals before cancellation. If distinct journals contain the same ID, it rejects the request with HTTP `409` without changing either record. Call the intended Agent's `invocations.cancel(id)` to select its journal. Registry entries that share one journal are checked once. If any journal lookup fails, the request fails before cancellation because uniqueness cannot be verified.
 
@@ -571,6 +658,8 @@ For a scheduled invocation, pass the schedule context and request a drained resu
 
 Trusted code can install tools for one inline invocation with the options argument: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. For a standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })` returns `[error, text]` after the stream finishes. These tools join the agent's tool set for that invocation and are never serialized into `input`. A name collision with an existing tool fails setup. Callable tools select inline execution when the agent only has a host-discovered Workflow default; an explicit `workflow(...)` binding rejects them before starting. Workflow runs continue to return a Workflow Run for calls with a Runtime Context, so `output: 'drained'` only drains inline output.
 
+A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module at startup on Node, Cloudflare, and Vercel. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+
 Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot schemas are converted to JSON Schema for model tool discovery while their Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod schemas use their Standard JSON Schema converter. Other Standard Schema implementations must provide `~standard.jsonSchema.input` for Provider Agent tools.
 
 For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
@@ -580,100 +669,6 @@ With a libSQL Agent state provider, a persistent Nitro server runs this recovery
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 
 For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.
-
-## Durable retry budgets
-
-On Node hosts, the GitHub inbox can bound repeated provider dispatches and PR work
-in its SQLite storage. Every inbox method is asynchronous. This is an explicit scheduler API; configuring it
-does not intercept Agent invocations or classify errors automatically.
-
-```ts
-import { PullRequestInbox } from 'vite-hub/agent/server/github-inbox'
-
-const inbox = new PullRequestInbox({
-  path: './data/inbox.sqlite',
-  repositories: ['acme/project'],
-  budgets: { providerRetries: 3, noProgress: 3 },
-})
-```
-
-Reserve each dispatch, including retries, using a scope shared by workers that use
-the same provider account. Do not put credentials in the scope. Four reservations
-are available: one initial attempt plus three retries. Pending reservations count
-toward that bound, so a worker must wait for other in-flight results when all slots
-are occupied. Check `providerBudget(scope)` to distinguish pending work from four
-recorded failures.
-
-```ts
-const token = await inbox.reserveProviderAttempt('codex:primary-account')
-if (!token) {
-  // Leave the PR claim unstarted. Inspect pending attempts or exhausted failures.
-  return
-}
-const [claim] = await inbox.claim(1)
-if (!claim) {
-  await inbox.finishProviderAttempt(token, 'other-failure')
-  return
-}
-
-let result
-try {
-  result = await invokeRepairAgent(claim)
-} catch (error) {
-  // Application-owned classification: only known retryable provider failures count.
-  const retryable = isRetryableProviderFailure(error)
-  await inbox.finishProviderAttempt(token, retryable ? 'retryable-failure' : 'other-failure')
-  await inbox.release(claim)
-  throw error
-}
-await inbox.finishProviderAttempt(token, 'success')
-
-try {
-  // Compare GitHub/provider state before and after the invocation. Do not parse prose.
-  const evidence = await verifyNewProgress(claim, result)
-  await inbox.finish(claim, {
-    text: result.text,
-    retry: !evidence,
-    progress: evidence ? { kind: 'verified', evidence } : { kind: 'no-progress' },
-  })
-}
-catch (error) {
-  await inbox.release(claim)
-  throw error
-}
-```
-
-`invokeRepairAgent`, `isRetryableProviderFailure`, and `verifyNewProgress` above are
-application functions. Concrete progress can be a newly pushed commit, a verified
-thread resolution, or a completed merge. A valid external wait belongs in durable
-scheduler state; if another invocation repeats that unchanged wait, it is no
-progress. Use evidence identifiers for actual transitions. Credited identifiers persist for that head, so even nonconsecutive replay after
-a restart or manual reset does not reset the counter. Result text and a successful model response alone are
-not progress.
-
-Three no-progress completions stop claims for the same head, even if result status
-is completed or another webhook arrives. New head state starts with a fresh budget.
-Stale claim completions cannot charge or reset the new head. `summary()` exposes
-`progressBudget` with its head, limit, count, exhaustion state and last verified evidence.
-The first recorded progress outcome saves the configured limit for that head.
-Workers retain this limit across configuration changes and restarts until an explicit
-reset adopts the current limit. A new head uses the current configuration.
-
-Provider successes clear only failures from earlier dispatches; late responses
-cannot clear newer failures. Other errors release their reservation without
-counting as quota failures. Duplicate completion tokens are ignored. SQLite
-transactions coordinate workers that open the same database. These guarantees do
-not extend to hosts with separate databases.
-
-There is no time-based unblock. Failure counts and uncompleted reservations survive
-restart. After inspecting interrupted work or restored quota, an operator can call
-`resetProviderBudget(scope, reason)`. This invalidates outstanding tokens and adopts
-the current retry limit. Existing provider scopes retain their limit until reset.
-For a stopped PR, use `resetProgressBudget(repository, number, expectedHead, reason)`;
-it rejects an active lease, a closed PR, or an outdated head. It records the reset
-reason separately and preserves already credited evidence IDs. Keep these operations
-behind the application's operator authorization. Do not call reset on every webhook
-or deployment. The inbox cannot prove an application's evidence or authorization.
 
 An expired execution lease does not prove that its Driver stopped. Cancellation of an unowned running Invocation remains a durable request until the execution owner observes it.
 

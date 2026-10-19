@@ -372,6 +372,7 @@ function pagePath(sectionId: string, pageId: string) {
 }
 
 function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
+  if (pageId === "get-started") return "Get started";
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
@@ -415,6 +416,7 @@ function collectPages(rootDir: string, sectionId: string) {
       description: optionalString(meta.description),
       icon: optionalString(meta.icon),
       layout: pageLayout(meta.layout),
+      ...(meta.codePanel === true ? { codePanel: true } : {}),
       kind: optionalString(meta["navigation.kind"]),
       group: optionalString(meta["navigation.group"]),
       navigation: meta.navigation !== false,

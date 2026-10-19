@@ -26,14 +26,54 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./cli": "./dist/cli.js",
-    "./errors": "./dist/errors.js",
-    "./runtime/cloudflare-kv": "./dist/runtime/cloudflare-kv.js",
-    "./runtime/dev": "./dist/runtime/dev.js",
-    "./runtime/upstash-driver": "./dist/runtime/upstash-driver.js",
-    "./virtual": "./dist/virtual.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js",
+      "require": "./dist/errors.js",
+      "default": "./dist/errors.js"
+    },
+    "./runtime/cloudflare-kv": {
+      "types": "./dist/runtime/cloudflare-kv.d.ts",
+      "import": "./dist/runtime/cloudflare-kv.js",
+      "require": "./dist/runtime/cloudflare-kv.js",
+      "default": "./dist/runtime/cloudflare-kv.js"
+    },
+    "./runtime/dev": {
+      "types": "./dist/runtime/dev.d.ts",
+      "import": "./dist/runtime/dev.js",
+      "require": "./dist/runtime/dev.js",
+      "default": "./dist/runtime/dev.js"
+    },
+    "./runtime/upstash-driver": {
+      "types": "./dist/runtime/upstash-driver.d.ts",
+      "import": "./dist/runtime/upstash-driver.js",
+      "require": "./dist/runtime/upstash-driver.js",
+      "default": "./dist/runtime/upstash-driver.js"
+    },
+    "./virtual": {
+      "types": "./dist/virtual.d.ts",
+      "import": "./dist/virtual.js",
+      "require": "./dist/virtual.js",
+      "default": "./dist/virtual.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

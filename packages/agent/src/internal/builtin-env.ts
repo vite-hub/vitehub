@@ -68,7 +68,7 @@ function envNameParts(segment: string): string[] {
  * The canonical variable name of `env.server.<group>.<field>`, with the same rule as Server Env:
  * `VITEHUB_` and the path in upper snake case. `cloudflareAccess.clientId` becomes `VITEHUB_CLOUDFLARE_ACCESS_CLIENT_ID`.
  */
-export function canonicalBuiltInEnvName(group: string, field: string): string {
+function canonicalBuiltInEnvName(group: string, field: string): string {
   return ["VITEHUB", ...envNameParts(group), ...envNameParts(field)].join("_")
 }
 

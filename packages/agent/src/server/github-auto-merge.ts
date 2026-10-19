@@ -192,7 +192,6 @@ async function githubMentionTokens(body: string): Promise<string[]> {
   })
   const mentions: string[] = []
   function collectMentions(node: MarkdownNode): void {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark has already parsed the body into its string-or-element node contract.
     if (typeof node === "string") {
       // The Markdown parser bounds automatic URL links. Remove email text
       // using GFM local-part and domain characters only. Consume the complete

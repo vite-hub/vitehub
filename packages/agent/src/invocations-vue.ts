@@ -154,7 +154,6 @@ function parseAgentInvocationDetailResult(value: unknown): AgentInvocationDetail
     throw agentDiagnostics.AGENT_R0615({ message: "Invalid Agent Invocation observation page." });
   }
   const observationCursor = value.observationCursor;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation detail responses are untrusted JSON at this requester boundary.
   if (observationCursor !== undefined && typeof observationCursor !== "string") {
     throw agentDiagnostics.AGENT_R0616({ message: "Invalid Agent Invocation observation cursor." });
   }

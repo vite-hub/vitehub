@@ -19,7 +19,7 @@ This block combines [`AgentFileTree`](/docs/ui/file-tree), [`AgentPatchDiff`](/d
 
 ## Load real data
 
-Read patches from the Agent's change activities, for example with `invocationActivities(invocation)`, or from Git. Derive the trace run with `deriveTraceRuns()` from `@vite-hub/runtime`.
+Read patches from the Agent's Workspace changes or from Git. Derive the trace run with `deriveTraceRuns()` from `@vite-hub/runtime`.
 
 ## Components used
 

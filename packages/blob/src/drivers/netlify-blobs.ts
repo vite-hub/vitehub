@@ -364,9 +364,9 @@ function toBlobObject(
   const contentType = envelope === "files-sdk"
     ? metadata.__contentType
     : envelope === "legacy" ? metadata.contentType : undefined
-  const customMetadata = rawCustomMetadata(metadata, envelope)
-  if (isStringRecord(metadata.customMetadata)) Object.assign(customMetadata, metadata.customMetadata)
-  if (isStringRecord(metadata.__user)) Object.assign(customMetadata, metadata.__user)
+  let customMetadata = rawCustomMetadata(metadata, envelope)
+  if (isStringRecord(metadata.customMetadata)) customMetadata = { ...customMetadata, ...metadata.customMetadata }
+  if (isStringRecord(metadata.__user)) customMetadata = { ...customMetadata, ...metadata.__user }
   const metadataSize = envelope === "files-sdk"
     ? metadata.__size
     : envelope === "legacy" ? metadata.size : undefined

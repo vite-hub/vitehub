@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -25,8 +26,6 @@ export default defineConfig({
       "src/ai.ts",
       "src/blob-database.ts",
       "src/cloudflare.ts",
-      "src/collections.ts",
-      "src/collections/client.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
       "src/index.ts",
@@ -34,9 +33,9 @@ export default defineConfig({
       "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
-      "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
+      "src/internal/path.ts",
       "src/runtime/history-dev.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
@@ -69,20 +68,20 @@ export default defineConfig({
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
 
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }
+            const types = value.replace(/\.js$/, ".d.ts");
+            // drizzle-kit loads Database schemas through require(), and Database Definitions and contributed
+            // tables import workspaceHistorySchema from this subpath.
             return [
               key,
-              {
-                types: value.replace(/\.js$/, ".d.ts"),
-                import: value,
-              },
+              key === "./blob-database" ? { types, import: value, require: value, default: value } : { types, import: value },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },

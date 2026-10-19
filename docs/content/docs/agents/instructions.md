@@ -39,8 +39,17 @@ export default defineAgent({
 
 The colocated document is the default when `driver.instructions` is absent.
 ViteHub parses it as Markdown through Comark. Provider Drivers receive the
-rendered document as `AGENTS.md` for Codex, or as a prompt file for Claude
-Code.
+rendered document as Codex developer instructions, or as a prompt file for
+Claude Code. Codex puts developer instructions before the working directory in
+its prompt, so the provider can reuse the cached prompt prefix across
+invocations. ViteHub writes `AGENTS.md` for Codex instead when the
+instructions are larger than 32 KiB, when `driver.env` sets
+`T3CODE_CODEX_LAUNCH_ARGS`, or when the launch arguments set
+`developer_instructions`. Driver instructions replace a `developer_instructions`
+value in the Codex configuration file. A resumed Codex session continues only
+while its instructions do not change. Otherwise ViteHub starts a new session
+and sends it the conversation. [Sandboxes](/docs/agents/sandboxes) receive the
+instructions in the Sandbox Home.
 
 Use `driver.instructions` for short text:
 

@@ -22,7 +22,7 @@ const lastEvent = ref("");
         @click="status = value"
       />
     </div>
-    <AgentChatPrompt
+    <PromptInput
       v-model="input"
       :status="status"
       @submit="lastEvent = 'submit'"

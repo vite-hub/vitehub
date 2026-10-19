@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { validateGitHubInstallInputs } from "../src/server/github-install-inputs.ts";
-import { assertGitHubDependenciesCurrent, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, GitHubWorkspaceInstallError } from "../src/server/github-install.ts";
+import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, GitHubWorkspaceInstallError } from "../src/server/github-install.ts";
 
 const roots: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -15,9 +15,9 @@ async function fixture() {
   await mkdir(join(root, ".git")); await mkdir(join(root, "bin"));
   await writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.34.6" }));
   await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
-  await writeFile(join(root, "bin", "corepack"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/../args.txt"\nif [ -n "$GITHUB_APP_PRIVATE_KEY" ]; then exit 99; fi\nif [ "$COREPACK_ENV_FILE" != 0 ] || [ "$COREPACK_NPM_REGISTRY" != https://registry.npmjs.org ]; then exit 98; fi\nmkdir -p node_modules\n', { mode: 0o755 });
+  await writeFile(join(root, "bin", "corepack"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/../args.txt"\nif [ -n "$VITEHUB_GITHUB_PRIVATE_KEY" ]; then exit 99; fi\nif [ "$COREPACK_ENV_FILE" != 0 ] || [ "$COREPACK_NPM_REGISTRY" != https://registry.npmjs.org ]; then exit 98; fi\nmkdir -p node_modules\n', { mode: 0o755 });
   vi.stubEnv("PATH", `${join(root, "bin")}:${process.env.PATH}`);
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", "host-secret");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "host-secret");
   return root;
 }
 it("classifies malformed installation inputs separately from host failures", async () => {
@@ -60,7 +60,7 @@ it("publishes cached runner output only through the validated snapshot", async (
   const root = await fixture();
   await installGitHubPullRequestWorkspace(root, undefined, async input => {
     expect(input.cwd).not.toBe(root);
-    expect(input.env.GITHUB_APP_PRIVATE_KEY).toBeUndefined();
+    expect(input.env.VITEHUB_GITHUB_PRIVATE_KEY).toBeUndefined();
     expect(input.command).toContain("--ignore-scripts");
     await mkdir(join(input.cwd, "node_modules"));
     await writeFile(join(input.cwd, "node_modules", "cached.txt"), "isolated");
@@ -145,6 +145,25 @@ it("records a reproduced installation failure for durable retry", async () => {
   await writeFile(join(root, "bin", "corepack"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
   await expect(installGitHubPullRequestWorkspace(root)).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-install.json"), "utf8"))).toMatchObject({ status: "failed" });
+});
+
+it("waits for a new head instead of retrying a lockfile the frozen install rejects", async () => {
+  const root = await fixture();
+  await writeFile(join(root, "bin", "corepack"), "#!/bin/sh\necho 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with \"frozen-lockfile\"' >&2\nexit 1\n", { mode: 0o755 });
+  const failure = await installGitHubPullRequestWorkspace(root).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(GitHubWorkspaceInstallError);
+  expect(failure).toMatchObject({ retryable: false });
+  expect(isGitHubLockfileDefect(failure)).toBe(true);
+  expect(isGitHubLockfileDefect(new Error("Registry temporarily unavailable."))).toBe(false);
+});
+
+it.each([
+  "peerDependencyRules:\n  allowedVersions:\n    react: '19'\n",
+  "minimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - '@vite-hub/*'\n",
+])("accepts pnpm workspace settings that run no code: %s", async settings => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - .\n${settings}`);
+  await expect(installGitHubPullRequestWorkspace(root)).resolves.toBeUndefined();
 });
 
 it("rejects checkout-selected package-manager executables before running Corepack", async () => {
@@ -419,6 +438,37 @@ mkdir -p node_modules
   const next = installGitHubPullRequestWorkspace(second);
   await expect(failed).rejects.toBeInstanceOf(GitHubWorkspaceInstallError);
   await expect(next).resolves.toBeUndefined();
+});
+
+it("runs as many installs at once as its slots allow", async () => {
+  const roots = await Promise.all([fixture(), fixture(), fixture()]);
+  const active = join(roots[0]!, "active");
+  const peak = join(roots[0]!, "peak");
+  const release = join(roots[0]!, "release");
+  await mkdir(active);
+  await writeFile(join(roots[2]!, "bin", "corepack"), `#!/bin/sh
+touch '${active}/'"$$"
+ls '${active}' | wc -l >> '${peak}'
+while [ ! -f '${release}' ]; do sleep 0.02; done
+rm '${active}/'"$$"
+mkdir -p node_modules
+`, { mode: 0o755 });
+  const slots = createGitHubInstallSlots({ concurrency: 2 });
+  const installs = roots.map(root => installGitHubPullRequestWorkspace(root, undefined, undefined, { slots }));
+  try {
+    await vi.waitFor(async () => expect((await readFile(peak, "utf8")).trim().split("\n")).toHaveLength(2));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect((await readFile(peak, "utf8")).trim().split("\n")).toHaveLength(2);
+  } finally {
+    await writeFile(release, "");
+    await Promise.all(installs);
+  }
+  expect(Math.max(...(await readFile(peak, "utf8")).trim().split("\n").map(Number))).toBe(2);
+});
+
+it("rejects invalid install capacity", () => {
+  expect(() => createGitHubInstallSlots({ concurrency: 0 })).toThrow(/positive integer/);
+  expect(() => createGitHubInstallSlots({ queueTimeoutMs: 0 })).toThrow(/positive/);
 });
 
 it("does not queue dependency-free workspaces behind an active installer", async () => {

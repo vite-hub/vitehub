@@ -32,6 +32,9 @@ export {
 export type {
   ChannelDeliveryClient,
   ChannelDeliveryOptions,
+  ChannelDeliveryOptionsResolver,
+  ChannelDeliveryReceipt,
+  ChannelDeliveryReminderOptions,
 } from "./channel-delivery.ts"
 export {
   title,
@@ -77,10 +80,6 @@ export {
 export {
   sandbox,
 } from "./sandbox.ts"
-export {
-  agentScheduleIdFromCron,
-  schedule,
-} from "./schedule.ts"
 export {
   skills,
 } from "./skills.ts"
@@ -284,6 +283,7 @@ export type {
   OpenAPICliOptions,
   OpenAPIHookProvidedInput,
   OpenAPIHooks,
+  OpenAPIOperationSelection,
   OpenAPIRequestContext,
   OpenAPIRequestDraft,
   OpenAPIRequestHook,
@@ -305,14 +305,6 @@ export type {
   LlmRouteDecision,
   LlmRouteOptions,
 } from "./llm-route.ts"
-export type {
-  AgentScheduleCapabilityMetadata,
-  AgentScheduleCapabilityOptions,
-  AgentScheduleEntry,
-  RuntimeScheduleCapabilityMetadata,
-  RuntimeScheduleCapabilityOptions,
-  ScheduleCapabilityToolPolicy,
-} from "./schedule.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,
@@ -382,6 +374,7 @@ export type {
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,
+  McpConnectionServerConfig,
   McpServerConfig,
   McpToolFingerprints,
   McpToolInputSchema,

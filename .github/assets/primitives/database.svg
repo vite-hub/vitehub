@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3700ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.db-token { animation-name: db-token; }
+.db-band { animation-name: db-band; }
+.db-match { animation-name: db-match; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes db-token {
+  0% { opacity: 0; transform: translateX(0); }
+  6% { opacity: 0.85; transform: translateX(0); }
+  18% { opacity: 0.85; transform: translateX(-8px); }
+  22%, 100% { opacity: 0; transform: translateX(-8px); }
+}
+@keyframes db-band {
+  0%, 18% { opacity: 0; transform: translateY(0); }
+  22% { opacity: 0.1; transform: translateY(0); }
+  34%, 60% { opacity: 0.1; transform: translateY(6px); }
+  70%, 100% { opacity: 0; transform: translateY(6px); }
+}
+@keyframes db-match {
+  0%, 32% { opacity: 0.35; }
+  38%, 60% { opacity: 0.85; }
+  72%, 100% { opacity: 0.35; }
+}
+</style>
+      <rect x="6" y="6" width="40" height="28" rx="2" class="line" />
+      <path d="M6 13h40M16 13v21" class="line" />
+      <rect x="7" y="15" width="38" height="6" class="band a db-band" />
+      <rect x="9" y="16.75" width="4" height="2.5" rx="1" class="soft" />
+      <rect x="9" y="22.75" width="4" height="2.5" rx="1" class="soft" />
+      <rect x="9" y="28.75" width="4" height="2.5" rx="1" class="soft" />
+      <rect x="19" y="16.75" width="22" height="2.5" rx="1" class="soft" />
+      <rect x="19" y="22.75" width="18" height="2.5" rx="1" class="soft a db-match" />
+      <rect x="19" y="28.75" width="24" height="2.5" rx="1" class="soft" />
+      <circle cx="54" cy="24" r="2" class="token a db-token" />
+</svg>

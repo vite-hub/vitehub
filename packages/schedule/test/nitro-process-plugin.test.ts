@@ -19,11 +19,9 @@ interface RuntimeInstallOptions {
 }
 
 interface PluginHarness {
-  createKVRuntimeScheduleStore: () => object
   createKVScheduleRunStore: () => object
-  createProcessScheduleWakeDriver: () => () => void
   definePlugin: <T>(plugin: T) => T
-  installScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
+  installProcessScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
   normalizeScheduleRuntimeError: typeof normalizeScheduleRuntimeError
 }
 
@@ -45,7 +43,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installScheduleRuntime"]) {
+async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["installProcessScheduleRuntime"], catchUpMs?: number) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-plugin-"))
   roots.push(root)
   await mkdir(join(root, "server"), { recursive: true })
@@ -53,7 +51,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   const plugin = hubSchedule({
     projectRoot: root,
     providerOutput: false,
-    runtime: { driver: "process" },
+    runtime: { driver: "process", ...(catchUpMs === undefined ? {} : { catchUpMs }) },
   })
   await (plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => Promise<unknown>)(
     { root },
@@ -62,9 +60,8 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
 
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
-    "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime, normalizeScheduleRuntimeError } = globalThis.__vitehubSchedulePluginHarness",
+    "const { createKVScheduleRunStore, definePlugin, installProcessScheduleRuntime, normalizeScheduleRuntimeError } = globalThis.__vitehubSchedulePluginHarness",
     "const scheduleKVStorage = {}",
-    "const runtimeScheduleRegistry = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")
   const executable = await transform(`${imports}\n${generated.replace(/^import .*$/gm, "")}`, {
@@ -76,11 +73,9 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   await writeFile(pluginFile, executable.code)
 
   harnessGlobal.__vitehubSchedulePluginHarness = {
-    createKVRuntimeScheduleStore: () => ({}),
     createKVScheduleRunStore: () => ({}),
-    createProcessScheduleWakeDriver: () => () => {},
     definePlugin: plugin => plugin,
-    installScheduleRuntime,
+    installProcessScheduleRuntime,
     normalizeScheduleRuntimeError,
   }
 
@@ -105,18 +100,26 @@ function createNitroApp(localFetch = vi.fn()) {
 }
 
 describe("generated Nitro Process Runtime plugin", () => {
-  it("passes separate Static and Runtime Schedule registries to execution", async () => {
-    const installScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
-    const plugin = await loadProcessPlugin(installScheduleRuntime)
+  it("passes the Static Schedule registry and a run store to the Process Runtime", async () => {
+    const installProcessScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
+    const plugin = await loadProcessPlugin(installProcessScheduleRuntime)
     const { app } = createNitroApp()
 
     plugin(app)
-    expect(installScheduleRuntime).toHaveBeenCalledWith(expect.objectContaining({
+    expect(installProcessScheduleRuntime).toHaveBeenCalledWith(expect.objectContaining({
       registry: expect.any(Object),
-      staticRegistry: expect.any(Object),
+      scheduleRunStore: expect.any(Object),
     }))
-    const options = installScheduleRuntime.mock.calls[0]![0]
-    expect(options.staticRegistry).not.toBe(options.registry)
+    expect(installProcessScheduleRuntime.mock.calls[0]![0]).not.toHaveProperty("staticRegistry")
+  })
+
+  it("passes an explicit catchUpMs setting to the Process Runtime", async () => {
+    const installProcessScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
+    const plugin = await loadProcessPlugin(installProcessScheduleRuntime, 0)
+    const { app } = createNitroApp()
+
+    plugin(app)
+    expect(installProcessScheduleRuntime.mock.calls[0]![0]).toHaveProperty("catchUpMs", 0)
   })
 
   it("logs reported runtime failures while preserving Nitro error capture", async () => {
@@ -204,7 +207,7 @@ describe("generated Nitro Process Runtime plugin", () => {
     expect(app.captureError).toHaveBeenCalledWith(installationError, { tags: ["vitehub-schedule"] })
   })
 
-  it("does not replace installation failures when runtime error coercion fails", async () => {
+  it("reports installation failures when runtime error coercion fails", async () => {
     const thrownValue = {
       toString() {
         throw new Error("runtime error coercion failed")
@@ -215,7 +218,10 @@ describe("generated Nitro Process Runtime plugin", () => {
 
     expect(() => plugin(app)).not.toThrow()
     await expect(hooks.get("request")!()).rejects.toBe(thrownValue)
-    expect(app.captureError).not.toHaveBeenCalled()
+    expect(app.captureError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SCHEDULE_R0035", cause: thrownValue }),
+      { tags: ["vitehub-schedule"] },
+    )
   })
 
   it("does not replace Nitro's local fetch entrypoint", async () => {

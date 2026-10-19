@@ -312,7 +312,7 @@ function result(
   }
 }
 
-export async function runCapabilityCliCommand<
+async function runCapabilityCliCommand<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(

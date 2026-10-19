@@ -244,7 +244,7 @@ export function createGitHubPullRequests(
     reviewThreads: { nodes: FeedbackThread[] };
   }): PullRequestFeedback {
     const comments = node.comments.nodes.filter(comment => !(
-      options.activityAuthors?.some(author => author.trim().toLowerCase() === (comment.author?.login ?? "").trim().toLowerCase()) && (comment.body.startsWith("<!-- vitehub-agent-activity:") || comment.body.startsWith("<!-- vitehub-babysitter-repair:"))
+      options.activityAuthors?.some(author => author.trim().toLowerCase() === (comment.author?.login ?? "").trim().toLowerCase()) && comment.body.startsWith("<!-- vitehub-agent-activity:")
     ) && !options.ignoreComment?.(comment))
     const digest = (items: { id: string }[]) => createHash("sha256")
       .update(JSON.stringify([...items].sort((a, b) => a.id.localeCompare(b.id)), (key, value) => key === "updatedAt" || key === "pageInfo" ? undefined : value))
