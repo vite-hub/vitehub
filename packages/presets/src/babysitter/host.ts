@@ -160,16 +160,10 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
-  // Placement is selected after admission. A Sandbox performs dependency
-  // installation remotely, so host installer checks must not block it before
-  // the lease is known; the server rechecks prerequisites when hostInstall()
-  // is actually selected. Without placement, admission can safely gate the
-  // configured host installer up front.
-  const placement = agent.options.placement;
-  // A placement with remote capacity is a remote-only scheduler; local leases
-  // still use hostInstall and must keep the installer prerequisite gate.
-  const hostInstallAdmission = !placement || !placement.remoteActive;
-  const preflight = createBabysitterPreflight(hostInstallAdmission ? (agent.options.install ?? true) : false);
+  // Placement telemetry does not guarantee that every lease is remote:
+  // place() may still return a local lease, which uses hostInstall(). Keep
+  // host prerequisites in admission for all placement configurations.
+  const preflight = createBabysitterPreflight(agent.options.install ?? true);
   const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
