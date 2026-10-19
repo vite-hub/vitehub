@@ -1387,6 +1387,19 @@ async function createAgent(
       })
     : undefined
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+  let repairBudgetError: ExecutionBudgetExceededError | undefined
+  const guardedModel = hasRuntimeType(observedModel, "object")
+    ? new Proxy(budgetedModel as object, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver)
+          if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value
+          return (...args: unknown[]) => {
+            if (repairBudgetError) throw repairBudgetError
+            return Reflect.apply(value, target, args)
+          }
+        },
+      })
+    : observedModel
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
@@ -1394,19 +1407,19 @@ async function createAgent(
           const schema = await inputSchema({ toolName: toolCall.toolName })
           const usageCapture = createUsageCapture()
           toolRepairUsageCaptures.push(usageCapture)
+          // A tool-call repair is an additional model attempt owned by ViteHub.
+          context.executionBudget?.recordRetry()
           // SAFETY: AI SDK adapter normalization establishes the ToolLoopAgent settings contract assembled below.
           const toolRepairAgent = new ToolLoopAgent({
             ...repairSettings,
             instructions,
             // SAFETY: AI SDK adapter normalization establishes the asserted model contract.
-            model: instrumentedModel as never,
+            model: guardedModel as never,
             output: aiSdk.Output.object({ schema: jsonSchema(schema) }),
             ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
             stopWhen: isStepCount(1),
           } as never)
           // SAFETY: The one-step repair agent accepts the normalized generation callback contract supplied here.
-          // Tool-call repair is a model retry and must consume the Invocation-wide budget.
-          context.executionBudget?.recordRetry()
           const result = await toolRepairAgent.generate({
             abortSignal: context.input.abortSignal,
             onEnd: usageCapture.onEnd,
@@ -1418,9 +1431,8 @@ async function createAgent(
         }
         catch (error) {
           if (error instanceof ExecutionBudgetExceededError) {
-            // AI SDK may turn repair exceptions into tool errors; abort the run too.
-            context.executionBudget?.cancel(error)
-            throw error
+            repairBudgetError = error
+            return null
           }
           context.input.abortSignal?.throwIfAborted()
           return null
@@ -1442,7 +1454,7 @@ async function createAgent(
         ...repairSettings,
         instructions,
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        model: instrumentedModel as never,
+        model: guardedModel as never,
         ...(nativeOutput ? { output: nativeOutput } : {}),
         ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
         stopWhen: isStepCount(1),
@@ -1458,6 +1470,7 @@ async function createAgent(
           try {
             context.executionBudget?.recordRetry()
             // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+            // Structured-output repair is an additional model attempt owned by ViteHub.
             repairResult = asUnknownBoundary(await repairAgent.generate({
               ...repairCallInput,
               ...("options" in resolvedCallInput ? { options: resolvedCallInput.options } : {}),
@@ -1487,24 +1500,35 @@ async function createAgent(
       }
     : undefined
 
+  const configuredStopWhen = (settings as Record<string, unknown>).stopWhen
+  const stopWhen = (steps: unknown) => {
+    if (repairBudgetError) return true
+    if (hasRuntimeType(configuredStopWhen, "function")) return configuredStopWhen(steps)
+    if (Array.isArray(configuredStopWhen)) {
+      return configuredStopWhen.some(condition => hasRuntimeType(condition, "function") && condition(steps))
+    }
+    return isStepCount(stepLimit ?? 20)(steps as never)
+  }
+
   return {
     agent: new ToolLoopAgent({
       ...commonSettings,
       instructions,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      model: instrumentedModel as never,
+      model: guardedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
+      stopWhen: stopWhen as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
-    model: instrumentedModel,
+    model: guardedModel,
     repairOutput,
     toolRepairUsageCaptures,
+    getRepairBudgetError: () => repairBudgetError,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
   }
 }
@@ -1523,7 +1547,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, repairOutput, toolRepairUsageCaptures, getRepairBudgetError, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
@@ -1607,6 +1631,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       try {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         generated = await agent.generate(originalCallInput as never) as GenerateTextResult<ToolSet, never, never>
+        const repairBudgetError = getRepairBudgetError()
+        if (repairBudgetError) throw repairBudgetError
         originalGenerated = generated
       }
       catch (error) {
@@ -1696,7 +1722,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model } = await createAgent(options, context, fallbackCapture)
+      const { agent, model, getRepairBudgetError } = await createAgent(options, context, fallbackCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
@@ -1710,8 +1736,29 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      const repairBudgetError = getRepairBudgetError()
+      if (repairBudgetError) throw repairBudgetError
+      const propagateRepairBudgetError = <T>(stream: AsyncIterable<T>): AsyncIterable<T> => (async function* () {
+        for await (const part of stream) yield part
+        const error = getRepairBudgetError()
+        if (error) throw error
+      })()
+      const stream = result.stream
+      const fullStream = result.fullStream
+      const streamWithBudget = stream ? propagateRepairBudgetError(stream) : undefined
+      const fullStreamWithBudget = fullStream
+        ? fullStream === stream && streamWithBudget
+          ? streamWithBudget
+          : propagateRepairBudgetError(fullStream)
+        : undefined
+      const budgetedResult = streamWithBudget || fullStreamWithBudget
+        ? cloneStreamTextResult(result, {
+            ...(streamWithBudget ? { stream: streamWithBudget } : {}),
+            ...(fullStreamWithBudget ? { fullStream: fullStreamWithBudget } : {}),
+          })
+        : result
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
+      return withWorkspaceFallbackStreamResult(budgetedResult, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
 }

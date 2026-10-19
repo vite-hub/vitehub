@@ -696,6 +696,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
           } satisfies WorkspaceShellResult
         }
         shellCalls += 1
+        resolved.budget?.recordToolCall()
         return await runShellCommand(input, command, { ...resolved, signal: abortSignal })
       },
     }))
