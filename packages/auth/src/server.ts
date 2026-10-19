@@ -303,14 +303,29 @@ function isRuntimeResponse(value: unknown): value is Response {
 }
 
 function getDirectRuntimeResponse(value: Response): Response | undefined {
-  if (!nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
+  if (!nativeResponseStatus || !nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
   if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
   const body = Reflect.apply(nativeResponseBody, value, [])
   const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
   if (locked && Reflect.apply(locked, body, [])) return
   const headers = Reflect.apply(nativeResponseHeaders, value, [])
   if (!headers || !nativeHeadersForEach || Reflect.get(headers, "forEach") !== nativeHeadersForEach) return
-  const shadowed = ["status", "statusText", "headers", "body"].some(key => Object.prototype.hasOwnProperty.call(value, key))
+  // A subclass or intermediate prototype can replace native accessors even
+  // when the instance has no own shadowing properties. Clone any response
+  // whose prototype chain defines these names before the native Response
+  // prototype, so downstream reads use the internal response state.
+  const shadowed = ["status", "statusText", "headers", "body"].some((key) => {
+    if (Object.prototype.hasOwnProperty.call(value, key)) return true
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    while (prototype && prototype !== Response.prototype) {
+      if (seen.has(prototype)) return true
+      seen.add(prototype)
+      if (Object.prototype.hasOwnProperty.call(prototype, key)) return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
+  })
   if (shadowed || Object.prototype.hasOwnProperty.call(value, "then")) {
     const clone = nativeResponseClone
     try { return clone ? Reflect.apply(clone, value, []) : undefined }
@@ -815,8 +830,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   // Native responses are validated below with their intrinsic accessors.
   try {
     const candidate = Object(value)
-    const foreignResponse = await getUndiciResponse()
-    if (foreignResponse && foreignResponse !== Response && value instanceof foreignResponse) return
     if (!await hasResponsePrototype(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
