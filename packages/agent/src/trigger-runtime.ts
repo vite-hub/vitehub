@@ -338,8 +338,8 @@ async function resolveWebhookSecret(
   return value
 }
 
-async function sha256(value: string): Promise<Uint8Array> {
-  const bytes = new TextEncoder().encode(value)
+async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
@@ -617,7 +617,9 @@ export async function resolveAgentTriggerInvocation<
     verifyWebhook?: boolean
     queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
     /** Raw body of the webhook request that runs the trigger. An unset `webhook.deliveryId` defaults to its SHA-256. */
-    rawBody?: string
+    rawBody?: string | Uint8Array
+    /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
+    deliveryId?: string
   },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   const triggers = await resolveAgentTriggers(agent, context, options?.queuedInvocation)
@@ -649,7 +651,9 @@ export async function resolveAgentTriggerInvocation<
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
-  const webhook = await withBodyDeliveryId(result.webhook, options?.rawBody)
+  const webhook = options?.deliveryId && result.webhook?.deliveryId === undefined
+    ? { ...result.webhook, deliveryId: options.deliveryId }
+    : await withBodyDeliveryId(result.webhook, options?.rawBody)
   const invoked = withWebhookDeliveryRun({
     ...result,
     ...(invokedRun ? { run: invokedRun } : {}),
@@ -672,7 +676,7 @@ export async function resolveAgentTriggerInvocation<
  */
 async function withBodyDeliveryId<CALL_OPTIONS>(
   webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
-  rawBody: string | undefined,
+  rawBody: string | Uint8Array | undefined,
 ): Promise<AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined> {
   if (!webhook || webhook.deliveryId !== undefined || rawBody === undefined) return webhook
   return { ...webhook, deliveryId: hexBytes(await sha256(rawBody)) }
@@ -681,10 +685,14 @@ async function withBodyDeliveryId<CALL_OPTIONS>(
 /** Applies the body `deliveryId` default to the result of `webhook.rehydrate()` during a queued replay. */
 export async function withRehydratedBodyDeliveryId<CALL_OPTIONS>(
   result: AgentTriggerInvokeResult<CALL_OPTIONS>,
-  rawBody: string,
+  rawBody: string | Uint8Array,
+  fallbackDeliveryId?: string,
 ): Promise<AgentTriggerInvokeResult<CALL_OPTIONS>> {
   if (isResponse(result) || !result.webhook) return result
-  return { ...result, webhook: await withBodyDeliveryId(result.webhook, rawBody) }
+  const webhook = result.webhook.deliveryId === undefined && fallbackDeliveryId
+    ? { ...result.webhook, deliveryId: fallbackDeliveryId }
+    : await withBodyDeliveryId(result.webhook, typeof rawBody === "string" ? new TextEncoder().encode(rawBody) : rawBody)
+  return { ...result, webhook }
 }
 
 function hexBytes(bytes: Uint8Array): string {

@@ -1741,7 +1741,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           match.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation, rawBody: delivery.request.body },
+          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1751,7 +1751,7 @@ async function executeQueuedWebhookDelivery(
         }
         const resolved =
           !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
-            ? resolveAgentTriggerInvocationResult(await withRehydratedBodyDeliveryId(await replayed.webhook.rehydrate(), delivery.request.body), replayed.trigger)
+            ? resolveAgentTriggerInvocationResult(await withRehydratedBodyDeliveryId(await replayed.webhook.rehydrate(), delivery.request.body, delivery.deliveryId), replayed.trigger)
             : replayed
         await context.flushWaitUntil?.()
         return resolved
@@ -8495,7 +8495,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             createExecutionContext(context as never) as never,
             trigger.id,
             input,
-            { rawBody },
+            { rawBody: rawBodyBytes },
           )
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
             await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
