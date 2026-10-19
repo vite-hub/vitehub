@@ -41,6 +41,7 @@ import type {
   AgentChatPlatformAdapter,
   AgentChannelDefinition,
   AgentChannelTriggerContext,
+  AgentDurableChannelTriggerContext,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
@@ -192,7 +193,9 @@ export type {
   AgentChannels,
   AgentChannelStateBinding,
   AgentChannelTriggerContext,
+  AgentChannelTriggerDefinition,
   AgentDeliveryArtifact,
+  AgentDurableChannelTriggerContext,
   AgentDeliveryArtifactPlacement,
   AgentGitHubMessageCalls,
   AgentMessageChannelSettings,
@@ -2880,7 +2883,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
   activityOptions?: GitHubChannelActivityOptions<TRuntimeConfig>,
   services?: CodeHostChannelServices<TRuntimeConfig>,
-): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
+): Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, unknown, unknown, AgentChannelTriggerContext<TRuntimeConfig>>> | undefined {
   if (!pullRequest && !activity) return undefined
   const options = pullRequest === true || !pullRequest ? {} : pullRequest
   return {
@@ -3198,11 +3201,18 @@ export function defineChannel<
   return channel as AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods>
 }
 
+/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
->(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>>): typeof definition {
+>(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true }): typeof definition
+export function defineChannelTrigger<
+  TInput,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false }): typeof definition
+export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDefinition {
   return definition
 }
 

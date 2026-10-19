@@ -752,7 +752,7 @@ export interface AgentChannelTriggerContext<
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
-  /** The Channel's State Adapter. Present when a webhook route runs the trigger. */
+  /** The Channel's State Adapter. Present when a webhook route runs the trigger. Declare `durableState: true` on the trigger to require it. */
   channelState?: AgentChannelStateBinding
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
@@ -766,6 +766,25 @@ export interface AgentChannelTriggerContext<
     source: "channel"
   }
 }
+
+/** The context of a Channel trigger with `durableState: true`. `channelState` is always present. */
+export interface AgentDurableChannelTriggerContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentChannelTriggerContext<TRuntimeConfig> {
+  channelState: AgentChannelStateBinding
+}
+
+/**
+ * A Channel trigger. With `durableState: true`, `invoke` gets `context.channelState`, and it throws
+ * before it runs when the Channel's State is not bound, so the trigger does not check it.
+ */
+export type AgentChannelTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> =
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
 export interface AgentTriggerDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -2576,7 +2595,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
-  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
+  triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 

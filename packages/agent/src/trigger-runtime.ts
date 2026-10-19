@@ -254,22 +254,26 @@ export async function resolveAgentTriggers<
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke({
-          ...runtimeContext,
-          agentCapabilities: channelCapabilities,
-          agentName: agent.name || runtimeContext.agentIdentity?.name,
-          channel,
-          ...(queuedInvocation ? { queuedInvocation } : {}),
-          ...(channelState ? { channelState } : {}),
-          dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
-            dispatchAgentChannelItems(agent, context, channelId, items, options),
-          trigger: {
-            channelId,
-            id,
-            name,
-            source: "channel",
-          },
-        } as never, input as never),
+        invoke: (input) => {
+          // A `durableState` trigger fails here, before it runs, so its callbacks can rely on `channelState`.
+          if (trigger.durableState === true && !channelState) throw agentDiagnostics.AGENT_R1005({ trigger: id })
+          return trigger.invoke({
+            ...runtimeContext,
+            agentCapabilities: channelCapabilities,
+            agentName: agent.name || runtimeContext.agentIdentity?.name,
+            channel,
+            ...(queuedInvocation ? { queuedInvocation } : {}),
+            ...(channelState ? { channelState } : {}),
+            dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
+              dispatchAgentChannelItems(agent, context, channelId, items, options),
+            trigger: {
+              channelId,
+              id,
+              name,
+              source: "channel",
+            },
+          } as never, input as never)
+        },
         name,
         output: trigger.output,
         source: "channel",
