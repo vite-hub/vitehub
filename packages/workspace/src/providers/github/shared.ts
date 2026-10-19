@@ -159,12 +159,8 @@ export async function githubRequest<T>(
   }
 }
 
-/** Forge uses TypeError for some successful-response mappers; keep request TypeErrors as transport errors. */
 function isForgeResponseError(error: unknown): boolean {
-  if (error instanceof ForgeResponseError) return true;
-  if (!(error instanceof TypeError) || error instanceof GitHubNetworkError) return false;
-  const stack = error.stack ?? "";
-  return stack.includes("github-") && !stack.includes("utils-");
+  return error instanceof ForgeResponseError;
 }
 
 /** The HTTP status of the GitHub request behind a Workspace error. */
