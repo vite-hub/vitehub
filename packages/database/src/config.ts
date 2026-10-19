@@ -508,8 +508,11 @@ function readStringValue(body: string | undefined, property: string): string | u
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
 function readDefinitionCloudflareResource(expression: string | undefined): DefinitionCloudflareResource {
-  if (expression?.trim() === "undefined") return "inherited"
-  const body = objectLiteralBody(expression)
+  const normalizedExpression = expression === undefined
+    ? undefined
+    : stripStaticTypeAssertions(stripExpressionComments(expression))
+  if (normalizedExpression?.trim() === "undefined") return "inherited"
+  const body = objectLiteralBody(normalizedExpression)
   if (body === undefined) return "opaque"
   let resource: DefinitionCloudflareResource = "inherited"
   for (const property of splitTopLevel(body)) {
@@ -743,7 +746,11 @@ function readStaticComputedKey(expression: string, source: string, seen = new Se
   const numericLiteral = new RegExp(
     String.raw`^[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|(?:${decimalDigits}(?:\.${decimalDigits}?)?|\.${decimalDigits})(?:[eE][+-]?${decimalDigits})?)$`,
   )
-  if (numericLiteral.test(numeric)) return String(Number(numeric.replaceAll("_", "")))
+  if (numericLiteral.test(numeric)) {
+    const sign = numeric.startsWith("-") ? -1 : 1
+    const magnitude = numeric.replace(/^[+-]/, "").replaceAll("_", "")
+    return String(sign * Number(magnitude))
+  }
   const identifier = expression.trim()
   if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
   const next = new Set(seen)
