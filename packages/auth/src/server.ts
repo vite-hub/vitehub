@@ -345,7 +345,6 @@ async function runAccessAuthorize(
     }
     // Only native Promise instances use the intrinsic adoption path. Ordinary
     // thenables must call their own `then` method with the original receiver.
-    let branded = false
     let promiseBrand = false
     try {
       promiseBrand = Object.prototype.toString.call(result) === "[object Promise]"
@@ -374,15 +373,12 @@ async function runAccessAuthorize(
       ])
       try {
         attach()
-        branded = true
       }
       catch (error) {
-        // Ordinary thenables do not carry Promise internal slots; keep them on
-        // the explicit one-lookup assimilation path below.
-        branded = false
+        reject(error)
       }
     })
-    if (branded) return adopted
+    return adopted
   }
 
   const thenMethod = resultThen

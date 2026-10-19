@@ -39,7 +39,6 @@
     "./agent-chat": {
       "types": "./dist/components/agent-chat.d.ts",
       "import": "./dist/components/agent-chat.js",
-      "require": "./dist/components/agent-chat.js",
       "default": "./dist/components/agent-chat.js"
     },
     "./nuxt": {
@@ -59,55 +58,46 @@
     "./agent-chat-message": {
       "types": "./dist/components/agent-chat-message.d.ts",
       "import": "./dist/components/agent-chat-message.js",
-      "require": "./dist/components/agent-chat-message.js",
       "default": "./dist/components/agent-chat-message.js"
     },
     "./agent-chat-prompt": {
       "types": "./dist/components/agent-chat-prompt.d.ts",
       "import": "./dist/components/agent-chat-prompt.js",
-      "require": "./dist/components/agent-chat-prompt.js",
       "default": "./dist/components/agent-chat-prompt.js"
     },
     "./agent-code-view": {
       "types": "./dist/components/agent-code-view.d.ts",
       "import": "./dist/components/agent-code-view.js",
-      "require": "./dist/components/agent-code-view.js",
       "default": "./dist/components/agent-code-view.js"
     },
     "./agent-file-tree": {
       "types": "./dist/components/agent-file-tree.d.ts",
       "import": "./dist/components/agent-file-tree.js",
-      "require": "./dist/components/agent-file-tree.js",
       "default": "./dist/components/agent-file-tree.js"
     },
     "./agent-markdown": {
       "types": "./dist/components/agent-markdown.d.ts",
       "import": "./dist/components/agent-markdown.js",
-      "require": "./dist/components/agent-markdown.js",
       "default": "./dist/components/agent-markdown.js"
     },
     "./agent-message-parts": {
       "types": "./dist/components/agent-message-parts.d.ts",
       "import": "./dist/components/agent-message-parts.js",
-      "require": "./dist/components/agent-message-parts.js",
       "default": "./dist/components/agent-message-parts.js"
     },
     "./agent-session": {
       "types": "./dist/components/agent-session.d.ts",
       "import": "./dist/components/agent-session.js",
-      "require": "./dist/components/agent-session.js",
       "default": "./dist/components/agent-session.js"
     },
     "./agent-tool-list": {
       "types": "./dist/components/agent-tool-list.d.ts",
       "import": "./dist/components/agent-tool-list.js",
-      "require": "./dist/components/agent-tool-list.js",
       "default": "./dist/components/agent-tool-list.js"
     },
     "./agent-trace": {
       "types": "./dist/components/agent-trace.d.ts",
       "import": "./dist/components/agent-trace.js",
-      "require": "./dist/components/agent-trace.js",
       "default": "./dist/components/agent-trace.js"
     }
   },
