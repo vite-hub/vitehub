@@ -107,6 +107,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -125,7 +126,7 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
