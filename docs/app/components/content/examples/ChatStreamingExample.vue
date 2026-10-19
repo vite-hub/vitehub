@@ -52,7 +52,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="grid h-96 grid-rows-[minmax(0,1fr)_auto] gap-3">
-    <AgentChat :messages="messages" :status="status" />
+    <Chat :messages="messages" :status="status" />
     <div class="flex items-center justify-between gap-3">
       <span class="font-mono text-xs text-muted">status: {{ status }}</span>
       <UButton

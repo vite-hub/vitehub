@@ -58,5 +58,5 @@ const messages: UIMessage[] = [
 </script>
 
 <template>
-  <AgentChat :messages="messages" status="ready" class="h-[28rem]" />
+  <Chat :messages="messages" status="ready" class="h-[28rem]" />
 </template>

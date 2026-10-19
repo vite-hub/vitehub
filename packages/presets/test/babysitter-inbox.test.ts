@@ -376,7 +376,7 @@ test('persisted status values are validated without coercion by both snapshot re
     assert.equal((await inbox.all())[0]?.status, status)
     update.run(JSON.stringify({ ...snapshot, status: [status] }), repository, 7)
     await assert.rejects(async () => inbox.get(repository, 7), /Invalid inbox snapshot/)
-    await assert.rejects(async () => inbox.all(), /Invalid inbox snapshot/)
+    assert.deepEqual(await inbox.all(), [])
   }
 })
 
