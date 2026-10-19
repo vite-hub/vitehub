@@ -283,6 +283,7 @@ export type {
   OpenAPICliOptions,
   OpenAPIHookProvidedInput,
   OpenAPIHooks,
+  OpenAPIOperationSelection,
   OpenAPIRequestContext,
   OpenAPIRequestDraft,
   OpenAPIRequestHook,
