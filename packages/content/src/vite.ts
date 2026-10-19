@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { discoverContentDefinition } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
@@ -64,6 +64,7 @@ interface ContentPluginConfig {
   root?: string
   [VITEHUB_PROJECT_ROOT]?: string
   [VITEHUB_SERVER_DIRS]?: string[]
+  [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
 }
 
 const defaultImports: CmsWorkspaceImports = {
@@ -91,6 +92,16 @@ function absoluteDirs(root: string, directories: readonly string[] | undefined):
 
 function pluginByName(config: ResolvedConfig, name: string): Plugin | undefined {
   return config.plugins.find(plugin => plugin.name === name)
+}
+
+function databaseDiscoveryRoot(plugins: readonly unknown[] | undefined, fallback: string): string {
+  const database = plugins?.find(plugin => Reflect.get(Object(plugin), "name") === databasePluginName)
+  const getConfig = Reflect.get(Object(Reflect.get(database, "api")), "getConfig")
+  if (typeof getConfig === "function") {
+    const rootDir = Reflect.get(Object(Reflect.apply(getConfig, database, [])), "rootDir")
+    if (typeof rootDir === "string") return rootDir
+  }
+  return fallback
 }
 
 /** Store names of the Blob plugin, or false when Blob is off. */
@@ -137,8 +148,9 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     vitehub: {
       async workspaces(context: WorkspaceContributionContext) {
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
-        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: context.rootDir, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
+        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
+        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
+        const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
           await rm(module, { force: true })
@@ -181,7 +193,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       if (!plan) return
       const missing = [
         pluginByName(config, workspacePluginName) ? undefined : "workspace",
-        pluginByName(config, databasePluginName) ? undefined : "database",
+        pluginByName(config, databasePluginName) || viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] ? undefined : "database",
         blobStoreNames(pluginByName(config, blobPluginName)) ? undefined : "blob",
       ].filter(Boolean)
       if (missing.length) {
