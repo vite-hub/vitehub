@@ -640,6 +640,11 @@ interface AgentWebhookInvocationOwnershipBase {
   debounce?: { delayMs: number, key: string }
   /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
+  /**
+   * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
+   * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
+   */
+  response?: Response
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
@@ -1840,7 +1845,9 @@ export type AgentAskQuestionsResolver<
  * `error.status`, `error.requestId`). All three carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`,
  * `ask.batch.index`, `ask.batch.count`, `ask.batch.size`, `gen_ai.operation.name: "ask"` and
  * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
- * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`. The shared state is `input.data` (or the prompt) on
+ * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`, and adds one call (`model`, `provider`, `usage`) to the
+ * Invocation usage record. `usage.record` on `agent.invocation.finish` and `event.invocation.usage` sum these calls, so
+ * usage indexes count ask runs, and `usage({ pricing })` prices them. The shared state is `input.data` (or the prompt) on
  * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
  * No credentials or request headers are recorded.
  */

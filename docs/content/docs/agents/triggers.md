@@ -222,6 +222,22 @@ defineChannelTrigger({
 
 Debounce needs a queued delivery, so it needs a state provider and `concurrencyLimit`. A delivery that already runs is not stopped; the later delivery runs after it. A replaced delivery is complete in the queue and shows a `superseded` event in its Channel delivery record. `debounce` is not available with `busy: 'steer'`.
 
+### Answer the provider
+
+After ViteHub admits a webhook delivery, it answers with a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. Some providers expect a specific answer. Set `webhook.response` to send that `Response` instead:
+
+```ts
+defineChannelTrigger({
+  input: recordChanged,
+  invoke: (context, event) => ({
+    input: { prompt: `Check record ${event.recordId} for duplicates.` },
+    webhook: { concurrencyLimit: 1, deliveryId: event.changeId, response: new Response(null, { status: 200 }) },
+  }),
+})
+```
+
+ViteHub sends `webhook.response` for an accepted, queued, steered, or duplicate delivery, after the delivery is admitted. Busy and error answers keep their own status and body. The queue does not store `webhook.response`, so a restart or a retry never sends it again.
+
 ### Prepare accepted work and run tasks
 
 Keep `invoke` fast: it decides whether to accept a delivery and returns JSON input. Put slow or side-effecting work in `prepare`, and name units of work in `tasks`. `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
@@ -258,6 +274,8 @@ With the webhook queue, ViteHub stores the task key, the name of the task's Agen
 A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
 
 Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. `busy: 'steer'` sends input to a running Invocation, so it does not run `prepare` or tasks. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
+
+
 
 ### Report a failed webhook delivery
 

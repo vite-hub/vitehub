@@ -3,6 +3,7 @@ import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
 import { activeAgentInvocationScope } from "./invocation-scope.ts"
+import { recordDriverUsage } from "./auxiliary-usage.ts"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
@@ -402,7 +403,13 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
         // The Driver runs inside its own Invocation scope, so each question is recorded in that Invocation.
         const scope = activeAgentInvocationScope()
         return await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
-          { abortSignal: context.input.abortSignal, event: { context }, ...(scope ? { observe: event => scope.trace(event) } : {}) },
+          {
+            abortSignal: context.input.abortSignal,
+            event: { context },
+            ...(scope ? { observe: event => scope.trace(event) } : {}),
+            // Each Jev request is one call of the Invocation usage record, so the usage and cost index counts ask runs.
+            recordUsage: usage => recordDriverUsage(context.context, usage),
+          },
           askState(context.input, context.prompt, context.messages),
           isRuntimeFunction(ask) ? await ask(context) : ask,
         ))
