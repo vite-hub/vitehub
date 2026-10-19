@@ -6,9 +6,11 @@ import { importServerEnvModule } from "./server-env.ts"
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "../ask.ts"
 import type { Message } from "../messages.ts"
 import type { AgentRunInput } from "../types.ts"
+import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
+import type { TraceEvent } from "@vite-hub/runtime"
 
 type Advocaat = typeof import("advocaat")
-type AdvocaatQuestion = Parameters<Advocaat["ask"]>[1][string]
+type AdvocaatQuestion = JevQuestion | IfQuestion | SwitchQuestion
 type AdvocaatEntry = Parameters<Advocaat["ask"]>[0]
 
 /** The Server Env group that `typesafeEnv()` declares. */
@@ -20,6 +22,8 @@ export interface AskRequestContext {
   abortSignal?: AbortSignal
   /** Passed to `useServerEnv()` so Cloudflare bindings resolve for this request. */
   event?: unknown
+  /** Receives one `agent.tool.*` event per question and one `agent.usage.recorded` event per Jev request. */
+  observe?: (event: TraceEvent) => Promise<void>
 }
 
 type AskStateInput = Pick<AgentRunInput, "data" | "prompt">
@@ -119,6 +123,179 @@ function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>
   return Number.isFinite(total) && Math.abs(total - 1) <= 1e-6
 }
 
+interface JevResponse {
+  answers: Record<string, unknown>
+  model?: string
+  usage?: { inputTokens?: number, outputTokens?: number }
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return hasRuntimeType(value, "number") && Number.isFinite(value) ? value : undefined
+}
+
+/** The SDK question for one Jev request: `if` asks a yes/no question and `switch` asks a choice. */
+function toJevQuestion(question: AdvocaatQuestion): JevQuestion {
+  if (question.type === "if") return { instructions: question.instructions, type: "noul" }
+  if (question.type === "switch") return { criteria: question.criteria, instructions: question.instructions, type: "choice" }
+  return question
+}
+
+/**
+ * Sends one batch through the SDK client, which also returns the model and the token usage,
+ * and maps the answers as `advocaat.ask()` does.
+ */
+async function requestJev(
+  advocaat: Advocaat,
+  state: AdvocaatEntry,
+  batch: Record<string, AdvocaatQuestion>,
+  options: Awaited<ReturnType<typeof typesafeOptions>> & { signal?: AbortSignal },
+): Promise<JevResponse> {
+  const { signal, ...client } = options
+  const wire: JevQuestions = Object.fromEntries(Object.entries(batch).map(([name, question]) => [name, toJevQuestion(question)]))
+  const result = await advocaat.typesafe(client).systemOne({ questions: wire, state }, { signal })
+  const answers: Record<string, unknown> = Object.create(null)
+  for (const [name, answer] of Object.entries(result.answers)) {
+    const question = batch[name]
+    if (answer.type === "noul") answers[name] = question?.type === "if" ? answer.noul > question.threshold : { chance: answer.noul, type: "chance" }
+    else if (answer.type === "score") answers[name] = question?.type === "score" ? { ...answer, ratio: answer.score / (question.criteria.length - 1) } : answer
+    else answers[name] = question?.type === "switch" ? answer.choice : answer
+  }
+  // The TypeSafe API returns its response body as is, so read model and usage defensively.
+  const model: unknown = result.model
+  const usage: unknown = result.usage
+  return {
+    answers,
+    ...(hasRuntimeType(model, "string") && model ? { model } : {}),
+    ...(isRuntimeRecord(usage)
+      ? { usage: { inputTokens: finiteNumber(usage.input_tokens), outputTokens: finiteNumber(usage.output_tokens) } }
+      : {}),
+  }
+}
+
+/** The value a person reads first: the selected label, the score, the chance, or the boolean. */
+function jevAnswerValue(answer: unknown): unknown {
+  if (!isRuntimeRecord(answer)) return answer
+  if (answer.type === "choice") return answer.choice
+  if (answer.type === "score") return answer.score
+  if (answer.type === "chance") return answer.chance
+  return undefined
+}
+
+/**
+ * Records each question of one Jev request as `agent.tool.start`, then `agent.tool.finish` or `agent.tool.error`,
+ * and the token usage of the request as `agent.usage.recorded`. Without an observer, nothing is recorded.
+ */
+async function observeJevBatch(
+  observe: AskRequestContext["observe"],
+  options: { model?: string, provider: string },
+  questions: AskQuestions,
+  batch: Record<string, AdvocaatQuestion>,
+  position: { count: number, index: number },
+) {
+  const names = Object.keys(batch)
+  const startedAt = Date.now()
+  const settled = new Set<string>()
+  const emit = async (event: TraceEvent) => {
+    try {
+      await observe?.(event)
+    }
+    catch {
+      // An observer must not change the answers.
+    }
+  }
+  const batchAttributes = {
+    "ask.batch.count": position.count,
+    "ask.batch.index": position.index,
+    "ask.batch.size": names.length,
+    "gen_ai.operation.name": "ask",
+    "gen_ai.provider.name": options.provider,
+  }
+  const questionAttributes = (name: string) => ({
+    ...batchAttributes,
+    ...(options.model ? { "ask.model": options.model } : {}),
+    "ask.key": name,
+    "ask.type": questions[name]?.type,
+    "step.id": `ask:${name}`,
+    "tool.id": `ask:${name}`,
+    "tool.name": "ask",
+    "vitehub.activity.kind": "tool",
+  })
+  if (observe) {
+    for (const name of names) {
+      await emit({
+        attributes: { ...questionAttributes(name), "tool.hasInput": true, "tool.input": batch[name] },
+        name: "agent.tool.start",
+        type: "run",
+      })
+    }
+  }
+  return {
+    async answered(name: string, answer: unknown, model: string | undefined) {
+      settled.add(name)
+      if (!observe) return
+      const value = jevAnswerValue(answer)
+      const confidence = isRuntimeRecord(answer) ? finiteNumber(answer.confidence) : undefined
+      const probabilities = isRuntimeRecord(answer) && isRuntimeRecord(answer.probabilities) ? { ...answer.probabilities } : undefined
+      await emit({
+        attributes: {
+          ...questionAttributes(name),
+          ...(model ? { "ask.model": model } : {}),
+          ...(value !== undefined ? { "ask.answer": value } : {}),
+          ...(confidence !== undefined ? { "ask.confidence": confidence } : {}),
+          ...(probabilities ? { "ask.probabilities": probabilities } : {}),
+          "tool.durationMs": Date.now() - startedAt,
+          "tool.hasOutput": true,
+          "tool.output": answer,
+        },
+        name: "agent.tool.finish",
+        type: "run",
+      })
+    },
+    async failed(error: unknown) {
+      if (!observe) return
+      const message = error instanceof Error ? error.message : String(error)
+      const status = isRuntimeRecord(error) && Number.isInteger(error.status) ? error.status : undefined
+      const requestId = isRuntimeRecord(error) && hasRuntimeType(error.requestId, "string") && error.requestId ? error.requestId : undefined
+      for (const name of names) {
+        if (settled.has(name)) continue
+        settled.add(name)
+        await emit({
+          attributes: {
+            ...questionAttributes(name),
+            "error.message": message,
+            ...(error instanceof Error ? { "error.name": error.name } : {}),
+            ...(status !== undefined ? { "error.status": status } : {}),
+            ...(requestId ? { "error.requestId": requestId } : {}),
+            "tool.durationMs": Date.now() - startedAt,
+            "tool.error": message,
+          },
+          name: "agent.tool.error",
+          type: "error",
+        })
+      }
+    },
+    async usage(response: JevResponse) {
+      if (!observe || !response.usage) return
+      const { inputTokens, outputTokens } = response.usage
+      await emit({
+        attributes: {
+          ...batchAttributes,
+          "ask.durationMs": Date.now() - startedAt,
+          "usage.hasCost": false,
+          "usage.hasRaw": false,
+          ...(inputTokens !== undefined ? { "usage.inputTokens": inputTokens } : {}),
+          ...(response.model ? { "usage.model": response.model } : {}),
+          ...(outputTokens !== undefined ? { "usage.outputTokens": outputTokens } : {}),
+          "usage.provider": options.provider,
+          ...(inputTokens !== undefined && outputTokens !== undefined ? { "usage.totalTokens": inputTokens + outputTokens } : {}),
+        },
+        name: "agent.usage.recorded",
+        type: "run",
+      })
+    },
+  }
+}
+
 function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuestion {
   validateQuestionCriteria(name, question)
   const instructions = toEntry(question.instructions)
@@ -193,21 +370,30 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
   const advocaat = await loadAdvocaat()
   const options = await typesafeOptions(context)
   const output: Record<string, unknown> = Object.create(null)
-  for (const batch of batches) {
+  for (const [batchIndex, batch] of batches.entries()) {
     context.abortSignal?.throwIfAborted()
-    const answers = await advocaat.ask(entry, batch, { ...options, signal: context.abortSignal })
-    context.abortSignal?.throwIfAborted()
-    for (const name of Object.keys(batch)) {
-      if (!Object.hasOwn(answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)
-      const answer = answers[name]
-      const question = questions[name]
-      if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) {
-        throw new Error(`[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`)
+    const observed = await observeJevBatch(context.observe, options, questions, batch, { count: batches.length, index: batchIndex })
+    try {
+      const response = await requestJev(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      await observed.usage(response)
+      context.abortSignal?.throwIfAborted()
+      for (const name of Object.keys(batch)) {
+        if (!Object.hasOwn(response.answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)
+        const answer = response.answers[name]
+        const question = questions[name]
+        if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) {
+          throw new Error(`[vitehub] Jev choice answer "${name}" is missing a valid probability distribution.`)
+        }
+        const scoreAnswer: Record<string, unknown> | undefined = isRuntimeRecord(answer) && answer.type === "score" ? answer : undefined
+        output[name] = question?.type === "score" && scoreAnswer
+          ? { ...scoreAnswer, legend: Object.fromEntries(question.criteria.map((level, index) => [String(index), level])) }
+          : answer
+        await observed.answered(name, output[name], response.model)
       }
-      const scoreAnswer: Record<string, unknown> | undefined = isRuntimeRecord(answer) && answer.type === "score" ? answer : undefined
-      output[name] = question?.type === "score" && scoreAnswer
-        ? { ...scoreAnswer, legend: Object.fromEntries(question.criteria.map((level, index) => [String(index), level])) }
-        : answer
+    }
+    catch (error) {
+      await observed.failed(error)
+      throw error
     }
   }
   // SAFETY: Each requested key has an SDK answer; choice distributions are validated and score legends restore public criteria.

@@ -33,11 +33,15 @@ import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
+// Content attributes that the Console journal keeps in metadata mode: prompts, results, tool input and output.
+// `input.data` and `result.output` are the structured forms, such as `driver.ask` state and answers.
 const consoleMetadataContent = [
   "channel.effect.content",
+  "input.data",
   "input.messages",
   "input.prompt",
   "message.content",
+  "result.output",
   "result.text",
   "tool.input",
   "tool.output",

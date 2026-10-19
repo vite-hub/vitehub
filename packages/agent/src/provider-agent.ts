@@ -29,6 +29,7 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
@@ -3958,8 +3959,27 @@ export function createProviderAgentAdapter<
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
+  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
+    // Keep the invocation deadline active across launch retries and their backoff. Each
+    // runProvider attempt still gets its own timeout for normal provider work.
+    const timeout = context.input.timeout
+    const invocationTimeoutSignal = timeout !== undefined && timeout >= 0 && timeout <= 2_147_483_647
+      ? AbortSignal.timeout(timeout)
+      : undefined
+    const retrySignal = context.input.abortSignal && invocationTimeoutSignal
+      ? AbortSignal.any([context.input.abortSignal, invocationTimeoutSignal])
+      : context.input.abortSignal || invocationTimeoutSignal
+    const retryContext = retrySignal && retrySignal !== context.input.abortSignal
+      ? { ...context, input: { ...context.input, abortSignal: retrySignal } }
+      : context
+    return retryProviderLaunch(
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext),
+      retrySignal,
+      providerLaunchRetryDelaysMs,
+    )
+  }
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context), context),
+    generate: context => generateProvider(launch(context), context),
     async metadata(context) {
       const instructions = await resolveAgentInstructions(options.instructions, context)
       return {
@@ -3968,7 +3988,7 @@ export function createProviderAgentAdapter<
     },
     name: options.provider,
     stream: async function* (context) {
-      for await (const event of streamAgentOutputToEvents(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context))) {
+      for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
         if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
       }

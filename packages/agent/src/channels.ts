@@ -199,7 +199,10 @@ export type {
   AgentDeliveryArtifactPlacement,
   AgentGitHubMessageCalls,
   AgentMessageChannelSettings,
+  AgentTriggerAcceptedInvocation,
   AgentTriggerFailedEvent,
+  AgentTriggerPrepareResult,
+  AgentTriggerTask,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 export interface AgentChannelOptions<
@@ -2725,6 +2728,23 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
  */
 export function ignored(reason: string): Response {
   return Response.json({ accepted: false, ok: true, reason })
+}
+
+/**
+ * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
+ * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
+ * when a queued delivery's trigger returns it on replay.
+ */
+export function retryLater(reason: string): Response {
+  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
+}
+
+/**
+ * Refuses a webhook that the Channel will never handle, such as a malformed payload.
+ * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
+ */
+export function rejected(reason: string): Response {
+  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
 }
 
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
