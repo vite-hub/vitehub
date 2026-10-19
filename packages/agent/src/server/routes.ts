@@ -1164,7 +1164,7 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
-): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean } | undefined> {
+): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean; duplicate?: boolean } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
   const duplicateResponse = (claim: unknown) => {
@@ -1172,16 +1172,19 @@ async function steerQueuedWebhookDelivery(
       return {
         queued: false,
         invalidState: true,
+        duplicate: true,
         response: Response.json({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" }),
       }
     }
     return claim === "queued"
       ? {
           queued: true,
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }),
         }
       : {
           queued: claim === "steering",
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }),
         }
   }
@@ -8597,7 +8600,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               )
               if (outcome) {
                 // A delivery steered into the running Invocation is accepted too. After an admission this does nothing.
-                if (outcome.response.ok && !outcome.invalidState) await settleAgentChannelStateCommit(stateCommit)
+                if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) await settleAgentChannelStateCommit(stateCommit)
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 if (outcome.settlement) {
                   await recordChannelDeliveryEvidence(channelDelivery, {
@@ -8654,7 +8657,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
             if ((await webhookState.state.get(deliveryClaimKey)) === true) {
-              await settleAgentChannelStateCommit(stateCommit)
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return Response.json({ accepted: false, duplicate: true, ok: true })
             }
@@ -8673,7 +8676,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             }
             if (!claimed) {
               if (webhookLock) await webhookState.state.releaseLock(webhookLock)
-              await settleAgentChannelStateCommit(stateCommit)
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return Response.json({ accepted: false, duplicate: true, ok: true })
             }

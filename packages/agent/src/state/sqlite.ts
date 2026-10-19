@@ -451,7 +451,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   /**
    * In one transaction: throws unless every lock is still held, queues `delivery` unless its ID is already queued,
-   * and applies `mutations`, which apply in both cases. Returns whether `delivery` was newly queued (`true` without one).
+   * and applies `mutations` only when the delivery is newly queued. Returns whether `delivery` was newly queued (`true` without one).
    */
   async commitWebhookState(writes: AgentChannelStateWrites): Promise<boolean> {
     return await retrySqliteBusy(async () => {
@@ -463,9 +463,11 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           if (held.length === 0) throw new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
         }
         const queued = writes.delivery ? await this.insertWebhookDelivery(tx, writes.delivery) : true
-        for (const mutation of writes.mutations) {
-          if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
-          else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+        if (queued) {
+          for (const mutation of writes.mutations) {
+            if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
+            else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+          }
         }
         return queued
       })

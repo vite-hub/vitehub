@@ -85,9 +85,11 @@ export async function commitChannelStateWrites(state: StateAdapter, writes: Agen
     if (!hasAgentWebhookQueue(state)) throw new Error("[vitehub] Channel State writes with a delivery need a queue-capable State.")
     queued = await state.enqueueWebhookDelivery(writes.delivery)
   }
-  for (const mutation of writes.mutations) {
-    if (mutation.type === "delete") await state.delete(mutation.key)
-    else await state.set(mutation.key, mutation.value)
+  if (queued) {
+    for (const mutation of writes.mutations) {
+      if (mutation.type === "delete") await state.delete(mutation.key)
+      else await state.set(mutation.key, mutation.value)
+    }
   }
   return queued
 }
