@@ -296,6 +296,7 @@ const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype,
 const nativePromiseConstructor = Promise
 const nativePromiseThen = Promise.prototype.then
 const nativePromiseResolve = Promise.resolve
+const intrinsicObjectToString = Object.prototype.toString
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -369,6 +370,9 @@ async function runAccessAuthorize(
       // permits an own override. This avoids falling through to mutable then
       // assimilation for an already-settled native promise.
       try {
+        // Object.prototype.toString performs the native Promise brand check
+        // across realms, including subclasses whose species probe failed.
+        if (Reflect.apply(intrinsicObjectToString, directResult, []) === "[object Promise]") isNativePromise = true
         let prototype: object | null = Object.getPrototypeOf(directResult)
         for (let depth = 0; prototype && depth < 8; depth++) {
           if (prototype === Promise.prototype) { isNativePromise = true; break }
@@ -381,19 +385,24 @@ async function runAccessAuthorize(
       const adopted = new nativePromiseConstructor((resolve, reject) => {
         try { Reflect.apply(nativePromiseThen, directResult, [resolve, reject]) }
         catch {
-          const constructor = (directResult as { constructor?: unknown }).constructor
-          const descriptor = constructor && (typeof constructor === "function")
-            ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
-            : undefined
-          if (descriptor?.configurable && constructor && typeof constructor === "function") {
-            try {
-              Object.defineProperty(constructor, Symbol.species, { configurable: true, value: nativePromiseConstructor })
-              Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
-              Object.defineProperty(constructor, Symbol.species, descriptor)
-              return
+          // A hostile subclass may throw while exposing its constructor. Treat
+          // that as an adoption failure without letting the accessor escape.
+          try {
+            const constructor = Reflect.get(directResult, "constructor")
+            const descriptor = constructor && (typeof constructor === "function")
+              ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
+              : undefined
+            if (descriptor?.configurable && constructor && typeof constructor === "function") {
+              try {
+                Object.defineProperty(constructor, Symbol.species, { configurable: true, value: nativePromiseConstructor })
+                Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
+                Object.defineProperty(constructor, Symbol.species, descriptor)
+                return
+              }
+              catch { try { Object.defineProperty(constructor, Symbol.species, descriptor) } catch {} }
             }
-            catch { try { Object.defineProperty(constructor, Symbol.species, descriptor) } catch {} }
           }
+          catch { /* hostile constructor accessor */ }
           reject(new TypeError("Invalid Promise species"))
         }
       })
