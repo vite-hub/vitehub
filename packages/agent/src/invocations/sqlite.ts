@@ -840,8 +840,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     let bytes = await liveBytes(executor)
     const ids: string[] = []
     if (bytes <= budget) return { afterBytes: bytes, ids }
-    let rows = numberValue((await executor.execute(`SELECT count(*) AS count FROM ${table}`)).rows[0]?.count)
-    for (let round = 0; round < 16 && bytes > budget; round += 1) {
+    let rows = numberValue((await executor.execute({
+      args: [...terminalStatuses],
+      sql: `SELECT count(*) AS count FROM ${table} WHERE status IN (${terminalPlaceholders})`,
+    })).rows[0]?.count)
+    while (bytes > budget && rows > 0) {
       const averageRowBytes = bytes / Math.max(1, rows)
       const batch = Math.min(500, Math.max(1, Math.ceil((bytes - budget) / averageRowBytes * 1.1)))
       const deleted = await executor.execute({
