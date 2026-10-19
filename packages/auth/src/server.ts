@@ -331,11 +331,17 @@ async function runAccessAuthorize(
   // subclasses and cross-realm promises may expose a mutable `then` method;
   // invoking that override would let authorization results alter settlement.
   let adopted: PromiseLike<unknown> | undefined
+  let adoptionError: unknown
   try {
     adopted = intrinsicPromiseThen.call(authorization as PromiseLike<unknown>, value => value, error => { throw error })
-  } catch {
+  } catch (error) {
     // Non-Promise thenables retain normal await semantics.
+    adoptionError = error
   }
+  // A local Promise subclass can make intrinsic adoption throw through a
+  // hostile species constructor. Do not then assimilate its mutable `then`;
+  // surface the intrinsic adoption failure instead.
+  if (!adopted && adoptionError !== undefined && authorization instanceof Promise) throw adoptionError
   const result = adopted ? await adopted : await authorization
   if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
@@ -512,6 +518,18 @@ function readerOperation(readerPrototype: object, key: "read" | "cancel" | "rele
   return Object.getOwnPropertyDescriptor(readerPrototype, key)?.value
 }
 
+function trustedReaderOperation(readerPrototype: object, key: "read" | "cancel" | "releaseLock", intrinsic: unknown, name: string): unknown {
+  let current: object | null = readerPrototype
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const value = Object.getOwnPropertyDescriptor(current, key)?.value
+    if (isNativeFunction(value, intrinsic, name, false, false)) return value
+    current = Object.getPrototypeOf(current)
+  }
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -599,13 +617,15 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     // acquisition. Later reader-shape validation may reject own overrides or
     // malformed read/cancel operations, but the acquired reader must still be
     // released on every such failure path.
-    const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+    const releaseLock = trustedReaderOperation(readerPrototype, "releaseLock", nativeReaderReleaseLock, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
     // Keep a source-realm cleanup reference as soon as it is discovered. The
     // subsequent identity checks may reject the reader, but must not strand the
     // lock acquired by getReader(). Only callable, correctly named operations
     // are retained for cleanup; malformed values remain fail-closed.
-    if (typeof releaseLock === "function" && releaseLock.name === "releaseLock") verifiedRelease = releaseLock
-    if (!isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    if (typeof releaseLock !== "function") throw new Error("Non-native response reader")
+    verifiedRelease = releaseLock
+    const discoveredRelease = readerOperation(readerPrototype, "releaseLock")
+    if (!isNativeFunction(discoveredRelease, nativeReaderReleaseLock, "releaseLock", false, false) || discoveredRelease.name !== "releaseLock") throw new Error("Non-native response reader")
     if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
