@@ -757,7 +757,7 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
   }
 }
 
-function isMethodDeclarationName(source: string, index: number, closeParen: number) {
+function isMethodDeclarationName(source: string, index: number, closeParen: number, controlFlowRegexes: ControlFlowRegexCache) {
   const previous = previousNonWhitespace(source, index)
   const afterClose = skipWhitespaceAndComments(source, closeParen + 1)
   if (source[afterClose] === "{") return previous !== "(" && previous !== "=" && previous !== "," && previous !== ":"
@@ -766,7 +766,7 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   if (source[afterClose] !== ":") return false
   // A switch case expression can also be followed by a colon. It is an
   // executable call, rather than a type-member return annotation.
-  const prefix = source.slice(0, index)
+  const prefix = maskSourceLiteralsWithContext(source.slice(0, index), controlFlowRegexes)
   // Conditional expressions inside a case clause may contain colons before
   // the call (`case ready ? fallback : defineThing():`). Use statement/block
   // boundaries here so those expression colons do not hide the `case` token.
@@ -1143,7 +1143,7 @@ function findIdentifierCallsWithContext(source: string, name: string, controlFlo
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
-    if (isMethodDeclarationName(source, index, closeParen)) {
+    if (isMethodDeclarationName(source, index, closeParen, controlFlowRegexes)) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }

@@ -550,6 +550,24 @@ describe("source scanner", () => {
     expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
   })
 
+  it("ignores case text in comments when filtering typed signatures", () => {
+    const source = [
+      `interface Config { /* case */ defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores case text in generic type signatures", () => {
+    const source = [
+      `interface Config { defineThing<T extends "case">(): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
   it("keeps conditional calls after a question mark", () => {
     const calls = findIdentifierCalls(`const value = ready ? defineThing() : fallback`, "defineThing")
     expect(calls).toHaveLength(1)
