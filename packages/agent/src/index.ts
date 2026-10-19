@@ -135,7 +135,7 @@ import {
   traceAgentInvocationStart,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
-import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope } from "./internal/invocation-scope.ts"
+import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope, scopedAgentAsyncIterable } from "./internal/invocation-scope.ts"
 import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
@@ -5206,6 +5206,7 @@ function agentInvocationScope<
             id: journal.id,
             // The trace ID before the journal derives the stored ID from it, so a child derives the same stored ID.
             get traceId() { return journal.context.trace?.id },
+            get contextTraceId() { return invocation.context.trace?.id },
           },
         }
       : {}),
@@ -7338,6 +7339,7 @@ async function executeAgentInvocationWithCapacityLease<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       result = await runInAgentInvocationScope(scope, () => generate(adapterContext as never))
     }
+    if (isAsyncIterable(result)) result = scopedAgentAsyncIterable(scope, result)
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
