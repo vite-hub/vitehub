@@ -1164,6 +1164,7 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
+  beforeComplete?: () => Promise<void>,
 ): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean; duplicate?: boolean } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
@@ -1287,6 +1288,9 @@ async function steerQueuedWebhookDelivery(
             .then(async () => {
               let completed: boolean
               try {
+                // Persist any staged Channel State before marking the delivery
+                // complete. A failed commit must leave the delivery retryable.
+                await beforeComplete?.()
                 completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
               } catch {
                 await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now()).catch(() => false)
@@ -8598,6 +8602,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   }, delivery)
                   return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
                 },
+                async () => {
+                  await settleAgentChannelStateCommit(stateCommit)
+                },
               )
               if (outcome) {
                 // A steered delivery is only committed after the active invocation
@@ -8608,8 +8615,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   stateCommitDeferred = true
                   context.waitUntil(
                     outcome.settlement.then(async completed => {
-                      if (completed) await settleAgentChannelStateCommit(stateCommit)
-                      else await releaseAgentChannelStateCommit(stateCommit)
+                      if (!completed) await releaseAgentChannelStateCommit(stateCommit)
                     }),
                   )
                 } else if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) {
