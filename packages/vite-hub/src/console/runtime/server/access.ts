@@ -110,14 +110,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     let responsePrototype = prototype
     while (responsePrototype) {
       const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
-      // Some Fetch implementations inherit their toStringTag from a shared
-      // response base while keeping clone on the concrete prototype.
-      let tagPrototype: object | null = responsePrototype
-      let tagDescriptor: PropertyDescriptor | undefined
-      while (tagPrototype && !tagDescriptor) {
-        tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
-        tagPrototype = Object.getPrototypeOf(tagPrototype)
-      }
+      // Keep the brand tied to the concrete prototype that supplies clone and
+      // the validated Response surface. An ancestor-only tag is caller-
+      // controlled and can brand an unrelated implementation-shaped object.
+      const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
       const constructorPrototype = typeof constructor === "function"
         ? Object.getOwnPropertyDescriptor(constructor, "prototype")
