@@ -65,6 +65,14 @@ export interface GitHubWorkspaceStoreTarget {
 
 const githubReadAttempts = 3;
 
+/** Keeps exhausted transport failures distinct from Forge response decoding errors. */
+class GitHubNetworkError extends Error {
+  override name = "GitHubNetworkError"
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+  }
+}
+
 function retryDelay(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
@@ -102,7 +110,7 @@ export async function requestGitHub(input: string | URL | Request, init: Request
       response = await fetch(input, init);
     }
     catch (error) {
-      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw error;
+      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw new GitHubNetworkError(error);
       await waitForRetry(100 * 2 ** attempt, init.signal);
       continue;
     }
@@ -143,7 +151,7 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    if (status === undefined && response && error instanceof ForgeResponseError) {
+    if (status === undefined && response && (error instanceof ForgeResponseError || error instanceof TypeError) && !(error instanceof GitHubNetworkError)) {
       throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
