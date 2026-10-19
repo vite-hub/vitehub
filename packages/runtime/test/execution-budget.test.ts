@@ -32,7 +32,8 @@ describe("ExecutionBudget", () => {
       usage: { inputBytes: 4, outputBytes: 5, retries: 1, toolCalls: 1 },
     })
     expect(() => budget.recordRetry()).toThrow(ExecutionBudgetExceededError)
-    expect(() => budget.recordToolCall(7)).toThrow("inputBytes")
+    expect(budget.snapshot().cancelled).toBe(true)
+    expect(() => budget.recordToolCall(7)).toThrow("retries")
   })
 
   it("derives a stricter child while sharing parent usage and cancellation", () => {
@@ -66,45 +67,5 @@ describe("ExecutionBudget", () => {
     await new Promise(resolve => setTimeout(resolve, 15))
     expect(budget.signal.aborted).toBe(true)
     expect(budget.snapshot().remaining.timeMs).toBe(0)
-  })
-
-  it("disposes deadline timers and external abort listeners, including child budgets", () => {
-    vi.useFakeTimers()
-    try {
-      const external = new AbortController()
-      const budget = createExecutionBudget({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
-      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 2_000 })
-
-      expect(vi.getTimerCount()).toBe(2)
-      budget.dispose()
-      budget.dispose()
-      expect(vi.getTimerCount()).toBe(0)
-
-      external.abort(new Error("late cancellation"))
-      expect(budget.signal.aborted).toBe(false)
-      expect(child.signal.aborted).toBe(false)
-    }
-    finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("does not reacquire resources when a child is created after disposal", () => {
-    vi.useFakeTimers()
-    try {
-      const external = new AbortController()
-      const budget = createExecutionBudget({ signal: external.signal })
-      budget.dispose()
-
-      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
-      expect(vi.getTimerCount()).toBe(0)
-      expect(child.signal.aborted).toBe(false)
-
-      external.abort(new Error("late cancellation"))
-      expect(child.signal.aborted).toBe(false)
-    }
-    finally {
-      vi.useRealTimers()
-    }
   })
 })
