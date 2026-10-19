@@ -14,6 +14,8 @@ import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import { isBlockingServerEnvEntry } from "./server.ts"
 import { secretCliFeatures } from "./secret-cli.ts"
 
+export { secretCliFeatures } from "./secret-cli.ts"
+
 type EnvCliCommand = "check" | "inspect"
 
 export interface EnvCliInspectInput {

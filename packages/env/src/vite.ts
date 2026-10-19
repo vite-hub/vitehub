@@ -1,6 +1,6 @@
 import { describeServerEnv } from "./server.ts"
 import { createHash, randomBytes } from "node:crypto"
-import { chmod, mkdir, open, readFile, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -443,7 +443,18 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
         await new Promise(resolve => setTimeout(resolve, 5))
       }
       if (!generatedSecretPattern.test(secret)) {
-        throw new Error(`[vitehub] Generated secret file ${secretPath} was concurrently created but never became valid.`)
+        // The existing file may be stale or partially written rather than owned
+        // by a live peer. Replace it atomically, then use the replacement.
+        const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
+        const replacement = randomBytes(32).toString("hex")
+        try {
+          await writeFile(replacementPath, replacement, { flag: "wx", mode: 0o600 })
+          await rename(replacementPath, secretPath)
+          secret = replacement
+        }
+        finally {
+          await unlink(replacementPath).catch(() => {})
+        }
       }
     }
   }
