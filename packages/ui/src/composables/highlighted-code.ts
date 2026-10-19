@@ -5,7 +5,7 @@ type LanguageModule = { default: LanguageRegistration[] };
 
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
-  ansi: () => import("shiki/langs/ansi.mjs"),
+  ansi: () => import("@shikijs/langs/ansi"),
   bash: () => import("shiki/langs/bash.mjs"),
   css: () => import("shiki/langs/css.mjs"),
   diff: () => import("shiki/langs/diff.mjs"),
