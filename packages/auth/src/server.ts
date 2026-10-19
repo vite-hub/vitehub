@@ -353,77 +353,9 @@ async function runAccessAuthorize(
         branded = true
       }
       catch (error) {
-        // A throwing species can prevent reaction installation. Retry with a
-        // native constructor where the instance permits temporary replacement.
-        let owner: object | undefined
-        let descriptor: PropertyDescriptor | undefined
-        let current: object | null = resultObject
-        while (current) {
-          const candidate = Object.getOwnPropertyDescriptor(current, "constructor")
-          if (candidate) { owner = current; descriptor = candidate; break }
-          current = Object.getPrototypeOf(current)
-        }
-        try {
-          if (!descriptor || descriptor.configurable) {
-            Object.defineProperty(owner ?? resultObject, "constructor", { configurable: true, value: Promise })
-            try { attach(); branded = true }
-            finally {
-              if (descriptor) Object.defineProperty(owner!, "constructor", descriptor)
-              else Reflect.deleteProperty(owner ?? resultObject, "constructor")
-            }
-          }
-          else {
-            const constructor = Reflect.get(resultObject, "constructor")
-            const species = constructor !== null && (typeof constructor === "object" || typeof constructor === "function")
-              ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
-              : undefined
-            if (!species?.configurable) throw error
-            Object.defineProperty(constructor, Symbol.species, { configurable: true, value: Promise })
-            try { attach(); branded = true }
-            finally { Object.defineProperty(constructor, Symbol.species, species) }
-          }
-        }
-        catch {
-          // A native promise resolver performs adoption and observes the source;
-          // keep this branded value out of the reflective thenable path without
-          // dispatching through the mutable Promise.resolve static method.
-          branded = true
-          // Promise resolution performs another observable `then` lookup. If
-          // the value has an own override, mask it while creating the native
-          // adoption promise so the fallback cannot dispatch that override.
-          const ownThen = Object.getOwnPropertyDescriptor(resultObject, "then")
-          let masked = false
-          let maskDescriptor: PropertyDescriptor | undefined
-          if (!ownThen || ownThen.configurable || ("value" in ownThen && ownThen.writable)) {
-            try {
-              Object.defineProperty(resultObject, "then", {
-                configurable: ownThen?.configurable ?? true,
-                enumerable: ownThen?.enumerable ?? false,
-                value: intrinsicPromiseThen,
-                writable: ownThen?.writable ?? true,
-              })
-              masked = true
-              maskDescriptor = ownThen
-            }
-            catch {
-              // Frozen instances cannot be masked; leave the native resolver
-              // to report the source settlement or its unavoidable override.
-            }
-          }
-          let nativeAdopted: Promise<unknown>
-          try {
-            nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(resultObject))
-          }
-          finally {
-            if (masked) {
-              if (maskDescriptor) Object.defineProperty(resultObject, "then", maskDescriptor)
-              else Reflect.deleteProperty(resultObject, "then")
-            }
-          }
-          void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
-            (value: unknown) => { void settle(value).then(resolve, reject) }, reject,
-          ])
-        }
+        // Ordinary thenables do not carry Promise internal slots; keep them on
+        // the explicit one-lookup assimilation path below.
+        branded = false
       }
     })
     if (branded) return adopted

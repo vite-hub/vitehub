@@ -56,11 +56,11 @@ function joinKey(prefix: string, ...parts: string[]): string {
 
 /** Providers may expose hierarchical keys with either slash or colon separators. */
 function keySegments(key: string, count: number): string[] {
-  const encoded = key.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)$/)
+  const encoded = key.match(/(\d{4}-\d{2}-\d{2}T\d{2}(?::|%3A)\d{2}(?::|%3A)\d{2}(?:\.|%2E)\d+Z)$/i)
   if (encoded && count >= 2) {
     const prefix = key.slice(0, encoded.index).replace(/[/:]+$/, "")
     const segments = prefix.split(/[/:]/).slice(-(count - 1)).map(decodeURIComponent)
-    return [...segments, encoded[1]!]
+    return [...segments, decodeURIComponent(encoded[1]!)]
   }
   return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
 }
