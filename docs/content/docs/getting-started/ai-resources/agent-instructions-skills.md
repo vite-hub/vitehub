@@ -7,7 +7,8 @@ navigation.order: 261
 icon: i-lucide-scroll-text
 ---
 
-The ViteHub skill gives a coding agent one repeatable process for ViteHub work.
+The ViteHub skill is a small set of Markdown instructions for a coding agent.
+It gives the agent one repeatable process for ViteHub work.
 The agent orients in the project, loads only the references that match the task, checks the installed package contract, builds the file set, and proves each requested behavior.
 
 `vitehub.dev` publishes the skill at [`/.well-known/skills/vitehub/SKILL.md`](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md). The [skills CLI](https://github.com/vercel-labs/skills) reads the [skill index](https://vitehub.dev/.well-known/skills/index.json) and installs the skill from the site URL.
@@ -78,7 +79,7 @@ The skill selects one primary product lane, reads only the matching references a
 It reports the proof for each requested behavior.
 When the documentation and the installed version differ, the installed contract controls the implementation and the agent reports the difference.
 
-The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, and public project patterns.
+The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Sandboxes and hosts, proof and recovery, and public project patterns.
 
 ## Add live docs lookups
 

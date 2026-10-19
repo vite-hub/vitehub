@@ -4,18 +4,14 @@ export interface GitHubSourceOptions {
   repo: string
   ref?: string
   root?: string
+  /**
+   * GitHub token, or a trusted callback that returns one. Omitted: Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`.
+   * `false`: anonymous reads only.
+   */
   auth?: false | string | (() => Promise<string | undefined> | string | undefined)
   include?: string | string[]
   ignore?: string | readonly string[]
   cache?: false | SourceCacheOptions
-}
-
-export interface GitHubRepositoryResponse {
-  default_branch: string
-}
-
-export interface GitHubCommitResponse {
-  sha: string
 }
 
 export interface GitHubFile<TKey extends string = string> {
@@ -24,14 +20,6 @@ export interface GitHubFile<TKey extends string = string> {
   path: string
   ref: string
   sha: string | undefined
-}
-
-export interface GitHubContentResponse {
-  content?: string
-  encoding?: string
-  path?: string
-  sha?: string
-  type?: "dir" | "file" | string
 }
 
 export interface GitHubArchiveFile {

@@ -27,7 +27,6 @@ const maxRequestBytes = 1024 * 1024
 const maxRememberedRuns = 1024
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -43,30 +42,37 @@ function parseRequest(body: unknown): WorkflowDevRequest | undefined {
   if (!isRecord(body)) return
   const operation = body.operation
   if (operation === "start") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
     if (typeof body.workflow !== "string" || !body.workflow) return
     return { operation, workflow: body.workflow, ...("input" in body ? { input: body.input } : {}) }
   }
   if (operation === "get" || operation === "cancel") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
     if (typeof body.runId !== "string" || !body.runId) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
     if (body.workflow !== undefined && (typeof body.workflow !== "string" || !body.workflow)) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
     return { operation, runId: body.runId, ...(typeof body.workflow === "string" ? { workflow: body.workflow } : {}) }
   }
   if (operation === "resume") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
     if (typeof body.token !== "string" || !body.token) return
     return { operation, token: body.token, ...("payload" in body ? { payload: body.payload } : {}) }
   }
 }
 
+function isResponse(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  const statusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  if (!statusGetter) return false
+  try {
+    statusGetter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function jsonReplacer(_key: string, value: unknown): unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   if (typeof value === "bigint") return value.toString()
   if (value instanceof Error) return serializeError(value)
-  if (value instanceof Response) return { response: { status: value.status, statusText: value.statusText } }
+  if (isResponse(value)) return { response: { status: value.status, statusText: value.statusText } }
   return value
 }
 
@@ -82,39 +88,33 @@ function toJsonValue(value: unknown): unknown {
 }
 
 function errorCode(error: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   if (!error || typeof error !== "object") return
   const code = Reflect.get(error, "code")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   return typeof code === "string" ? code : undefined
 }
 
 function serializeError(error: Error): { code?: string, message: string, name?: string } {
   const code = errorCode(error)
   return {
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Error code is optional in the public response.
     ...(code ? { code } : {}),
     message: redactInspectionText(error.message),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Default Error names are omitted from the response.
     ...(error.name && error.name !== "Error" ? { name: error.name } : {}),
   }
 }
 
 function toIsoDate(value: unknown): string | undefined {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString()
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   return typeof value === "string" ? value : undefined
 }
 
 function isErrorLike(value: unknown): value is Error {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque request or provider values at the Workflow dev endpoint boundary.
   return value instanceof Error || (isRecord(value) && typeof value.message === "string")
 }
 
 // Inline runs store the handler result as a serialized `Response`. Read its body
 // so that the CLI shows the value that the Workflow returned.
 async function readResult(result: unknown): Promise<unknown> {
-  if (!(result instanceof Response)) return result
+  if (!isResponse(result)) return result
   const text = await result.clone().text()
   if (!text) return undefined
   try {
@@ -137,11 +137,8 @@ export async function toWorkflowDevRunView(run: WorkflowRun<unknown, unknown>, w
   const metadata = error ? undefined : toJsonValue(run.metadata)
   const result = toJsonValue(await readResult(run.result))
   return {
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional run fields are omitted when unavailable.
     ...(completedAt ? { completedAt } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional run fields are omitted when unavailable.
     ...(createdAt ? { createdAt } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional run fields are omitted when unavailable.
     ...(error ? { error } : {}),
     id: run.id,
     ...(metadata === undefined ? {} : { metadata }),

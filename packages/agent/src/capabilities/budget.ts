@@ -72,6 +72,9 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
 }
 
 function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+  if (options.capacity !== undefined) {
+    throw new TypeError("[vitehub] budget capability does not support capacity; configure it on defineAgent({ budget }).")
+  }
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
@@ -90,12 +93,13 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
 function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["cost"], limits: ReturnType<typeof validateOptions>): AgentBudgetExceeded[] {
   if (!usage && !cost) return []
   const exceeded: AgentBudgetExceeded[] = []
+  const totalTokens = usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
+    ? usage.inputTokens + usage.outputTokens
+    : undefined)
   const checks: Array<[AgentBudgetExceeded["metric"], number | undefined, number | undefined]> = [
     ["inputTokens", usage?.inputTokens, limits.tokens.input],
     ["outputTokens", usage?.outputTokens, limits.tokens.output],
-    ["totalTokens", usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
-      ? usage.inputTokens + usage.outputTokens
-      : undefined), limits.tokens.total],
+    ["totalTokens", totalTokens, limits.tokens.total],
   ]
   for (const [metric, actual, limit] of checks) {
     if (actual !== undefined && limit !== undefined && actual > limit) exceeded.push({ actual, limit, metric })
@@ -113,9 +117,9 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
 export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
   const id = options.id || "budget"
   const limits = validateOptions(options)
-  const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
+  const pricing = options.pricing === false
     ? undefined
-    : options.pricing || modelsDevPricing()
+    : options.pricing || (limits.usd !== undefined ? modelsDevPricing() : undefined)
   const mode = options.mode || "observe"
 
   const metadata = { kind: "budget", mode, tokens: limits.tokens }
@@ -131,7 +135,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
+          if (hasRuntimeType(current, "number")) return current <= maxOutputTokens ? undefined : { maxOutputTokens }
           return { maxOutputTokens }
         },
       })

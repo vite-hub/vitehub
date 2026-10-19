@@ -30,3 +30,10 @@ export function envAccessActor(context: EnvAccessContext): EnvActor {
   if (authority.kind !== "agent") throw envBridgeError("untrusted");
   return { id: context.actor.id, kind: context.actor.kind };
 }
+
+/** The registered Agents that the Agent of a context extends, nearest first. Other contexts fail with `ENV_BRIDGE_UNTRUSTED`. */
+export function envAccessAgentParents(context: EnvAccessContext): string[] {
+  const authority = envAccessAuthority(context);
+  if (authority.kind !== "agent") throw envBridgeError("untrusted");
+  return [...(authority.parents ?? [])];
+}

@@ -67,7 +67,7 @@ function scheduleRunAttemptKey(prefix: string, id: string): string {
 }
 
 function runtimeScheduleBase(prefix: string): string {
-  return joinKey(prefix, "runtime-schedules")
+  return `${joinKey(prefix, "runtime-schedules")}/`
 }
 
 function scheduleRunBase(prefix: string): string {
@@ -383,7 +383,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split("/").slice(-3).map(decodeURIComponent)
+    const parts = key.split(/[/:]/).slice(-3).map(decodeURIComponent)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -391,6 +391,11 @@ function runIndexMetadata(key: string): { id: string, scheduleId: string, schedu
   catch {
     return undefined
   }
+}
+
+function decodeKeySegment(key: string): string {
+  const separator = Math.max(key.lastIndexOf("/"), key.lastIndexOf(":"))
+  return decodeURIComponent(key.slice(separator + 1))
 }
 
 export function createKVScheduleRunStore(options: KVScheduleStoreOptions): ScheduleRunStore {
@@ -442,7 +447,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (const key of keys) {
       let id: string
       try {
-        id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+        id = decodeKeySegment(key)
       }
       catch {
         unknown.push(key)
@@ -552,14 +557,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split("/").slice(-2).map(decodeURIComponent)
+          const parts = key.split(/[/:]/).slice(-2).map(decodeURIComponent)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+          const id = decodeKeySegment(key)
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }

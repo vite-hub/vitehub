@@ -1,11 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
+import type { ProcessShutdownDrains, ProcessStopSignal } from "./internal/shutdown-drain.ts";
 
-type ProcessHostStopSignal = "SIGINT" | "SIGTERM";
+type ProcessHostStopSignal = ProcessStopSignal;
 
 /** The part of `process` that the generated stop handler uses. Tests pass a replacement. */
 export interface ProcessHostStopRuntime {
+  __vitehubShutdown?: ProcessShutdownDrains;
   exit(code: number): void;
   listeners(signal: ProcessHostStopSignal): unknown[];
   off(signal: ProcessHostStopSignal, listener: (signal: ProcessHostStopSignal) => void): unknown;
@@ -18,7 +20,9 @@ export interface ProcessHostStopRuntime {
  * SIGTERM and SIGINT first stop admission with `host.close()`, which waits for the
  * invocations that the host tracks. HTTP stays up, so webhooks still reach durable
  * queues. Then the server's own signal listeners close HTTP, and the process exits.
- * A second signal does not start more work.
+ * A second signal does not start more work. The drain is registered in
+ * `process.__vitehubShutdown`, and the process exits once, after every registered drain
+ * settles. This includes the Agent shutdown drain of the generated webhook queue plugin.
  *
  * The Nitro Node server calls srvx `serve()` after it runs plugins, and srvx adds its
  * graceful shutdown listeners there. Nitro does not expose an option that disables
@@ -38,41 +42,56 @@ export function installProcessHostStop(
   app.hooks.hook("close", () => host.close());
   const signals: ProcessHostStopSignal[] = ["SIGTERM", "SIGINT"];
   const existing = new Map(signals.map((signal) => [signal, new Set(runtime.listeners(signal))]));
+  const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
+  let resolveSetup!: () => void;
+  const setup = new Promise<void>((resolve) => { resolveSetup = resolve });
+  const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
+  let stopping: Promise<void> | undefined;
+  const stop = (signal: ProcessHostStopSignal) => {
+    if (stopping) return;
+    stopping = (async () => {
+      await setup;
+      console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
+      try {
+        await host.close();
+      } catch (error) {
+        console.error("[vitehub]", error);
+      }
+      const closeServer = Promise.all(
+        serverListeners
+          .filter(([name]) => name === signal)
+          .map(([, listener]) => Promise.resolve().then(() => listener(signal))),
+      );
+      await Promise.race([
+        closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
+        new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
+      ]);
+    })();
+    shutdown.drains.add(stopping);
+    void (async () => {
+      let settled = -1;
+      while (settled !== shutdown.drains.size) {
+        settled = shutdown.drains.size;
+        await Promise.allSettled(shutdown.drains);
+      }
+      if (shutdown.exited) return;
+      shutdown.exited = true;
+      console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
+      runtime.exit(0);
+    })();
+  };
+  for (const signal of signals) runtime.on(signal, stop);
   setImmediate(() => {
-    const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
     for (const signal of signals) {
       for (const listener of runtime.listeners(signal)) {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Signal listeners come from the Node process and are untyped at this boundary.
-        if (typeof listener !== "function" || existing.get(signal)?.has(listener)) continue;
+        if (typeof listener !== "function" || listener === stop || existing.get(signal)?.has(listener) || (listener as { __vitehubAgentDrain?: boolean }).__vitehubAgentDrain) continue;
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
         const handler = listener as (signal: ProcessHostStopSignal) => void;
         runtime.off(signal, handler);
         serverListeners.push([signal, handler]);
       }
     }
-    let stopping: Promise<void> | undefined;
-    const stop = (signal: ProcessHostStopSignal) => {
-      stopping ??= (async () => {
-        console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
-        try {
-          await host.close();
-        } catch (error) {
-          console.error("[vitehub]", error);
-        }
-        const closeServer = Promise.all(
-          serverListeners
-            .filter(([name]) => name === signal)
-            .map(([, listener]) => Promise.resolve().then(() => listener(signal))),
-        );
-        await Promise.race([
-          closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
-          new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
-        ]);
-        console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
-        runtime.exit(0);
-      })();
-    };
-    for (const signal of signals) runtime.on(signal, stop);
+    resolveSetup();
   });
 }
 
