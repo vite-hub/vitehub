@@ -1626,6 +1626,34 @@ button.vh-agent-tool-list__count:focus-visible {
 
 /* shadcn/ui CodeBlock and Message Scroller parts, with the same token mapping as the parts above. */
 @layer components {
+  /* Realtime collaboration caret and selection decorations. */
+  .collaboration-carets__caret {
+    border-inline: 1px solid;
+    margin-inline: -1px;
+    pointer-events: none;
+    position: relative;
+    word-break: normal;
+  }
+
+  .collaboration-carets__label {
+    border-radius: 0.25rem 0.25rem 0.25rem 0;
+    color: #fff;
+    font-size: 0.75rem;
+    font-style: normal;
+    font-weight: 600;
+    inset-inline-start: -1px;
+    line-height: 1.25;
+    padding: 0.0625rem 0.375rem;
+    position: absolute;
+    top: -1.4em;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .ProseMirror-yjs-selection {
+    background-color: color-mix(in srgb, currentColor 25%, transparent);
+  }
+
   /* Code Block */
 
   [data-slot="code-block"] {
