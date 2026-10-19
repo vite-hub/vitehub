@@ -114,7 +114,7 @@ describe("vitehub agent invocations wait-idle", () => {
   it("follows list cursors on the invocation endpoint", async () => {
     const fetch = vi.fn(async (input: string) => {
       const url = new URL(input)
-      if (url.searchParams.get("status") === "running" && !url.searchParams.has("cursor")) return Response.json({ cursor: "next", invocations: [] })
+      if (url.searchParams.getAll("status").includes("running") && !url.searchParams.has("cursor")) return Response.json({ cursor: "next", invocations: [] })
       if (url.searchParams.get("cursor") === "next") return Response.json({ invocations: [summary("late", "running")] })
       return Response.json({ invocations: [] })
     })
