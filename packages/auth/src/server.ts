@@ -33,6 +33,7 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
 const intrinsicUint8ArrayConstructor = Uint8Array
 const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+const intrinsicPromiseThen = Promise.prototype.then
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
@@ -315,9 +316,15 @@ async function runAccessAuthorize(
   const returned = authorize(context)
   // Normalize a direct Response before promise assimilation. A Response may
   // expose a callable `then` property and must remain a response value.
-  const directResponse = await normalizeAuthorizationResponse(returned)
+  let isPromise = false
+  try { isPromise = returned instanceof Promise } catch {}
+  const directResponse = !isPromise && Object(returned) === returned
+    ? await normalizeAuthorizationResponse(returned)
+    : undefined
   if (directResponse) return directResponse
-  const result = await returned
+  const result = isPromise
+    ? await new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
+    : await returned
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
@@ -609,7 +616,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (headers === null || Object(headers) !== headers) return
     if (body !== null) {
       const bodyUsedGetter = responsePropertyDescriptor(candidate, "bodyUsed")?.get
-      if (typeof bodyUsedGetter !== "function" || Reflect.apply(bodyUsedGetter, candidate, [])) return
+      try {
+        if (typeof bodyUsedGetter !== "function" || Reflect.apply(bodyUsedGetter, candidate, [])) return
+      }
+      catch {
+        // Proxies around local Responses fail the native brand check; their
+        // underlying body is still normalized through the stream bridge below.
+        if (!(value instanceof Response)) return
+      }
     }
 
     const headerCarrier = Object(headers)
@@ -666,7 +680,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
       if (combinedCookies !== undefined) {
-        if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+        if (/(?:^|;)\s*(?:path|expires|domain|max-age|httponly|secure|samesite|partitioned)\s*=[^,;]*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)) return
         normalizedHeaders.append("set-cookie", combinedCookies)
       }
       for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
