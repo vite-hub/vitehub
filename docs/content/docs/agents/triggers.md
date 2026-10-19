@@ -165,6 +165,27 @@ defineChannelTrigger({
 })
 ```
 
+Two siblings answer the other cases. Both answer `{ accepted: false, ok: false, reason }`, and no Invocation starts.
+
+| Helper | Status | Use it when | Retry |
+| --- | --- | --- | --- |
+| `ignored(reason)` | 200 | The Channel does not handle the event. | No |
+| `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. When the webhook queue replays a queued delivery and the trigger returns it, the queue retries and its error names the reason. |
+| `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
+
+```ts
+import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
+
+defineChannelTrigger({
+  input: ticketOpened,
+  async invoke(context, event) {
+    if (!event.ticketId) return rejected('missing_ticket')
+    if (!await ticketing.isReady()) return retryLater('ticketing_unavailable')
+    return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
+  },
+})
+```
+
 ### Run deliveries one at a time per key
 
 Set `webhook.serialize: key` to queue a delivery and run it only when no other delivery with the same key runs.
@@ -234,7 +255,7 @@ defineChannelTrigger({
 
 With the webhook queue, ViteHub stores the task key, the name of the task's Agent and the accepted JSON input before `prepare` runs. The queue then runs `prepare` and the task on every attempt. After a restart, the queue reads the task from the current trigger definition and does not call `invoke` again. The input and `run` metadata must be JSON-serializable, and a task Agent needs a stable `name`. If a stored task no longer exists, or now runs another Agent, the attempt fails.
 
-The Invocation of an Agent task defaults its unset `run.origin` to the task key, so the Console shows which task ran. A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
+A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
 
 Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. `busy: 'steer'` sends input to a running Invocation, so it does not run `prepare` or tasks. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 

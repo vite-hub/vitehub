@@ -735,7 +735,7 @@ function withTaskOrigin<CALL_OPTIONS>(
   invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
   trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
 ): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
-  if (invoked.task === undefined || !invoked.run || invoked.run.origin) return invoked
+  if (invoked.task === undefined || !invoked.run || invoked.run.origin !== undefined) return invoked
   if (!agentTriggerTask(trigger, invoked.task).agent) return invoked
   return { ...invoked, run: { ...invoked.run, origin: invoked.task } }
 }

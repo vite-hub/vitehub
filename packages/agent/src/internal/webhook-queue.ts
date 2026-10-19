@@ -21,6 +21,8 @@ export interface AgentWebhookQueueDelivery {
     run?: unknown
     /** The key of the trigger task that `invoke` selected. */
     task?: string
+    /** Whether the trigger had preparation that must run before execution. */
+    requiresPrepare?: true
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -95,7 +97,7 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.request.method) ||
     !("url" in value.request) ||
     !isRuntimeString(value.request.url) ||
-    ("invocation" in value && !isRuntimeUndefined(value.invocation) && !isRuntimeObject(value.invocation)) ||
+    ("invocation" in value && !isRuntimeUndefined(value.invocation) && (!isRuntimeObject(value.invocation) || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
     ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
   ) {
     throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })

@@ -818,6 +818,12 @@ async function terminalChannelDeliveryResponse(
   return response
 }
 
+/** The `reason` of a `retryLater()` or `rejected()` answer, when the body has one. */
+async function handledResponseReason(response: Response): Promise<string | undefined> {
+  const body: unknown = await response.clone().json().catch(() => undefined)
+  return isRecord(body) && isRuntimeString(body.reason) ? body.reason : undefined
+}
+
 async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
   const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
   if (!response.body) {
@@ -1130,9 +1136,9 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
 }
 
 function persistedWebhookInvocation(
-  invocation: { agent?: AgentInput, input: AgentRunInput; run?: unknown, task?: string },
+  invocation: { agent?: AgentInput, input: AgentRunInput; run?: unknown, task?: string, requiresPrepare?: boolean },
   rehydrate = false,
-): { agentName?: string, input: Record<string, unknown>; run?: unknown, task?: string } {
+): { agentName?: string, input: Record<string, unknown>; run?: unknown, task?: string, requiresPrepare?: true } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
   if (rehydrate && invocation.input.context) {
     // Rehydration restores definition-owned finish callbacks. Persist the
@@ -1144,6 +1150,7 @@ function persistedWebhookInvocation(
     input,
     ...(invocation.run ? { run: invocation.run } : {}),
     ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+    ...(invocation.requiresPrepare ? { requiresPrepare: true as const } : {}),
   }
 }
 
@@ -1838,33 +1845,42 @@ async function executeQueuedWebhookDelivery(
       else {
         invocation = undefined
         handledResponse = resolved.response
+        // `retryLater(reason)` and other 5xx answers retry the delivery. The error names the reason.
+        const retryReason = handledResponse.status >= 500
+          ? await Promise.race([handledResponseReason(handledResponse), executionTimeout])
+          : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
         ])
         // The provider has already received admission, so this queue owns transient retries.
-        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}.`)
+        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}${retryReason ? ` (${retryReason})` : ""}.`)
       }
     }
     else if (delivery.invocation) {
       const saved = delivery.invocation
       const trigger = await Promise.race([runWithRuntimeCloudflareEnv(context, () => queuedWebhookTrigger(agent, context, request, delivery, state)), executionTimeout])
-      // A row stored without a task keeps running when its registration is gone, as before tasks existed.
-      if (!trigger && saved.task !== undefined) {
+      // Persisted tasks and prepared deliveries require their current trigger definition.
+      if (!trigger && (saved.task !== undefined || saved.requiresPrepare)) {
         throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       }
-      const task = trigger ? queuedWebhookTask(trigger, saved) : undefined
+      const taskKey = trigger ? queuedWebhookTaskKey(trigger, saved, invocation?.run) : undefined
+      const task = trigger && taskKey !== undefined ? queuedWebhookTask(trigger, { ...saved, task: taskKey }) : undefined
       if (trigger && invocation) {
         accepted = {
           ...(task?.agent ? { agent: task.agent } : {}),
           input: invocation.input,
           ...(invocation.run ? { run: invocation.run } : {}),
-          ...(saved.task !== undefined ? { task: saved.task } : {}),
+          ...(taskKey !== undefined ? { task: taskKey } : {}),
           trigger,
         }
       }
     }
     if (accepted && invocation) {
+      // A task may run another Agent. Apply that Agent's deadline before its
+      // preparation, while retaining the delivery-wide elapsed-time budget.
+      executionAgent = accepted.agent ?? agent
+      armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
       const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
       const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
@@ -8661,6 +8677,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               input: invocation.input,
               run: invocation.run,
               ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+              ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
             }, Boolean(invocation.webhook.rehydrate))
             const persistable = isJsonSafe(persistedInvocation)
             // A task or `prepare` runs from the stored input, so the queue never calls `invoke` again.
