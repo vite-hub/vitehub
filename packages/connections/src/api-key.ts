@@ -44,7 +44,7 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Normalize an API key origin. Returns `undefined` for a URL with a path, query, credentials, or plain `http` to a remote host. */
-function apiKeyOrigin(value: string): string | undefined {
+export function apiKeyOrigin(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)

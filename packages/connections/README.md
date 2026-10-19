@@ -87,9 +87,63 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
 
+## Sign in without a person
+
+Use `oauthLogin()` when a service account must use an OAuth API or MCP server that accepts only its own OAuth tokens, and no person can click through a consent screen. The app supplies only `login`, which plays the browser:
+
+```ts
+// server/connections/portal.ts
+import { defineConnection, oauthLogin } from "@vite-hub/connections";
+
+export default defineConnection({
+  provider: oauthLogin({
+    id: "portal",
+    mcp: "https://portal.example.com/mcp",
+    clientName: "Support Agent",
+    credentials: () => process.env.PORTAL_LOGIN, // "email:password"
+    async login({ url, redirectUri, credentials, fetch }) {
+      const [email, password] = credentials.split(":");
+      await fetch("/api/sign-in", { method: "POST", body: JSON.stringify({ email, password }) });
+      // Return the URL that the provider redirects to `redirectUri`, with `code` and `state`.
+      return (await fetch(url)).headers.get("location")!;
+    },
+  }),
+  scopes: ["openid", "email"],
+  access: { "agent:support": { read: true, write: ["fetch"], approve: false } },
+});
+```
+
+ViteHub does the rest:
+
+1. Discovery: the protected resource metadata of `mcp` (RFC 9728) names the authorization server, and its metadata (RFC 8414, or OpenID Connect discovery) names the endpoints. Set `issuer` to skip the first step.
+2. Registration: ViteHub registers a public client (RFC 7591) once per process, unless `clientId` is set.
+3. Sign-in: ViteHub builds the authorization URL with PKCE (`S256`), `state`, `scope`, and `resource` (default: `mcp`), calls `login`, checks the returned `code` and `state`, and exchanges the code.
+4. Renewal: a token that expires within a minute is refreshed with its refresh token, or replaced by a new sign-in. A `401` signs in again once and retries the request. Concurrent requests share one sign-in, also when it fails.
+
+`login` gets a `fetch` that acts as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `redirectUri` defaults to `http://127.0.0.1/callback`; ViteHub never listens on it. An error that `login` throws becomes a `CONNECTION_PROVIDER` error without its message, because the message could contain the credentials.
+
+Tokens and the client registration stay in memory, so each process signs in again, and the Connections store is not needed. While `credentials` resolves to nothing, the Connection is `disconnected` and requests fail with `CONNECTION_REAUTH_REQUIRED`. Otherwise it is `connected`, and a failed sign-in fails only the request that needed it. The Connection has no connect flow and no key: `authorize()` and `setKey()` reject it, and `revoke()` drops the tokens, so the next request signs in again. Access rules, approvals, dry run, and activity work as for other Connections. The token goes only to `mcp`, the `origins`, and the root URLs of `apis`.
+
+## Define one Connection per instance
+
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
+
+```ts
+// server/connections/portal.ts
+export default defineConnection({
+  instances: ["acme", "globex"],
+  definition: tenant => ({
+    provider: oauthLogin({ mcp: `https://${tenant}.example.com/mcp`, credentials: () => process.env[`PORTAL_${tenant.toUpperCase()}`], login }),
+    scopes: ["openid"],
+  }),
+});
+```
+
+This file defines `portal:acme` and `portal:globex`. Use them like any other Connection, for example `useConnection("portal:acme")` or `mcp({ servers: { portal_acme: { connection: "portal:acme" } } })`. `list()`, the CLI, and the Console show each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
+
 ## Pace and retry requests
 
-Set `requests` on an OAuth provider or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
+Set `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
 
 ```ts
 apiKey({

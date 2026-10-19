@@ -802,6 +802,8 @@ function cardListsOutsideFences(source: string) {
 const presentationDirectives = new Set([
   // The site renders nothing for `agent-only`; agents get its content unwrapped.
   "agent-only",
+  // The support matrix is interactive on the site; raw artifacts keep its Markdown tables.
+  "support-matrix",
   // Humans expand a collapsible; agents get its content inline.
   "collapsible",
   "component-preview",

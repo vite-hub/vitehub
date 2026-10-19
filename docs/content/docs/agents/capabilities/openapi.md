@@ -57,8 +57,30 @@ openapi({
 })
 ```
 
-Unsupported HTTP methods are ignored unless the operation is selected.
+ViteHub reads only the selected operations.
+Other operations can use unsupported HTTP methods, repeat an `operationId`, or have an `operationId` that is not a valid tool name.
 In v1, selected operations can use `GET`, `HEAD`, or `POST`.
+
+### Name operations
+
+Each selected `operationId` is the tool name, and its kebab-case form is the CLI command name.
+Generated `operationId`s such as `read_flow_run_flow_runs__id__get` are hard for an Agent to use.
+Pass a record of names to `operationId`s to choose the names instead:
+
+```ts [server/agents/support.ts]
+openapi({
+  spec: 'https://prefect.example.com/api/openapi.json',
+  operations: {
+    'flow-run': 'read_flow_run_flow_runs__id__get',
+    'logs': 'read_logs_logs_filter_post',
+  },
+  cli: { name: 'prefect' },
+})
+```
+
+ViteHub uses each name verbatim as the tool name and as the CLI command name, so this example gives `prefect flow-run` and `prefect logs`.
+A name must start with a letter and use only letters, numbers, underscores, and hyphens.
+`hooks.request` and `transformResponse` still receive the `operationId` as `operation.id`.
 
 ## Configure requests
 
@@ -213,7 +235,7 @@ openapi({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `spec` | `string \| URL \| object \| function` | required | OpenAPI document URL, inline document, or invocation-scoped document resolver. |
-| `operations` | `readonly string[]` | required | Selected OpenAPI `operationId`s exposed by this Capability. |
+| `operations` | `readonly string[] \| Record<string, string>` | required | Selected OpenAPI `operationId`s exposed by this Capability, or a record of tool and CLI command names to `operationId`s. |
 | `description` | `string` | none | Prefix for generated operation-tool descriptions and fallback description for the generated Capability CLI. |
 | `hooks.request` | `(context) => patch \| void` or `{ provides?, handler }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, timeout, and `maxResponseBytes` values. |
 | `hooks.request.provides` | `{ body?, path?, query? }` | none | Runtime-owned OpenAPI input fields to remove from model and generated CLI schemas before caller validation. |

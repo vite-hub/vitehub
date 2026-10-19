@@ -34,7 +34,7 @@ const returnedCodes = [
  * It reads `code`, so it also accepts an error from another copy of the package.
  */
 export function isConnectionError<TCode extends ConnectionsCatalogCode = ConnectionsCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
-  if (!(error instanceof Error)) return false
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
   try {
     const code: unknown = Reflect.get(error, "code")
     if (typeof code !== "string" || !Object.hasOwn(connectionsErrorDiagnostics, code)) return false

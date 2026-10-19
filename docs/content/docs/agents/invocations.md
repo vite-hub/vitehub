@@ -201,6 +201,10 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
+`agent.invocation.finish` carries `result.text` for a text result. A plain object or array result, such as `driver.ask` answers, is `result.output` instead.
+
+An Invocation that starts while another Invocation runs its Driver or an outcome hook is a child of that Invocation. For example, `runAgent()` inside `agent:finish` starts a child. A child without its own trace joins the trace of its parent: both records have the same `traceId`, and each observation of the child has `trace.parentId`, the record `id` of the parent. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish` with `agent.invocation.child.id`, `agent.invocation.child.run.id`, and `agent.invocation.child.agent.name`. The finish observation also has `agent.invocation.child.status` and `agent.invocation.child.durationMs`. The `agent.invocation.start` observation of the child has the same attributes for its parent, under `agent.invocation.parent.*`.
+
 Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
 
 Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
@@ -502,6 +506,15 @@ vitehub agent invocations prune --database file:./.data/invocations.db --older-t
 ```
 
 Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+
+`list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or a Console session. This works inside a running container, where the journal is on local disk:
+
+```sh
+vitehub agent invocations list --database /data/console.sqlite --status running
+vitehub agent invocations show INVOCATION_ID --database /data/console.sqlite --json
+```
+
+The command opens the file read-only with `node:sqlite` and does not migrate or write it, so it is safe while the app writes the same file. It reads observations from the record and from the table where running records keep appended observations. It accepts a path or a `file:` URL and refuses a remote libSQL URL; use `--url` for a deployed app. `--table-prefix` applies. `cancel` still needs the running app. A runtime without `node:sqlite` reports that and exits with status 1.
 
 Configured journals also retain failures and cancellation during Workflow preparation, before provider dispatch. Fresh manual starts get distinct invocation IDs. Durable Channel deliveries keep their delivery run ID across preparation attempts.
 
