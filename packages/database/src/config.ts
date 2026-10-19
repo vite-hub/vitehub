@@ -110,7 +110,7 @@ function readEntryKey(entry: string): string | undefined {
 }
 
 function readEntryValue(entry: string): string | undefined {
-  const normalized = stripLeadingEntryComments(entry)
+  const normalized = stripLeadingEntryComments(stripEntryComments(entry))
   const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
   return match ? normalized.slice(match[0].length).trim() : undefined
 }

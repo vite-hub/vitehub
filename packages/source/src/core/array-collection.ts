@@ -172,6 +172,7 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
     if (values.length) normalized.filters[key] = [...new Set(values)].sort()
   }
+  normalized.filters = Object.fromEntries(Object.entries(normalized.filters).sort(([a], [b]) => a.localeCompare(b)))
   return normalized
 }
 
