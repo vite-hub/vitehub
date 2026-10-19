@@ -154,7 +154,8 @@ describe("Console invocation journal retention", () => {
     const result = await invocations.prune()
     expect([...result.ids].sort()).toEqual(["old", "recent"])
     expect(result.size).toMatchObject({ budgetBytes: 1 })
-    expect(result.size!.afterBytes).toBeLessThan(result.size!.beforeBytes)
+    // Small records share pages, so deleting them can leave the live page count unchanged.
+    expect(result.size!.afterBytes).toBeLessThanOrEqual(result.size!.beforeBytes)
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
   })
 
