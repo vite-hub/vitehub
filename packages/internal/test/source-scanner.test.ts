@@ -525,6 +525,20 @@ describe("source scanner", () => {
     expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
   })
 
+  it("ignores typed signatures with structural return types", () => {
+    const source = [
+      `type Config = { defineThing(options: Options): { value: string } }`,
+      `interface Tuple { defineThing(): [string, number] }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("keeps conditional calls after a question mark", () => {
+    const calls = findIdentifierCalls(`const value = ready ? defineThing() : fallback`, "defineThing")
+    expect(calls).toHaveLength(1)
+  })
+
   it("keeps generic arrow function commas inside one argument", () => {
     expect(splitTopLevel(`<T, U>(ctx: T) => ctx, { id: "daily" }`)).toEqual([
       `<T, U>(ctx: T) => ctx`,
@@ -836,6 +850,11 @@ describe("source scanner", () => {
     const source = `const value = this.#defineThing({ value: "member" })`
 
     expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+  })
+
+  it("keeps join controls inside identifiers", () => {
+    expect(findIdentifierCalls(`const foo\u200CdefineThing = 1`, "defineThing")).toEqual([])
+    expect(findIdentifierCalls(`const foo\u200DdefineThing = 1`, "defineThing")).toEqual([])
   })
 
   it("ignores member calls with matching names", () => {

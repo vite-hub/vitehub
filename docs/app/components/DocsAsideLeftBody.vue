@@ -2,6 +2,7 @@
 import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
+  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {

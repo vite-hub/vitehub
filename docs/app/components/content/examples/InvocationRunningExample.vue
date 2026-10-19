@@ -1,6 +1,10 @@
 <script setup lang="ts">
+<<<<<<< HEAD
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, onMounted } from "vue";
+=======
+import type { AgentInvocationView } from "vite-hub/console/ui";
+>>>>>>> 1fc525c3e1102bd4cb361efe46bd096fe5061afd
 
 const now = useState("ui-running-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();

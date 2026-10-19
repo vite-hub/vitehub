@@ -144,7 +144,7 @@ function skipBlockComment(source: string, index: number) {
 }
 
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\p{ID_Continue}$]/u.test(char)
+  return !!char && /[\p{ID_Continue}$\u200C\u200D]/u.test(char)
 }
 
 function isIdentifierStart(char: string | undefined) {
@@ -763,13 +763,28 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   if (source[afterClose] === "{") return previous !== "(" && previous !== "=" && previous !== "," && previous !== ":"
   // TypeScript interface/type-literal members use a return-type annotation
   // instead of a method body: `defineThing(value: Value): Result`.
-  const suffix = source.slice(afterClose)
-  const typedSignature = /^:\s*[^;{},]*(?:[;},]|\r?\n)/.test(suffix)
+  if (source[afterClose] !== ":") return false
+  let cursor = afterClose + 1
+  const depths = { "{": 0, "[": 0, "<": 0 }
+  for (; cursor < source.length; cursor++) {
+    const char = source[cursor]
+    if (char === "{") depths["{"]++
+    else if (char === "}") {
+      if (depths["{"] > 0) depths["{"]--
+      else break
+    } else if (char === "[") depths["["]++
+    else if (char === "]") depths["["] = Math.max(0, depths["["] - 1)
+    else if (char === "<") depths["<"]++
+    else if (char === ">") depths["<"] = Math.max(0, depths["<"] - 1)
+    else if (!depths["{"] && !depths["["] && !depths["<"] && (char === ";" || char === "," || isLineTerminator(char))) break
+  }
+  const typedSignature = cursor < source.length && (source[cursor] === ";" || source[cursor] === "," || source[cursor] === "}" || isLineTerminator(source[cursor]))
   return typedSignature
     && previous !== "("
     && previous !== "="
     && previous !== ","
     && previous !== ":"
+    && previous !== "?"
 }
 
 function isMemberAccessName(source: string, index: number) {
