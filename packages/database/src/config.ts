@@ -695,8 +695,18 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
       const normalized = stripLeadingEntryComments(property).trim()
       if (!normalized) continue
       // Computed keys whose value is not statically known may denote the
-      // requested property at runtime; absence cannot be proven.
-      if (/^\s*\[/.test(normalized) && !/^\s*\[\s*["'][^"']+["']\s*\]/.test(normalized)) unresolved = true
+      // requested property at runtime; absence cannot be proven. Numeric
+      // literals and constant identifiers are safe to evaluate, however.
+      const computed = /^\s*\[\s*([\s\S]*?)\s*\]/.exec(normalized)
+      if (computed) {
+        const computedKey = readStaticComputedKey(computed[1]!, source)
+        if (computedKey === undefined) {
+          unresolved = true
+        } else if (computedKey === key) {
+          found = true
+        }
+        continue
+      }
       if (readEntryKey(normalized) === key) {
         found = true
         continue
@@ -715,6 +725,19 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
   next.add(identifier)
   const declaration = readOpaqueDeclarationExpression(identifier, source)
   return declaration === undefined ? undefined : opaqueObjectContainsKey(declaration, source, key, next)
+}
+
+function readStaticComputedKey(expression: string, source: string, seen = new Set<string>()): string | undefined {
+  const value = readStaticStringLiteral(expression)
+  if (value !== undefined) return value
+  if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(expression.trim())) return String(Number(expression))
+  const identifier = expression.trim()
+  if (!identifierPattern.test(identifier) || seen.has(identifier)) return undefined
+  const next = new Set(seen)
+  next.add(identifier)
+  const declaration = readOpaqueDeclarationExpression(identifier, source)
+  if (declaration === undefined) return undefined
+  return readStaticComputedKey(declaration, source, next)
 }
 
 function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
