@@ -179,7 +179,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // in a comment, string, or method body is caller-controlled text and does
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
-        const isKnownStandaloneImplementation = isClassConstructor && (constructor.name === "Response" || constructor.name === "_Response")
+        // happy-dom exposes its standalone implementation as `_Response`.
+        // A callback can freely name a forged class `Response`, so that name
+        // cannot establish provenance for a standalone constructor.
+        const isKnownStandaloneImplementation = isClassConstructor && constructor.name === "_Response"
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
           // base. A callback-created standalone class can otherwise reproduce
