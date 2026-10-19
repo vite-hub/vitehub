@@ -27,10 +27,28 @@ it("rejects unsafe API catalog roots in login definitions", () => {
       apis: { mail: { methods: {}, rootUrl: "https://user:password@example.com/" } },
       id: "login",
       kind: "oauth-login",
-      login: async () => undefined,
+      login: async () => "http://127.0.0.1/callback",
       mcp: "https://mcp.example.com/mcp",
       origins: [],
       redirectUri: "http://127.0.0.1/callback",
+    },
+  })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+})
+
+it("does not validate an overlapping login provider as OAuth", () => {
+  expect(() => defineConnection({
+    provider: {
+      account: () => undefined,
+      apis: { mail: { methods: {}, rootUrl: "https://user:password@example.com/" } },
+      authorizationEndpoint: "https://auth.example.com/authorize",
+      clientId: "client-id",
+      id: "login",
+      kind: "oauth-login",
+      login: async () => "http://127.0.0.1/callback",
+      mcp: "https://mcp.example.com/mcp",
+      origins: [],
+      redirectUri: "http://127.0.0.1/callback",
+      tokenEndpoint: "https://auth.example.com/token",
     },
   })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
 })
