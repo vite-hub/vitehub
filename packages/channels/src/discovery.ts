@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+
+import { scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
@@ -9,6 +12,7 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { basename, dirname, relative, resolve } from "pathe"
 
+import type { Node } from "@vite-hub/internal/build/scan-module"
 import type { DiscoveredChannelDefinition } from "./types.ts"
 
 const channelSuffixPattern = /\.channel\.(?:c|m)?[jt]s$/i
@@ -30,6 +34,101 @@ function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["
   })
 }
 
+const agentChannelModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
+
+function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
+  return node.type === "Identifier" ? node.name : node.value
+}
+
+/**
+ * `server/channels` can also hold Agent Channels from `defineChannel()` and Channel factories. A module is an
+ * outbound Channel when it exports `connectors`, or when its default export is neither a function nor an Agent
+ * `defineChannel()` call. The module is read, not run. A module that cannot be read statically stays a Channel, so
+ * the runtime reports its problems.
+ */
+function isOutboundChannelModule(file: string): boolean {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  if (module.errors.length) return true
+
+  const bindings = new Map<string, Node>()
+  const agentChannelFactories = new Set<string>()
+  const agentChannelNamespaces = new Set<string>()
+  let defaultExport: Node | undefined
+  let hasDefault = false
+  let exportsConnectors = false
+  let reexportsAll = false
+
+  for (const statement of module.program.body) {
+    if (statement.type === "ImportDeclaration") {
+      if (statement.importKind === "type" || !agentChannelModules.has(statement.source.value)) continue
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && exportName(specifier.imported) === "defineChannel") agentChannelFactories.add(specifier.local.name)
+        if (specifier.type === "ImportNamespaceSpecifier") agentChannelNamespaces.add(specifier.local.name)
+      }
+      continue
+    }
+    if (statement.type === "ExportDefaultDeclaration") {
+      const declaration = statement.declaration
+      hasDefault = true
+      defaultExport = declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" || declaration.type === "TSInterfaceDeclaration"
+        ? declaration
+        : unwrapExpression(declaration)
+      continue
+    }
+    if (statement.type === "ExportAllDeclaration") {
+      if (statement.exportKind === "type") continue
+      // `export *` can re-export `connectors` from a module that this check does not read.
+      if (!statement.exported) reexportsAll = true
+      else if (exportName(statement.exported) === "connectors") exportsConnectors = true
+      else if (exportName(statement.exported) === "default") hasDefault = true
+      continue
+    }
+
+    const exported = statement.type === "ExportNamedDeclaration"
+    const declaration = exported ? statement.declaration : statement
+    if (declaration?.type === "VariableDeclaration") {
+      for (const item of declaration.declarations) {
+        if (item.id.type !== "Identifier") continue
+        if (item.init) bindings.set(item.id.name, unwrapExpression(item.init))
+        if (exported && item.id.name === "connectors") exportsConnectors = true
+      }
+    }
+    if (declaration?.type === "FunctionDeclaration" && declaration.id) bindings.set(declaration.id.name, declaration)
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.exportKind === "type") continue
+      const name = exportName(specifier.exported)
+      if (name === "connectors") exportsConnectors = true
+      if (name === "default") {
+        hasDefault = true
+        defaultExport = statement.source ? undefined : specifier.local
+      }
+    }
+  }
+
+  if (exportsConnectors) return true
+  if (!hasDefault) return reexportsAll
+
+  const seen = new Set<string>()
+  let value = defaultExport
+  while (value?.type === "Identifier" && !seen.has(value.name)) {
+    seen.add(value.name)
+    const binding = bindings.get(value.name)
+    if (!binding) break
+    value = binding
+  }
+  if (!value) return true
+  if (value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "FunctionDeclaration") return false
+  if (value.type !== "CallExpression") return true
+  const callee = unwrapExpression(value.callee)
+  if (callee.type === "Identifier") return !agentChannelFactories.has(callee.name)
+  return !(callee.type === "MemberExpression"
+    && callee.object.type === "Identifier"
+    && agentChannelNamespaces.has(callee.object.name)
+    && !callee.computed
+    && callee.property.name === "defineChannel")
+}
+
 // A folder below `server/channels` with an `index` module is one Channel. Its other files are helpers.
 function withChannelFolders(channelRoots: string[], definitions: DiscoveredChannelDefinition[]): DiscoveredChannelDefinition[] {
   const roots = new Set(channelRoots.map(root => resolve(root)))
@@ -47,17 +146,23 @@ function withChannelFolders(channelRoots: string[], definitions: DiscoveredChann
   })
 }
 
+function discoverServerChannels(scanDirs: string[]): DiscoveredChannelDefinition[] {
+  const definitions = discoverDefinitions("channel", [
+    createDirectoryDefinitionSource("server-channels", scanDirs, "channels", {
+      createDefinition: createDiscoveredChannelDefinition("server-channels"),
+      normalizeName: normalizeDirectoryChannelName,
+    }),
+  ])
+  return withChannelFolders(scanDirs.map(directory => resolve(directory, "channels")), definitions)
+    .filter(definition => isOutboundChannelModule(definition.handler))
+}
+
 export function discoverChannelDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[], serverDirs?: string[], serverRootDirs?: string[] }
   | { mode: "server-channels", scanDirs: string[] }
 ): DiscoveredChannelDefinition[] {
   if (options.mode === "server-channels") {
-    return withChannelFolders(options.scanDirs.map(directory => resolve(directory, "channels")), discoverDefinitions("channel", [
-      createDirectoryDefinitionSource("server-channels", options.scanDirs, "channels", {
-        createDefinition: createDiscoveredChannelDefinition("server-channels"),
-        normalizeName: normalizeDirectoryChannelName,
-      }),
-    ]))
+    return discoverServerChannels(options.scanDirs)
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
@@ -75,11 +180,6 @@ export function discoverChannelDefinitions(options:
   return mergeDefinitions(
     "channel",
     suffixDefinitions,
-    withChannelFolders(serverScanDirs.map(directory => resolve(directory, "channels")), discoverDefinitions("channel", [
-      createDirectoryDefinitionSource("server-channels", serverScanDirs, "channels", {
-        createDefinition: createDiscoveredChannelDefinition("server-channels"),
-        normalizeName: normalizeDirectoryChannelName,
-      }),
-    ])),
+    discoverServerChannels(serverScanDirs),
   )
 }
