@@ -1,5 +1,5 @@
-import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
-import { defineComponent, h, type PropType } from "vue";
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, injectCollapsibleRootContext } from "reka-ui";
+import { defineComponent, h, type PropType, useId } from "vue";
 import { slotPart } from "../internal/slot-part.ts";
 
 export type TraceLineStatus = "running" | "error" | "pending";
