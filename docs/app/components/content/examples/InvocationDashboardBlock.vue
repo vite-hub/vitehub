@@ -5,11 +5,18 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
 const now = useState("ui-dashboard-clock", () => Date.now());
-onMounted(() => { now.value = Date.now() });
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  now.value = Date.now();
+  clockTimer = setInterval(() => { now.value = Date.now() }, 60_000);
+});
+onUnmounted(() => {
+  if (clockTimer !== undefined) clearInterval(clockTimer);
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
