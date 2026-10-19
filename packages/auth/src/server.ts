@@ -352,14 +352,16 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 
-): Promise<{ response?: Response }> {
+): Promise<Response | undefined> {
   const result = authorize(context)
   const directResponse = await normalizeAuthorizationResponse(result)
-  if (directResponse) return { response: directResponse }
+  if (directResponse) return directResponse
+  if (result === true) return undefined
+  if (result === false || result === null || (typeof result !== "object" && typeof result !== "function")) {
+    return createForbiddenResponse(context.request)
+  }
 
-  const resultObject = result !== null && (typeof result === "object" || typeof result === "function")
-    ? result as object
-    : undefined
+  const resultObject = result as object
   let resultThen: unknown
   try {
     resultThen = resultObject
@@ -369,19 +371,20 @@ async function runAccessAuthorize(
   catch (error) {
     return Promise.reject(error)
   }
+  if (typeof resultThen !== "function") return createForbiddenResponse(context.request)
   if (resultObject && typeof resultThen === "function") {
-    const settle = async (resolved: unknown): Promise<{ response?: Response }> => {
+    const settle = async (resolved: unknown): Promise<Response | undefined> => {
       const response = await normalizeAuthorizationResponse(resolved)
-      if (response) return { response }
-      if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-      return {}
+      if (response) return response
+      if (resolved !== true) return createForbiddenResponse(context.request)
+      return undefined
     }
     // Try the captured intrinsic directly. Native Promises (including
     // cross-realm values) carry the internal slot it requires; ordinary
     // thenables fail with an incompatible-receiver TypeError and must use
     // their captured method instead. Other failures (for example a Promise
     // species constructor throwing) belong to the native adoption path.
-    const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+    const adopted = new Promise<Response | undefined>((resolve, reject) => {
       try {
         const adoption = Reflect.apply(intrinsicPromiseThen, result, [
           (resolved: unknown) => { void settle(resolved).then(resolve, reject) },
