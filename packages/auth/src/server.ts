@@ -231,7 +231,16 @@ function toRequest(request: AuthRequest): Request {
   init.headers = new Headers(request.headers as HeadersInit)
   // Preserve genuine AbortSignals from another Fetch realm when rebuilding a
   // request. `instanceof` only recognizes this realm's constructor.
-  if (isAbortSignalLike(request.signal)) init.signal = request.signal as AbortSignal
+  if (isAbortSignalLike(request.signal)) {
+    const controller = new AbortController()
+    const signal = request.signal as AbortSignal
+    if (signal.aborted) controller.abort()
+    else {
+      try { signal.addEventListener("abort", () => controller.abort(), { once: true }) }
+      catch { /* malformed signal-like values are handled by Request below */ }
+    }
+    init.signal = controller.signal
+  }
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
@@ -239,14 +248,7 @@ function toRequest(request: AuthRequest): Request {
   try {
     return new Request(request.url, init)
   }
-  catch (error) {
-    // Structural cross-realm checks cannot prove an AbortSignal brand. If a
-    // forged signal reaches a native Request constructor, retry without it so
-    // malformed host inputs follow the normal authorization path.
-    if (init.signal === undefined) throw error
-    delete init.signal
-    return new Request(request.url, init)
-  }
+  catch (error) { throw error }
 }
 
 function isAbortSignalLike(value: unknown): value is AbortSignal {

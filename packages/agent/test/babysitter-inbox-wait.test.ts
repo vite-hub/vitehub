@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createCheckWait, wakeReasons } from '../src/babysitter/wait.ts'
-import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
+import { createCheckWait, wakeReasons } from '../src/presets/babysitter/wait.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
 
 const repository = 'example/project'
 const pr = { number: 7, state: 'open', head: { sha: 'a', ref: 'repair' }, base: { ref: 'main' } }
@@ -103,8 +103,7 @@ test('persisted waits are validated by both snapshot readers', async t => {
   db.prepare('UPDATE vitehub_babysitter_pull_requests SET value=? WHERE repository=? AND number=?')
     .run(JSON.stringify({ ...snapshot, wait: { ...snapshot.wait, reason: '' } }), repository, 7)
   await assert.rejects(async () => inbox.get(repository, 7))
-  // Queue-wide reads skip the invalid row instead of failing for every PR.
-  assert.deepEqual(await inbox.all(), [])
+  await assert.rejects(async () => inbox.all())
 })
 
 test('host reconciliation wakes new feedback and old owners cannot release replacements', async t => {

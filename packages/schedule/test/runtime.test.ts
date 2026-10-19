@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
-import { defineSchedule, defineScheduleTarget, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
-import { schedules, createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
-import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
@@ -621,7 +621,6 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
@@ -1020,7 +1019,7 @@ describe("Manual Schedule runs", () => {
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
-    expect(await getScheduleRunStore().listRuns()).toHaveLength(2)
+    expect(await schedules.listRuns()).toHaveLength(2)
   })
 
   it("uses the installed runtime registry when no registry is passed", async () => {
