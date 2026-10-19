@@ -106,14 +106,15 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/admin/users"))).rejects.toMatchObject({ code: "AUTH_R0008" })
   })
 
-  it("rejects consumed same-realm authorization responses", async () => {
+  it("preserves consumed same-realm authorization responses", async () => {
     const response = new Response("consumed", { status: 409 })
     await response.text()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => response as never }] },
     }))
     const result = await handler(new Request("https://app.example/"))
-    expect(result?.status).toBe(403)
+    expect(result).toBe(response)
+    expect(result?.status).toBe(409)
   })
 
   it("bridges a native foreign-runtime response body", async () => {
