@@ -22,7 +22,7 @@ interface BlobMethods {
 }
 
 const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
-const blobArrayBufferMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")?.value
+const blobStreamMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "stream")?.value
 
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -63,20 +63,11 @@ function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    if (typeof blobTypeGetter !== "function" || typeof blobArrayBufferMethod !== "function") return undefined
+    if (typeof blobTypeGetter !== "function" || typeof blobStreamMethod !== "function") return undefined
     // The intrinsic accessor establishes the Blob internal-slot brand before
     // consulting the value's realm-specific stream method.
     const type = String(Reflect.apply(blobTypeGetter, value, []))
-    const body = () => new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        try {
-          const bytes = new Uint8Array(await Reflect.apply(blobArrayBufferMethod!, value, []))
-          controller.enqueue(bytes)
-          controller.close()
-        }
-        catch (error) { controller.error(error) }
-      },
-    })
+    const body = () => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream
     return { type, body }
   }
   catch {

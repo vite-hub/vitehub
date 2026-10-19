@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 const route = useRoute();
 const normalizedRoutePath = computed(() => normalizeDocsPath(route.path));
