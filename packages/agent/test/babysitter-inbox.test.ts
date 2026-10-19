@@ -4,8 +4,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox, normalizePullRequest } from '../src/babysitter/inbox/store.ts'
-import { resolveBabysitterLifecycleFilter } from '../src/babysitter.ts'
+import { PullRequestInbox, normalizePullRequest } from '../src/presets/babysitter/inbox/store.ts'
+import { resolveBabysitterLifecycleFilter } from '../src/presets/babysitter.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
@@ -376,7 +376,7 @@ test('persisted status values are validated without coercion by both snapshot re
     assert.equal((await inbox.all())[0]?.status, status)
     update.run(JSON.stringify({ ...snapshot, status: [status] }), repository, 7)
     await assert.rejects(async () => inbox.get(repository, 7), /Invalid inbox snapshot/)
-    assert.deepEqual(await inbox.all(), [])
+    await assert.rejects(async () => inbox.all(), /Invalid inbox snapshot/)
   }
 })
 

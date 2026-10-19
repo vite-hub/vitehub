@@ -16,7 +16,7 @@ describe("Babysitter host prerequisites", () => {
     expect(command.mock.calls).toEqual([["git", "version"], ["corepack", "version"]]);
     expect(first.pause).toBeUndefined();
     await check();
-    expect(command).toHaveBeenCalledTimes(1);
+    expect(command).toHaveBeenCalledTimes(2);
     clock.mockReturnValue(301001);
     expect((await check()).pause).toBeUndefined();
     expect(command).toHaveBeenCalledTimes(2);

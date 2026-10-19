@@ -14,7 +14,7 @@ import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
-import { parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
+import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 
@@ -32,21 +32,22 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "delete" | "export" | "list" | "prune" | "show" | "tail"
+type Action = "delete" | "export" | "list" | "prune" | "show" | "tail" | "wait-idle"
 
-const actions = new Set<string>(["delete", "export", "list", "prune", "show", "tail"] satisfies Action[])
+const actions = new Set<string>(["delete", "export", "list", "prune", "show", "tail", "wait-idle"] satisfies Action[])
 /** Actions that read the whole journal instead of one record. */
-const actionsWithoutId = new Set<string | undefined>(["export", "list", "prune"])
+const actionsWithoutId = new Set<string | undefined>(["export", "list", "prune", "wait-idle"])
 
 function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
 /** Actions that can read a journal file with --database instead of asking the app. */
-const fileActions = new Set<string | undefined>(["list", "show", "tail"])
+const fileActions = new Set<string | undefined>(["list", "show", "tail", "wait-idle"])
 
 interface ParsedArgs {
   action?: Action | "cancel"
+  /** wait-idle only waits on this Agent's Invocations. */
   /** export only prints this Agent's Invocations. */
   agent?: string
   /** Base URL of a deployed Console. list, show, tail, and cancel then use its RPC endpoint. */
@@ -75,7 +76,11 @@ interface ParsedArgs {
   url: string
   /** `--server` selects the Vite Development Server, never a Console. */
   server: boolean
+  /** wait-idle ignores pending or running records last updated before this age. */
+  staleAfter: number
   urlSet: boolean
+  /** How long wait-idle waits. `timeout` stays the request timeout. */
+  waitTimeout: number
 }
 
 const cancelEndpoint = { ...agentInvocationsDevGuard, route: agentInvocationsDevRoute }
@@ -105,9 +110,16 @@ const devTargetErrors = {
 }
 
 const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
+const waitIdleDefaults = { interval: 5_000, staleAfter: 2 * 60 * 60 * 1000, timeout: 30 * 60 * 1000 }
+const activeStatuses = ["pending", "running"] as const
+const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, ms: 1, s: 1_000, w: 604_800_000 }
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
+    "Usage: vitehub agent invocations <list|show|tail|wait-idle|cancel|delete|prune> [id] [options]",
+    "",
+    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
     "Usage: vitehub agent invocations <list|show|tail|export|cancel|delete|prune> [id] [options]",
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
@@ -115,7 +127,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
-    "With --database, list, show, and tail read a local SQLite journal file read-only, without the app.",
+    "With --database, list, show, tail, and wait-idle read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
     "Options:",
@@ -126,10 +138,14 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            Other localhost URLs: the invocation endpoint for list, show, and tail",
     "                            (default http://localhost:5173/api/invocations), or the Development Server for cancel.",
     "  --server <url>            Vite Development Server URL for cancel. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
-    "  --timeout <ms>            Request timeout. Defaults to 30000.",
+    "  --timeout <ms>            Request timeout. Defaults to 30000. For wait-idle, how long to wait, such as 30m.",
+    "                            Defaults to 30m.",
     "  --status <status>         Filter list results by pending, running, completed, failed, or cancelled.",
     "  --limit <count>           Limit list results.",
-    "  --interval <ms>           Tail polling interval. Defaults to 1000.",
+    "  --interval <ms>           Polling interval, such as 500 or 5s. Defaults to 1000 for tail and 5s for wait-idle.",
+    "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
+    "                            and does not wait on them. Defaults to 2h.",
+    "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
     "  --database <url>          Journal database for delete and prune. Defaults to the Console journal.",
     "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
     "                            a running container. They do not migrate or write it.",
@@ -177,6 +193,21 @@ function size(value: string, flag: string): RetentionSizeLimit {
   return result
 }
 
+/** A positive duration. A bare integer is milliseconds, so `--interval 500` keeps working. */
+function milliseconds(value: string, flag: string): number {
+  const result = /^\d+$/.test(value.trim()) ? Number(value) : duration(value, flag)
+  if (!Number.isSafeInteger(result) || result <= 0) throw agentDiagnostics.AGENT_R0503({ message: `${flag} requires a positive duration such as 500, 5s, or 30m.` })
+  return result
+}
+
+function formatDuration(value: number): string {
+  for (const unit of ["w", "d", "h", "m", "s"]) {
+    const size = durationUnits[unit]!
+    if (value >= size && value % size === 0) return `${value / size}${unit}`
+  }
+  return `${value}ms`
+}
+
 /** An age such as 7d, or an ISO date such as 2026-10-01. Returns the ISO time it selects. */
 function sinceTime(value: string): string {
   const time = /^\d+(?:ms|s|m|h|d|w)$/.test(value.trim())
@@ -212,14 +243,32 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     json: false,
     observations: false,
     server: false,
+    staleAfter: waitIdleDefaults.staleAfter,
     url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
     urlSet: false,
+    waitTimeout: waitIdleDefaults.timeout,
   }
   const target: { timeout?: number, url: string } = { url: parsed.url }
+  // --timeout is the request timeout, except for wait-idle, where it is how long to wait.
+  const actionOptionsWithValues = new Set(["--agent", "--url", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since"])
+  let actionFromPositionals: Action | "cancel" | undefined
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
-    const used = readViteHubDevTargetOption(args, index, target, devTargetErrors)
-    if (used !== undefined) {
+    if (actionOptionsWithValues.has(argument)) { index += 1; continue }
+    if ([...actionOptionsWithValues].some(flag => argument.startsWith(`${flag}=`))) continue
+    if (!argument.startsWith("-") && (argument === "cancel" || isAction(argument))) { actionFromPositionals = argument; break }
+  }
+  const waiting = actionFromPositionals === "wait-idle"
+  let intervalSet = false
+  let staleAfterSet = false
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!
+    const used = waiting && (argument === "--timeout" || argument.startsWith("--timeout="))
+      ? undefined
+      : readViteHubDevTargetOption(args, index, target, devTargetErrors)
+    if (waiting && argument === "--timeout") { parsed.waitTimeout = milliseconds(optionValue(args, index, argument), argument); index += 1 }
+    else if (waiting && argument.startsWith("--timeout=")) parsed.waitTimeout = milliseconds(argument.slice("--timeout=".length), "--timeout")
+    else if (used !== undefined) {
       index += used
       if (argument === "--url" || argument === "--server" || argument.startsWith("--url=")) {
         parsed.urlSet = true
@@ -259,15 +308,28 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     }
     else if (argument.startsWith("--limit=")) parsed.limit = positiveInteger(argument.slice(8), "--limit")
     else if (argument === "--interval") {
-      parsed.interval = positiveInteger(optionValue(args, index, argument), argument)
+      parsed.interval = milliseconds(optionValue(args, index, argument), argument)
+      intervalSet = true
       index += 1
     }
-    else if (argument.startsWith("--interval=")) parsed.interval = positiveInteger(argument.slice(11), "--interval")
+    else if (argument.startsWith("--interval=")) {
+      parsed.interval = milliseconds(argument.slice(11), "--interval")
+      intervalSet = true
+    }
+    else if (argument === "--stale-after") { parsed.staleAfter = milliseconds(optionValue(args, index, argument), argument); staleAfterSet = true; index += 1 }
+    else if (argument.startsWith("--stale-after=")) { parsed.staleAfter = milliseconds(argument.slice("--stale-after=".length), "--stale-after"); staleAfterSet = true }
     else if (argument.startsWith("-")) throw agentDiagnostics.AGENT_R0504({ message: `Unknown option: ${redactCliArgument(argument)}.` })
     else if (!parsed.action && (argument === "cancel" || isAction(argument))) parsed.action = argument
     else if (!parsed.id && parsed.action && !actionsWithoutId.has(parsed.action)) parsed.id = argument
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, wait-idle, cancel, delete, or prune." })
+  if (!parsed.help && !actionsWithoutId.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
+  if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
+  if (!parsed.help && !waiting && (staleAfterSet || parsed.agent !== undefined)) {
+    throw agentDiagnostics.AGENT_R0505({ message: `${staleAfterSet ? "--stale-after" : "--agent"} is only supported for wait-idle.` })
+  }
+  if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
   if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, cancel, delete, or prune." })
   if (!parsed.help && !actionsWithoutId.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
@@ -493,7 +555,7 @@ interface InvocationsTarget {
   detail: (id: string, observations?: { count: number, cursor: string }) => Promise<AgentInvocationDetailResult>
   list: () => Promise<AgentInvocationListResult>
   /** Every record with one of these statuses, following list cursors to the end. */
-  scan: (statuses: readonly string[]) => Promise<InvocationSummary[]>
+  scan: (statuses: readonly string[], timeout?: number) => Promise<InvocationSummary[]>
 }
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
@@ -510,7 +572,10 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
       invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),
     }),
     // One pass over the Console pages serves every status.
-    scan: async statuses => await listConsoleInvocations(target, Number.POSITIVE_INFINITY, new Set(statuses)),
+    scan: async (statuses, timeout) => {
+      const requestTarget = timeout === undefined ? target : { ...target, timeout }
+      return await listConsoleInvocations(requestTarget, Number.POSITIVE_INFINITY, new Set(statuses))
+    },
   }
 }
 
@@ -518,7 +583,7 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
   }
   if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
@@ -533,6 +598,10 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       return parseInvocationDetail(detail)
     },
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
+    scan: async statuses => {
+      const wanted = new Set(statuses)
+      return await collectPages(async cursor => parseInvocationList(file.list({ cursor, limit: maxAgentInvocationListLimit })), record => wanted.has(record.status))
+    },
   }
 }
 
@@ -548,19 +617,16 @@ function localInvocationsTarget(parsed: ParsedArgs, context: AgentInvocationsCli
       return await request(url, fetchImpl, timeout, parseInvocationDetail)
     },
     list: async () => await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList),
-    scan: async (statuses) => {
-      const records = new Map<string, InvocationSummary>()
-      for (const status of statuses) {
-        const page = async (cursor: string | undefined) => {
-          const url = new URL(parsed.url)
-          url.searchParams.set("status", status)
-          if (cursor !== undefined) url.searchParams.set("cursor", cursor)
-          return await request(url, fetchImpl, timeout, parseInvocationList)
-        }
-        // A record can change status between two reads. Keep its latest summary once.
-        for (const record of await collectPages(page, record => record.status === status)) records.set(record.id, record)
+    scan: async (statuses, scanTimeout) => {
+      const requestedStatuses = new Set(statuses)
+      const page = async (cursor: string | undefined) => {
+        const url = new URL(parsed.url)
+        url.searchParams.delete("status")
+        for (const status of statuses) url.searchParams.append("status", status)
+        if (cursor !== undefined) url.searchParams.set("cursor", cursor)
+        return await request(url, fetchImpl, scanTimeout ?? timeout, parseInvocationList)
       }
-      return [...records.values()]
+      return await collectPages(page, record => requestedStatuses.has(record.status))
     },
   }
 }
@@ -809,6 +875,68 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   return 0
 }
 
+function activeLine(record: InvocationSummary): string {
+  return `${record.id} ${record.status} ${record.agentName || "-"} ${record.updatedAt}`
+}
+
+/**
+ * Poll until no Invocation is pending or running. Records not updated for --stale-after are reported once and
+ * do not block, because a crashed owner can leave a record running. A failed read after the first one is retried.
+ */
+async function waitIdle(parsed: ParsedArgs, context: AgentInvocationsCliContext, target: InvocationsTarget, sleep: (milliseconds: number) => Promise<void>): Promise<number> {
+  const deadline = Date.now() + parsed.waitTimeout
+  const printed = { active: "", stale: "" }
+  let read = false
+  for (;;) {
+    let records: InvocationSummary[] | undefined
+    try {
+      const remaining = Math.max(1, deadline - Date.now())
+      records = (await target.scan(activeStatuses, Math.min(parsed.timeout ?? 30_000, remaining))).filter(record => parsed.agent === undefined || record.agentName === parsed.agent)
+      read = true
+    }
+    catch (error) {
+      if (!read) throw error
+      context.stderr.write(`Read failed, retrying: ${error instanceof Error ? error.message : String(error)}\n`)
+    }
+    if (records) {
+      const staleBefore = Date.now() - parsed.staleAfter
+      const stale = records.filter(record => Date.parse(record.updatedAt) < staleBefore)
+      const active = records.filter(record => !stale.includes(record))
+      const staleKey = stale.map(record => record.id).join(" ")
+      if (staleKey !== printed.stale) {
+        printed.stale = staleKey
+        if (stale.length) context.stderr.write(`Ignoring ${stale.length} stale Agent Invocation(s) not updated for ${formatDuration(parsed.staleAfter)}:\n${stale.map(record => `  ${activeLine(record)}\n`).join("")}`)
+      }
+      if (Date.now() >= deadline) {
+        if (parsed.json) context.stdout.write(`${JSON.stringify({ active, event: "invocations.timeout" })}\n`)
+        if (active.length) context.stderr.write(`Still ${active.length} active Agent Invocation(s) after ${formatDuration(parsed.waitTimeout)}:\n${active.map(record => `  ${activeLine(record)}\n`).join("")}`)
+        else context.stderr.write(`Could not confirm that no Agent Invocation is active within ${formatDuration(parsed.waitTimeout)}.\n`)
+        return 1
+      }
+      if (!active.length) {
+        context.stdout.write(parsed.json
+          ? `${JSON.stringify({ event: "invocations.idle", stale })}\n`
+          : `Idle: ${stale.length ? `only ${stale.length} stale Agent Invocation(s) remain pending or running` : "no pending or running Agent Invocations"}.\n`)
+        return 0
+      }
+      // Print when the set of active records or their status changes, not on every poll.
+      const activeKey = active.map(record => `${record.id}:${record.status}`).join(" ")
+      if (activeKey !== printed.active) {
+        printed.active = activeKey
+        context.stdout.write(parsed.json
+          ? `${JSON.stringify({ active, event: "invocations.waiting" })}\n`
+          : `Waiting for ${active.length} active Agent Invocation(s):\n${active.map(record => `  ${activeLine(record)}\n`).join("")}`)
+      }
+    }
+    else if (Date.now() >= deadline) {
+      context.stderr.write(`Could not confirm that no Agent Invocation is active within ${formatDuration(parsed.waitTimeout)}.\n`)
+      return 1
+    }
+    await sleep(Math.max(0, Math.min(parsed.interval, deadline - Date.now())))
+  }
+}
+
+
 type Observation = AgentInvocationRecord["observations"][number]
 
 function observationAttributes(observations: readonly Observation[], name: string): Record<string, unknown>[] {
@@ -869,7 +997,7 @@ async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliCon
   const retention: AgentRetentionPolicy = {
     maxAge: parsed.olderThanMs ?? false,
     maxRecords: parsed.maxRecords ?? false,
-    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${parsed.maxSize.fraction * 100}%`,
+    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${formatRetentionPercentage(parsed.maxSize.fraction)}%`,
   }
   const result = await withJournalStore(parsed, context, async store => await store.prune!(parsed.dryRun ? { dryRun: true } : {}), retention)
   if (parsed.json) {
@@ -922,6 +1050,7 @@ export async function runAgentInvocationsCli(
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000
+  const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
   let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
   try {
     const target = parsed.database !== undefined && fileActions.has(parsed.action)
@@ -937,6 +1066,7 @@ export async function runAgentInvocationsCli(
     }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
+    if (parsed.action === "wait-idle") return await waitIdle(parsed, context, target, sleep)
     if (parsed.action === "export") return await exportInvocations(parsed, context, target)
     if (parsed.action === "list") {
       const result = await target.list()
@@ -949,7 +1079,6 @@ export async function runAgentInvocationsCli(
       return 0
     }
 
-    const sleep = options.sleep || (async milliseconds => await new Promise(resolve => setTimeout(resolve, milliseconds)))
     let sequence = 0
     let observations: { count: number, cursor: string } | undefined
     for (;;) {

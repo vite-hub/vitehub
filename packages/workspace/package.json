@@ -56,15 +56,7 @@
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
-    },
-    "./internal/path": {
-      "types": "./dist/internal/path.d.ts",
-      "import": "./dist/internal/path.js",
-      "require": "./dist/internal/path.js",
-      "default": "./dist/internal/path.js"
+      "import": "./dist/cloudflare.js"
     },
     "./loader": {
       "types": "./dist/loader.d.ts",
@@ -157,6 +149,10 @@
       "require": "./dist/runtime/workspace.js",
       "default": "./dist/runtime/workspace.js"
     },
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js"
+    },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",
       "import": "./dist/providers/github/store.js",
@@ -173,8 +169,8 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
@@ -190,7 +186,8 @@
     "valibot": "catalog:runtime",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*"
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

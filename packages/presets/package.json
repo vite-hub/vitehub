@@ -70,6 +70,7 @@
     "test": "vp run -t @vite-hub/presets#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",

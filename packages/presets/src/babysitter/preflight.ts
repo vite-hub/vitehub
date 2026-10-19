@@ -97,6 +97,7 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
         // A checkout-relative custom command has no stable host PATH probe and
         // may not implement --version; the installer validates its real args.
           if ((isAbsolute(installer) || (!installer.includes("/") && !installer.includes("\\"))) && !commands.includes(installer)) commands.push(installer);
+
         }
       }
       for (const program of commands) {

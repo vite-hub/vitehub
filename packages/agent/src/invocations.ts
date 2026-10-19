@@ -14,6 +14,7 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
@@ -210,6 +211,10 @@ export interface AgentInvocationStore {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
     replaceClaimToken?: string
+    /** Requires the claimed record to have this stable identity. */
+    expectedTraceId?: string
+    /** Requires the claimed record to be the observed store generation. */
+    expectedCursor?: string
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
@@ -366,7 +371,13 @@ interface AgentInvocationBindOptions {
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
   requireNew?: boolean
+  /** Binds only an existing record; queue cleanup must not recreate deleted records. */
+  existingOnly?: boolean
   replaceClaimToken?: string
+  /** Requires the claimed record to have this stable identity. */
+  expectedTraceId?: string
+  /** Requires the existing-only bind to use this observed store generation. */
+  expectedCursor?: string
   recoverPending?: boolean
 }
 
@@ -413,6 +424,10 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   traceId: string | undefined
   /** Wait for an asynchronous create attempt to resolve its stored identity. */
   ready(): Promise<void>
+  /**
+   * Persists the outcome and releases the claim. A cancellation caused by a webhook queue stop
+   * leaves the record open, because the queue runs the delivery again under the same run ID.
+   */
   finish(status: Extract<AgentInvocationRecordStatus, "completed" | "failed" | "cancelled">, error?: unknown): Promise<void>
   getWorkflowDispatchAttempted(): Promise<boolean | undefined>
   handoffClaim(options?: { workflowDispatch?: boolean }): Promise<string | undefined>
@@ -1841,6 +1856,9 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     claim(id, claimId, leaseMs, options) {
       const claim = claims.get(id)
       const now = Date.now()
+      const record = records.get(id)
+      if (options?.expectedTraceId && record?.traceId !== options.expectedTraceId) return false
+      if (options?.expectedCursor !== undefined && record?.cursor !== options.expectedCursor) return false
       if (supersededClaims.get(id)?.has(claimId)) return false
       const expected = options?.expectedClaimIds
       const expectedMismatch = expected !== undefined && claim !== undefined
@@ -2142,6 +2160,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const pendingClaimIds = new Set<string>()
       const cancellationOwnerId = createInvocationId()
       let traceId = await boundedIdentity(context.trace?.id || runId)
+      let existingTraceId: string | undefined
+      let existingCursor: string | undefined
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
@@ -2237,9 +2257,17 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
         if (!creationTask) {
-          const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
+          const task = Promise.resolve().then(async () => {
+            if (!bindOptions.existingOnly) return await store.create(createInput)
+            const record = await store.get(recordId)
+            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+              ? { created: false, record }
+              : undefined
+          }).then((result) => {
             if (result) {
               traceId = result.record.traceId
+              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+              if (bindOptions.existingOnly) existingCursor = result.record.cursor
               limits = observationLimits(result.record.observationLimits)
               observationCount = result.record.observations.length
               observationsTruncated = result.record.observationsTruncated === true
@@ -2290,10 +2318,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         const attemptId = claimConfirmed && !claimUncertain && !rotate && pendingClaimIds.size === 0 ? claimId : createInvocationId()
         const expectedClaimIds = [...pendingClaimIds, ...(claimConfirmed ? [claimId] : [])]
         pendingClaimIds.add(attemptId)
-        const claimTask = Promise.resolve().then(() => store.claim(recordId, attemptId, CLAIM_LEASE_MS,
-          force ? { replaceExisting: true }
-            : expectedClaimIds.length ? { expectedClaimIds }
-              : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : undefined))
+        const claimOptions = force ? { replaceExisting: true }
+          : expectedClaimIds.length ? { expectedClaimIds }
+            : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : {}
+        if (existingTraceId) claimOptions.expectedTraceId = existingTraceId
+        if (existingCursor) claimOptions.expectedCursor = existingCursor
+        const claimTask = Promise.resolve().then(() => store.claim(recordId, attemptId, CLAIM_LEASE_MS, claimOptions))
         const claim = await boundedStore(() => claimTask)
         if (claim !== true && claim !== false) {
           claimUncertain = true
@@ -2693,7 +2723,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ cancelNotEnforcedBy: cancelNotEnforcedBy ?? null, cancelWarningPending: cancellationDriver?.enforced === false && !driverDispatched, cancelWarningOwnerId: cancellationOwnerId, status: "running", timestamp: new Date().toISOString() })
           }
-          const failure = redactedError(error)
+          // A queue stop is an interruption, not an outcome. The queue runs the delivery again under
+          // this run ID, so keep the record open for that run. A cancellation request still wins.
+          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error) ? {} : { status }
+          const failure = outcome.status ? redactedError(error) : undefined
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
             if (!persisted && recoverableOutcomeObservation(observation)
@@ -2708,7 +2741,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
             cancelWarningPending: false,
-            status,
+            ...outcome,
             timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
@@ -2721,7 +2754,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 ...(failure ? { error: failure } : {}),
                 cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
                 cancelWarningPending: false,
-                status,
+                ...outcome,
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
               terminalOutcomePersisted = false
