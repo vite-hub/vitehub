@@ -330,7 +330,10 @@ function hasNativePromiseBrand(value: object): boolean {
     // return a rejected promise here; dropping it would create an unhandled
     // rejection even though the source promise has no-op settlement handlers.
     if (probe && (typeof probe === "object" || typeof probe === "function")) {
-      Reflect.apply(nativePromiseThen, probe, [() => undefined, () => undefined])
+      const cleanup = Reflect.apply(nativePromiseThen, probe, [() => undefined, () => undefined])
+      if (cleanup && (typeof cleanup === "object" || typeof cleanup === "function")) {
+        Reflect.apply(nativePromiseThen, cleanup, [() => undefined, () => undefined])
+      }
     }
     return true
   }
@@ -387,6 +390,14 @@ async function runAccessAuthorize(
   // rather than assimilated as a promise.
   if (isRuntimeResponse(result)) {
     return { response: getDirectRuntimeResponse(result) ?? createForbiddenResponse(context.request) }
+  }
+
+  // Foreign-runtime Responses are not recognized by isRuntimeResponse. Try
+  // the response snapshot before any await boundary so an own `then` method
+  // cannot assimilate an otherwise valid response.
+  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+    const normalized = await normalizeAuthorizationResponse(result)
+    if (normalized) return { response: normalized }
   }
 
   let resolved: unknown
