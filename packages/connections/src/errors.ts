@@ -35,10 +35,15 @@ const returnedCodes = [
  */
 export function isConnectionError<TCode extends ConnectionsCatalogCode = ConnectionsCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
   if (!(error instanceof Error)) return false
-  const code: unknown = Reflect.get(error, "code")
-  if (typeof code !== "string" || !Object.hasOwn(connectionsErrorDiagnostics, code)) return false
-  if (typeof Reflect.get(error, "why") !== "string") return false
-  return !codes || codes.some(candidate => candidate === code)
+  try {
+    const code: unknown = Reflect.get(error, "code")
+    if (typeof code !== "string" || !Object.hasOwn(connectionsErrorDiagnostics, code)) return false
+    if (typeof Reflect.get(error, "why") !== "string") return false
+    return !codes || codes.some(candidate => candidate === code)
+  }
+  catch {
+    return false
+  }
 }
 
 /**

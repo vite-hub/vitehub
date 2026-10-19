@@ -1011,7 +1011,18 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
     catch (error) {
       // A check failure message could contain the key, so ViteHub keeps only a Connections code that does not contain it.
-      if (isConnectionError(error) && !error.why.includes(key) && !error.code.includes(key)) throw error
+      let preserve = false
+      try {
+        if (isConnectionError(error)) {
+          const why = Reflect.get(error, "why")
+          const code = Reflect.get(error, "code")
+          preserve = typeof why === "string" && typeof code === "string" && !why.includes(key) && !code.includes(key)
+        }
+      }
+      catch {
+        // Malformed or accessor-backed provider errors are sanitized below.
+      }
+      if (preserve) throw error
       throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "verify", provider: provider.id })
     }
     const verification = v.safeParse(apiKeyVerificationSchema, result)
