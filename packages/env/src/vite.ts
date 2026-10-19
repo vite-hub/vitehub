@@ -443,16 +443,41 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
         await new Promise(resolve => setTimeout(resolve, 5))
       }
       if (!generatedSecretPattern.test(secret)) {
-        // The existing file may be stale or partially written rather than owned
-        // by a live peer. Replace it atomically, then use the replacement.
+        // Serialize stale-file recovery across processes. A plain rename would
+        // let two recoveries overwrite each other's roots.
+        const recoveryLockPath = `${secretPath}.recovery.lock`
         const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
         const replacement = randomBytes(32).toString("hex")
+        let lock: Awaited<ReturnType<typeof open>> | undefined
         try {
-          await writeFile(replacementPath, replacement, { flag: "wx", mode: 0o600 })
-          await rename(replacementPath, secretPath)
-          secret = replacement
+          try {
+            lock = await open(recoveryLockPath, "wx", 0o600)
+          }
+          catch (lockError) {
+            if ((lockError as NodeJS.ErrnoException).code !== "EEXIST") throw lockError
+          }
+          if (lock) {
+            secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+            if (!generatedSecretPattern.test(secret)) {
+              await writeFile(replacementPath, replacement, { flag: "wx", mode: 0o600 })
+              await rename(replacementPath, secretPath)
+              secret = replacement
+            }
+          }
+          else {
+            for (let attempt = 0; attempt < 100; attempt++) {
+              secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+              if (generatedSecretPattern.test(secret)) break
+              await new Promise(resolve => setTimeout(resolve, 5))
+            }
+            if (!generatedSecretPattern.test(secret)) {
+              throw new Error(`Timed out waiting for generated secret recovery lock: ${secretPath}`)
+            }
+          }
         }
         finally {
+          await lock?.close()
+          if (lock) await unlink(recoveryLockPath).catch(() => {})
           await unlink(replacementPath).catch(() => {})
         }
       }
