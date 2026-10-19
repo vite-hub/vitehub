@@ -43,6 +43,8 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { createAgentChannelState } from "./internal/channel-state.ts"
+import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
   if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
@@ -201,6 +203,11 @@ function capabilityWebhookTriggerForChannel<TRuntimeConfig extends AgentRuntimeC
   return triggers[`${channelId}.webhook`] || (kind !== channelId ? triggers[`${kind}.webhook`] : undefined)
 }
 
+interface AgentTriggerResolutionOptions {
+  /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
+  channelStateCommit?: AgentChannelStateCommit
+  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+}
 /** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
 function bindAgentTriggerCallbacks<TContext>(
   id: string,
@@ -252,8 +259,9 @@ export async function resolveAgentTriggers<
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"],
+  options: AgentTriggerResolutionOptions = {},
 ): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
+  const { channelStateCommit, queuedInvocation } = options
   const runtimeContext = createAgentCallbackContext(context)
   const capabilities = normalizeCapabilities(agentCapabilityOptions(agent) as never) as AgentCapabilityDefinition<TRuntimeConfig>[]
   const triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>> = {}
@@ -322,7 +330,29 @@ export async function resolveAgentTriggers<
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke(triggerContext as never, input as never),
+        invoke: (input) => {
+          if (trigger.durableState === true && !channelState) throw agentDiagnostics.AGENT_R1005({ trigger: id })
+          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
+            dispatchAgentChannelItems(agent, context, channelId, items, options)
+          // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
+          const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
+          const triggerContext = {
+            ...runtimeContext,
+            agentCapabilities: channelCapabilities,
+            agentName: agent.name || runtimeContext.agentIdentity?.name,
+            channel,
+            ...(queuedInvocation ? { queuedInvocation } : {}),
+            ...(triggerState ? { channelState: triggerState } : {}),
+            dispatch,
+            trigger: {
+              channelId,
+              id,
+              name,
+              source: "channel",
+            },
+          }
+          return trigger.invoke(triggerContext as never, input as never)
+        },
         ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,
@@ -671,9 +701,9 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-  options?: { verifyWebhook?: boolean; queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"] },
+  options?: AgentTriggerResolutionOptions & { verifyWebhook?: boolean },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
-  const triggers = await resolveAgentTriggers(agent, context, options?.queuedInvocation)
+  const triggers = await resolveAgentTriggers(agent, context, options)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })

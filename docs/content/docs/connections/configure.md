@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Provider origins
 
-Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTION_INVALID` for any other origin, and ViteHub does not send the credential.
+Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` for any other origin, and ViteHub does not send the credential.
 
 | Provider | Import | Origins that receive the credential |
 | --- | --- | --- |
