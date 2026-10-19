@@ -86,7 +86,7 @@ describe("vitehub agent codex-home", () => {
 
     const result = await run(["prune", "--home", home, "--max-age", "14d"])
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("Removed 1 sessions, 1 log rows")
+    expect(result.stdout).toContain("Removed 1 session, 1 log row, 0 shell snapshots, and 0 temporary entries.")
     expect(await stat(old).then(() => true, () => false)).toBe(false)
   })
 })

@@ -128,11 +128,15 @@ function formatBytes(bytes: number): string {
   return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
 }
 
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`
+}
+
 function writeReport(context: AgentCodexHomeCliContext, report: CodexHomeRetentionReport): void {
   const { after, before, removed } = report
   const verb = report.dryRun ? "Would remove" : "Removed"
-  context.stdout.write(`${verb} ${removed.sessions} sessions, ${removed.logRows} log rows, ${removed.snapshots} shell snapshots, and ${removed.tmpEntries} temporary entries.\n`)
-  if (!report.dryRun) context.stdout.write(`Removed ${removed.threadRows} thread rows from the Codex databases.\n`)
+  context.stdout.write(`${verb} ${plural(removed.sessions, "session")}, ${plural(removed.logRows, "log row")}, ${plural(removed.snapshots, "shell snapshot")}, and ${plural(removed.tmpEntries, "temporary entry", "temporary entries")}.\n`)
+  if (!report.dryRun) context.stdout.write(`Removed ${plural(removed.threadRows, "thread row")} from the Codex databases.\n`)
   context.stdout.write(`Size: ${formatBytes(before.bytes)} before, ${formatBytes(after.bytes)} ${report.dryRun ? "projected" : "after"}`)
   context.stdout.write(report.budgetBytes === undefined ? ".\n" : `, budget ${formatBytes(report.budgetBytes)}.\n`)
   context.stdout.write(`Sessions: ${before.records} before, ${after.records} ${report.dryRun ? "projected" : "after"}.\n`)
