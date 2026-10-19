@@ -11,7 +11,7 @@ const isLandingRoute = computed(() => isDocsLandingPath(docsManifest.sections, r
   || ["/tutorials", "/projects", "/templates"].includes(normalizedRoutePath.value));
 // On wide screens the docs sidebar carries the brand, the links, and the controls, so the header hides.
 // It stays on narrow screens for the menu. The support matrix has no sidebar, so it keeps the header.
-const hidesOnWideScreens = computed(() => isDocsRoute.value && !isDocsLandingPath(docsManifest.sections, route.path) && !route.path.startsWith("/docs/frameworks-hosts/support-matrix"));
+const hidesOnWideScreens = computed(() => isDocsRoute.value && !isLandingRoute.value && !route.path.startsWith("/docs/frameworks-hosts/support-matrix"));
 
 // Agents is one product in the docs rail and catalog, so the header links only to site areas.
 const navLinks = [

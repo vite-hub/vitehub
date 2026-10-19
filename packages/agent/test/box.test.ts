@@ -29,6 +29,11 @@ const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (pa
 })))
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
+// Launch failure tests expect one attempt.
+vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/provider-launch-retry.ts")>(),
+  providerLaunchRetryDelaysMs: [],
+}))
 
 const openedSandboxSession = vi.hoisted(() => ({ current: undefined as import("@vite-hub/sandbox").SandboxSession | undefined }))
 
