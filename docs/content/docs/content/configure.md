@@ -15,7 +15,8 @@ icon: i-lucide-sliders-horizontal
 | `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
 | `collections` | `Record<string, documents(...)>` | Editable Markdown collections. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections). |
-| `workspace` | `string` | The Workspace that stores `collections`. Required with `collections`. It needs retained history. |
+| `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
+| `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. |
 | Other Comark options | `cache`, `hooks`, `markdown`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
@@ -42,41 +43,33 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. Use the [Blob + Database Store](/docs/workspace/configure#blob-database-store): add its schema to a Database, then define the Workspace.
+Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
 
-```ts [server/databases/content/config.ts]
-import { defineDatabase } from 'vite-hub/database'
-import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
+```ts [server/content.ts]
+import { defineContent, documents } from 'vite-hub/content'
+import cms from 'vite-hub/content/presets/cms'
+import { z } from 'zod'
 
-export default defineDatabase({ name: 'content', schema: workspaceHistorySchema })
-```
-
-```ts [server/workspaces/site.ts]
-import { blob } from 'vite-hub/blob'
-import { defineWorkspace } from 'vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
-import contentDatabase from '../databases/content/config'
-
-export default defineWorkspace({
-  store: createBlobDatabaseWorkspaceStore({
-    blob: blob.store('content'),
-    database: contentDatabase,
-    workspace: 'site',
-  }),
+export const content = defineContent({
+  extends: cms,
+  collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }) },
 })
 ```
 
-Enable [Database](/docs/database/configure), then run `vitehub db generate` and `vitehub db migrate` before the first save. A Workspace without retained history fails on first use with `CONTENT_R0007`.
+Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
+
+To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
+import cms from 'vite-hub/content/presets/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
 export const content = defineContent({
-  workspace: 'site',
+  extends: cms,
   collections: {
     posts: documents({
       path: 'posts/**/*.md',
@@ -163,7 +156,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ```ts [server/content.ts]
 export const content = defineContent({
-  workspace: 'site',
+  extends: cms,
   collections: { posts },
   authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
 })

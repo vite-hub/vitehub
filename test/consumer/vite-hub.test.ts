@@ -368,6 +368,15 @@ async function assertStorageSdksNotInstalled(appDir: string) {
   expect(JSON.parse(stdout), "storage SDKs must not install without the app").toEqual([])
 }
 
+// vite-hub and @vite-hub/agent must resolve the same ai. A second ai gives a second @vite-hub/workspace,
+// because ai is a Workspace peer, and the two copies reject each other's writable facades.
+async function assertOneWorkspaceCopy(appDir: string) {
+  const entries = await readdir(join(appDir, "node_modules/.pnpm"))
+  const aiVersions = new Set(entries.filter(entry => entry.startsWith("ai@")).map(entry => entry.split("_")[0]))
+  expect([...aiVersions], "one ai version").toHaveLength(1)
+  expect(entries.filter(entry => entry.startsWith("@vite-hub+workspace@")), "one @vite-hub/workspace copy").toHaveLength(1)
+}
+
 function importSpecifierOccurrences(source: string) {
   const pattern = /\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']([^"']+)["']/g
   return [...source.matchAll(pattern)].map(match => ({
@@ -1170,6 +1179,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
       await assertStorageSdksNotInstalled(appDir)
+      await assertOneWorkspaceCopy(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 

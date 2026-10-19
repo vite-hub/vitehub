@@ -21,12 +21,13 @@ import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub } from "./index.ts"
+import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
-import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
+import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
@@ -37,7 +38,7 @@ import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsole
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -321,7 +322,7 @@ async function installConsole(
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   journal?: ConsoleJournal,
   independentAuth: ConsoleAuthMode | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
@@ -336,6 +337,7 @@ async function installConsole(
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
+  assertConsoleRetention(retention, journal)
   if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined, journal && "d1Binding" in journal ? { binding: journal.d1Binding, env: async () => {
     const workers = await import("cloudflare:workers")
     // SAFETY: Cloudflare's Workers module exposes its runtime bindings through the documented env export.
@@ -794,11 +796,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envOptions = configuredEnv && typeof configuredEnv === "object"
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
-  const options = withDataDir({
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const projectRoot = resolveViteHubProjectRoot(rootDir)
+  // The Content cms preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
+  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0])
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
@@ -807,8 +812,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
   const plan = resolveDeploymentPlan(options.preset)
-  const rootDir = nuxt.options.rootDir || process.cwd()
-  const projectRoot = resolveViteHubProjectRoot(rootDir)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,
