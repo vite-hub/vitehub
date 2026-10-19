@@ -284,7 +284,6 @@ const nativeResponseHeaders = Object.getOwnPropertyDescriptor(Response.prototype
 const nativeResponseBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
 const nativeResponseClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
 const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
-const intrinsicToString = Object.prototype.toString
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -352,11 +351,10 @@ async function runAccessAuthorize(
   }
 
   let resolved: unknown
-  if (result !== null && (typeof result === "object" || typeof result === "function")
-    && intrinsicToString.call(result) === "[object Promise]") {
+  if (result !== null && (typeof result === "object" || typeof result === "function")) {
     // Promise.prototype.then performs the intrinsic Promise brand check and
     // bypasses an overridden `then` method on Promise subclasses. Plain
-    // thenables fall back to normal await semantics below.
+    // thenables fail that check and fall back to normal await semantics below.
     let nativePromise: Promise<unknown> | undefined
     let constructorDescriptor: PropertyDescriptor | undefined
     let speciesDescriptor: PropertyDescriptor | undefined

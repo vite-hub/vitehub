@@ -213,6 +213,17 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
   })
 
+  it("adopts native promises whose toStringTag is replaced", async () => {
+    const result = new Promise<boolean>(resolve => resolve(true))
+    Object.defineProperty(result, Symbol.toStringTag, { value: "NotPromise" })
+    Object.defineProperty(result, "then", { value: () => { throw new Error("subclass then must not be called") } })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
+  })
+
   it("returns a Response with an own then method without assimilating it", async () => {
     const response = new Response("Policy rejected", { status: 409 })
     const then = vi.fn(() => { throw new Error("Response must not be assimilated") })
