@@ -195,17 +195,21 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     return pending
   }
 
-  /**
-   * A fetch that acts as one browser session: it keeps cookies per host, sends `origin`, resolves
-   * relative URLs against `base`, and does not follow redirects unless `init.redirect` asks for it.
-   */
+  /** A small browser-like fetch session with host, path, and Secure cookie isolation. */
   function browserFetch(base: URL, signal: AbortSignal): (input: string | URL, init?: RequestInit) => Promise<Response> {
-    const jar = new Map<string, Map<string, string>>()
+    type Cookie = { name: string, value: string, domain: string, hostOnly: boolean, path: string, secure: boolean, expiresAt?: number }
+    const jar: Cookie[] = []
+    const pathMatches = (requestPath: string, cookiePath: string) => requestPath === cookiePath || requestPath.startsWith(cookiePath.endsWith("/") ? cookiePath : `${cookiePath}/`)
     return async (input, init = {}) => {
       const url = new URL(input, base)
       const headers = new Headers(init.headers)
-      const cookies = jar.get(url.host)
-      if (cookies?.size && !headers.has("cookie")) headers.set("cookie", [...cookies].map(([key, value]) => `${key}=${value}`).join("; "))
+      const nowMs = Date.now()
+      for (let index = jar.length - 1; index >= 0; index--) if (jar[index].expiresAt !== undefined && jar[index].expiresAt! <= nowMs) jar.splice(index, 1)
+      if (!headers.has("cookie")) {
+        const cookies = jar.filter(cookie => (!cookie.hostOnly ? (url.hostname === cookie.domain || url.hostname.endsWith(`.${cookie.domain}`)) : url.hostname === cookie.domain)
+          && pathMatches(url.pathname || "/", cookie.path) && (!cookie.secure || url.protocol === "https:"))
+        if (cookies.length) headers.set("cookie", cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; "))
+      }
       if (!headers.has("origin")) headers.set("origin", url.origin)
       const response = await request(url.toString(), { ...init, headers, redirect: init.redirect ?? "manual", signal: init.signal ?? signal })
       for (const cookie of response.headers.getSetCookie()) {
@@ -214,10 +218,24 @@ export function createLoginSessions(options: { now: () => number, request: typeo
         if (separator < 1) continue
         const key = pair.slice(0, separator).trim()
         const value = pair.slice(separator + 1).trim()
-        let hostCookies = jar.get(url.host)
-        if (!hostCookies) jar.set(url.host, hostCookies = new Map())
-        if (!value || attributes.some(attribute => /^\s*max-age\s*=\s*0\s*$/i.test(attribute))) hostCookies.delete(key)
-        else hostCookies.set(key, value)
+        let domain = url.hostname
+        let hostOnly = true
+        let path = url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1) || "/"
+        let secure = false
+        let expiresAt: number | undefined
+        for (const attribute of attributes) {
+          const [rawName, ...rawValue] = attribute.trim().split("=")
+          const name = rawName.toLowerCase()
+          const attrValue = rawValue.join("=").trim()
+          if (name === "domain" && attrValue) { domain = attrValue.replace(/^\./, "").toLowerCase(); hostOnly = false }
+          else if (name === "path" && attrValue.startsWith("/")) path = attrValue
+          else if (name === "secure") secure = true
+          else if (name === "max-age" && /^-?\d+$/.test(attrValue)) expiresAt = nowMs + Number(attrValue) * 1000
+          else if (name === "expires") { const parsed = Date.parse(attrValue); if (!Number.isNaN(parsed)) expiresAt = parsed }
+        }
+        const existing = jar.findIndex(item => item.name === key && item.domain === domain && item.path === path)
+        if (!value || expiresAt !== undefined && expiresAt <= nowMs) { if (existing >= 0) jar.splice(existing, 1) }
+        else { const next = { name: key, value, domain, hostOnly, path, secure, ...(expiresAt === undefined ? {} : { expiresAt }) }; if (existing >= 0) jar[existing] = next; else jar.push(next) }
       }
       return response
     }
