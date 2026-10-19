@@ -501,14 +501,6 @@ export function defineCollection<
   return collection
 }
 
-function isCollectionFacets(value: unknown): value is CollectionFacets {
-  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
-    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
-      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
-      && Number.isSafeInteger(Reflect.get(entry, "count"))
-      && Reflect.get(entry, "count") >= 0))
-}
-
 function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue, TCursorOutput extends CollectionCursorValue, TItem>(
   input: SourceCollectionOptions<CollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput>> & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem

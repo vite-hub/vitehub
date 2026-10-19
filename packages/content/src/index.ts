@@ -1,5 +1,6 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveContentPreset } from "./presets.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import json from "comark-content/plugins/json"
 import yaml from "comark-content/plugins/yaml"
@@ -307,7 +308,9 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, seo: seoOptions, ...sharedOptions } = options
+  const { source, sources, workspace, collections, extends: presetSelection, authorize, seo: seoOptions, ...sharedOptions } = options
+  const presetDefaults = presetSelection === undefined ? undefined : resolveContentPreset(presetSelection)
+  const effectiveWorkspace = workspace ?? presetDefaults?.workspace
   const seo = normalizeSeoOptions(seoOptions)
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
@@ -318,7 +321,7 @@ export function defineContent<
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton().` })
     }
   }
-  if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
+  if (collectionEntries.length && (String(effectiveWorkspace) !== effectiveWorkspace || !effectiveWorkspace)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
@@ -330,7 +333,7 @@ export function defineContent<
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
     // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
     ? createContentCollections({
-      workspace: workspace!,
+      workspace: effectiveWorkspace!,
       collections: Object.fromEntries(collectionEntries),
       defaultRef: () => preview.active() ? "draft" : "published",
     })
