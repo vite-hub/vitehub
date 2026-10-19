@@ -53,6 +53,7 @@ function isRequest(value: unknown): value is Request {
       let prototype: object | null = value
       const visited = new Set<object>()
       let depth = 0
+      let reachedObjectPrototype = false
       while (prototype !== null) {
         if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
@@ -63,6 +64,10 @@ function isRequest(value: unknown): value is Request {
         if (prototype !== value
           && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
         if (prototype === Request.prototype) return false
+        const terminalConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof terminalConstructor === "function"
+          && terminalConstructor.name === "Object"
+          && terminalConstructor.prototype === prototype) reachedObjectPrototype = true
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         // Ordinary class prototypes point their constructor back to themselves.
         // Fresh proxy-created objects do not, so they fail closed immediately.
@@ -115,7 +120,8 @@ function isRequest(value: unknown): value is Request {
           const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
           if (typeof headersGet !== "function") return false
           headersGet.call(headers, "x-vite-hub-brand")
-          return true
+          return reachedObjectPrototype
+
         }
         // A proxy can manufacture a fresh prototype on every lookup. Ordinary
         // class chains are stable, so reject a changing successor before the
