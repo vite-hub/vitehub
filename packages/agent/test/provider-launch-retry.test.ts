@@ -85,7 +85,7 @@ describe("Provider launch retry", () => {
     const launch = vi.fn(failsBeforeFirstEvent)
 
     const result = collect(retryProviderLaunch(launch, controller.signal, [2_000, 8_000]))
-    const rejection = expect(result).rejects.toMatchObject({ code: "PROVIDER_LAUNCH_FAILED" })
+    const rejection = expect(result).rejects.toMatchObject({ name: "AbortError" })
     await vi.advanceTimersByTimeAsync(500)
     controller.abort()
 
