@@ -349,6 +349,17 @@ async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
     })
   }
   catch (error) {
+    // Promise.prototype.then rejects ordinary thenables as incompatible
+    // receivers. Preserve their normal assimilation semantics instead of
+    // trying to apply the native Promise path to every object.
+    let nativePromise = false
+    try {
+      nativePromise = Object.prototype.toString.call(value) === "[object Promise]"
+    }
+    catch {
+      nativePromise = false
+    }
+    if (!nativePromise) return await value
     // Promise subclasses can expose a throwing species getter. Retry the
     // intrinsic adoption with the standard constructor, restoring the object
     // immediately after the intrinsic has captured it.
