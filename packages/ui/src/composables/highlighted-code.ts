@@ -5,20 +5,20 @@ type LanguageModule = { default: LanguageRegistration[] };
 
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
-  bash: () => import("@shikijs/langs/bash"),
-  css: () => import("@shikijs/langs/css"),
-  diff: () => import("@shikijs/langs/diff"),
-  html: () => import("@shikijs/langs/html"),
-  javascript: () => import("@shikijs/langs/javascript"),
-  json: () => import("@shikijs/langs/json"),
-  jsx: () => import("@shikijs/langs/jsx"),
-  markdown: () => import("@shikijs/langs/markdown"),
-  python: () => import("@shikijs/langs/python"),
-  sql: () => import("@shikijs/langs/sql"),
-  tsx: () => import("@shikijs/langs/tsx"),
-  typescript: () => import("@shikijs/langs/typescript"),
-  vue: () => import("@shikijs/langs/vue"),
-  yaml: () => import("@shikijs/langs/yaml"),
+  bash: () => import("shiki/langs/bash.mjs"),
+  css: () => import("shiki/langs/css.mjs"),
+  diff: () => import("shiki/langs/diff.mjs"),
+  html: () => import("shiki/langs/html.mjs"),
+  javascript: () => import("shiki/langs/javascript.mjs"),
+  json: () => import("shiki/langs/json.mjs"),
+  jsx: () => import("shiki/langs/jsx.mjs"),
+  markdown: () => import("shiki/langs/markdown.mjs"),
+  python: () => import("shiki/langs/python.mjs"),
+  sql: () => import("shiki/langs/sql.mjs"),
+  tsx: () => import("shiki/langs/tsx.mjs"),
+  typescript: () => import("shiki/langs/typescript.mjs"),
+  vue: () => import("shiki/langs/vue.mjs"),
+  yaml: () => import("shiki/langs/yaml.mjs"),
 };
 
 const aliases: Record<string, string> = { js: "javascript", md: "markdown", sh: "bash", shell: "bash", ts: "typescript", yml: "yaml" };
@@ -49,12 +49,16 @@ function plainLines(code: string): VNode[] {
 export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: MaybeRefOrGetter<string>): ShallowRef<VNode[]> {
   const lines = shallowRef(plainLines(toValue(code)));
 
+  let generation = 0;
+
   async function highlight() {
+    const request = ++generation;
     const source = toValue(code);
-    const requested = toValue(language).toLowerCase();
+    const requestedLanguage = toValue(language);
+    const requested = requestedLanguage.toLowerCase();
     const lang = aliases[requested] ?? requested;
     if (lang !== "ansi" && !languages[lang]) {
-      lines.value = plainLines(source);
+      if (request === generation && source === toValue(code) && requestedLanguage === toValue(language)) lines.value = plainLines(source);
       return;
     }
     const instance = await loadHighlighter();
@@ -65,9 +69,7 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    const latestRequested = toValue(language).toLowerCase();
-    const latestLang = aliases[latestRequested] ?? latestRequested;
-    if (source !== toValue(code) || latestLang !== lang) return;
+    if (request !== generation || source !== toValue(code) || requestedLanguage !== toValue(language)) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

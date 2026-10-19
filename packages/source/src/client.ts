@@ -167,8 +167,8 @@ export function useCollection<TName extends CollectionName>(
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
       let response: TPage
-      let aggregateTotal: TPage["total"]
-      let aggregateFacets: TPage["facets"]
+      let aggregateTotal: TPage["total"] = reset ? undefined : total.value
+      let aggregateFacets: TPage["facets"] = reset ? undefined : facets.value
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
       do {
