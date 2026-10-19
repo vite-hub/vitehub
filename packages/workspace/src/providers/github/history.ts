@@ -203,8 +203,8 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const readTree = async (commit: GitHubCommit): Promise<GitHubHistoryEntry[]> => {
     const cached = treeCache.get(commit.sha)
     if (cached) return cached
-    const tree = await readTreeItems(commit.sha, true)
-    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(commit.sha) : tree.items
+    const tree = await readTreeItems(commit.tree.sha, true)
+    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(commit.tree.sha) : tree.items
     const entries = treeEntries.flatMap(entry => {
       const historyEntry = asHistoryEntry(entry, options.root)
       return historyEntry ? [historyEntry] : []
