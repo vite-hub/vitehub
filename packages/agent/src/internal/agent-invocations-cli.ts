@@ -549,6 +549,18 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       return parseInvocationDetail(detail)
     },
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
+    scan: async statuses => {
+      const records = new Map<string, InvocationSummary>()
+      for (const status of statuses) {
+        let cursor: string | undefined
+        do {
+          const page = parseInvocationList(file.list({ cursor, limit: maxAgentInvocationListLimit, status }))
+          for (const record of page.invocations) records.set(record.id, record)
+          cursor = page.cursor
+        } while (cursor !== undefined)
+      }
+      return [...records.values()]
+    },
   }
 }
 
