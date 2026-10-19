@@ -1628,7 +1628,7 @@ button.vh-agent-tool-list__count:focus-visible {
 @layer components {
   /* Realtime collaboration caret and selection decorations. */
   .collaboration-carets__caret {
-    border-inline: 1px solid;
+    border-inline: 1px solid var(--collaboration-caret-color, currentColor);
     margin-inline: -1px;
     pointer-events: none;
     position: relative;
