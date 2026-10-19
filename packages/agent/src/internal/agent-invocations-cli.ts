@@ -13,6 +13,7 @@ import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
+import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -450,7 +451,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
       return parseInvocationDetail(detail)
     },
-    list: async () => parseInvocationList(file.list({ limit: parsed.limit ?? consoleDefaultListLimit, ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
+    list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
   }
 }
 

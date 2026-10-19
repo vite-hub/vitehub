@@ -59,16 +59,22 @@ export async function openAgentInvocationJournalFile(path: string, tablePrefix =
     return {
       close: () => db.close(),
       get(id) {
-        const row = record.get(id)
-        const stored = parseJson(row?.record)
-        if (!row || !isRuntimeRecord(stored)) return
-        const { observations, ...invocation } = stored
-        return {
-          invocation: { ...invocation, cursor: String(row.sequence) },
-          observations: [
-            ...Array.isArray(observations) ? observations : [],
-            ...appended?.all(row.sequence).map(item => parseJson(item.observation)) ?? [],
-          ],
+        db.exec("BEGIN")
+        try {
+          const row = record.get(id)
+          const stored = parseJson(row?.record)
+          if (!row || !isRuntimeRecord(stored)) return
+          const { observations, ...invocation } = stored
+          return {
+            invocation: { ...invocation, cursor: String(row.sequence) },
+            observations: [
+              ...Array.isArray(observations) ? observations : [],
+              ...appended?.all(row.sequence).map(item => parseJson(item.observation)) ?? [],
+            ],
+          }
+        }
+        finally {
+          db.exec("ROLLBACK")
         }
       },
       list({ cursor, limit, status }) {
