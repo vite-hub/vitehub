@@ -19,13 +19,19 @@ const docsShellUi = {
 
 <template>
   <UMain class="vh-docs-shell" :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
-    <UContainer v-if="isSupportMatrix">
-      <AnnouncementBanner />
-      <slot />
-    </UContainer>
+    <div v-if="isSupportMatrix" class="vh-docs-landing-shell vh-docs-support-matrix">
+      <UContainer class="vh-docs-support-matrix-content">
+        <AnnouncementBanner />
+        <slot />
+      </UContainer>
+      <AppFooter class="vh-docs-footer" />
+    </div>
 
-    <div v-else-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing">
-      <slot />
+    <div v-else-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing-shell">
+      <div class="vh-docs-landing">
+        <slot />
+      </div>
+      <AppFooter class="vh-docs-footer" />
     </div>
 
     <UPage v-else :ui="docsShellUi">
@@ -42,7 +48,6 @@ const docsShellUi = {
       </div>
     </UPage>
 
-    <AppFooter v-if="isSupportMatrix || isLanding || isDocsSiteAreaRoute" class="vh-docs-footer" />
   </UMain>
 </template>
 
@@ -51,6 +56,10 @@ const docsShellUi = {
 .vh-docs-landing {
   margin: 0 auto;
   padding: 0 1rem;
+}
+
+.vh-docs-landing-shell {
+  width: 100%;
 }
 
 /* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
@@ -70,6 +79,11 @@ const docsShellUi = {
 
 .vh-docs-support-matrix {
   max-width: none;
+  width: 100%;
+}
+
+.vh-docs-support-matrix-content {
+  max-width: none !important;
   width: 100%;
 }
 
