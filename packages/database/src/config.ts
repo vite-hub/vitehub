@@ -572,15 +572,22 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
       }
       return stripLeadingEntryComments(source.slice(valueStart, valueStart + expressionEnd))
     }
-    const parts = splitTopLevel(remainder)
     let partOffset = 0
-    for (const part of parts) {
-      const partStart = remainder.indexOf(part.trim(), partOffset)
-      if (partStart < 0) continue
-      const rawPart = remainder.slice(partStart, partStart + part.trim().length)
+    while (partOffset <= remainder.length) {
+      while (/\s/u.test(remainder[partOffset] ?? "")) partOffset++
+      const partStart = partOffset
+      let partEnd = remainder.length
+      let nestedPart = 0
+      for (let index = partStart; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") nestedPart++
+        else if (char === "}" || char === "]" || char === ")") nestedPart = Math.max(0, nestedPart - 1)
+        else if (char === "," && nestedPart === 0) { partEnd = index; break }
+      }
+      const rawPart = remainder.slice(partStart, partEnd)
       const name = new RegExp(`^\\s*${identifierCapturePattern}\\s*=`, "u").exec(rawPart)?.[1]
       if (name !== identifier) {
-        partOffset = partStart + rawPart.length
+        partOffset = partEnd + 1
         continue
       }
       const equals = rawPart.indexOf("=")
@@ -592,6 +599,7 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
         const char = expression[index]!
         if (char === "{" || char === "[" || char === "(") nested++
         else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === "," && nested === 0) { expressionEnd = index; break }
         else if (char === ";" && nested === 0) { expressionEnd = index; break }
         else if (nested === 0 && (char === "\n" || char === "\r")) {
           const following = remainder.slice(index + 1)
