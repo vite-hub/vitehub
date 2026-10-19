@@ -101,21 +101,20 @@ describe("support proof ledger", () => {
 
   it("makes the Vue matrix consume the same proof projection", () => {
     const component = readFileSync(
-      resolve(repoRoot, "docs/app/components/SupportMatrix.vue"),
+      resolve(repoRoot, "docs/app/components/content/SupportMatrix.vue"),
       "utf8",
     );
+    const data = readFileSync(resolve(repoRoot, "docs/app/data/support-matrix.ts"), "utf8");
 
-    expect(component).toContain('from "../data/support-proof"');
+    expect(component).toContain('from "../../data/support-proof"');
     expect(component).toContain('useState("support-proof-observed-at"');
-    expect(component).toContain("const sections = reactive<");
+    expect(component).toContain("supportProofPresentation(supportProofFor(row.proof, host.id), now)");
     expect(component).toContain("scheduleProofRefresh");
-    expect(component).toContain('class="support-matrix-evidence-link"');
-    expect(component).toContain(':href="row.values[column.id]!.evidence?.url"');
-    expect(component).toMatch(/<\/UTooltip>\s*<a[\s\S]*support-matrix-evidence-link/);
+    expect(component).toContain(':href="cell.evidence.url"');
     for (const tier of supportProofTiers) {
-      expect(component).toContain(`proofValues("${tier}")`);
+      expect(data).toContain(`proof: "${tier}"`);
     }
-    expect(component).not.toContain('"available",\n            "The nightly Live Smoke deploys');
+    expect(data).not.toContain("The nightly Live Smoke deploys");
   });
 
   it("renders the time-sensitive support matrix on request", () => {

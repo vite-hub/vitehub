@@ -3,6 +3,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
 import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -123,6 +124,17 @@ export interface AgentInvocationRecord {
   error?: RuntimeDiagnosticError
   failedAt?: string
   id: string
+  /**
+   * What the Invocation did, in order. Every Driver records `agent.invocation.start` (with `input.prompt`,
+   * `input.messages` or `input.data`) and `agent.invocation.finish` (with `result.text`, or `result.output` for a
+   * structured result such as `driver.ask` answers). `driver.ask` adds `agent.tool.*` per question and
+   * `agent.usage.recorded` per Jev request; see `AgentAskDriver`.
+   *
+   * An Invocation started while another one runs its Driver or an outcome hook, such as `runAgent()` in
+   * `agent:finish`, is its child. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish`
+   * with `agent.invocation.child.id` (the child's record `id`), `.run.id` and `.agent.name`, and on finish `.status`
+   * and `.durationMs`. The child's `agent.invocation.start` carries the same `agent.invocation.parent.*` attributes.
+   */
   observations: readonly TraceEventLogEntry[]
   /** Resolved retention limits for this durable Invocation. */
   observationLimits?: Required<AgentInvocationObservationOptions>
@@ -136,6 +148,10 @@ export interface AgentInvocationRecord {
   title?: string
   /** Sequence of the projected title, preserved when its observation is evicted. */
   titleSequence?: number
+  /**
+   * Shared by an Invocation and the children it starts without a trace of their own.
+   * The observations of a child carry `trace.parentId`, the record `id` of its parent.
+   */
   traceId: string
   updatedAt: string
 }
@@ -394,6 +410,8 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   readonly reusedTerminal: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
+  /** The record `id` of this Invocation. */
+  readonly id: string
   /** The stored `traceId`, available after creation confirms the record identity. */
   traceId: string | undefined
   /** Wait for an asynchronous create attempt to resolve its stored identity. */
@@ -2104,6 +2122,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       context: AgentRuntimeContext<TRuntimeConfig>,
       bindOptions: AgentInvocationBindOptions = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
+      // An Invocation started inside another one's Driver or hook joins that trace unless it has its own.
+      const parentTrace = context.trace ? undefined : parentInvocationTrace()
+      if (parentTrace) context = { ...context, trace: parentTrace }
       const runId = context.run?.runId || createInvocationId()
       const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await agentInvocationId(runId, agentName)
@@ -2633,6 +2654,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ownsRecord = false
         },
         configuration: options.configuration,
+        id: recordId,
         get traceId() { return created ? traceId : undefined },
         async ready() {
           if (creationTask) await boundedStore(() => creationTask!)

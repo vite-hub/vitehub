@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { enrichAgentUsageCost } from "../src/internal/usage-pricing.ts"
-import { invocationUsageWithAuxiliaryCalls, recordAuxiliaryUsage } from "../src/internal/auxiliary-usage.ts"
+import { invocationUsageWithAuxiliaryCalls, recordAuxiliaryUsage, recordDriverUsage } from "../src/internal/auxiliary-usage.ts"
 
 describe("auxiliary invocation usage", () => {
   it("retains per-call model and cost evidence while totaling known tokens", () => {
@@ -52,6 +52,41 @@ describe("auxiliary invocation usage", () => {
     const title = { usage: { totalTokens: 5 } }
     recordAuxiliaryUsage(context, title)
     expect(invocationUsageWithAuxiliaryCalls(context, undefined)).toEqual({ calls: [{}, title], usage: {} })
+  })
+
+  it("totals the calls of a Driver that reports each call, without an unknown primary call", () => {
+    const context = createAgentInvocationContextStore()
+    const first = { model: "jev", provider: "typesafe", usage: { inputTokens: 400, outputTokens: 4, totalTokens: 404 } }
+    const second = { model: "jev", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 1, totalTokens: 101 } }
+    recordDriverUsage(context, first)
+    recordDriverUsage(context, second)
+    expect(invocationUsageWithAuxiliaryCalls(context, undefined)).toEqual({
+      calls: [first, second],
+      model: "jev",
+      usage: { inputTokens: 500, outputTokens: 5, totalTokens: 505 },
+    })
+
+    const titled = createAgentInvocationContextStore()
+    const title = { model: "title", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } }
+    recordDriverUsage(titled, first)
+    recordAuxiliaryUsage(titled, title)
+    expect(invocationUsageWithAuxiliaryCalls(titled, undefined)).toEqual({
+      calls: [first, title],
+      usage: { inputTokens: 403, outputTokens: 6, totalTokens: 409 },
+    })
+  })
+
+  it("prices each Driver call when the pricing knows every call", async () => {
+    const context = createAgentInvocationContextStore()
+    recordDriverUsage(context, { model: "jev", usage: { inputTokens: 400, outputTokens: 4, totalTokens: 404 } })
+    recordDriverUsage(context, { model: "jev", usage: { inputTokens: 100, outputTokens: 1, totalTokens: 101 } })
+    const priced = await enrichAgentUsageCost(invocationUsageWithAuxiliaryCalls(context, undefined)!, ({ usage }) => ({
+      estimated: false,
+      source: "test",
+      usd: ((usage.inputTokens ?? 0) / 1e6).toFixed(6),
+    }))
+    expect(priced.calls?.map(call => call.cost?.usd)).toEqual(["0.000400", "0.000100"])
+    expect(priced.cost?.usd).toBe("0.0005")
   })
 
   it("keeps invocation usage isolated and leaves primary-only records intact", () => {
