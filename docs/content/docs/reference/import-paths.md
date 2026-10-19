@@ -21,23 +21,23 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
+| `vite-hub/agent/presets/workspace` | Opt-in workspace source-provenance citation preset. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
+| `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
+| `vite-hub/agent/evlog/posthog` | Optional Node.js PostHog event, Error Tracking and log exporter. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
-| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
-| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
+| `vite-hub/agent/evlog` | Deprecated compatibility facade for Agent event logging. |
+| `vite-hub/agent/evlog/posthog` | Deprecated compatibility facade for the PostHog event-log exporter. |
+| `vite-hub/agent/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/agent/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
+| `vite-hub/agent/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
-| `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
-| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
-| `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
-| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
@@ -57,7 +57,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/content` and `vite-hub/content/client` | Comark Content definition, editable document collections, Source adaptation, generated runtime handler, and typed client. |
-| `vite-hub/content/presets/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
@@ -93,6 +92,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter with request bindings and tracked background work. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
+| `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
@@ -132,16 +132,16 @@ for libraries, focused integrations, and advanced composition.
 | Import path | Owner | Use |
 | --- | --- | --- |
 | `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
+| `@vite-hub/agent/presets/workspace` | Agent Package | Opt-in workspace source-provenance citation preset. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, and `inputCommands()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
+| `@vite-hub/agent/evlog` | Agent Package | Host-level evlog integration. |
 | `@vite-hub/agent/observability` | Agent Package | `useObservability()` and observability types. |
-| `@vite-hub/agent/process-host` | Agent Package | `withAgentProcessHost()` and webhook intake for preset process hosts. |
-| `@vite-hub/presets/babysitter` | Presets Package | Composable Babysitter repair-loop preset. |
-| `@vite-hub/presets/babysitter/server` | Presets Package | Babysitter host runtime integration. |
-| `@vite-hub/presets/labeller` | Presets Package | Gmail labelling preset. |
-| `@vite-hub/presets/workspace` | Presets Package | Opt-in workspace source-provenance citation preset. |
+| `@vite-hub/agent/evlog/posthog` | Agent Package | Optional PostHog exporter. |
 | `@vite-hub/agent/observability/host` | Agent Package | `installObservability()` for hosts without `vitehub()`. |
 | `@vite-hub/agent/observability/posthog` | Agent Package | Optional PostHog exporter. |
+| `@vite-hub/agent/evlog` | Agent Package | Deprecated compatibility facade for Agent event logging. |
+| `@vite-hub/agent/evlog/posthog` | Agent Package | Deprecated compatibility facade for the PostHog event-log exporter. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/runtime/process` | Agent Package | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
@@ -161,10 +161,9 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/box/ssh` | Box Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Outbound Channel Definitions with `defineOutboundChannel()`, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `oauth2()`, `apiKey()`, `useConnection()`, the Google preset, and typed Gmail Operations. |
-| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
+| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, and typed client. |
-| `@vite-hub/content/presets/cms` | Content Package | The `cms` preset that stores document collections on a contributed Workspace. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
 | `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
@@ -219,7 +218,6 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
 | `@vite-hub/connections/vite` | Register Connection Definition discovery and the generated runtime module. |
-| `@vite-hub/content/vite` | Register the Content Vite Integration, which reads the `cms` preset and contributes its Workspace, Database tables, and default Database. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Configure one built-in Email provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |

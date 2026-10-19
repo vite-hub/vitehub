@@ -64,7 +64,7 @@ const componentEntries = [...new Set(componentNames.map((name) => `./${component
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".","./agent-code-view","./agent-file-tree","./agent-tool-list","./agent-trace","./attachment","./bubble","./chat","./chat-message","./chat-session","./code-block","./headless","./markdown","./marker","./message","./message-parts","./nuxt","./package.json","./primitive-rail","./prompt-input","./styles.css","./trace","./vite"] .sort(),
+      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./attachment", "./bubble", "./chat", "./chat-message", "./chat-session", "./code-block", "./headless", "./markdown", "./marker", "./message", "./message-parts", "./nuxt", "./package.json", "./primitive-rail", "./prompt-input", "./styles.css", "./trace", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -90,9 +90,16 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
-  it.each([    ".",
+  it.each([
+    ".",
+    "./agent-chat",
+    "./agent-chat-message",
+    "./agent-chat-prompt",
     "./agent-code-view",
     "./agent-file-tree",
+    "./agent-markdown",
+    "./agent-message-parts",
+    "./agent-session",
     "./agent-tool-list",
     "./agent-trace",
     "./attachment",

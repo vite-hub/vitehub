@@ -4,6 +4,7 @@ import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
+import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -686,6 +687,18 @@ export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = 
   MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /**
+   * How long the route can take to answer, in milliseconds from the request's arrival. Defaults to 5000.
+   * `false` waits for admission. Chat message webhooks always wait.
+   *
+   * With durable webhook State, the route stores the verified request at `<scope>inbox:<delivery ID or body SHA-256>`
+   * before `invoke` runs. If admission still runs at the budget, the route answers
+   * `202 { accepted: true, deferred: true, ok: true }` and admission finishes in the background. The provider then
+   * does not get the trigger's own answer, such as `ignored()` or a returned `Response`. The row is removed when
+   * admission settles. At startup, the next process sends a row that did not settle, or that ended in a 5xx, through
+   * the route again with its signature checked again, for at most 3 admissions in total.
+   */
+  ackTimeoutMs?: number | false
   adapter?: string
   channelId?: string
   durableState?: boolean
@@ -1840,6 +1853,13 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /**
+   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
+   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
+   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
+   * It runs in the background on the first invocation, then at most every 10 minutes.
+   */
+  retention?: AgentRetentionPolicy
 }
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
@@ -1878,6 +1898,7 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -1908,6 +1929,7 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1967,6 +1989,7 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2923,6 +2946,8 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
+  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }
