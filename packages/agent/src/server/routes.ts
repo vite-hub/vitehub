@@ -1195,13 +1195,29 @@ function persistedWebhookInvocation(
 function queuedWebhookTask(
   trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>,
   saved: NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+  options: { validateOwnership?: boolean } = {},
 ) {
   if (saved.task === undefined) return undefined
   const task = agentTriggerTask(trigger, saved.task)
-  if (saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
+  if (options.validateOwnership !== false && saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
     throw new Error(`[vitehub] Queued task "${saved.task}" of trigger "${trigger.id}" no longer runs the Agent it was accepted for.`)
   }
   return task
+}
+
+/**
+ * The task key of a queued delivery: the stored key, else the declared task that `run.origin` names.
+ * Rows stored without a task key, such as rows from before the trigger declared tasks, find their task this way.
+ */
+function queuedWebhookTaskKey(
+  trigger: Pick<ResolvedAgentTriggerDefinition, "tasks">,
+  saved: AgentWebhookQueueDelivery["invocation"],
+  run?: AgentRunMetadata,
+): string | undefined {
+  if (saved?.task !== undefined) return saved.task
+  const savedRun: unknown = saved?.run
+  const origin = isRecord(savedRun) && isRuntimeString(savedRun.origin) ? savedRun.origin : run?.origin
+  return origin !== undefined && trigger.tasks && Object.hasOwn(trigger.tasks, origin) ? origin : undefined
 }
 
 function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
@@ -1575,7 +1591,25 @@ async function notifyQueuedWebhookFailure(
     const identity = routeAgentIdentity(handlerOptions)
     const context = createRuntimeContext(request, invocation?.run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
     const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, delivery.webhookId))
-    const failed = match?.trigger.definition.failed
+    // A task's own `failed` replaces the trigger's for its deliveries.
+    const taskKey = match ? queuedWebhookTaskKey(match.trigger, delivery.invocation, invocation?.run) : undefined
+    let taskFailed: unknown
+    if (match && taskKey !== undefined) {
+      try {
+        // Apply the same persisted-Agent identity check used by queued replay.
+        const task = queuedWebhookTask(
+          match.trigger,
+          { ...(delivery.invocation ?? {}), task: taskKey } as NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+          { validateOwnership: delivery.invocation?.task !== undefined || delivery.invocation?.agentName !== undefined },
+        )
+        taskFailed = task?.failed
+      }
+      catch {
+        // A replaced task Agent cannot receive the failure; use the trigger fallback.
+        taskFailed = undefined
+      }
+    }
+    const failed = isRuntimeFunction(taskFailed) ? taskFailed : match?.trigger.definition.failed
     if (!isRuntimeFunction(failed)) return
     // The Invocation of a task Agent belongs to that Agent.
     const reference = await runInvocationReference(delivery.invocation?.agentName || invocation?.agentName || routeAgentInvocationName(agent, identity), invocation?.run)
@@ -1887,13 +1921,16 @@ async function executeQueuedWebhookDelivery(
       if (!trigger && (saved.task !== undefined || saved.requiresPrepare)) {
         throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       }
-      const task = trigger ? queuedWebhookTask(trigger, saved) : undefined
+      const taskKey = trigger ? queuedWebhookTaskKey(trigger, saved, invocation?.run) : undefined
+      const task = trigger && taskKey !== undefined
+        ? queuedWebhookTask(trigger, { ...saved, task: taskKey }, { validateOwnership: saved.task !== undefined || saved.agentName !== undefined })
+        : undefined
       if (trigger && invocation) {
         accepted = {
           ...(task?.agent ? { agent: task.agent } : {}),
           input: invocation.input,
           ...(invocation.run ? { run: invocation.run } : {}),
-          ...(saved.task !== undefined ? { task: saved.task } : {}),
+          ...(taskKey !== undefined ? { task: taskKey } : {}),
           trigger,
         }
       }

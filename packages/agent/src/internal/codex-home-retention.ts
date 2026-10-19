@@ -611,7 +611,13 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
 }
 
 function restoreDeletedRows(db: DatabaseSync, backups: readonly DeletedRows[]): void {
-  for (const backup of backups) {
+  // Foreign keys require parents before children. `tableNames()` is schema order,
+  // while `threads` is appended by deleteThreadRows, so explicitly restore it first.
+  const ordered = [...backups].sort((left, right) => {
+    const rank = (backup: DeletedRows) => backup.table === "threads" ? 0 : backup.table === "thread_spawn_edges" ? 1 : 2
+    return rank(left) - rank(right)
+  })
+  for (const backup of ordered) {
     if (!backup.rows.length) continue
     const table = quoteIdentifier(backup.table)
     const columns = backup.columns.map(quoteIdentifier).join(", ")
@@ -720,17 +726,23 @@ async function applyCodexHomeRetentionPlan(inventory: CodexHomeInventory, plan: 
       // SQLite has no transaction spanning these files. If a later database fails
       // after an earlier commit, restore the rows already committed before keeping
       // the rollout. This makes a partial cleanup recoverable on the same run.
+      let compensationFailed = false
       for (const backup of backups) {
         try {
           backup.db.exec("BEGIN IMMEDIATE")
           restoreDeletedRows(backup.db, backup.rows)
           backup.db.exec("COMMIT")
         }
-        catch { try { backup.db.exec("ROLLBACK") } catch {} }
+        catch {
+          compensationFailed = true
+          try { backup.db.exec("ROLLBACK") } catch {}
+        }
       }
       rowsRemoved = new Set()
       removed.threadRows = 0
-      context.skipped.push(`thread metadata: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`)
+      const reason = isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)
+      context.skipped.push(`thread metadata: ${reason}.`)
+      if (compensationFailed) context.skipped.push("thread metadata compensation could not restore every deleted row; the rollout was retained for reconciliation.")
     }
   }
   else {

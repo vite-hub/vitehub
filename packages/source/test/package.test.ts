@@ -139,6 +139,7 @@ describe("@vite-hub/source package contract", () => {
       ".",
       "./drizzle",
       "./file",
+      "./files",
       "./github",
       "./glob",
       "./markdown",
