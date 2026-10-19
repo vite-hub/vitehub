@@ -229,7 +229,7 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
 }
 
 /** GitHub's live PR must agree immediately before the merge. */
-export function liveMergeReadiness(live: unknown, head: string): MergeDecision {
+export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { automatedReviewSettled?: boolean; reviews?: readonly GitHubEvidence[] } = {}): MergeDecision {
   if (!isRuntimeRecord(live)) return no("pull request unavailable");
   const liveHead = isRuntimeRecord(live.head) ? live.head.sha : undefined;
   const base = isRuntimeRecord(live.base) ? live.base : undefined;
@@ -238,7 +238,14 @@ export function liveMergeReadiness(live: unknown, head: string): MergeDecision {
   if (liveHead !== head) return no("head changed");
   if (live.draft === true) return no("draft");
   if (live.mergeable === false) return no("merge conflict");
-  if (live.reviewDecision === "CHANGES_REQUESTED" || live.reviewDecision === "REVIEW_REQUIRED") return no("required review not satisfied");
+  const reviewDecision = String(live.reviewDecision ?? "").toUpperCase();
+  if (reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED") {
+    // Once the review push budget is spent, GitHub may still expose a stale aggregate
+    // decision from automated reviewers. Keep human-required decisions blocking.
+    const reviews = reviewPolicy.reviews ?? [];
+    const humanReview = reviews.some(review => !isAutomatedFeedback(review));
+    if (!reviewPolicy.automatedReviewSettled || humanReview || reviews.length === 0) return no("required review not satisfied");
+  }
   // A stacked PR keeps its old base after the parent merges when merged branches are kept.
   // Merging it there would strand the change outside the default branch.
   const defaultBranch = repository?.default_branch;

@@ -446,7 +446,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         signal.throwIfAborted();
         [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
       }
-      const current = liveMergeReadiness(live, decision.head);
+      const liveReviews = reviewPushBudgetSpent(snapshot, waitPolicy)
+        ? await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]", signal)
+        : [];
+      const current = liveMergeReadiness(live, decision.head, {
+        automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
+        reviews: liveReviews,
+      });
       if (!current.ready) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: current.reason });
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
