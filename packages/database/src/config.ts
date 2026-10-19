@@ -649,18 +649,29 @@ function readOpaquePropertyExpression(expression: string, key: string, source: s
   }
   let value: string | undefined
   let found = false
+  let unresolvedOverride = false
   for (const entry of splitTopLevel(body)) {
     const normalized = stripLeadingEntryComments(entry).trim()
     if (!normalized) continue
     if (normalized.startsWith("...")) {
       const spreadExpression = normalized.slice(3)
       const hasKey = opaqueObjectContainsKey(spreadExpression, source, key, new Set(seen))
-      if (hasKey === undefined) return undefined
+      if (hasKey === undefined) {
+        // Keep scanning: a later explicit property overrides an uncertain
+        // spread, while an uncertain spread after the final known property
+        // makes the effective value unknown.
+        unresolvedOverride = true
+        continue
+      }
       if (hasKey) {
         const spread = readOpaquePropertyExpression(spreadExpression, key, source, new Set(seen))
-        if (spread === undefined) return undefined
+        if (spread === undefined) {
+          unresolvedOverride = true
+          continue
+        }
         value = spread
         found = true
+        unresolvedOverride = false
       }
       continue
     }
@@ -669,8 +680,9 @@ function readOpaquePropertyExpression(expression: string, key: string, source: s
     // A shorthand property has the identifier itself as its value. Preserve
     // that reference so the declaration resolver can evaluate it below.
     value = readEntryValue(normalized)?.trim() ?? readEntryKey(normalized)
+    unresolvedOverride = false
   }
-  return found ? value : undefined
+  return found && !unresolvedOverride ? value : undefined
 }
 
 function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean | undefined {
