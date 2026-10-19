@@ -624,8 +624,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   /** Send one provider request with the Connection token inside an audited Env Bridge use. */
   async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {
     if (isLoginDefinition(context.definition)) {
-      const token = await logins.token(context.name, context.definition)
-      return await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, token))
+      return await sendWithLogin(context, context.definition, providerRequest, init)
     }
     const fallback = await fallbackFor(context)
     if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
@@ -665,6 +664,35 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (isEnvBridgeError(error, "ENV_BRIDGE_MISSING")) {
         throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: context.name })
       }
+      throw error
+    }
+  }
+
+  /** Send with an in-memory login token, recording activity and retrying once after a 401. */
+  async function sendWithLogin(context: CallContext, loaded: ConnectionLoginDefinition, providerRequest: ProviderRequest, init: SendInit): Promise<Response> {
+    if (await logins.credentials(loaded.provider) === undefined) {
+      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name, problem: "refresh-token" })
+    }
+    const connections = await getStore().catch(() => undefined)
+    const operationId = crypto.randomUUID()
+    const record = async (outcome: EnvActivity["outcome"]) => {
+      await connections?.access.append({ action: "use", actor: envActor(context.actor), id: crypto.randomUUID(), key: tokenKey(context.name), operation: providerRequest.action, operationId, outcome, revision: LOGIN_GRANT, timestamp: new Date(now()).toISOString(), traceId: context.options.traceId, invocationId: context.options.invocationId })
+    }
+    await record("started").catch(() => undefined)
+    try {
+      let token = await logins.token(context.name, loaded)
+      let response = await dispatch(context, providerRequest, init, token)
+      if (response.status === 401) {
+        await response.body?.cancel().catch(() => undefined)
+        token = await logins.token(context.name, loaded, token.accessToken)
+        response = await dispatch(context, providerRequest, init, token)
+      }
+      response = await checkResponse(context, providerRequest, response)
+      await record("succeeded").catch(() => undefined)
+      return response
+    }
+    catch (error) {
+      await record("failed").catch(() => undefined)
       throw error
     }
   }
@@ -1130,7 +1158,20 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function list(): Promise<ConnectionInspection[]> {
-    return await Promise.all(Object.keys(options.definitions).sort().map(name => inspect(name)))
+    const names: string[] = []
+    for (const name of Object.keys(options.definitions).sort()) {
+      try {
+        const loaded = await loadDefinition(name)
+        if (loaded && isConnectionInstances(loaded)) {
+          for (const instance of loaded.instances) names.push(`${name}:${instance}`)
+        }
+        else if (loaded) names.push(name)
+      }
+      catch {
+        // Preserve discovery behavior: a failed module does not hide other Connections.
+      }
+    }
+    return await Promise.all(names.map(name => inspect(name)))
   }
 
   async function activity(input: { before?: string, name: string }): Promise<readonly EnvActivity[]> {
