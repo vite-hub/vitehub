@@ -204,15 +204,11 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
                 && !!window.location
           })
         })()
-        const hasIntrinsicParentLineage = typeof parentConstructor === "function"
-          && parentConstructor.prototype === constructorParent
-          && parentConstructor.name === "Function"
-          && Function.prototype.toString.call(parentConstructor) === "function Function() { [native code] }"
         hasNativeConstructorLineage = constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
           // base. A callback-created standalone class can otherwise reproduce
           // the entire public Response surface and bypass this boundary.
-          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function && hasIntrinsicParentLineage)
+          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function)
           || (isClassConstructor && hasWindowBinding)
         try {
           const constructed = new constructor()
@@ -353,15 +349,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // intentionally carries status 0, which the Response constructor rejects.
     if (value.status === 0) return Response.error()
     // A consumed foreign response is still a valid authorization result, but
-    // its clone algorithm must reject the already-used body. Preserve the
-    // response metadata without turning that normal state into a 403. The
-    // body itself cannot be recovered after consumption; retain the observable
-    // distinction by creating and consuming an empty local body when one was
-    // present on the foreign response.
+    // its clone algorithm must reject the already-used body. Normalize it to
+    // the host realm so the route boundary recognizes it as a response, and
+    // consume the replacement body when the foreign response had one. This
+    // preserves status, headers, bodyUsed, and subsequent body-read errors.
     if (value.bodyUsed === true) {
-      // Keep the original consumed state and body bytes. Replacing a consumed
-      // body with an empty local response changes subsequent body-read errors.
-      return value as Response
+      const consumed = new Response(value.body === null ? null : "", init)
+      if (value.body !== null) await consumed.arrayBuffer()
+      return consumed
     }
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.

@@ -63,7 +63,7 @@ type ConsoleNitroConfig = {
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
 export interface ConsoleOptions {
-  auth: false | "app" | ConsoleAuthConfig
+  auth?: false | "app" | ConsoleAuthConfig
   /** @deprecated Use `auth` instead. */
   access?: "auth" | "local" | "open"
   /** @deprecated Use `auth` instead. */
