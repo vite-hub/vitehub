@@ -114,10 +114,45 @@ export async function requestGitHub(input: string | URL | Request, init: Request
       await waitForRetry(100 * 2 ** attempt, init.signal);
       continue;
     }
-    if (!retryable || (response.status !== 429 && response.status < 500) || attempt + 1 >= githubReadAttempts) return response;
+    if (!retryable || (response.status !== 429 && response.status < 500) || attempt + 1 >= githubReadAttempts) {
+      await validateGitHubResponse(input, response)
+      return response;
+    }
     await response.body?.cancel().catch(() => undefined);
     await waitForRetry(retryDelay(response, attempt), init.signal);
   }
+}
+
+/** Validate the response shapes that the Forge GitHub mappers dereference. */
+async function validateGitHubResponse(input: string | URL | Request, response: Response): Promise<void> {
+  if (response.status < 200 || response.status >= 300) return
+  const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  }
+  catch {
+    return
+  }
+  const kind = url.pathname.includes("/git/trees/") ? "tree" : url.pathname.includes("/commits/") ? "commit" : url.pathname.endsWith("/branches") ? "branch list" : undefined
+  if (!kind) return
+  let body: unknown
+  try {
+    body = await response.clone().json()
+  }
+  catch {
+    return
+  }
+  const valid = kind === "commit"
+    ? isRecord(body) && isRecord(body.commit) && isRecord(body.commit.tree) && typeof body.sha === "string"
+    : kind === "tree"
+      ? isRecord(body) && Array.isArray(body.tree)
+      : Array.isArray(body)
+  if (!valid) throw new ForgeResponseError(`GitHub returned a malformed ${kind} response.`)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
 }
 
 /** A lazy connection: the repository name is checked on the first request. */
