@@ -296,8 +296,11 @@ function isRuntimeResponse(value: unknown): value is Response {
     Reflect.apply(nativeResponseStatus, value, [])
     return true
   }
-  catch {
-    return false
+  catch (error) {
+    // A native promise can throw here while constructing its species-derived
+    // promise. An incompatible receiver (plain thenable/object) throws the
+    // intrinsic TypeError instead.
+    return !(error instanceof TypeError)
   }
 }
 
@@ -318,6 +321,12 @@ function hasNativePromiseBrand(value: object): boolean {
         && Object.getOwnPropertyDescriptor(prototype, "then")?.value === nativePromiseThen) return true
       prototype = Object.getPrototypeOf(prototype)
     }
+    // A promise from another realm has a different Promise.prototype.then,
+    // and its tag may be shadowed. The intrinsic then brand check is the
+    // remaining realm-independent way to recognize it. Use no-op handlers so
+    // a rejected source promise is observed while probing.
+    Reflect.apply(nativePromiseThen, value, [() => undefined, () => undefined])
+    return true
   }
   catch {
     return false
