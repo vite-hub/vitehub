@@ -14,10 +14,6 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/nuxt`     | Nuxt module setup                                                                         | Installs the Nuxt UI module, registers ViteHub UI components, and loads the package stylesheet |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 
-`@vite-hub/ui/primitive-rail` holds the icon rail and the square primitive icons that ViteHub docs and the Console share. It is internal: it can change in any release and the Nuxt module does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
-
-The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Each family has one entry, for example `@vite-hub/ui/trace` exports `Trace`, `TraceLine`, and the other Trace parts. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Set the Nuxt module's `prefix` option, for example `viteHubUI: { prefix: "Vh" }`, when the application already has a `Message` or `Trace` component.
-
 Component entries use kebab-case and export the same component object as the package root. Use them when a development import should stay out of the root barrel; the root remains the default for applications that use several components.
 
 
@@ -125,4 +121,8 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 ## Console views
 
-The Agent Invocation list, view, inspector, timeline, and Capability inspector render ViteHub runtime records, so they live in the Console in `vite-hub`. Build an application-owned inspection page from the parts, such as `Trace` and `CodeBlock`, and from `AgentToolList`, which also documents Capability tool contracts. The model maker and provider marks of the Console come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT).
+`AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
+
+`AgentInvocationInspector` shows the run summary, timeline, Agent setup, and all recorded tool contracts by default. Capability detail stays in `AgentCapabilityInspector`, as in the Console. Set `showCapabilities` to `true` to embed a grouped Capability summary in a standalone inspector. Load the package stylesheet for both components.
+
+`AgentInvocationTimeline` lists the timed steps of a run with their owner, offset, and duration; the Invocation inspector embeds it. Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.

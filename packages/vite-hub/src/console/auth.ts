@@ -247,7 +247,8 @@ export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuth
 
 /** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- User-owned authorize callbacks may cross JavaScript realms; typeof validates the required function contract without realm-sensitive instanceof.
+  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
 

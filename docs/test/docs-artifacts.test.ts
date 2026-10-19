@@ -94,6 +94,25 @@ describe("writeDocsArtifacts", () => {
     expect(raw).toBe("| Option | Default |\n| --- | --- |\n| `driver` | `memory` |\n");
   });
 
+  it("unwraps the interactive support matrix for raw Markdown", () => {
+    expect(toRawMarkdown([
+      "::support-matrix",
+      "## Server primitives",
+      "",
+      "| Host | Status |",
+      "| --- | --- |",
+      "| Local | Available |",
+      "::",
+    ].join("\n"))).toBe([
+      "## Server primitives",
+      "",
+      "| Host | Status |",
+      "| --- | --- |",
+      "| Local | Available |",
+      "",
+    ].join("\n"));
+  });
+
   it("unwraps agent-only nodes in the content tree used by llms-full.txt and MCP", () => {
     const nodes: unknown[] = [
       ["p", {}, "Shared."],

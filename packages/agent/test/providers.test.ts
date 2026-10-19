@@ -456,6 +456,7 @@ describe("agent Vite plugin", () => {
       expect(privateConfig).toMatchObject({
         nitro: {
           handlers: [
+            { handler: join(generatedRoot, "agent", "ready-route.ts"), route: "/api/_vitehub/ready" },
             { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/chat" },
             { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/webhooks/:webhook" },
             { handler: join(generatedRoot, "agent", "declared-webhook-route.ts"), middleware: true, route: "/**" },
@@ -1440,6 +1441,7 @@ describe("agent Vite plugin", () => {
     }
 
     expect(handlers).toEqual([
+      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), route: "/api/_vitehub/ready" },
       {
         handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
         route: "/api/_vitehub/agents/:agent/chat",
@@ -2909,15 +2911,19 @@ export default defineAgent({
         expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
         expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
-        expect(queuePlugin).toContain('import { resumeWebhookQueues } from "./chat-webhook-route"')
+        expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")
-        expect(queuePlugin).toContain("if (!import.meta.prerender) setTimeout(() => startWebhookQueues(startedAt), 0)")
+        expect(queuePlugin).toContain("startWebhookQueues(startedAt)")
+        expect(webhookRoute).toContain('import { createAgentWebhookWarmup } from "@vite-hub/agent/server/internal"')
+        expect(webhookRoute).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
         const resumeWebhookQueues = vi.fn((_waitUntil: unknown, _before: number) => vi.fn())
+        const warmWebhookRoutes = vi.fn(async () => undefined)
         const hooks = new Map<string, () => void>()
         let startup: (() => void) | undefined
         // Execute the generated plugin with an earlier process start and a deferred timer.
-        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/m, "").replace("export default ", "return ").replace("import.meta.prerender", "false")}`)(
+        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/m, "").replace("export default ", "return ").replace("import.meta.prerender", "false")}`)(
           resumeWebhookQueues,
+          warmWebhookRoutes,
           { timeOrigin: Date.now() - 60_000 },
           (callback: () => void) => { startup = callback },
           undefined,
@@ -2930,6 +2936,7 @@ export default defineAgent({
         const pluginStartedAt = Date.now()
         startup?.()
         expect(resumeWebhookQueues).toHaveBeenCalledWith(undefined, expect.any(Number))
+        expect(warmWebhookRoutes).toHaveBeenCalledOnce()
         expect(resumeWebhookQueues.mock.calls[0]![1]).toBeLessThan(pluginStartedAt - 30_000)
         hooks.get("close")?.()
         expect(queuePlugin).toContain("stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)")
@@ -2962,7 +2969,8 @@ export default defineAgent({
       await plugin.configResolved.call({} as never, { command: "build", preset: "vercel", root } as never)
 
       const queuePlugin = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
-      expect(queuePlugin).toContain('import { resumeWebhookQueues, waitUntilFromEvent } from "./chat-webhook-route"')
+      expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes, waitUntilFromEvent } from "./chat-webhook-route"')
+      expect(queuePlugin).toContain("    void warmWebhookRoutes()")
       expect(queuePlugin).toContain("nitroApp.hooks.hook('request', event => {")
       expect(queuePlugin).toContain("waitUntil ||= waitUntilFromEvent(event)")
       expect(queuePlugin).toContain("    startWebhookQueues()")
