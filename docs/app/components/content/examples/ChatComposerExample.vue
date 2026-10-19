@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentChatPromptSubmit } from "@vite-hub/ui";
+import type { PromptInputSubmit } from "@vite-hub/ui";
 import type { ChatStatus, UIMessage } from "ai";
 import { onBeforeUnmount, ref } from "vue";
 
@@ -9,7 +9,7 @@ const status = ref<ChatStatus>("ready");
 let timeout: ReturnType<typeof setTimeout> | undefined;
 
 // The preview uses a local reply. In an application, call `sendMessage()` from `useChat()`.
-function submit({ text }: AgentChatPromptSubmit) {
+function submit({ text }: PromptInputSubmit) {
   messages.value = [
     ...messages.value,
     { id: `user-${messages.value.length}`, role: "user", parts: [{ type: "text", text }] },
@@ -38,12 +38,12 @@ onBeforeUnmount(() => clearTimeout(timeout));
 </script>
 
 <template>
-  <AgentChat :messages="messages" :status="status" class="h-[26rem]">
+  <Chat :messages="messages" :status="status" class="h-[26rem]">
     <template #composer>
       <p v-if="messages.length === 0" class="mb-3 text-center text-sm text-muted">
         Ask about the selected run, a file, or the next action.
       </p>
-      <AgentChatPrompt
+      <PromptInput
         v-model="input"
         :status="status"
         placeholder="Ask about this run…"
@@ -51,5 +51,5 @@ onBeforeUnmount(() => clearTimeout(timeout));
         @stop="stop"
       />
     </template>
-  </AgentChat>
+  </Chat>
 </template>

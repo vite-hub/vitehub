@@ -76,5 +76,5 @@ Icons render through the `UIcon` component that `createViteHubUI()` registers. W
 
 ## Related
 
-- [Capability inspector](/docs/ui/capability-inspector) groups tools by Capability.
-- [Invocation inspector](/docs/ui/invocation-inspector) lists every tool of a run.
+- [Console](/docs/development/console) groups the tools of a run by Capability.
+- [Code block](/docs/ui/code-block) shows the input and output of a tool call.

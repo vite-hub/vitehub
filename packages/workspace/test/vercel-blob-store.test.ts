@@ -112,7 +112,36 @@ describe("Vercel Blob workspace store", () => {
     blobMock.list.mockResolvedValueOnce({ blobs: [], cursor: "terminal", hasMore: false })
     const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
     await expect(store.list()).resolves.toEqual([])
-    expect(blobMock.list).toHaveBeenCalledTimes(1)
+    expect(blobMock.list).toHaveBeenCalledTimes(2)
+  })
+
+  it("prefers current-root entries over legacy entries", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await blobMock.put(".vitehub/workspaces/docs/files/readme.md", "legacy")
+    await blobMock.put("_vitehub/workspaces/docs/files/readme.md", "current")
+
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ path: "readme.md", type: "file", size: 7 }),
+    ])
+    await expect(store.readFile("readme.md")).resolves.toMatchObject({ content: new TextEncoder().encode("current") })
+  })
+  it("slices current entries correctly when a custom prefix overlaps the legacy root", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({
+      prefix: "_vitehub/workspaces",
+      provider: "vercel-blob",
+      token: "token",
+    }, "docs")
+
+    await blobMock.put("_vitehub/workspaces/_vitehub/workspaces/docs/files/readme.md", "current")
+
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ path: "readme.md", type: "file", size: 7 }),
+    ])
   })
   it("detects equal-size content changes in snapshot diffs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
@@ -234,6 +263,22 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.readFile("docs/readme.md")).resolves.toBeUndefined()
   })
 
+  it("removes files from the legacy root during migration", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+
+    await blobMock.put(".vitehub/workspaces/docs/files/legacy.md", "legacy")
+    await blobMock.put(".vitehub/workspaces/docs/files/archive/old.md", "old")
+    await store.rm("legacy.md")
+    await store.rm("archive", { recursive: true })
+
+    expect(blobMock.del).toHaveBeenCalledWith(".vitehub/workspaces/docs/files/legacy.md", { token: "token" })
+    expect(blobMock.del).toHaveBeenCalledWith(".vitehub/workspaces/docs/files/archive/old.md", { token: "token" })
+    await expect(store.readFile("legacy.md")).resolves.toBeUndefined()
+    await expect(store.readFile("archive/old.md")).resolves.toBeUndefined()
+  })
+
   it("recognizes not-found errors from a separately loaded Blob SDK", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
@@ -262,13 +307,13 @@ describe("Vercel Blob workspace store", () => {
     }, "docs")
 
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
-    expect(blobMock.put).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.any(Blob), expect.objectContaining({
+    expect(blobMock.put).toHaveBeenCalledWith("_vitehub/workspaces/workspace/e2e/docs/files/docs/readme.md", expect.any(Blob), expect.objectContaining({
       access: "private",
       allowOverwrite: true,
       token: "token",
     }))
     expect(await store.readFile("docs/readme.md")).toMatchObject({ path: "docs/readme.md" })
-    expect(blobMock.get).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.objectContaining({
+    expect(blobMock.get).toHaveBeenCalledWith("_vitehub/workspaces/workspace/e2e/docs/files/docs/readme.md", expect.objectContaining({
       access: "private",
       token: "token",
       useCache: false,
@@ -325,5 +370,27 @@ describe("Vercel Blob workspace store", () => {
       expect.objectContaining({ path: "docs/guides/a.md", type: "file" }),
     ])
     await expect(store.list("docs", { exclude: ["docs/guides"] })).resolves.toEqual([])
+  })
+
+  it("keeps every object under the ViteHub-owned Workspace root", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { isVitehubOwnedPath } = await import("@vite-hub/internal/owned-paths")
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
+
+    await store.writeFile("readme.md", { path: "readme.md", content: "hello" })
+    await store.setMeta!("loader", { digest: "abc" })
+    await store.snapshot({ name: "baseline" })
+
+    const keys = blobMock.put.mock.calls.map(([key]) => key)
+    expect(keys).toContain("_vitehub/workspaces/docs/files/readme.md")
+    expect(keys.length).toBeGreaterThan(2)
+    expect(keys.every(key => key.startsWith("_vitehub/workspaces/docs/") && isVitehubOwnedPath(key))).toBe(true)
+  })
+
+  it.each(["", "/handbook", "handbook/", "../handbook", "hand//book", "hand.book", ".vitehub/workspaces"])("rejects prefix %j", async (prefix) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    expect(() => createVercelBlobWorkspaceStore({ prefix, provider: "vercel-blob", token: "********" }, "docs")).toThrow("Workspace Blob prefix")
   })
 })

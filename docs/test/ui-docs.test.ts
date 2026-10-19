@@ -119,14 +119,25 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
+  it("renders component references through the shared article layout", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
     expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
+    expect(article).toContain('<ContentRenderer :value="page" :components="{ pre: DocsCodePre }" />');
+    expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
+    expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
+  });
+
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+
+    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
+    expect(layout).toContain("vh-docs-main");
+    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(layout).toContain("max-width: none;");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -154,6 +165,7 @@ describe("UI documentation", () => {
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+    const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");

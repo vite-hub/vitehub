@@ -153,6 +153,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async removeEmptyDirectory(path: string): Promise<void> {
     await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
+      if (!normalized) return
       if (this.#nodes.get(normalized)?.type !== "directory") return
       for (const key of this.#nodes.keys()) {
         if (key.startsWith(`${normalized}/`)) throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)

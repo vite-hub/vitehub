@@ -112,6 +112,20 @@ mcp({
 
 `connection` requires an `http` or `sse` transport config without `authProvider`. The Connection replaces `transport.fetch`. A resolver can also return a config with `connection`, for example to select the URL for each Invocation. Without `vitehub({ connections: true })`, resolution fails with an error that names the Connection.
 
+When the Connection provider declares an [`mcp` endpoint](/docs/connections/configure#mcp-endpoint), omit `transport`. ViteHub connects to that endpoint over HTTP. `transport` can still set `type` or `headers`. Without `transport.url` and without a provider `mcp` endpoint, resolution fails with an error that names the Connection.
+
+```ts [server/agents/support.ts]
+mcp({
+  servers: {
+    crm: { connection: 'crm', optional: true, tools: ['search', 'get_record'] },
+  },
+})
+```
+
+`optional: true` leaves the server out, without an unavailable notice, until the Connection is connected. `tools` exposes only the named server tools. It also works on a client config without a Connection.
+
+Outside an Agent, `callMcpTool({ connection: 'crm' }, 'search', { query }, { retries: 2 })` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It rejects approval-gated writes like the Agent client. A tool that is not in `tools` fails with `MCP_TOOL_NOT_FOUND`. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts.
+
 Each request maps to a Connection Operation id:
 
 | Request | Operation id | Effect | Activity |
@@ -260,7 +274,9 @@ Confirm that the Capability fails before model execution.
 | --- | --- | --- | --- |
 | `integrity` | `Record<string, McpToolFingerprints>` | none | Approved AI SDK tool fingerprints keyed by configured server name. Blocks added or changed definitions. |
 | `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, optional absent values, or resolvers keyed by server name. |
-| `servers.<name>.connection` | `string` | none | Name of a Connection in `server/connections/` that authorizes an `http` or `sse` client config. |
+| `servers.<name>.connection` | `string` | none | Name of a Connection in `server/connections/` that authorizes an `http` or `sse` client config. Without `transport.url`, the server is the provider's `mcp` endpoint. |
+| `servers.<name>.optional` | `boolean` | `false` | With `connection`, leave the server out until the Connection is connected. |
+| `servers.<name>.tools` | `string[]` | every tool | Expose only these tools, by their name on the server. |
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 

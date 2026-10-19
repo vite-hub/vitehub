@@ -15,7 +15,7 @@ import {
   resolveDefinitionScanRoots,
   sortDefinitions,
 } from "@vite-hub/internal/definition-catalog"
-import { maskSourceLiterals } from "@vite-hub/internal/source-scanner"
+import { maskLiterals, scanModule } from "@vite-hub/internal/build/scan-module"
 
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
@@ -129,6 +129,10 @@ function resolveAgentReExport(file: string, source: string, masked: string): str
   return undefined
 }
 
+function maskSourceLiterals(source: string, file: string): string {
+  return maskLiterals(scanModule(source, file))
+}
+
 function isFolderAgentImplementationTarget(file: string): boolean {
   const fileName = normalize(file).split("/").pop()!
   if (/^definition\.(?:c|m)?[jt]s$/i.test(fileName)) return true
@@ -140,7 +144,7 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
   if (seen.has(file)) return undefined
   seen.add(file)
   const source = readFileSync(file, "utf8")
-  const masked = maskSourceLiterals(source)
+  const masked = maskSourceLiterals(source, file)
   const start = findAgentObjectStart(source, masked)
   if (start === undefined) {
     const target = resolveAgentReExport(file, source, masked)
@@ -196,7 +200,7 @@ function extractAgentWorkflowName(file: string, fallbackName: string): string | 
   const shorthand = /^([A-Za-z_$][\w$]*)$/.exec(runtime.masked || "")?.[1]
   if (shorthand) {
     const source = readFileSync(file, "utf8")
-    const masked = maskSourceLiterals(source)
+    const masked = maskSourceLiterals(source, file)
     const declaration = new RegExp(`\\b(?:const|let|var)\\s+${shorthand}\\s*(?::(?:=>|[^=])*?)?=\\s*`).exec(masked)
     if (declaration) {
       const start = declaration.index + declaration[0].length
@@ -288,7 +292,7 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
   const folderAgentDirs = new Set(folderAgentFiles.map(file => normalize(resolve(file, ".."))))
   const folderAgentTargets = new Set(folderAgentFiles.flatMap((file) => {
     const source = readFileSync(file, "utf8")
-    const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+    const target = resolveAgentReExport(file, source, maskSourceLiterals(source, file))
     const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
     return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") && isFolderAgentImplementationTarget(target)
       ? [normalize(target)]
@@ -335,7 +339,7 @@ function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): D
     const files = findFolderAgentFiles(agentsDir)
     const targets = new Set(files.flatMap((file) => {
       const source = readFileSync(file, "utf8")
-      const target = resolveAgentReExport(file, source, maskSourceLiterals(source))
+      const target = resolveAgentReExport(file, source, maskSourceLiterals(source, file))
       const relativeTarget = target && normalize(relative(resolve(file, ".."), target))
       return target && relativeTarget && relativeTarget !== ".." && !relativeTarget.startsWith("../") ? [normalize(target)] : []
     }))

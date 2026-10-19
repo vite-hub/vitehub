@@ -2009,6 +2009,8 @@ describe("agent Vite plugin", () => {
         expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
         expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
+        expect(route).toContain('import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from "@vite-hub/agent/server/internal"')
+        expect(route).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
@@ -2019,7 +2021,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            plugins: [schedulePlugin],
+            plugins: [schedulePlugin, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }],
             root,
           } as never,
         )
@@ -2028,9 +2030,15 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
       expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(denoServer).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }")
+      expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(standaloneRegistry).not.toContain("setAgentHostCapabilities")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -2108,7 +2116,7 @@ describe("agent Vite plugin", () => {
       expect([emailRuntime, emailDefinition].join("\n")).not.toContain(root)
       expect([emailRuntime, emailDefinition].join("\n")).not.toMatch(/node_modules[/\\\\]/)
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(denoServer).not.toContain("@vite-hub/database/drizzle")
+      expect(denoServer).toContain("@vite-hub/database/drizzle")
       const emailBundle = join(root, "email-runtime-bundle.mjs")
       await bundleEsmEntry(join(root, ".vitehub/agent/email-runtime.js"), emailBundle, {
         alias: { "@vite-hub/email": resolve(import.meta.dirname, "../../email/dist/index.js") },
@@ -2145,7 +2153,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
+      expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -3211,6 +3219,8 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
+      require: "./dist/cloudflare/state.js",
+      default: "./dist/cloudflare/state.js",
     })
   })
 
@@ -3221,6 +3231,8 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
+      require: "./dist/server/internal.js",
+      default: "./dist/server/internal.js",
     })
   })
 
@@ -3266,6 +3278,8 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
+      require: "./dist/output.js",
+      default: "./dist/output.js",
     })
   })
 })
@@ -7392,6 +7406,110 @@ describe("server helpers", () => {
     await expect(largeResponse.json()).resolves.toEqual({ ok: true })
     expect(largePrompt?.startsWith(attachmentPrefix)).toBe(true)
     expect(largePrompt).toHaveLength(attachmentPrefix.length + attachmentBody.length)
+  })
+
+  it("maps text-like file attachments from another realm to text parts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array([35, 32, 78, 111, 116, 101, 115, 10])") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 43,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            document: {
+              content: "# Notes\n",
+              file_id: "foreign-notes-file",
+              file_name: "notes.md",
+              file_size: 8,
+              mime_type: "text/markdown",
+            },
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1011,
+          },
+        }),
+        method: "POST",
+      }),
+      "telegram",
+    )
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [expect.objectContaining({ text: "\n\nText attachment (notes.md):\n\n# Notes", type: "text" })],
+      })],
+    }))
+  })
+
+  it("rejects oversized foreign text attachment bytes before copying them", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const foreignData = runInNewContext("new Uint8Array(8 * 1024 * 1024 + 1)") as never
+    const adapter = createTestChatAdapter({ attachmentFetchData: async () => foreignData })
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts)
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const copyAttachment = vi.fn()
+    vi.stubGlobal("Uint8Array", new Proxy(Uint8Array, {
+      construct(target, args, newTarget) {
+        if (args[0] === foreignData) copyAttachment()
+        return Reflect.construct(target, args, newTarget)
+      },
+    }))
+
+    try {
+      await expect(handler(
+        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+          body: JSON.stringify({
+            update_id: 222044,
+            message: {
+              chat: { id: 456, type: "private" },
+              date: 1781092800,
+              document: {
+                content: "# Notes\n",
+                file_id: "foreign-notes-file",
+                file_name: "notes.md",
+                file_size: 8,
+                mime_type: "text/markdown",
+              },
+              from: { first_name: "Maxi", id: 123, username: "maxi" },
+              message_id: 2221012,
+            },
+          }),
+          method: "POST",
+        }),
+        "telegram",
+      )).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
+
+      expect(copyAttachment).not.toHaveBeenCalled()
+      expect(run).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("maps audio mime file attachments for custom audio capabilities", async () => {
@@ -13489,9 +13607,7 @@ describe("server helpers", () => {
     expect(adapter.stream).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    ...[false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))),
-  ])("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
+  it.each([false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))))("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
     const adapter = createTestChatAdapter()
     if (native) adapter.stream = vi.fn(async (threadId: string, chunks: AsyncIterable<string | StreamChunk>) => {
       for await (const _chunk of chunks) { /* consume the final reply */ }
@@ -15785,6 +15901,77 @@ describe("server helpers", () => {
       await handler(chatWebhookRequest(91_124), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(4))
       expect(inputs[3]?.messages?.map((message) => message.id)).toEqual(["91122", "91123", "91124"])
+    } finally {
+      pending = undefined
+      releasePending()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 10_000)
+
+  it("hands a debounced burst to the durable Agent Workflow and queues a later burst behind it", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-burst-workflow-state-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    let releasePending!: () => void
+    let pending: Promise<void> | undefined = new Promise<void>((resolve) => {
+      releasePending = resolve
+    })
+    const inputs: Array<{ messages?: Array<{ id?: string }> }> = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", debounceMs: 50, delivery: "manual", state },
+        }),
+      },
+      driver: {
+        run: async ({ input }) => {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          inputs.push(input as never)
+          await pending
+          return "internal output"
+        },
+      },
+      hooks: { "agent:finish": (event) => event.reply("Durable reply") },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }
+      await Promise.all([
+        handler(chatWebhookRequest(91_140), "telegram", runtime),
+        handler(chatWebhookRequest(91_141), "telegram", runtime),
+      ])
+      await vi.waitFor(() => expect(inputs).toHaveLength(1))
+      expect(inputs[0]?.messages?.map((message) => message.id)).toEqual(["91140", "91141"])
+
+      // Chat SDK releases its lock after the Workflow handoff, so a later burst reaches the steer queue.
+      await Promise.all([
+        handler(chatWebhookRequest(91_142), "telegram", runtime),
+        handler(chatWebhookRequest(91_143), "telegram", runtime),
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(inputs).toHaveLength(1)
+
+      pending = undefined
+      releasePending()
+      await vi.waitFor(() => expect(inputs).toHaveLength(2))
+      expect(inputs[1]?.messages?.map((message) => message.id)).toEqual(["91142", "91143"])
     } finally {
       pending = undefined
       releasePending()
@@ -21536,6 +21723,7 @@ describe("server helpers", () => {
       return {
         stream: (async function* () {
           await new Promise(() => undefined)
+          yield* []
         })(),
       }
     })
@@ -21613,6 +21801,7 @@ describe("server helpers", () => {
           return {
             stream: (async function* () {
               await new Promise(() => undefined)
+              yield* []
             })(),
           }
         },
@@ -21660,6 +21849,7 @@ describe("server helpers", () => {
     const run = vi.fn(async () => ({
       stream: (async function* () {
         await new Promise(() => undefined)
+        yield* []
       })(),
     }))
     const agent = defineAgent({
@@ -22335,6 +22525,102 @@ describe("server helpers", () => {
     await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
 
     expect(runs).toEqual([["remember BROWSER-HISTORY"], ["what marker did I ask you to remember?"]])
+  })
+
+  it.each(["local bytes", "local buffer", "foreign bytes", "foreign buffer", "foreign subarray", "foreign prototype blob", "spoofed blob", "shadowed local bytes", "shadowed foreign bytes", "tagged local bytes", "tagged foreign bytes", "prototype-tagged foreign bytes", "throwing-tag foreign bytes"])("exports Channel history attachment %s", async (kind) => {
+    let data: unknown = kind === "local bytes"
+      ? new Uint8Array([1, 2, 3])
+      : kind === "local buffer"
+        ? new Uint8Array([1, 2, 3]).buffer
+        : kind === "foreign prototype blob"
+          ? runInNewContext(`
+            // Native Blob slots with a constructor and prototype created in this VM.
+            class RealmBlob {
+              constructor(parts, options) {
+                return Reflect.construct(NativeBlob, [parts, options], new.target)
+              }
+            }
+            new RealmBlob([new Uint8Array([1, 2, 3])], { type: "application/octet-stream" })
+          `, { NativeBlob: Blob })
+          : kind === "spoofed blob"
+            ? { [Symbol.toStringTag]: "Blob", size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }
+            : runInNewContext(kind === "foreign bytes"
+              ? "new Uint8Array([1, 2, 3])"
+              : kind === "foreign subarray"
+                ? "new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)"
+                : "new Uint8Array([1, 2, 3]).buffer")
+    if (kind.startsWith("shadowed")) {
+      data = kind === "shadowed local bytes"
+        ? new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      Object.defineProperties(data, {
+        buffer: { value: new Uint8Array([8]).buffer },
+        byteOffset: { value: 0 },
+        byteLength: { value: 1 },
+      })
+    }
+    let tagReads = 0
+    if (kind.includes("tagged") || kind === "throwing-tag foreign bytes") {
+      data = kind === "tagged local bytes"
+        ? new Uint8Array([1, 2, 3])
+        : runInNewContext("new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4)")
+      const target = kind === "prototype-tagged foreign bytes" ? Object.getPrototypeOf(data) : data
+      Object.defineProperty(target, Symbol.toStringTag, kind === "throwing-tag foreign bytes"
+        ? { get() { tagReads++; throw new Error("Do not read the supplied tag") } }
+        : { value: "ProviderBytes" })
+    }
+    if (kind === "foreign prototype blob") {
+      expect(data).not.toBeInstanceOf(Blob)
+      expect(Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(data)).toBe(3)
+      const nativeBytes: ArrayBuffer = await Blob.prototype.arrayBuffer.call(data)
+      expect([...new Uint8Array(nativeBytes)]).toEqual([1, 2, 3])
+    }
+    const adapter = createTestChatAdapter({
+      historyMessages: [new Message({
+        attachments: [{
+          // SAFETY: The fixtures include foreign byte brands and a native-slot Blob with a VM-created prototype; the spoof deliberately lacks Blob slots.
+          data: data as never,
+          mimeType: "application/octet-stream",
+          name: "bytes.bin",
+          size: 3,
+          type: "file",
+        }],
+        author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+        formatted: { children: [], type: "root" },
+        id: "20",
+        metadata: { dateSent: new Date("2026-08-15T00:00:00.000Z"), edited: false },
+        raw: {},
+        text: "attachment",
+        threadId: "telegram:456",
+      })],
+    })
+    const agent = defineAgent({
+      channels: {
+        // SAFETY: createTestChatAdapter implements the Channel adapter contract.
+        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secretToken: "history-secret" } }),
+      },
+      driver: { run: () => "saved" },
+      messages: { stream: false },
+    })
+    // SAFETY: The Agent Definition is valid for the internal webhook route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ threadId: "telegram:456" }),
+      headers: { "content-type": "application/json", "x-test-secret": "history-secret", "x-vitehub-channel-history": "1" },
+      method: "POST",
+    }), "telegram")
+    expect(response.status).toBe(200)
+    expect(tagReads).toBe(0)
+    if (kind === "spoofed blob") {
+      const history = await response.json()
+      expect(history).toMatchObject({ messages: [{ attachments: [{ name: "bytes.bin", unavailable: true }] }] })
+      expect(history).toMatchObject({ messages: [{ attachments: [expect.not.objectContaining({ data: expect.anything() })] }] })
+    }
+    else {
+      await expect(response.json()).resolves.toMatchObject({
+        messages: [{ attachments: [{ data: "AQID", name: "bytes.bin" }], id: "20" }],
+      })
+    }
   })
 
   it("exports authenticated Channel history with attachment data", async () => {

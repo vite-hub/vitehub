@@ -33,7 +33,8 @@ interface DrizzleSqliteAdapterOptions {
   libsql?: LibsqlClientFactory
   requireRemoteUrl: boolean
   resolveLocalUrl?: (url: string) => string
-  missingConnectionMessage: (config: RuntimeDrizzleDatabaseConfig) => string
+  /** What the database needs, for the `why` of `DATABASE_MISSING_CONNECTION`. */
+  missingConnection: string
 }
 
 export function isRemoteSqliteUrl(url: string) {
@@ -76,7 +77,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
 
     const url = resolveConfigValue(config.connection?.url)
     if (!url || !options.libsql || (options.requireRemoteUrl && !isRemoteSqliteUrl(url))) {
-      throw databaseErrorDiagnostics.DATABASE_R0014({ message: options.missingConnectionMessage(config) })
+      throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: config.name, needs: options.missingConnection })
     }
 
     const authToken = resolveConfigValue(config.connection?.authToken)
