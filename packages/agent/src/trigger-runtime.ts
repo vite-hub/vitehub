@@ -207,6 +207,10 @@ interface AgentTriggerResolutionOptions {
   /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
   channelStateCommit?: AgentChannelStateCommit
   queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+  /** Raw body of the webhook request that runs the trigger. An unset `webhook.deliveryId` defaults to its SHA-256. */
+  rawBody?: string | Uint8Array
+  /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
+  deliveryId?: string
 }
 /** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
 function bindAgentTriggerCallbacks<TContext>(
@@ -447,8 +451,8 @@ function missingBearerSecretError(registration: AgentWebhookRegistrationDefiniti
   return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
 }
 
-async function sha256(value: string): Promise<Uint8Array> {
-  const bytes = new TextEncoder().encode(value)
+async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
@@ -762,9 +766,13 @@ export async function resolveAgentTriggerInvocation<
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
+  const webhook = options?.deliveryId && result.webhook && result.webhook.deliveryId === undefined
+    ? { ...result.webhook, deliveryId: options.deliveryId }
+    : await withBodyDeliveryId(result.webhook, options?.rawBody)
   const invoked = withWebhookDeliveryRun({
     ...result,
     ...(invokedRun ? { run: invokedRun } : {}),
+    ...(webhook ? { webhook } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const inheritedRun = invoked.run && { ...invoked.run }
@@ -775,6 +783,35 @@ export async function resolveAgentTriggerInvocation<
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger), trigger)
+}
+
+/**
+ * A webhook delivery without `deliveryId` is identified by the SHA-256 (hex) of its raw body, so an identical retried
+ * body is the same delivery. The queue stores the body as text, so a replay hashes the same value.
+ */
+async function withBodyDeliveryId<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  rawBody: string | Uint8Array | undefined,
+): Promise<AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined> {
+  if (!webhook || webhook.deliveryId !== undefined || rawBody === undefined) return webhook
+  return { ...webhook, deliveryId: hexBytes(await sha256(rawBody)) }
+}
+
+/** Applies the body `deliveryId` default to the result of `webhook.rehydrate()` during a queued replay. */
+export async function withRehydratedBodyDeliveryId<CALL_OPTIONS>(
+  result: AgentTriggerInvokeResult<CALL_OPTIONS>,
+  rawBody: string | Uint8Array,
+  fallbackDeliveryId?: string,
+): Promise<AgentTriggerInvokeResult<CALL_OPTIONS>> {
+  if (isResponse(result) || !result.webhook) return result
+  const webhook = result.webhook.deliveryId === undefined && fallbackDeliveryId
+    ? { ...result.webhook, deliveryId: fallbackDeliveryId }
+    : await withBodyDeliveryId(result.webhook, typeof rawBody === "string" ? new TextEncoder().encode(rawBody) : rawBody)
+  return { ...result, webhook }
+}
+
+function hexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /**
@@ -814,15 +851,16 @@ export function resolveAgentTriggerInvocationResult<
       trigger: trigger as never,
     }
   }
-  const task = invocation.task === undefined ? undefined : agentTriggerTask(trigger, invocation.task)
+  const normalized = withWebhookDeliveryRun(invocation, trigger)
+  const task = normalized.task === undefined ? undefined : agentTriggerTask(trigger, normalized.task)
   return {
     ...(task?.agent ? { agent: task.agent } : {}),
-    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
-    metadata: invocation.metadata,
-    run: invocation.run,
-    ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+    input: withAgentTriggerContext(normalized.input, trigger, normalized.delivery, normalized.message),
+    metadata: normalized.metadata,
+    run: normalized.run,
+    ...(normalized.task !== undefined ? { task: normalized.task } : {}),
     trigger: trigger as never,
-    webhook: withSerializedWebhook(invocation.webhook, trigger),
+    webhook: withSerializedWebhook(normalized.webhook, trigger),
   }
 }
 

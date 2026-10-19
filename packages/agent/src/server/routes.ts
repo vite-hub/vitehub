@@ -58,6 +58,7 @@ import {
   resolveAgentTriggerInvocationResult,
   taskAgentIdentity,
   verifyAgentWebhookRequest,
+  withRehydratedBodyDeliveryId,
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import {
@@ -1913,7 +1914,7 @@ async function executeQueuedWebhookDelivery(
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation },
+          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1923,7 +1924,7 @@ async function executeQueuedWebhookDelivery(
         }
         const resolved =
           !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
-            ? resolveAgentTriggerInvocationResult(await replayed.webhook.rehydrate(), replayed.trigger)
+            ? resolveAgentTriggerInvocationResult(await withRehydratedBodyDeliveryId(await replayed.webhook.rehydrate(), delivery.request.body, delivery.deliveryId), replayed.trigger)
             : replayed
         await context.flushWaitUntil?.()
         return resolved
@@ -8721,7 +8722,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             createExecutionContext(context as never) as never,
             trigger.id,
             input,
-            stateCommit ? { channelStateCommit: stateCommit } : undefined,
+            {
+              rawBody: rawBodyBytes,
+              ...(stateCommit ? { channelStateCommit: stateCommit } : {}),
+            },
           )
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
             if (invocation.response.status < 400) await settleAgentChannelStateCommit(stateCommit)
@@ -8765,7 +8769,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           }
           if (invocation.webhook?.concurrencyLimit !== undefined && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
-            if (!deliveryId.trim()) {
+            if (!deliveryId?.trim()) {
               return await terminalChannelDeliveryResponse(
                 channelDelivery,
                 createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."),
@@ -8907,7 +8911,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           let concurrencyTtlMs = defaultWebhookConcurrencyTtlMs
           if (invocation.webhook && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
-            if (!deliveryId.trim()) {
+            if (!deliveryId?.trim()) {
               return await terminalChannelDeliveryResponse(
                 channelDelivery,
                 createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."),
@@ -9049,7 +9053,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   }
                 }
               })
-              if (durableHandoff) return
+              if (durableHandoff) {
+                await settleAgentChannelStateCommit(stateCommit)
+                return
+              }
               await settleAgentChannelStateCommit(stateCommit)
               await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", {
                 runId: invocation.run?.runId,
