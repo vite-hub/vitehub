@@ -61,10 +61,6 @@ export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | und
   getAuthRuntimeState().envResolver = resolver;
 }
 
-function getAuthRuntimeEnvResolver(): AuthRuntimeEnvResolver | undefined {
-  return getAuthRuntimeState().envResolver
-}
-
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half";
 }
@@ -340,6 +336,7 @@ async function runAccessAuthorize(
 }
 
 const authorizationResponsePrototypeLimit = 32;
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const;
 
 // Capture the platform accessors before user authorization code can mutate the
 // global prototype.  Later provenance checks must compare against these stable
@@ -438,7 +435,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false;
   try {
     const stream = body as object;
-    if (!hasNativeStreamBrand(stream)) return false;
     let prototype: object | null = Object.getPrototypeOf(stream);
     let locked: (() => boolean) | undefined;
     let getReader: (() => unknown) | undefined;
@@ -460,6 +456,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     }
     const constructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value;
     if (typeof constructor !== "function") return false;
+    const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value;
+    if (getReader === intrinsicReader) {
+      authorizationReaderMethods.set(stream, getReader);
+      return true;
+    }
     if (!Function.prototype.toString.call(getReader).includes("super.getReader")) return false;
     const fresh = new constructor();
     const reader = Reflect.apply(getReader, fresh, []);
@@ -557,6 +558,10 @@ function bridgeAuthorizationBody(
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
+  const cleanupReader = async (reason?: unknown, shouldCancel = true) => {
+    if (shouldCancel && reader && cancel) await Reflect.apply(cancel, reader, [reason])
+    release()
+  }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -585,6 +590,7 @@ function bridgeAuthorizationBody(
       } finally { release() }
     },
   }, { highWaterMark: 0 });
+  return stream;
 }
 
 function isUint8ArrayChunk(value: unknown): value is Uint8Array {
@@ -605,19 +611,6 @@ function isUint8ArrayChunk(value: unknown): value is Uint8Array {
     return false;
   }
 }
-
-function hasNativeStreamBrand(body: object): boolean {
-  try {
-    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false;
-    const getter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get;
-    if (!getter) return false;
-    Reflect.apply(getter, body, []);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return;
@@ -769,6 +762,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
+    const bodyReader = body === null ? undefined : authorizationBodyReader(body)
+    if (body !== null && !bodyReader) return
+    const normalizedBody = body === null ? null : bridgeAuthorizationBody(body, bodyReader!)
     const normalizedResponse =
       status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
         ? Response.error()

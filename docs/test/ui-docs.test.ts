@@ -140,6 +140,8 @@ describe("UI documentation", () => {
     expect(readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8")).toContain("max-width: calc(");
   });
 
+  it("keeps one sidebar search control and the context link", () => {
+    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-sidebar-search");
     expect(sidebarTop).toContain("vh-docs-context");
