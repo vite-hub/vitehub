@@ -11,6 +11,6 @@ it("rejects an authorization at its exact expiry boundary", async () => {
   const expiresAt = Date.now() + 60_000
   test.now.value = expiresAt
   await test.store.authorizations.put({ ...authorization, expiresAt })
-  await expect(test.runtime.complete({ code: "code", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+  await expect(test.runtime.complete({ code: "code", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   expect(test.provider.calls).toEqual([])
 })

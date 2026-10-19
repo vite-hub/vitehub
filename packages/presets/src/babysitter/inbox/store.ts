@@ -1170,6 +1170,20 @@ export class PullRequestInbox {
     })
   }
   /**
+   * Whether this claim still holds the lease on its claimed head, with no source push since the claim.
+   * Unrelated events can move the generation or revision; a pinned wait from `finish()` still accepts them.
+   */
+  async holdsClaimedHead(claim: Claim): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      const head = claim.snapshot.pr?.head?.sha
+      return Boolean(s && head && s.status !== 'terminal' && s.lease === claim.token && s.leaseUntil > this.clock()
+        && s.pr?.head?.sha === head && !s.sourcePushOverflow
+        && (s.sourcePushHead === claim.snapshot.sourcePushHead || s.sourcePushHead === head)
+        && !s.sourcePushHeads?.some(pushed => pushed !== head))
+    })
+  }
+  /**
    * Finishes a claimed pass. A `wait` without `headSha` binds to the claimed head and requires
    * unchanged evidence. A wait with `headSha`, such as the head of a repair push, keeps later events
    * unhandled, so `waitsToEvaluate()` returns the PR and the host decides whether they need work.

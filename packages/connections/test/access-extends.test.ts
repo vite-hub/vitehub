@@ -27,7 +27,7 @@ describe("Connection access through Agent extends", () => {
     await expect(grandchild.call(...modify)).resolves.toEqual({ id: "message-1" })
     // The same Agent without parents is an inline Agent that `runAgent()` ran. It gets only rules that name it.
     const inline = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }) })
-    expect(await rejection(inline.call(...modify))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(inline.call(...modify))).toMatchObject({ code: "CONNECTIONS_DENIED" })
   })
 
   it("keeps an explicit child rule that grants less", async () => {
@@ -37,7 +37,7 @@ describe("Connection access through Agent extends", () => {
     }))
     await connect(test)
     const child = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }, {}, ["bot"]) })
-    expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(child.call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
   })
 
@@ -55,7 +55,7 @@ describe("Connection access through Agent extends", () => {
       expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
     }
     // A name that only looks like an extension of `bot` inherits nothing.
-    expect(await rejection(test.runtime.client("mail", { access: minted }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(test.runtime.client("mail", { access: minted }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -63,7 +63,7 @@ describe("Connection access through Agent extends", () => {
     const test = createTestRuntime(mailConnection({ "agent:bot": { read: true, write: ["mail.messages.modify"] } }))
     await connect(test)
     const child = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }, {}, ["bot"]) })
-    expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+    expect(await rejection(child.call(...modify))).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(approval).toMatchObject({ actor: "agent:bot-dev", input: { inherited: ["agent:bot"] } })
     await expect(test.runtime.approve({ id: approval!.id })).resolves.toMatchObject({ approval: { status: "executed" } })

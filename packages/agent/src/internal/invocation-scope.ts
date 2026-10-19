@@ -48,9 +48,7 @@ export function scopedAgentAsyncIterable<T>(scope: AgentInvocationScope, iterabl
         next: (value?: unknown) => runInAgentInvocationScope(scope, () => iterator.next(value)),
         return: (value?: unknown) => runInAgentInvocationScope(scope, () => iterator.return?.(value) ?? Promise.resolve({ done: true, value } as IteratorResult<T>)),
         throw: (error?: unknown) => runInAgentInvocationScope(scope, () => iterator.throw?.(error) ?? Promise.reject(error)),
-        [Symbol.asyncIterator]() {
-          return this
-        },
+        [Symbol.asyncIterator]() { return this },
       }
       return scopedIterator
     },
