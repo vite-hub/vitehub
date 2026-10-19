@@ -28,7 +28,6 @@ export default defineConfig({
       "src/presets.ts",
       "src/source-scanner.ts",
       "src/secret.ts",
-      "src/source-scanner.ts",
       "src/standard-schema.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",
