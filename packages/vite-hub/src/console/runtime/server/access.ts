@@ -532,9 +532,12 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (policy.mode === "local") {
     if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   } else if (policy.mode === "host-managed") {
-    if (!policy.authorize) return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED")
-    authorizeResult = await policy.authorize({ request: consoleRequest(event) })
-    authorizeResultReady = true
+    // Host-managed exposure is already protected by the host. A callback is
+    // optional and, when present, can further restrict access.
+    if (policy.authorize) {
+      authorizeResult = await policy.authorize({ request: consoleRequest(event) })
+      authorizeResultReady = true
+    }
   } else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
     if (!policy.check) {
       return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
