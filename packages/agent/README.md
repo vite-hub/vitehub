@@ -380,6 +380,8 @@ Built-in persistent `file:` connections use SQLite WAL so queue commits can comp
 
 Queued webhook deliveries in this state survive a restart. A persistent Nitro server resumes them when it starts, without an inbound request. Before the queue resumes, the server fails each Agent's pending or running invocations that started before this process. An invocation that a persisted queued delivery runs again under the same run ID stays active and continues with that delivery. Agents with a durable Workflow runtime are skipped. Vercel and Netlify output resumes the queue on the first webhook request and does not recover invocations.
 
+`defineChannelTrigger({ durableState: true, invoke })` types `context.channelState` as present (`AgentDurableChannelTriggerContext`). The trigger throws `AGENT_R1005` before `invoke` runs when the Channel's State is not bound. The webhook route and the webhook queue bind it. See [Start several Invocations from one webhook](../../docs/content/docs/agents/channels.md#start-several-invocations-from-one-webhook).
+
 A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel.
 
 `webhook.response` is the `Response` sent for an accepted, queued, steered, or duplicate delivery, after admission, instead of the JSON receipt. Busy and error answers keep their own. The queue never stores it. See [Answer the provider](../../docs/content/docs/agents/triggers.md#answer-the-provider).
@@ -388,6 +390,7 @@ A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset 
 
 `webhook.debounce: { key, delayMs }` delays a queued delivery by `delayMs`. A later delivery with the same key replaces a queued one that has not started, and its wait starts again. The replaced delivery records a `superseded` Channel delivery event. See [Debounce webhook deliveries](../../docs/content/docs/agents/triggers.md#debounce-webhook-deliveries).
 
+`context.channelState.transaction(key, run, { ttlMs?, waitMs? })` locks one Channel State key while `run` decides, and commits its write with the queue admission of the returned invocation, in one transaction on SQLite and libSQL State. See [Decide and write Channel State in one step](../../docs/content/docs/agents/channels.md#decide-and-write-channel-state-in-one-step).
 A trigger can declare `prepare` and named `tasks`, and `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain `run` function. The queue stores the task key, the task Agent's name and the accepted JSON input before `prepare`, then runs `prepare` and the task on every attempt. A restart resolves the stored task from the current definition without calling `invoke` again. A task's `prepare` replaces the trigger's. A handled `Response` from `prepare` or `run` settles the delivery (2xx and 4xx) or retries it (5xx). See [Prepare accepted work and run tasks](../../docs/content/docs/agents/triggers.md#prepare-accepted-work-and-run-tasks).
 
 A queued delivery gets three execution attempts. When the queue stops retrying it, after the last failed attempt or after the delivery used all its execution leases, ViteHub dispatches the Trigger's `failed` callback at most once with `{ attempts, deliveryId, error, publicError, input?, invocation?, run? }`. An error from `failed` is logged and does not change the delivery outcome. Pending notifications survive restart with built-in state providers; a process exit after the durable notification claim leaves an uncertain outcome that is not replayed automatically. See [Report a failed webhook delivery](../../docs/content/docs/agents/triggers.md#report-a-failed-webhook-delivery).
@@ -706,6 +709,8 @@ agent: {
 ```
 
 The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 until preparation succeeds. `requireNonEmpty` rejects an empty prepared Workspace; it is opt-in. Set `route` to change the readiness path.
+
+With libSQL or SQLite Agent State, the route also exists without `preparation`. At startup, the generated webhook queue plugin calls `handler.warm()` on every Agent's webhook handler. It builds the trigger registrations, resolves the webhook secrets, and connects and migrates webhook State with its queue backend ID, so the first delivery does not wait for this work. The route answers 503 `{ ready: false, status: "warming", agents }` until every Agent is warm, then 200 with `durationMs` for each Agent. A failed warm-up answers 503 with `status: "error"` and `error`, and is tried again every 5 seconds. The preparation route waits for the warm-up too. The process logs `scope: "vitehub.agent.ready"` once. Point a Kubernetes `readinessProbe` at the route. See [Report readiness after warm-up](../../docs/content/docs/agents/process-hosts.md#report-readiness-after-warm-up).
 
 The Nitro plugin that `vitehub({ observability })` generates owns request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
 

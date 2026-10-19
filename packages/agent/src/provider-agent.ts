@@ -405,6 +405,8 @@ function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecor
   return { [providerSessionCursorRecordKey]: "ready", value }
 }
 
+
+31
 function providerSessionStore(
   path: string,
   create: (path: string) => Promise<ProviderRuntimeSessionStore>,
@@ -3471,7 +3473,9 @@ async function* runProvider<
     // requested one. Opaque cursors do not identify a thread, so they count as resumed.
     const requestedNativeThreadId = providerNativeThreadId(resumeCursor)
     const startedNativeThreadId = providerNativeThreadId(session.resumeCursor)
+
     codexHomeActivity?.track(startedNativeThreadId)
+31
     const resumeFailed = requestedNativeThreadId !== undefined && requestedNativeThreadId !== startedNativeThreadId
     const resumed = resumeCursor !== undefined && !resumeFailed
     if (resumeFailed) {

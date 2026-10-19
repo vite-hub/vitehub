@@ -11,6 +11,7 @@ import { registerAgentProcessHostIntake, type AgentProcessHostContext, type Agen
 import { createProcessAgentHost } from "@vite-hub/agent/runtime/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "@vite-hub/agent/server/github";
 import { createBabysitterRuntime } from "./server.ts";
+import { budgetParks } from "./inbox/store.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 
 /** Reads a plain or sealed Server Env value. */
@@ -218,6 +219,8 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
         ready: queue.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked).length,
         stackBlocked: queue.filter(item => item.stackBlocked).length,
         waiting: queue.filter(item => item.status === "waiting").length,
+        // PRs that `reviewPushBudget` parked, with the recorded reason.
+        parked: budgetParks(queue),
       }, admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,

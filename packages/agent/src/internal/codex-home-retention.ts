@@ -567,7 +567,7 @@ function runInTransaction(db: DatabaseSync, work: () => number): number {
 }
 
 /** Removes rows of the given threads from one Codex database. Returns the IDs whose rows are gone. */
-function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[]): { done: string[], rows: number } {
+function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[], transactional = true): { done: string[], rows: number } {
   const statements: { sql: string, params: number }[] = []
   for (const table of tableNames(db)) {
     const columns = tableColumns(db, table)
@@ -585,10 +585,11 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
   for (let index = 0; index < threadIds.length; index += threadDeleteBatch) {
     const batch = threadIds.slice(index, index + threadDeleteBatch)
     const json = JSON.stringify(batch)
-    rows += runInTransaction(db, () => statements.reduce((total, statement) => {
+    const work = () => statements.reduce((total, statement) => {
       const result = db.prepare(statement.sql).run(...Array.from({ length: statement.params }, () => json))
       return total + Number(result.changes)
-    }, 0))
+    }, 0)
+    rows += transactional ? runInTransaction(db, work) : work()
     done.push(...batch)
   }
   return { done, rows }
@@ -652,31 +653,56 @@ async function applyCodexHomeRetentionPlan(inventory: CodexHomeInventory, plan: 
     sessions.push(session)
   }
   const sqlite = inventory.databases.length ? await loadSqlite() : undefined
-  // Remove database rows before the rollout. A rollout without rows is safe, because Codex can index it again.
+  // Establish write locks on every database before deleting any rows. This keeps a busy or
+  // unusable later database from leaving earlier databases partially cleaned.
   let rowsRemoved = new Set(sessions.map(session => session.threadId))
-  for (const database of inventory.databases) {
-    if (database.kind === "logs" || !sessions.length) continue
-    if (database.unusable) {
-      // A thread whose rows cannot be removed keeps its rollout, so the database stays consistent.
-      rowsRemoved = new Set()
-      continue
-    }
-    let db: DatabaseSync | undefined
-    try {
-      db = await openWritable(sqlite!, database.path)
-      const result = deleteThreadRows(db, database.kind, [...rowsRemoved])
-      removed.threadRows += result.rows
-      rowsRemoved = new Set(result.done)
-      incrementalVacuum(db)
-    }
-    catch (error) {
-      context.skipped.push(`${database.name}: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`)
-      rowsRemoved = new Set()
-    }
-    finally {
-      db?.close()
+  const writable: { database: CodexDatabase, db: DatabaseSync }[] = []
+  let databasesReady = true
+  if (sessions.length) {
+    for (const database of inventory.databases) {
+      if (database.kind === "logs") continue
+      if (database.unusable) {
+        databasesReady = false
+        context.skipped.push(`${database.name}: ${database.unusable}.`)
+        break
+      }
+      try {
+        const db = await openWritable(sqlite!, database.path)
+        db.exec("BEGIN IMMEDIATE")
+        writable.push({ database, db })
+      }
+      catch (error) {
+        databasesReady = false
+        context.skipped.push(`${database.name}: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`)
+        break
+      }
     }
   }
+  if (databasesReady) {
+    try {
+      for (const { database, db } of writable) {
+        const result = deleteThreadRows(db, database.kind as "state" | "thread_history", [...rowsRemoved], false)
+        removed.threadRows += result.rows
+        rowsRemoved = new Set(result.done)
+      }
+      for (const { db } of writable) db.exec("COMMIT")
+    }
+    catch (error) {
+      for (const { db } of writable) { try { db.exec("ROLLBACK") } catch {} }
+      rowsRemoved = new Set()
+      context.skipped.push(`thread metadata: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`)
+    }
+  }
+  else {
+    rowsRemoved = new Set()
+    for (const { db } of writable) { try { db.exec("ROLLBACK") } catch {} }
+  }
+  for (const { database, db } of writable) {
+    try { incrementalVacuum(db) }
+    catch (error) { context.skipped.push(`${database.name}: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`) }
+    db.close()
+  }
+
   for (const session of sessions) {
     if (!rowsRemoved.has(session.threadId)) continue
     try {
