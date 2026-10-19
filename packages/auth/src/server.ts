@@ -519,9 +519,9 @@ function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReade
   }
 }
 
-function releaseAuthorizationReader(reader: object): void {
+function releaseAuthorizationReader(reader: object, trustedRelease?: Function): void {
   try {
-    const release = Reflect.get(reader, "releaseLock")
+    const release = trustedRelease ?? Reflect.get(reader, "releaseLock")
     if (typeof release === "function") Reflect.apply(release, reader, [])
   }
   catch { /* best effort cleanup */ }
@@ -555,6 +555,13 @@ function bridgeAuthorizationBody(
   let initialization: Promise<NonNullable<typeof methods>> | undefined
   const initialize = () => initialization ??= Promise.resolve().then(() => {
     const nextReader = Reflect.apply(getReader, body, [])
+    let trustedRelease: Function | undefined
+    let releasePrototype: object | null = Object.getPrototypeOf(nextReader)
+    while (releasePrototype && !trustedRelease) {
+      const descriptor = Object.getOwnPropertyDescriptor(releasePrototype, "releaseLock")
+      if (typeof descriptor?.value === "function") trustedRelease = descriptor.value
+      releasePrototype = Object.getPrototypeOf(releasePrototype)
+    }
     try {
       const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
       if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
@@ -563,7 +570,7 @@ function bridgeAuthorizationBody(
       return nextMethods
     }
     catch (error) {
-      releaseAuthorizationReader(nextReader)
+      releaseAuthorizationReader(nextReader, trustedRelease)
       throw error
     }
   })
@@ -723,6 +730,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // status-zero error response across realms, while rejecting other foreign
     // null-body response-shaped values.
     if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)
+      && !(foreignBodyUnused && nativeHeaderMethods && nativeCookieMethod)
       && !(status === 0 && statusText === "" && [...new Headers(headers)].length === 0)) return
 
     let nativeBodyReader = body === null
