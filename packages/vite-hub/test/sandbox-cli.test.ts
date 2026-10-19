@@ -218,7 +218,7 @@ describe("vitehub sandbox", () => {
 
   it("rejects a --drain-timeout that is not a number of milliseconds", async () => {
     const env = { CRABBOX_STATIC_USER: "agent", SSH_AUTHORIZED_KEY: "/ssh/key.pub", SSH_HOST_KEY: "/ssh/host" };
-    for (const value of ["-1", "1.5", "soon"]) {
+    for (const value of ["-1", "1.5", "soon", "2147483648"]) {
       await expect(
         Promise.resolve(feature("serve").run([`--drain-timeout=${value}`], context(env).context)),
       ).rejects.toThrow("--drain-timeout must be a non-negative number of milliseconds");

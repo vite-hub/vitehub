@@ -216,7 +216,7 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
 
   it("rejects a drain timeout that is not a non-negative integer", async () => {
     const { server } = await fixture()
-    for (const drainTimeoutMs of [-1, 1.5, Number.NaN]) {
+    for (const drainTimeoutMs of [-1, 1.5, Number.NaN, 2_147_483_648]) {
       expect(() => server.close({ drainTimeoutMs })).toThrow("drainTimeoutMs must be a non-negative integer")
     }
   }, 15000)

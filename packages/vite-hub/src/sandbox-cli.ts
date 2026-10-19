@@ -9,6 +9,8 @@ const checkUsage =
 
 type Values = Record<string, string | boolean | undefined>;
 
+const maxTimeoutMs = 2_147_483_647;
+
 function option(
   values: Values,
   name: string,
@@ -46,7 +48,7 @@ function port(values: Values, env: NodeJS.ProcessEnv): number {
 
 function drainTimeout(values: Values, env: NodeJS.ProcessEnv): number {
   const value = option(values, "drain-timeout", env, "VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS") ?? "0";
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > maxTimeoutMs)
     throw new TypeError("[vitehub] --drain-timeout must be a non-negative number of milliseconds.");
   return Number(value);
 }

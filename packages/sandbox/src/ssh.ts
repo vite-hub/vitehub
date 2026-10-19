@@ -6,6 +6,8 @@ import type { ChildProcess } from "node:child_process"
 import type { Socket } from "node:net"
 import type { Connection } from "ssh2"
 
+const maxTimeoutMs = 2_147_483_647
+
 export interface SshLaunchOptions {
   host: string
   user: string
@@ -224,7 +226,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       return sockets.size
     },
     close({ drainTimeoutMs = 0 } = {}) {
-      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0) throw new TypeError("[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.")
+      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0 || drainTimeoutMs > maxTimeoutMs) throw new TypeError("[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.")
       if (closing) {
         if (!drainTimeoutMs) endDrain?.()
         return closing
