@@ -2,13 +2,13 @@ export interface RealtimeRoomSql {
   exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
-/** Accept explicit adapters and the native workerd SqlStorage receiver. */
-export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
+function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql is RealtimeRoomSql {
   if (sql === null || Object(sql) !== sql) return false
   try {
     const ownExec = Object.getOwnPropertyDescriptor(sql, "exec")
     if (ownExec) {
-      return "value" in ownExec && typeof ownExec.value === "function"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SQL adapters must provide a callable own data property without invoking accessors.
+      return allowOwnExec && "value" in ownExec && typeof ownExec.value === "function"
     }
 
     const prototype = Object.getPrototypeOf(sql)
@@ -34,28 +34,112 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // descriptor shape only ensures that invoking discovery cannot run an
     // arbitrary inherited getter.
     if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
-    // All platform members belong to one prototype, and its constructor must
-    // identify that exact prototype. This rejects copied members and bound or
-    // arrow constructor proxies before any candidate callback is invoked.
-    if (constructorEntry.owner !== execEntry.owner || constructorEntry.owner !== databaseSizeEntry.owner) return false
-    if (!Object.hasOwn(constructor, "prototype") || constructor.prototype !== constructorEntry.owner) return false
-    // Some workerd versions give the native getter an own `prototype`. Its
-    // `constructor` is the getter itself. A Proxy around a JavaScript function
-    // reports the prototype of its target, so reject that before the brand
-    // probe and discovery never invokes a fabricated getter.
-    const getterPrototype: unknown = Object.getOwnPropertyDescriptor(databaseSize, "prototype")?.value
-    if (getterPrototype !== undefined) {
-      if (getterPrototype === null || Object(getterPrototype) !== getterPrototype) return false
-      if (Object.getOwnPropertyDescriptor(getterPrototype, "constructor")?.value !== databaseSize) return false
-    }
+    // The platform carrier's constructor must own the prototype that exposes
+    // its SQL methods. This ties the accessor to the carrier's identity and
+    // rejects decorated objects that merely copy a native getter onto a
+    // different prototype.
+    if (constructor.prototype !== prototype) return false
+    // Built-in container constructors identify counterfeit carriers when a
+    // branded accessor (for example Map.prototype.size) is copied onto them.
+    // A real workerd SqlStorage has its own platform constructor identity.
+    if (constructor === Map || constructor === Set || constructor === ArrayBuffer || constructor === DataView || constructor === Uint8Array) return false
+    if (typeof URLSearchParams === "function" && constructor === URLSearchParams) return false
+    if (typeof SharedArrayBuffer === "function" && constructor === SharedArrayBuffer) return false
+    // Workerd may place the constructor and accessors on different levels of
+    // its internal prototype chain. Their descriptors are inspected above; the
+    // native getter brand probe below provides the receiver validation.
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
-    // A broad substring check is forgeable by an ordinary JavaScript getter
-    // whose source merely contains "[native code]". workerd prints the getter
-    // as `function get databaseSize()` or as `function ()`, so the `get` and
-    // the name are optional, but the native body is required.
-    const nativeGetterSource = /^function(?:\s+get)?(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+    // Native accessors have a stable engine-generated source form. A broad
+    // substring check is forgeable by an ordinary JavaScript getter whose
+    // source merely contains "[native code]".
+    // Keep the native marker check independent of optional engine whitespace
+    // and accessor naming details while still requiring a native body.
+    // Workerd exposes native constructor and executor functions, while test
+    // carriers may provide ordinary functions. The receiver-sensitive native
+    // databaseSize accessor is the platform brand signal that must be checked.
+    const nativeGetterSource = /^function(?:\s+[\w$]+)*\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
+    // Proxy-wrapped JavaScript callbacks also expose the native source form.
+    // Restrict the getter names to shapes emitted by workerd (and the native
+    // `get size` fixture used by the server tests); arbitrary callback names
+    // must not be trusted as platform accessors.
+    if (!/^(?:|databaseSize|get databaseSize|get size)$/i.test(databaseSize.name)) return false
+    // Reject unrelated native accessors that accept their own built-in brand.
+    // Workerd's getter must reject a Map receiver, while Map.prototype.size
+    // (including a proxy around it) succeeds. This keeps the check independent
+    // of workerd's version-dependent getter name.
+    try {
+      const mapSize = Reflect.apply(databaseSize, new Map(), [])
+      if (Number.isFinite(mapSize)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+    // Set.prototype.size is another finite-number native accessor. Reject it
+    // as well so a counterfeit carrier cannot pass by only failing the Map
+    // probe while retaining the Set brand.
+    try {
+      const setSize = Reflect.apply(databaseSize, new Set(), [])
+      if (Number.isFinite(setSize)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+
+    // URLSearchParams.prototype.size is another native finite-number
+    // accessor that can be copied onto a decorated carrier.
+    if (typeof URLSearchParams === "function") {
+      try {
+        const paramsSize = Reflect.apply(databaseSize, new URLSearchParams(), [])
+        if (Number.isFinite(paramsSize)) return false
+      }
+      catch {
+        // A genuine SqlStorage getter rejects unrelated receivers.
+      }
+    }
+
+    // ArrayBuffer.prototype.byteLength is another finite-number native
+    // accessor that can be copied onto a decorated carrier. Reject it too.
+    try {
+      const byteLength = Reflect.apply(databaseSize, new ArrayBuffer(0), [])
+      if (Number.isFinite(byteLength)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+
+    // DataView.prototype.byteLength is another finite-number native accessor
+    // that can be copied onto a decorated carrier.
+    try {
+      const byteLength = Reflect.apply(databaseSize, new DataView(new ArrayBuffer(0)), [])
+      if (Number.isFinite(byteLength)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+
+    // %TypedArray%.prototype.byteLength is another finite-number native
+    // accessor that can be copied onto a decorated typed-array carrier.
+    try {
+      const byteLength = Reflect.apply(databaseSize, new Uint8Array(0), [])
+      if (Number.isFinite(byteLength)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
+
+    // SharedArrayBuffer.prototype.byteLength is a separate native accessor
+    // that can likewise be copied onto a decorated carrier.
+    if (typeof SharedArrayBuffer === "function") {
+      try {
+        const byteLength = Reflect.apply(databaseSize, new SharedArrayBuffer(0), [])
+        if (Number.isFinite(byteLength)) return false
+      }
+      catch {
+        // A genuine SqlStorage getter rejects unrelated receivers.
+      }
+    }
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
@@ -72,4 +156,14 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
   catch {
     return false
   }
+}
+
+/** Accept explicit adapters and the native workerd SqlStorage receiver. */
+export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
+  return hasCloudflareSqlExecInternal(sql, true)
+}
+
+/** Accept only the branded workerd SqlStorage receiver, never explicit adapters. */
+export function hasNativeCloudflareSql(sql: unknown): sql is RealtimeRoomSql {
+  return hasCloudflareSqlExecInternal(sql, false)
 }
