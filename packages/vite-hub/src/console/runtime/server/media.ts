@@ -163,7 +163,10 @@ function isReservedPath(pathname: string): boolean {
 function checkedMutationPath(pathname: string): string {
   const parts: string[] = []
   for (const part of pathname.replaceAll("\\", "/").split("/")) {
-    if (part === "..") parts.pop()
+    if (part === "..") {
+      if (!parts.length) throw failure(400, "MEDIA_INPUT", "This path escapes the media store.")
+      parts.pop()
+    }
     else if (part && part !== ".") parts.push(part)
   }
   const normalized = parts.join("/")

@@ -196,4 +196,10 @@ describe("Console media library", () => {
     await expect(media("list", { folder: "_vitehub/media" })).resolves.toMatchObject({ body: { value: { items: [] } } })
     await expect(upload({ file: file("a.txt", "a"), folder: "vitehub" })).resolves.toMatchObject({ status: 400 })
   })
+
+  it("rejects paths that traverse above the media store", async () => {
+    await expect(media("createFolder", { name: "../outside" })).resolves.toMatchObject({ status: 400 })
+    await expect(media("remove", { pathnames: ["../a.txt"] })).resolves.toMatchObject({ status: 400 })
+    await expect(upload({ file: file("a.txt", "a"), folder: "posts/../../outside" })).resolves.toMatchObject({ status: 400 })
+  })
 })
