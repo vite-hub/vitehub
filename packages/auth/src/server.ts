@@ -766,7 +766,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
             if (attribute === "expires") expiresComma = true
             continue
           }
-          if (attribute === "extension") continue
+          // Commas in extension attributes are part of the attribute value. Since
+          // extension names are application-defined, only treat a boundary as a
+          // merged cookie when the preceding attribute is a standard cookie
+          // attribute whose value cannot contain a cookie assignment.
+          const standardAttribute = /^(?:expires|max-age|domain|path|secure|httponly|samesite|priority)$/i.test(attribute)
+          if (!standardAttribute) continue
           if (attribute === "expires" && !expiresComma) {
             expiresComma = true
             continue
