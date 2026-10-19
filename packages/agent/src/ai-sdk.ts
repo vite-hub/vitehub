@@ -1019,10 +1019,11 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
-    if (usage === undefined) return
+    if (usage === undefined) return undefined
     capturedUsage = usage
     metadataSource = event
     captured = true
+    return usage
   }
 
   return {
@@ -1037,9 +1038,9 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
       capture(event)
     },
     async onLanguageModelCallEnd(event: unknown) {
-      capture(event)
+      const eventUsage = capture(event)
       modelCallObserved = true
-      accountEvent(event, capturedUsage)
+      accountEvent(event, eventUsage)
     },
     get captured() {
       return captured
