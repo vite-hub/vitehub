@@ -1,4 +1,3 @@
-import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 
