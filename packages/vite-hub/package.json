@@ -1265,9 +1265,6 @@
     "@supabase/storage-js": {
       "optional": true
     },
-    "ai": {
-      "optional": true
-    },
     "box-typescript-sdk-gen": {
       "optional": true
     },
