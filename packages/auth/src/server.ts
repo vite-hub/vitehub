@@ -385,13 +385,33 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  if (value instanceof Response) return true
+  if (value instanceof Response) {
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+      const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+      if (typeof bodyUsed !== "function" || typeof status !== "function" || typeof headers !== "function") return false
+      Reflect.apply(bodyUsed, value, [])
+      Reflect.apply(status, value, [])
+      Reflect.apply(headers, value, [])
+      return true
+    }
+    catch {
+      // Objects inheriting Response.prototype are not necessarily branded Responses.
+    }
+  }
   const UndiciResponse = await getUndiciResponse()
   if (UndiciResponse && value instanceof UndiciResponse) {
     try {
       const bodyGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "body")?.get
-      if (!bodyGetter) return false
+      const bodyUsed = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
+      const status = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "status")?.get
+      const headers = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "headers")?.get
+      if (!bodyGetter || typeof bodyUsed !== "function" || typeof status !== "function" || typeof headers !== "function") return false
       Reflect.apply(bodyGetter, value, [])
+      Reflect.apply(bodyUsed, value, [])
+      Reflect.apply(status, value, [])
+      Reflect.apply(headers, value, [])
       return true
     }
     catch {
