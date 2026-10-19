@@ -400,6 +400,30 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
           }
           if (!rejected) return false
         }
+        // A caller-defined getter can condition its behavior on the candidate
+        // object and therefore pass the unrelated-receiver probe above. A
+        // genuine Response prototype also exposes its constructor; construct a
+        // fresh instance and require every intrinsic accessor to accept it.
+        // Conditional forged getters tied only to the authorization value fail
+        // this probe while foreign native Response constructors continue to
+        // work across realms.
+        const constructorDescriptor = Object.getOwnPropertyDescriptor(current, "constructor")
+        if (typeof constructorDescriptor?.value !== "function") return false
+        let fresh: unknown
+        try {
+          fresh = Reflect.construct(constructorDescriptor.value, [])
+        }
+        catch {
+          return false
+        }
+        for (const getter of getters) {
+          try {
+            Reflect.apply(getter, fresh, [])
+          }
+          catch {
+            return false
+          }
+        }
         const values = getters.map(getter => Reflect.apply(getter, value, []))
         if (typeof values[1] !== "boolean" || typeof values[2] !== "string"
           || typeof values[3] !== "boolean" || typeof values[4] !== "string"
