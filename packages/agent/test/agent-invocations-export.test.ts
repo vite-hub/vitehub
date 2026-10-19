@@ -115,6 +115,18 @@ describe("vitehub agent invocations export", () => {
     expect(lines(result.stdout)[0].observations).toEqual(observations)
   })
 
+  it("uses the last assistant turn for delta fallback and preserves unknown channels", async () => {
+    const endpoint = invocationEndpoint([summary("a")], {
+      a: [
+        observation(1, "agent.message.delta", { "message.id": "first", "message.phase": "final", "message.content": "Earlier" }),
+        observation(2, "agent.message.delta", { "message.id": "last", "message.phase": "final", "message.content": "Final" }),
+        observation(3, "agent.channel.delivery.effect", { "channel.effect.content": "Delivered", "channel.effect.kind": "reply" }),
+      ],
+    })
+    const result = await run(["export"], endpoint.fetch)
+    expect(lines(result.stdout)[0]).toMatchObject({ final: "Final", deliveries: [{ channel: "unknown" }] })
+  })
+
   it("filters by origin, Agent, status, and creation time before it reads any record", async () => {
     const endpoint = invocationEndpoint([
       summary("match", { agentName: "support", createdAt: daysAgo(2), origin: "teams" }),

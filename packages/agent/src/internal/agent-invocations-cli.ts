@@ -762,17 +762,25 @@ function exportLine(record: AgentInvocationRecord, includeObservations: boolean)
   const { cursor: _cursor, observations, ...invocation } = record
   const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
   const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
-  const deltas = observationAttributes(observations, "agent.message.delta")
-    .filter(delta => delta["message.phase"] === "final" || delta["message.phase"] === "final_answer")
-    .map(delta => hasRuntimeType(delta["message.content"], "string") ? delta["message.content"] : "")
-    .join("")
+  const finalDeltaGroups = new Map<string, { sequence: number, text: string }>()
+  observations.forEach((observation, index) => {
+    if (observation.name !== "agent.message.delta") return
+    const delta = observation.attributes ?? {}
+    if (delta["message.phase"] !== "final" && delta["message.phase"] !== "final_answer") return
+    const id = hasRuntimeType(delta["message.id"], "string") ? delta["message.id"] : "__anonymous"
+    const group = finalDeltaGroups.get(id) ?? { sequence: index, text: "" }
+    group.sequence = index
+    if (hasRuntimeType(delta["message.content"], "string")) group.text += delta["message.content"]
+    finalDeltaGroups.set(id, group)
+  })
+  const deltas = [...finalDeltaGroups.values()].sort((left, right) => right.sequence - left.sequence)[0]?.text
   return {
     ...invocation,
     runId: start["agent.run.id"],
     prompt: start["input.prompt"],
     final: hasRuntimeType(finish, "string") ? finish : deltas || undefined,
     deliveries: observationAttributes(observations, "agent.channel.delivery.effect").map(effect => ({
-      channel: effect["channel.effect.channel"],
+      channel: hasRuntimeType(effect["channel.effect.channel"], "string") ? effect["channel.effect.channel"] : "unknown",
       content: effect["channel.effect.content"],
       intent: effect["channel.effect.intent"],
       kind: effect["channel.effect.kind"],
