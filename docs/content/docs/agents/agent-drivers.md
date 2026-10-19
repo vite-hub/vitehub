@@ -140,6 +140,36 @@ launch: ({ command, providerCommand }) => ({
 })
 ```
 
+### Limit the Codex Home size
+
+Codex keeps every session in its Home: rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, and `.tmp` Git directories. Codex does not remove them, so the Home grows without a limit. Set `retention` to keep it bounded:
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    kind: 'codex',
+    retention: { maxAge: '14d', maxSize: '45%' },
+  },
+})
+```
+
+`maxAge` takes a duration such as `'14d'` and applies to sessions, log rows, and shell snapshots. `maxRecords` keeps the newest sessions. `maxSize` takes bytes, a size such as `'2GB'`, or a percent of the volume that holds the Home, such as `'45%'`. It counts only the Home's own bytes: files, SQLite live pages, and WAL files. Every limit that you set applies. Retention removes, in this order, `.tmp` entries older than 24 hours, data older than `maxAge`, the oldest sessions past `maxRecords`, and then the oldest sessions and hourly log rows together until the Home fits `maxSize`. A removed session also loses its rows in the thread history and state databases. ViteHub runs `PRAGMA incremental_vacuum` on these databases, so the files shrink. It never runs a full `VACUUM` and never removes a database file.
+
+Retention never removes a thread that runs in this process, or a file that changed in the last 10 minutes. Sessions that a resume cursor still references, in memory or in `sessionStorePath`, and the sessions that they were forked from, go last: only when a limit still fails without them. Then the next invocation of that conversation sends the full message history, as for any failed resume. Retention runs in the background on the first Codex invocation in the process, then at most every 10 minutes. It never fails an invocation. It logs one `[vitehub] Codex home retention` line with the report when it removes data or the Home is still above the budget. A lock file, `<home>/.vitehub-retention.lock`, keeps processes apart.
+
+Retention needs a persistent Home: a `credentialProfile`, `providerSettings.homePath`, `CODEX_HOME` in `driver.env` or the process environment, or a gateway with one of these. Plain `credentials` without `credentialProfile` use a temporary Home, so `defineAgent()` rejects `retention` with `AGENT_R1006`. ViteHub does not prune the implicit `~/.codex` and warns once. With `launch`, the app process must reach the Home at the same path, for example on a volume that both containers mount. Otherwise ViteHub warns once and skips it. When Agents in one process share a Home, the strictest value of each limit applies.
+
+Inspect and prune a Home without the app:
+
+```sh
+vitehub agent codex-home status --home /var/lib/app/codex --max-size 45%
+vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-size 45% --session-store .vitehub/provider-sessions.sqlite --dry-run
+```
+
+`prune` uses the same rules and lock file. Without `--dry-run` it removes data. `--json` prints the report.
+
 ### Route model requests through a gateway
 
 Set `gateway` to send the provider's model requests to an LLM proxy or gateway. Import a preset from `vite-hub/agent/gateways`. Like a Nuxt module, each preset reads its URL and key from the environment, so the code names only the gateway:
@@ -272,6 +302,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `cwd` | Optional existing directory or invocation-time resolver. The provider runs there without a Workspace session, write-back, or removal. See [Run in an existing directory](#run-in-an-existing-directory). |
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`; defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
+| `retention` | Codex-only `{ maxAge, maxRecords, maxSize }` limits for the Codex Home. Requires a persistent Home. See [Limit the Codex Home size](#limit-the-codex-home-size). |
 | `requirements` | Command names that `status()` checks where the Driver runs. Missing commands are reported in `missingCommands`. In a child Agent, a function receives the inherited list: `inherited => [...inherited, 'kubectl']`. |
 | `sessionStorePath` | Optional SQLite file for provider session cursors. Enables thread continuation after a process restart on the same persistent host volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Provisions project-pinned Node.js and package manager for the provider and its commands. See [Provision the project toolchain](#provision-the-project-toolchain). |
