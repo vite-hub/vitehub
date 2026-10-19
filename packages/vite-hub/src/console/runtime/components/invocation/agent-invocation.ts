@@ -1437,7 +1437,20 @@ function renderInvocationActivities(
   ].filter(item => item !== null);
 }
 
-export const AgentInvocation = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported components spell out the prop and emit options that `defineComponent` infers.
+type AgentInvocationPropOptions = {
+  header: { default: boolean; type: BooleanConstructor };
+  invocation: { required: true; type: PropType<AgentInvocationView> };
+  selectedActivityId: { default: undefined; type: StringConstructor };
+  workspaceInspectable: { default: boolean; type: BooleanConstructor };
+};
+
+type AgentInvocationEmits = {
+  inspect: (target: InspectTarget, path?: string) => boolean;
+};
+
+const agentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
     inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
@@ -1611,7 +1624,22 @@ export const AgentInvocation = defineComponent({
   },
 });
 
-export const AgentInvocationInspector = defineComponent({
+export const AgentInvocation: DefineComponent<AgentInvocationPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationEmits> = agentInvocation;
+
+type AgentInvocationInspectorPropOptions = {
+  invocation: { required: true; type: PropType<AgentInvocationView> };
+  showStatus: { default: boolean; type: BooleanConstructor };
+  showCapabilities: { default: boolean; type: BooleanConstructor };
+  showTimeline: { default: boolean; type: BooleanConstructor };
+  showSources: { default: boolean; type: BooleanConstructor };
+  showError: { default: boolean; type: BooleanConstructor };
+};
+
+type AgentInvocationInspectorEmits = {
+  selectActivity: (id: string) => boolean;
+};
+
+const agentInvocationInspector = defineComponent({
   name: "AgentInvocationInspector",
   emits: {
     selectActivity: (id: string) => Boolean(id),
@@ -1814,3 +1842,5 @@ export const AgentInvocationInspector = defineComponent({
     };
   },
 });
+
+export const AgentInvocationInspector: DefineComponent<AgentInvocationInspectorPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationInspectorEmits> = agentInvocationInspector;

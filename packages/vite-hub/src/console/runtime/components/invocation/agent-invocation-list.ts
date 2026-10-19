@@ -1,5 +1,5 @@
 import { channelIcon } from "./internal/channel-icon.ts";
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -137,7 +137,26 @@ function renderItem(
   ]);
 }
 
-export const AgentInvocationList = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported component spells out the prop and emit options that `defineComponent` infers.
+type AgentInvocationListPropOptions = {
+  ariaLabel: { default: string; type: StringConstructor };
+  continuationKey: (NumberConstructor | StringConstructor)[];
+  groupBy: PropType<"recency">;
+  hasMore: BooleanConstructor;
+  items: { required: true; type: PropType<readonly AgentInvocationListItem[]> };
+  loading: BooleanConstructor;
+  now: NumberConstructor;
+  retryKey: (NumberConstructor | StringConstructor)[];
+  selectedId: StringConstructor;
+};
+
+type AgentInvocationListEmits = {
+  endReached: () => true;
+  select: (_item: AgentInvocationListItem) => true;
+};
+
+const agentInvocationList = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
@@ -250,3 +269,5 @@ export const AgentInvocationList = defineComponent({
     ]);
   },
 });
+
+export const AgentInvocationList: DefineComponent<AgentInvocationListPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationListEmits> = agentInvocationList;
