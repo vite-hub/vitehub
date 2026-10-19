@@ -722,6 +722,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       // A proxy can expose native descriptors without owning native response state.
     }
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    // An object inheriting Response.prototype is not branded merely because its
+    // body is null; the intrinsic state probe must succeed before normalization.
+    if (value instanceof Response && body === null && !nativeBodyState) return
     if (!isSerializableAuthorizationBody(body)) return
     let bridgeOwned = false
     try {

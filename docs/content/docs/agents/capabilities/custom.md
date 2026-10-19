@@ -78,6 +78,10 @@ export default defineAgent({
 })
 ```
 
+## Extend an inherited Capability
+
+When an Agent [`extends`](/docs/agents/agent-definitions#extend-an-agent) another, a child Capability with the same `id` replaces the parent's Capability. Add `extend(inherited)` to combine them instead. It receives the parent's Capability and returns the Capability that the child uses, with the same `id`. [`mcp()`](/docs/agents/capabilities/mcp#extend-the-parents-servers) uses this hook to merge servers by name.
+
 ## Add requirements
 
 Requirements fail before the Capability exposes behavior.

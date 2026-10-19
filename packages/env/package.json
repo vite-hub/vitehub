@@ -44,6 +44,12 @@
       "require": "./dist/bridge.js",
       "default": "./dist/bridge.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
