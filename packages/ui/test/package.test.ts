@@ -58,11 +58,27 @@ const packageJson = parsePackageManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
+const compactInvocationRules = `  .vh-invocation-thread__content {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .vh-invocation-message[data-role="user"] {
+    margin-inline-start: 1rem;
+  }`;
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./code-block", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [
+        ".",
+        "./code-block",
+        "./headless",
+        "./nuxt",
+        "./package.json",
+        "./primitive-rail",
+        "./styles.css",
+        "./vite",
+      ].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -76,10 +92,12 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
-      katex: "^0.17.0",
+      "@json-render/core": "0.21.1",
+      "@json-render/vue": "0.21.1",
+      "@vueuse/core": "catalog:ui",
+      katex: "^0.19.0",
       "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.6.2",
-      "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
@@ -104,8 +122,14 @@ describe("@vite-hub/ui package contract", () => {
     for (const component of componentNames) expect(root[component], component).toBeDefined();
   });
 
+  it("ships compact invocation styles for narrow sessions and viewports", () => {
+    expect(stylesheet).toMatch(/\.vh-invocation-session\s*\{[^}]*container-type: inline-size;/);
+    expect(stylesheet).toContain(`@container (max-width: 600px) {\n${compactInvocationRules}\n}`);
+    expect(stylesheet).toContain(`@media (max-width: 600px) {\n${compactInvocationRules}\n}`);
+  });
+
   it("ships flat console surfaces that fill their containers", () => {
-    for (const block of [".vh-chat", ".vh-session"]) {
+    for (const block of [".vh-chat", ".vh-session", ".vh-invocation-session", ".vh-invocation-inspector", ".vh-invocation-list", ".vh-capability-inspector"]) {
       expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);

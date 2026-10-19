@@ -124,6 +124,7 @@ export const CodeBlockContent = defineComponent({
       return h(
         "pre",
         {
+          "data-allow-mismatch": "children",
           "data-numbered": props.lineNumbers ? "" : undefined,
           "data-slot": "code-block-content",
           "data-wrap": props.wrap ? "" : undefined,
