@@ -668,6 +668,18 @@ export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = 
   MaybeResolvable<string | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /**
+   * How long the route can take to answer, in milliseconds from the request's arrival. Defaults to 5000.
+   * `false` waits for admission. Chat message webhooks always wait.
+   *
+   * With durable webhook State, the route stores the verified request at `<scope>inbox:<delivery ID or body SHA-256>`
+   * before `invoke` runs. If admission still runs at the budget, the route answers
+   * `202 { accepted: true, deferred: true, ok: true }` and admission finishes in the background. The provider then
+   * does not get the trigger's own answer, such as `ignored()` or a returned `Response`. The row is removed when
+   * admission settles. At startup, the next process sends a row that did not settle, or that ended in a 5xx, through
+   * the route again with its signature checked again, for at most 3 admissions in total.
+   */
+  ackTimeoutMs?: number | false
   adapter?: string
   channelId?: string
   durableState?: boolean

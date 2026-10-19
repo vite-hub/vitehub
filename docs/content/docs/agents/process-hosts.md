@@ -144,6 +144,8 @@ this; no application code is needed. On the first signal it:
 
 1. Stops the webhook queues. Active deliveries get the drain budget, and the
    persisted queue replays the deliveries that it aborts after the restart.
+   Webhook admissions that were [answered early](/docs/agents/channels#answer-slow-webhooks-early)
+   get the same budget, and the next process replays the ones that do not finish.
 2. Waits for inline Chat Invocations with `drainInlineChatInvocations()`.
    Invocations that outlast the budget post a restart notice with the
    `HOST_RESTARTED` error, and the next process retries each message once.

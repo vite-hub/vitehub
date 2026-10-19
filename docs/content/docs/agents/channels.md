@@ -187,6 +187,27 @@ export const airtable = defineChannel('airtable', {
 })
 ```
 
+### Answer slow webhooks early
+
+Some providers wait only a short time for an answer. GitHub closes the connection after 10 seconds and does not send the delivery again. A trigger that reads the provider's API before it queues the delivery, or a process that is still starting, can take longer than that.
+
+With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Objects, ViteHub stores the verified request before the trigger runs. The route then answers within `ackTimeoutMs`, counted from the request's arrival. The default is 5000 ms.
+
+- When admission finishes in time, the provider gets the trigger's own answer.
+- When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+
+The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+
+```ts [server/agents/support.ts]
+webhooks: {
+  path: '/api/github/webhook',
+  ackTimeoutMs: 8_000, // `false` waits for admission
+}
+```
+
+Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
+
 ## Replay Channel history
 
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.

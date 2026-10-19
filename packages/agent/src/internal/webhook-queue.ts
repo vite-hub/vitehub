@@ -162,7 +162,7 @@ const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent ex
 const stoppingWebhookQueues = new Set<Promise<void>>()
 
 /** Grace budget for active deliveries on stop, from VITEHUB_SHUTDOWN_DRAIN_MS. */
-function webhookQueueStopGraceMs(): number {
+export function webhookQueueStopGraceMs(): number {
   const value = Number(globalThis.process?.env?.VITEHUB_SHUTDOWN_DRAIN_MS)
   return Number.isFinite(value) && value > 0 ? value : 0
 }
