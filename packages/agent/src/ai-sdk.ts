@@ -29,6 +29,7 @@ import {
   applyAgentToolPolicies,
   copyToolWithOverrides,
   reportWorkspaceMaterialization,
+  withAgentToolExecutionBudget,
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
   toJsonCompatibleValue,
@@ -562,7 +563,7 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   if (hasBudgetConstraints) context.executionBudget?.recordRetry()
   const summary = await generateText({
     abortSignal: context.input.abortSignal,
-    maxRetries: hasBudgetConstraints ? 0 : undefined,
+    maxRetries: context.executionBudgetActive ? 0 : undefined,
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
@@ -1352,6 +1353,10 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudgetActive && !hasRuntimeType(wrapLanguageModel, "function")) {
+    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+  }
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1373,7 +1378,7 @@ async function createAgent(
     name: tool.name,
     type: "provider-defined",
   }]))
-  const toolSet = { ...resolvedTools, ...providerTools }
+  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
@@ -1409,20 +1414,15 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
-  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
-    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
-  }
-  const instrumentedModel = context.executionBudget && wrapLanguageModel
+  const executionBudget = context.executionBudgetActive ? context.executionBudget : undefined
+  const instrumentedModel = executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
-        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+        middleware: executionBudgetMiddleware(executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
       })
     : observedModel
-  const remainingRetries = context.executionBudget?.snapshot().remaining.retries
-  const budgetedSettings = remainingRetries === undefined
-    ? settings
-    : { ...settings, maxRetries: Math.min(typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries, remainingRetries) }
+  // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
+  const budgetedSettings = context.executionBudgetActive ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
@@ -1437,6 +1437,19 @@ async function createAgent(
       })
     : undefined
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+  let repairBudgetError: ExecutionBudgetExceededError | undefined
+  const guardedModel = hasRuntimeType(observedModel, "object")
+    ? new Proxy(instrumentedModel as object, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver)
+          if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value
+          return (...args: unknown[]) => {
+            if (repairBudgetError) throw repairBudgetError
+            return Reflect.apply(value, target, args)
+          }
+        },
+      })
+    : observedModel
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
@@ -1478,11 +1491,17 @@ async function createAgent(
       }
     : undefined
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
-  const repairToolCall = execution?.repairToolCall === false
+  const selectedRepairToolCall = execution?.repairToolCall === false
     ? undefined
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
       : configuredRepairToolCall ?? builtInRepairToolCall
+  const repairToolCall = selectedRepairToolCall
+    ? async (...args: Parameters<NonNullable<typeof selectedRepairToolCall>>) => {
+        context.executionBudget?.recordRetry()
+        return await selectedRepairToolCall(...args)
+      }
+    : undefined
   const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
     ? outputMaxAttempts(context.output)
     : 1

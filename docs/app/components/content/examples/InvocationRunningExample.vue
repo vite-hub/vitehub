@@ -1,25 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
-
-import type { AgentInvocationView } from "@vite-hub/ui";
-
-const props = defineProps<{ showTimeline?: boolean }>();
+import { onBeforeUnmount, onMounted } from "vue";
+import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 let clock: ReturnType<typeof setInterval> | undefined;
-
 onMounted(() => {
   now.value = Date.now();
-  clock = setInterval(() => {
-    now.value = Date.now();
-  }, 1_000);
+  clock = setInterval(() => { now.value = Date.now(); }, 1_000);
 });
-onUnmounted(() => {
+onBeforeUnmount(() => {
   if (clock) clearInterval(clock);
 });
 
-const invocation = computed<AgentInvocationView>(() => ({
+const invocation: AgentInvocationView = {
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
@@ -66,11 +60,11 @@ const invocation = computed<AgentInvocationView>(() => ({
   title: "Polish Console navigation",
   traceId: "trace_console_navigation",
   updatedAt: time(20),
-}))
+};
 </script>
 
 <template>
   <div class="h-[28rem] min-w-0 bg-default">
-    <AgentInvocation :invocation="invocation" :show-timeline="props.showTimeline" class="h-full" />
+    <AgentInvocation :invocation="invocation" class="h-full" />
   </div>
 </template>

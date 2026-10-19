@@ -697,6 +697,16 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
   if (body === null || typeof body !== "object") return
   try {
     if (Object.prototype.hasOwnProperty.call(body, "locked") || Object.prototype.hasOwnProperty.call(body, "getReader")) return false
+    // Prefer the captured intrinsic for streams branded by this runtime. This
+    // bypasses subclass overrides while retaining the source-runtime lookup
+    // below for genuine foreign streams.
+    const nativeLocked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (typeof nativeLocked === "function" && typeof nativeStreamGetReader === "function") {
+      try {
+        if (Reflect.apply(nativeLocked, body, []) === false) return nativeStreamGetReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
+      }
+      catch { /* foreign stream; inspect its own runtime below */ }
+    }
     let prototype: object | null = Object.getPrototypeOf(body)
     const seen = new Set<object>()
     let lockedGetter: ((this: object) => unknown) | undefined
@@ -1116,6 +1126,26 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
     if (typeof nativeBodyReader !== "function") return
+    // Re-check foreign disturbed state immediately before creating the bridge.
+    // The callback and header snapshot above can yield to user code.
+    if (!(value instanceof Response)) {
+      try {
+        let responsePrototype: object | null = Object.getPrototypeOf(candidate)
+        let bodyUsedGetter: ((this: object) => unknown) | undefined
+        for (let depth = 0; responsePrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+          const descriptor = Object.getOwnPropertyDescriptor(responsePrototype, "bodyUsed")
+          if (typeof descriptor?.get === "function") {
+            bodyUsedGetter = descriptor.get as (this: object) => unknown
+            break
+          }
+          responsePrototype = Object.getPrototypeOf(responsePrototype)
+        }
+        if (typeof bodyUsedGetter !== "function" || Reflect.apply(bodyUsedGetter, candidate, []) !== false) return
+      }
+      catch {
+        return
+      }
+    }
     const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
@@ -1248,17 +1278,25 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
+    // Request URLs keep the application base path, so match each route below it.
+    path: (() => {
+      const recursive = route.route.endsWith("/**")
+      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
+    })(),
     recursive: route.route.endsWith("/**"),
   }))
 
   return async (input) => {
-    const request = unwrapAuthRequest(input)
-    const pathname = new URL(request.url).pathname
-    const method = request.method.toUpperCase()
-    const matched = rules.filter(rule => (!rule.method || rule.method === method)
-      && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
-    if (matched.length === 0) return
+    const request = unwrapAuthRequest(input);
+    const pathname = new URL(request.url).pathname;
+    const method = request.method.toUpperCase();
+    const matched = rules.filter(
+      (rule) =>
+        (!rule.method || rule.method === method) &&
+        (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))),
+    );
+    if (matched.length === 0) return;
 
     const { response } = await checkAuthRequest(
       input,

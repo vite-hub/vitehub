@@ -1660,10 +1660,10 @@ const agentInvocationInspector = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
-      messages: conversation.value.kind === "activities"
-        ? conversation.value.activities.filter(activity => activity.kind === "message").length
-        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup]
-          .filter(activity => activity.kind === "message").length,
+      messages: (conversation.value.kind === "activities"
+        ? conversation.value.activities
+        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup])
+        .filter(activity => activity.kind === "message").length,
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,

@@ -1181,6 +1181,8 @@ export interface AgentRunContext<
   adapter?: AgentAdapter<CALL_OPTIONS>
   actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
@@ -1690,6 +1692,12 @@ export interface AgentProviderUsageLimits {
   unavailable?: { reason: "unsupported" | "probeFailed" }
 }
 
+/** A provider-owned readiness dimension. Unknown means the provider did not expose evidence. */
+export interface AgentProviderReadinessCheck {
+  status: "ready" | "unavailable" | "unknown" | "unsupported"
+  reason?: string
+}
+
 export interface AgentProviderStatus {
   /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
   account?: { id: string, kind: "credential" | "account" }
@@ -1704,6 +1712,10 @@ export interface AgentProviderStatus {
   missingCommands?: string[]
   reason?: string
   usageLimits?: AgentProviderUsageLimits
+  /** Evidence for the configured model, when the provider reports its model catalogue. */
+  modelCompatibility?: AgentProviderReadinessCheck
+  /** Evidence for workspace or project spending capacity, when the provider reports it. */
+  workspaceCapacity?: AgentProviderReadinessCheck
 }
 
 export interface AgentProviderDriverOptions<
@@ -3120,6 +3132,8 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
+  /** Whether the enclosing Invocation requested execution-budget constraints. */
+  executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
