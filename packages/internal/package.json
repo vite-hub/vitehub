@@ -158,6 +158,12 @@
       "require": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
+    "./source-scanner": {
+      "types": "./dist/source-scanner.d.ts",
+      "import": "./dist/source-scanner.js",
+      "require": "./dist/source-scanner.js",
+      "default": "./dist/source-scanner.js"
+    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",
