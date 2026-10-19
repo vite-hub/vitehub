@@ -320,6 +320,38 @@ await context.dispatch(changes.map(change => ({
 })), { queue: true, trigger: 'change' })
 ```
 
+### Pull a provider's change log
+
+Some providers send a short notification and keep the changes in a log that you read with a cursor. `context.pull({ key, initialCursor, fetch, trigger, signal? })` reads that log from the saved cursor:
+
+1. It reads the cursor saved at `channelState.keyPrefix + key`, or uses `initialCursor`.
+2. It calls `fetch(cursor, signal)` for a page `{ items, next, more, first? }`.
+3. It admits each item in order through `trigger`, with queued dispatch, so `order` applies.
+4. It saves `next` only after every item of the page is admitted, then fetches again while `more` is `true`.
+
+The pull throws, and keeps the saved cursor, when `first` is not the requested cursor (a gap, such as expired history), when a number cursor moves back, or when `more` is `true` and the cursor did not change. It checks `signal` before each fetch, before each item, and before it saves the cursor. A failure or an abort keeps the saved cursor, so the next pull fetches the page again. Items that were already admitted are then skipped as `stale` or `duplicate`. A lock on the cursor key lets only one pull run at a time. `items` can be an async iterable, so each item loads just before its admission. The cursor is a number or a string, with the type of `initialCursor`.
+
+```ts
+webhook: defineChannelTrigger({
+  async invoke(context, notification: { webhookId: string }) {
+    await context.pull({
+      key: `cursor:${notification.webhookId}`,
+      initialCursor: 1,
+      trigger: 'change',
+      async fetch(cursor, signal) {
+        const page = await provider.payloads(notification.webhookId, { cursor, signal })
+        return {
+          items: page.changes.map(change => ({ input: change, key: change.eventId, order: { key: change.recordId, version: page.cursor } })),
+          next: page.nextCursor,
+          more: page.hasMore,
+        }
+      },
+    })
+    return ignored('pulled')
+  },
+}),
+```
+
 ### Decide and write Channel State in one step
 
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.

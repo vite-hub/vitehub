@@ -811,6 +811,44 @@ export interface AgentChannelState extends AgentChannelStateBinding {
   ): Promise<R>
 }
 
+/** One page that a `context.pull()` fetch returns. */
+export interface AgentChannelPullPage<TCursor extends string | number = string | number> {
+  /** The items of the page in provider order. An async iterable loads each item just before its admission. */
+  items: Iterable<AgentChannelDispatchItem> | AsyncIterable<AgentChannelDispatchItem>
+  /** The cursor after this page. It is saved after every item of the page is admitted. */
+  next: TCursor
+  /** The provider has more items after `next`, so the pull fetches again. */
+  more: boolean
+  /**
+   * The cursor of the first item of the page, for providers that number their log. A value other than the requested
+   * cursor is a gap, such as expired history, and the pull throws before it admits the page.
+   */
+  first?: TCursor
+}
+
+export interface AgentChannelPullOptions<TCursor extends string | number = string | number> {
+  /** State key of the saved cursor, relative to `channelState.keyPrefix`. The raw cursor value is stored there. */
+  key: string
+  /** The cursor of the first pull, when no cursor is saved. */
+  initialCursor: TCursor
+  /** Fetches the page that starts at `cursor`. */
+  fetch: (cursor: TCursor, signal?: AbortSignal) => MaybePromise<AgentChannelPullPage<TCursor>>
+  /** Trigger of this Channel that admits each item, as `dispatch(items, { trigger, queue: true })` does. */
+  trigger: string
+  /** Checked before each fetch, before each item, and before the cursor is saved. An abort keeps the saved cursor. */
+  signal?: AbortSignal
+}
+
+export interface AgentChannelPullResult<TCursor extends string | number = string | number> {
+  /** The saved cursor after the pull. */
+  cursor: TCursor
+  /** Pages fetched and saved. */
+  pages: number
+  /** Items newly queued. */
+  queued: number
+  /** Items answered without a queued delivery, already queued, or stale. */
+  skipped: number
+}
 
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -829,6 +867,34 @@ export interface AgentChannelTriggerContext<
    * With `queue: true`, each item is admitted to the webhook queue instead, and `order` applies.
    */
   dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
+  /**
+   * Drains a provider's change log from the saved cursor. The items of each page are admitted in order through
+   * `trigger` with queued dispatch, so `order` applies. The `next` cursor of the page is saved only after every item
+   * of the page is admitted. A failure or an abort keeps the saved cursor, so the next pull fetches the page again.
+   * A lock on the cursor key serializes pulls. Needs the Channel's State and a queue-capable State.
+   *
+   * @example
+   * invoke: async (context) => {
+   *   await context.pull({
+   *     key: "log-cursor",
+   *     initialCursor: 1,
+   *     trigger: "change",
+   *     async fetch(cursor, signal) {
+   *       const page = await provider.changes({ cursor, signal })
+   *       return {
+   *         items: page.changes.map(change => ({ key: change.id, input: change, order: { key: change.recordId, version: change.sequence } })),
+   *         next: page.cursor,
+   *         more: page.hasMore,
+   *       }
+   *     },
+   *   })
+   *   return ignored("pulled")
+   * }
+   */
+  pull: {
+    (options: AgentChannelPullOptions<number>): Promise<AgentChannelPullResult<number>>
+    (options: AgentChannelPullOptions<string>): Promise<AgentChannelPullResult<string>>
+  }
   trigger: {
     channelId: string
     id: `${string}.${string}`

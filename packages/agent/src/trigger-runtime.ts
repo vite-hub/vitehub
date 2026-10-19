@@ -17,6 +17,7 @@ import type {
   AgentChannelDeliveryFinishEffect,
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
+  AgentChannelPullOptions,
   AgentChannelStateBinding,
   AgentChannels,
   AgentInput,
@@ -39,7 +40,7 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { createAgentChannelState } from "./internal/channel-state.ts"
+import { createAgentChannelState, pullAgentChannel } from "./internal/channel-state.ts"
 import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
@@ -309,6 +310,8 @@ export async function resolveAgentTriggers<
             ...(queuedInvocation ? { queuedInvocation } : {}),
             ...(triggerState ? { channelState: triggerState } : {}),
             dispatch,
+            pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
+              pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
             trigger: {
               channelId,
               id,

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
-import type { AgentChannelDispatchItem, AgentTriggerFailedEvent } from "../src/channels.ts"
+import type { AgentChannelDispatchItem, AgentChannelPullPage, AgentTriggerFailedEvent } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -19,9 +19,16 @@ interface Change {
 type Payload =
   | { kind: "tx", key: string, id: string, delayMs?: number, ignore?: boolean, reject?: boolean, invalidLimit?: boolean }
   | { kind: "dispatch", items: AgentChannelDispatchItem[] }
+  | { kind: "pull" }
 
 interface Hooks {
   failSeq?: number
+  fetches: number[]
+  gapAt?: number
+  log: Change[]
+  onRecord?: (change: Change) => void
+  page?: (cursor: number) => AgentChannelPullPage<number>
+  signal?: AbortSignal
 }
 
 const cleanups: Array<() => Promise<void> | void> = []
@@ -29,6 +36,12 @@ const cleanups: Array<() => Promise<void> | void> = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
+
+const changes = (count: number): Change[] => Array.from({ length: count }, (_, index) => ({ id: `r${(index % 3) + 1}`, seq: index + 1, text: `e${index + 1}` }))
+
+function changeItem(change: Change): AgentChannelDispatchItem {
+  return { input: change, key: `log:${change.seq}`, order: { key: change.id, version: change.seq } }
+}
 
 function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (context: { run?: { runId?: string } }) => string, failed?: (event: AgentTriggerFailedEvent) => void) {
   const channel = defineChannel("t", {
@@ -54,12 +67,34 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
               }
             })
           }
-          return Response.json(await context.dispatch(payload.items, { queue: true, trigger: "record" }))
+          if (payload.kind === "dispatch") return Response.json(await context.dispatch(payload.items, { queue: true, trigger: "record" }))
+          try {
+            return Response.json(await context.pull({
+              fetch(cursor) {
+                hooks.fetches.push(cursor)
+                if (hooks.page) return hooks.page(cursor)
+                const page = hooks.log.filter(change => change.seq >= cursor).slice(0, 2)
+                async function* items() {
+                  for (const change of page) yield changeItem(change)
+                }
+                const next = cursor + page.length
+                return { first: hooks.gapAt === cursor ? cursor + 1 : cursor, items: items(), more: next <= hooks.log.length, next }
+              },
+              initialCursor: 1,
+              key: "log-cursor",
+              signal: hooks.signal,
+              trigger: "record",
+            }))
+          }
+          catch (error) {
+            return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
+          }
         },
       }),
       record: defineChannelTrigger({
         failed,
         invoke(context, change: Change) {
+          hooks.onRecord?.(change)
           if (hooks.failSeq === change.seq) throw new Error(`boom ${change.seq}`)
           return context.channelState!.transaction(`record:${change.id}`, (record) => {
             record.set({ last: change.seq, text: change.text })
@@ -82,7 +117,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
 async function setup(options: { failed?: (event: AgentTriggerFailedEvent) => void, run?: (context: { run?: { runId?: string } }) => string } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "vitehub-channel-state-"))
   const url = `file:${join(directory, "state.sqlite")}`
-  const hooks: Hooks = {}
+  const hooks: Hooks = { fetches: [], log: changes(7) }
   const prefix: { channelState?: string } = {}
   const runIds: string[] = []
   const run = vi.fn((context: { run?: { runId?: string } }) => {
@@ -257,4 +292,74 @@ describe("queued dispatch with order", () => {
 
     await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(expect.objectContaining({ deliveryId: "record:o1:1" })), { timeout: 15_000 })
   }, 20_000)
+})
+
+describe("context.pull()", () => {
+  it("resumes from the saved cursor and saves it only after every item of a page is admitted", async () => {
+    const { channelKey, hooks, open } = await setup()
+    const { post, state } = open()
+
+    hooks.failSeq = 4
+    expect((await post({ kind: "pull" })).status).toBe(500)
+    // Page [1, 2] is saved. Page [3, 4] fails on 4: item 3 is admitted, the cursor stays 3.
+    expect(await state.get(channelKey("log-cursor"))).toBe(3)
+    expect(hooks.fetches).toEqual([1, 3])
+
+    hooks.failSeq = undefined
+    hooks.fetches = []
+    const result = await json(await post({ kind: "pull" }))
+    expect(hooks.fetches).toEqual([3, 5, 7])
+    // Item 3 was admitted before, so its order version is stale now.
+    expect(result).toEqual({ cursor: 8, pages: 3, queued: 4, skipped: 1 })
+    expect(await state.get(channelKey("log-cursor"))).toBe(8)
+  })
+
+  it("continues from a raw cursor that earlier code saved under its key", async () => {
+    const { channelKey, hooks, open } = await setup()
+    const { post, state } = open()
+    await post({ items: [], kind: "dispatch" })
+    await state.set(channelKey("log-cursor"), 6)
+
+    const result = await json(await post({ kind: "pull" }))
+
+    expect(hooks.fetches[0]).toBe(6)
+    expect(result).toMatchObject({ cursor: 8 })
+  })
+
+  it.each([
+    ["a gap", (hooks: Hooks) => { hooks.gapAt = 1 }, "has a gap: expected cursor 1, received 2"],
+    ["a cursor that moves back", (hooks: Hooks) => { hooks.page = () => ({ items: [], more: false, next: 0 }) }, "moved its cursor back from 1 to 0"],
+    ["more items without progress", (hooks: Hooks) => { hooks.page = cursor => ({ items: [], more: true, next: cursor }) }, "reported more items without advancing its cursor 1"],
+  ])("throws on %s before it admits the page", async (_name, configure, message) => {
+    const { channelKey, hooks, open, runIds } = await setup()
+    const { post, state } = open()
+    configure(hooks)
+
+    const response = await post({ kind: "pull" })
+
+    expect(response.status).toBe(500)
+    expect((await json(response)).error).toContain(message)
+    expect(await state.get(channelKey("log-cursor"))).toBeNull()
+    expect(runIds).toEqual([])
+  })
+
+  it("keeps the cursor on abort, and the next pull skips the admitted item as stale", async () => {
+    const { channelKey, hooks, open, orderKey } = await setup()
+    const { post, state } = open()
+    hooks.log = [{ id: "r9", seq: 1, text: "e1" }, { id: "r9", seq: 2, text: "e2" }]
+    const controller = new AbortController()
+    hooks.signal = controller.signal
+    hooks.onRecord = (change) => {
+      if (change.seq === 1) controller.abort(new Error("stop"))
+    }
+
+    expect((await post({ kind: "pull" })).status).toBe(500)
+    hooks.onRecord = undefined
+    hooks.signal = undefined
+    expect(await state.get(channelKey("log-cursor"))).toBeNull()
+    expect(await state.get(orderKey("r9"))).toBe(1)
+
+    const result = await json(await post({ kind: "pull" }))
+    expect(result).toEqual({ cursor: 3, pages: 1, queued: 1, skipped: 1 })
+  })
 })
