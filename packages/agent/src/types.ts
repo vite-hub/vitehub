@@ -654,10 +654,10 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
  * A static secret, a callback, or an object with its own `resolve` method.
  * Inherited `resolve` methods, including class prototype methods, are rejected.
  * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, `false` to disable verification, or `undefined`.
+ * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
  */
 export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<string | false | undefined, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: string
@@ -667,7 +667,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
+   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
+   */
+  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
      * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.

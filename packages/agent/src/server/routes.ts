@@ -747,6 +747,8 @@ async function matchedWebhookRegistrationRequiresVerification(
 ): Promise<boolean> {
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
+  // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
+  if (registration.signature === "bearer") return true
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
