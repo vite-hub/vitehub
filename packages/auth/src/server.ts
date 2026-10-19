@@ -534,6 +534,10 @@ function getTrustedAuthorizationReaderRelease(reader: object): Function | undefi
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return
       seen.add(prototype)
+      // Find a coherent source-runtime reader prototype. Do not reuse a
+      // releaseLock descriptor from an intermediate prototype: callers can
+      // shadow that method while the intrinsic reader operations remain on
+      // the source runtime's prototype.
       const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
       const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
       const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
@@ -541,7 +545,10 @@ function getTrustedAuthorizationReaderRelease(reader: object): Function | undefi
       if (typeof closed === "function"
         && typeof read === "function"
         && typeof cancel === "function"
-        && typeof releaseLock === "function") return releaseLock
+        && typeof releaseLock === "function") {
+        Reflect.apply(closed, reader, [])
+        return releaseLock
+      }
       prototype = Object.getPrototypeOf(prototype)
     }
   }
