@@ -368,12 +368,29 @@ async function runAccessAuthorize(
       adoptionError = error
     }
   }
-  const isPromiseBrand = Object.prototype.toString.call(authorization) === "[object Promise]"
+  let isPromiseBrand = false
+  try {
+    isPromiseBrand = Object.prototype.toString.call(authorization) === "[object Promise]"
+  } catch {
+    isPromiseBrand = false
+  }
   if (!adopted && Object(authorization) === authorization && isPromiseBrand) {
     // Host-realm Promise.prototype.then rejects genuine foreign promises. Find
     // the source realm's inherited intrinsic instead of awaiting the value,
     // which would read an own or overridden `then` property.
     let prototype = Object.getPrototypeOf(authorization) as object | null
+    const sourcePromisePrototype = prototype
+    const constructorDescriptor = sourcePromisePrototype
+      ? Object.getOwnPropertyDescriptor(sourcePromisePrototype, "constructor")
+      : undefined
+    const sourceConstructor = constructorDescriptor?.value
+    if (
+      typeof sourceConstructor !== "function" ||
+      sourceConstructor.prototype !== sourcePromisePrototype ||
+      sourceConstructor.name !== "Promise"
+    ) {
+      prototype = null
+    }
     let sourcePromiseThen = false
     while (prototype) {
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "then")
