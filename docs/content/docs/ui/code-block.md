@@ -15,7 +15,13 @@ icon: i-ph-code-light
 
 ```vue
 <script setup lang="ts">
+import { defineComponent, type VNode } from "vue";
 import { useHighlightedCode } from "@vite-hub/ui";
+
+const RenderVNode = defineComponent({
+  props: { node: { required: true, type: Object as () => VNode } },
+  setup(props) { return () => props.node; },
+});
 
 const code = `export default defineEventHandler(() => "ok");`;
 const lines = useHighlightedCode(code, "ts");
@@ -31,7 +37,7 @@ const lines = useHighlightedCode(code, "ts");
     </CodeBlockHeader>
     <CodeBlockContent>
       <CodeBlockLine v-for="(line, index) in lines" :key="index">
-        <component :is="line" />
+        <RenderVNode :node="line" />
       </CodeBlockLine>
     </CodeBlockContent>
   </CodeBlock>
