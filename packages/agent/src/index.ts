@@ -2450,13 +2450,16 @@ function createSyntheticWorkspaceRun<
         await Promise.allSettled([...new Set(eagerStreams)].map(stream => cancellableAsyncIterableSource(stream).cancel()))
       }
       const output = textOutput ?? result
-      if (!release) return output
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
         const response = await withResponseCleanup(output, async () => {
-          finish()
-          executionBudget?.dispose()
+          try {
+            finish?.()
+          }
+          finally {
+            executionBudget?.dispose()
+          }
         }, { abortSignal: budgetedInput.abortSignal })
         release = undefined
         deferBudget = true
@@ -2466,18 +2469,23 @@ function createSyntheticWorkspaceRun<
         const finish = release
         const source = cancellableAsyncIterableSource(output)
         const streamed = withCapabilityCleanup(source.stream, async () => {
-          finish()
-          executionBudget?.dispose()
+          try {
+            finish?.()
+          }
+          finally {
+            executionBudget?.dispose()
+          }
         }, {
           abortSignal: budgetedInput.abortSignal,
           cancelOnAbort: source.cancel,
         })
-        release = undefined
-        deferBudget = true
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
+        const wrapped = hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
           ? toReadableAsyncIterableStream(streamed)
           : streamed
+        release = undefined
+        deferBudget = true
+        return wrapped
       }
       if (output && hasRuntimeType(output, "object")) {
         const capacityRelease = release
@@ -2489,8 +2497,12 @@ function createSyntheticWorkspaceRun<
           finished = true
           budgetedInput.abortSignal?.removeEventListener("abort", onAbort)
           await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
-          capacityRelease()
-          executionBudget?.dispose()
+          try {
+            capacityRelease?.()
+          }
+          finally {
+            executionBudget?.dispose()
+          }
         }
         const onAbort = () => void finish(budgetedInput.abortSignal?.reason).catch(() => {})
         const wrapStream = (stream: AsyncIterable<unknown>) => {
