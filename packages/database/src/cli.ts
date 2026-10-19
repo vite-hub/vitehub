@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { delimiter, join } from "node:path"
 
 import type { DBModulePublicOptions } from "./types.ts"
@@ -9,6 +10,8 @@ import { dirname, isAbsolute, relative, resolve } from "pathe"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
+
+const require = createRequire(import.meta.url)
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
 type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
@@ -135,13 +138,16 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     ...forwardDrizzleArgs(args),
   ]
   const env = withProjectBinPath(context.rootDir, context.env)
-  // Windows exposes package-manager binaries as `.cmd` shims. Those shims
-  // need a shell to be executable when spawn is called with a bare command.
-  const command = process.platform === "win32" ? "drizzle-kit.cmd" : "drizzle-kit"
-  const result = await context.spawn(command, drizzleArgs, {
+  // Windows package-manager shims require a shell, but shell parsing would
+  // lose argument boundaries for names containing spaces or metacharacters.
+  // Run Drizzle Kit's JavaScript entry through Node instead.
+  const windows = process.platform === "win32"
+  const command = windows ? process.execPath : "drizzle-kit"
+  const commandArgs = windows ? [join(dirname(require.resolve("drizzle-kit")), "bin.cjs"), ...drizzleArgs] : drizzleArgs
+  const result = await context.spawn(command, commandArgs, {
     cwd: context.rootDir,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
-    shell: process.platform === "win32",
+    shell: false,
     stderr: "inherit",
     stdout: "inherit",
   })
