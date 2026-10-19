@@ -699,7 +699,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         return await runShellCommand(input, command, { ...resolved, signal: abortSignal })
       },
     }))
-    if (resolved.budget) markExecutionBudgetHandled(result.shell)
+    if (resolved.budget) markExecutionBudgetHandled(result.shell, resolved.budget)
   }
 
   if (resolved.materialize) {
@@ -729,7 +729,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         return await materializeWorkspaceSourcesTool(input, { path, sources })
       },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
-    if (resolved.budget) markExecutionBudgetHandled(result.materialize_sources)
+    if (resolved.budget) markExecutionBudgetHandled(result.materialize_sources, resolved.budget)
   }
 
   if (writeEnabled) {
@@ -738,7 +738,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     Object.assign(result, writeTools)
     if (resolved.budget) {
       for (const writeTool of Object.values(writeTools)) {
-        if (writeTool) markExecutionBudgetHandled(writeTool)
+        if (writeTool) markExecutionBudgetHandled(writeTool, resolved.budget)
       }
     }
   }

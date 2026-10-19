@@ -38,7 +38,7 @@ describe("tool execution budgets", () => {
   it("keeps the internal handled marker through tool preparation wrappers", async () => {
     const budget = createExecutionBudget({ maxToolCalls: 1 })
     const tool = { name: "shell", execute: vi.fn(async (_input: unknown) => "ok") }
-    markExecutionBudgetHandled(tool)
+    markExecutionBudgetHandled(tool, budget)
     const prepared = withJsonCompatibleToolOutputs({ shell: tool }).shell
     const tools = withAgentToolExecutionBudget({ shell: prepared }, budget)
 
@@ -46,6 +46,18 @@ describe("tool execution budgets", () => {
     await expect(tools.shell.execute?.({})).resolves.toBe("ok")
     expect(tool.execute).toHaveBeenCalledTimes(2)
     expect(budget.snapshot().usage.toolCalls).toBe(0)
+  })
+
+  it("does not reuse ownership across different budgets", async () => {
+    const ownedBudget = createExecutionBudget({ maxToolCalls: 10 })
+    const activeBudget = createExecutionBudget({ maxToolCalls: 1 })
+    const tool = { name: "shell", execute: vi.fn(async (_input: unknown) => "ok") }
+    markExecutionBudgetHandled(tool, ownedBudget)
+
+    const tools = withAgentToolExecutionBudget({ shell: tool }, activeBudget)
+    await expect(tools.shell.execute?.({})).resolves.toBe("ok")
+    await expect(tools.shell.execute?.({})).rejects.toThrow("toolCalls")
+    expect(activeBudget.snapshot().usage.toolCalls).toBe(1)
   })
 })
 

@@ -271,7 +271,7 @@ export function workspaceCommandTools(
         }, options.context)
       },
     })
-  if (options.executionBudget) markExecutionBudgetHandled(tool)
+  if (options.executionBudget) markExecutionBudgetHandled(tool, options.executionBudget)
   return {
     [toolName]: tool,
   }

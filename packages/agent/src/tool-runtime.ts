@@ -1,6 +1,6 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
-import { isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
+import { executionBudgetHandledBy, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
@@ -50,7 +50,8 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
     ...descriptors,
     ...Object.getOwnPropertyDescriptors(overrides),
   })
-  if (isExecutionBudgetHandled(tool)) markExecutionBudgetHandled(copied)
+  const handledBudget = executionBudgetHandledBy(tool)
+  if (handledBudget) markExecutionBudgetHandled(copied, handledBudget)
   const policyOwner = agentToolPolicyOwners.get(tool)
   const overrideExecute = Object.getOwnPropertyDescriptor(overrides, "execute")?.value
   if (policyOwner && (!Object.hasOwn(overrides, "execute") || (hasRuntimeType(overrideExecute, "function") && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
@@ -252,7 +253,7 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
     if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
       return [name, tool]
     }
-    if (isExecutionBudgetHandled(tool)) {
+    if (isExecutionBudgetHandled(tool, budget)) {
       return [name, tool]
     }
 
