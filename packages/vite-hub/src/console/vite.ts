@@ -110,6 +110,9 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
   }
+  if (legacy.access !== undefined && legacy.exposure !== undefined) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access and console.exposure cannot be combined. Use one legacy Console access setting.' })
+  }
   if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
     const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : false
     return { ...value, auth, ...(legacy.access === "local" ? { local: true } : {}) } as ConsoleOptions

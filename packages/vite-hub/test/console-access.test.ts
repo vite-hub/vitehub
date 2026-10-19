@@ -166,6 +166,10 @@ describe("Console access policies", () => {
     expect(() => resolveConsoleOptions({ auth: false, exposure: "prod" })).toThrow(/console\.exposure/)
   })
 
+  it("rejects conflicting legacy access and exposure settings", () => {
+    expect(() => resolveConsoleOptions({ access: "open", exposure: "host-managed" })).toThrow(/cannot be combined/)
+  })
+
   it("keeps legacy host-managed exposure out of app-auth validation", () => {
     expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
       auth: false,
