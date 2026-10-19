@@ -335,14 +335,35 @@ async function runAccessAuthorize(
   try {
     adopted = intrinsicPromiseThen.call(authorization as PromiseLike<unknown>, value => value, error => { throw error })
   } catch (error) {
-    // Non-Promise thenables retain normal await semantics.
     adoptionError = error
   }
-  // A local Promise subclass can make intrinsic adoption throw through a
-  // hostile species constructor. Do not then assimilate its mutable `then`;
-  // surface the intrinsic adoption failure instead.
-  if (!adopted && adoptionError !== undefined && authorization instanceof Promise) throw adoptionError
-  const result = adopted ? await adopted : await authorization
+  if (!adopted && Object(authorization) === authorization) {
+    // Host-realm Promise.prototype.then rejects genuine foreign promises. Find
+    // the source realm's inherited intrinsic instead of awaiting the value,
+    // which would read an own or overridden `then` property.
+    let prototype = Object.getPrototypeOf(authorization) as object | null
+    let sourcePromiseThen = false
+    while (prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "then")
+      if (typeof descriptor?.value === "function") {
+        sourcePromiseThen = true
+        try {
+          adopted = Reflect.apply(descriptor.value, authorization, [value => value, (error: unknown) => { throw error }])
+        } catch (error) {
+          adoptionError = error
+        }
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype) as object | null
+    }
+    if (!sourcePromiseThen) {
+      // Values that are intentionally accepted as ordinary thenables retain
+      // their normal assimilation semantics.
+      adopted = Promise.resolve(authorization)
+    }
+  }
+  if (!adopted && adoptionError !== undefined) throw adoptionError
+  const result = adopted ? await adopted : authorization
   if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response

@@ -42,9 +42,9 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, loads `@vite-hub/ui/styles.css`, and auto-imports every public component, for example `AgentChat`, `AgentMarkdown`, and `Trace`. You do not register a Vue plugin.
+The module installs Nuxt UI, loads `@vite-hub/ui/styles.css`, and auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. You do not register a Vue plugin.
 
-For explicit imports, import components from `@vite-hub/ui`. The package root exports every component, and bundlers remove the components that you do not use.
+For explicit imports, each public component or part family also has a kebab-case entry such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. These entries export the same component objects as `@vite-hub/ui` and keep the development import graph focused.
 
 ## Install in Vue with Vite
 
@@ -91,7 +91,7 @@ The Vite plugin does not register ViteHub UI components. Import them where you u
 
 ```vue [vite/src/components/Example.vue]
 <script setup lang="ts">
-import { AgentChat } from "@vite-hub/ui";
+import { Chat } from "@vite-hub/ui";
 </script>
 ```
 
@@ -107,12 +107,12 @@ The examples in these pages use Nuxt auto-imports. In Vue with Vite, add the imp
 ## Verify the setup
 
 In Nuxt, replace the contents of `app.vue` with this example. In Vue with
-Vite, put the template in `App.vue` and import `AgentMarkdown` from
+Vite, put the template in `App.vue` and import `Markdown` from
 `@vite-hub/ui` in its script:
 
 ```vue [nuxt/app.vue]
 <template>
-  <AgentMarkdown value="**ViteHub UI is ready.**" />
+  <Markdown value="**ViteHub UI is ready.**" />
 </template>
 ```
 
@@ -153,9 +153,9 @@ app.use(
 
 | Default                            | Initial value                | Used by                                |
 | ---------------------------------- | ---------------------------- | -------------------------------------- |
-| `markdown.class`                   | `vh-typeset vh-typeset-chat` | `AgentMarkdown`                        |
-| `messageScroller.edgeThreshold`    | `8`                          | `AgentChat` when its prop is not set   |
-| `messageScroller.previousItemPeek` | `64`                         | `AgentChat` when its prop is not set   |
+| `markdown.class`                   | `vh-typeset vh-typeset-chat` | `Markdown`                        |
+| `messageScroller.edgeThreshold`    | `8`                          | `Chat` when its prop is not set   |
+| `messageScroller.previousItemPeek` | `64`                         | `Chat` when its prop is not set   |
 
 Read the resolved defaults in your own components with `useViteHubUI()`.
 
