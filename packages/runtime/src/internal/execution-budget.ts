@@ -10,6 +10,8 @@ const budgetHandledTools = new WeakMap<object, ExecutionBudget>()
 
 /** Internal context key used when a budget-owned tool is reused by another Invocation. */
 export const executionBudgetOverride: unique symbol = Symbol("vitehub.execution-budget-override")
+/** Internal context key used when a policy wrapper already charged a call. */
+export const executionBudgetCharged: unique symbol = Symbol("vitehub.execution-budget-charged")
 
 export function markExecutionBudgetHandled(tool: object, budget: ExecutionBudget): void {
   budgetHandledTools.set(tool, budget)

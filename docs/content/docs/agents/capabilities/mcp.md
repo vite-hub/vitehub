@@ -95,6 +95,23 @@ export default defineAgent({
 })
 ```
 
+## Extend the parent's servers
+
+In an Agent that [`extends`](/docs/agents/agent-definitions#extend-an-agent) another, a child `mcp()` extends the parent's `mcp()` Capability. `servers`, `integrity`, and `toolOverrides` merge by server name, and the child's entry for a server wins as a whole. Per-server options such as `optional` stay with their entry. Options that the child leaves unset, such as `unavailableNotice`, are inherited.
+
+```ts [server/agents/bot-dev/agent.ts]
+export default defineAgent({
+  extends: bot,
+  capabilities: [mcp({ servers: { portal: { connection: 'portal' }, drop: false } })],
+})
+```
+
+`drop: false` removes the inherited `drop` server. Set `inherit: false` to replace the parent's `mcp()` Capability:
+
+```ts
+capabilities: [mcp({ servers: {}, inherit: false })]
+```
+
 ## Authenticate through a Connection
 
 Set `connection` on a client config to use a [Connection](/docs/connections) as the server credential. The Connection sends the `Authorization` header, refreshes the token, checks access for each request, and records activity. The Agent and the MCP client never see the token.
@@ -299,6 +316,7 @@ Confirm that the Capability fails before model execution.
 | `servers.<name>.connection` | `string` | none | Name of a Connection in `server/connections/` that authorizes an `http` or `sse` client config. Without `transport.url`, the server is the provider's `mcp` endpoint. |
 | `servers.<name>.optional` | `boolean` | `false` | With `connection`, leave the server out until the Connection is connected. |
 | `servers.<name>.tools` | `string[]` | every tool | Expose only these tools, by their name on the server. |
+| `inherit` | `boolean` | `true` | In an Agent that `extends` another, `false` replaces the parent's `mcp()` Capability instead of extending it. |
 | `servers.<name>.skills` | `boolean` | `true` | Install the server's `skill://` Skills into the Invocation's Workspace at `.agents/skills/<name>/`. |
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.

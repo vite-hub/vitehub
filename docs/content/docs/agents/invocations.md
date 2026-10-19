@@ -201,6 +201,10 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
+`agent.invocation.finish` carries `result.text` for a text result. A plain object or array result, such as `driver.ask` answers, is `result.output` instead.
+
+An Invocation that starts while another Invocation runs its Driver or an outcome hook is a child of that Invocation. For example, `runAgent()` inside `agent:finish` starts a child. A child without its own trace joins the trace of its parent: both records have the same `traceId`, and each observation of the child has `trace.parentId`, the record `id` of the parent. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish` with `agent.invocation.child.id`, `agent.invocation.child.run.id`, and `agent.invocation.child.agent.name`. The finish observation also has `agent.invocation.child.status` and `agent.invocation.child.durationMs`. The `agent.invocation.start` observation of the child has the same attributes for its parent, under `agent.invocation.parent.*`.
+
 Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
 
 Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.

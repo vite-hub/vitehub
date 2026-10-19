@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 import { isDocsSiteArea } from "../composables/useDocsSection";
 
 const route = useRoute();
-const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
 const isDocsSiteAreaRoute = computed(() => isDocsSiteArea(route.path));
@@ -18,16 +17,8 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain class="vh-docs-shell" :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
-    <div v-if="isSupportMatrix" class="vh-docs-landing-shell vh-docs-support-matrix">
-      <UContainer class="vh-docs-support-matrix-content">
-        <AnnouncementBanner />
-        <slot />
-      </UContainer>
-      <AppFooter class="vh-docs-footer" />
-    </div>
-
-    <div v-else-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing-shell">
+  <UMain class="vh-docs-shell" :class="{ 'vh-docs-no-header': !isLanding && !isDocsSiteAreaRoute }">
+    <div v-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing-shell">
       <div class="vh-docs-landing">
         <slot />
       </div>
@@ -75,16 +66,6 @@ const docsShellUi = {
 
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
-}
-
-.vh-docs-support-matrix {
-  max-width: none;
-  width: 100%;
-}
-
-.vh-docs-support-matrix-content {
-  max-width: none !important;
-  width: 100%;
 }
 
 .vh-docs-landing {

@@ -2,10 +2,12 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineConnection } from "../src/definition.ts"
 import { google } from "../src/google.ts"
+import { oauthLogin } from "../src/oauth-login.ts"
 import { useConnection } from "../src/runtime/state.ts"
 
 import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
+import type { ConnectionDefinitionName } from "../src/registry-types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -20,9 +22,19 @@ const connection = defineConnection({
 type Client = typeof connection extends ConnectionDefinition<infer TApis, infer TSelection> ? ConnectionClient<TApis, TSelection> : never
 declare const client: Client
 
+const keyed = defineConnection({
+  instances: ["acme", "beta"],
+  definition: tenant => ({
+    access: { "agent:support": { read: true, write: ["fetch"], approve: false } },
+    provider: oauthLogin({ credentials: () => tenant, login: async ({ url }) => url, mcp: `https://${tenant}.example.com/mcp` }),
+    scopes: ["openid"],
+  }),
+})
+
 declare global {
   interface ViteHubConnectionDefinitionModules {
     typeTest: { default: typeof connection }
+    keyedTest: { default: typeof keyed }
   }
 }
 
@@ -143,5 +155,24 @@ describe("Connection types", () => {
       scopes: ["profile"],
     })
     expectTypeOf(oidc).toMatchTypeOf<ConnectionDefinition>()
+  })
+  it("names each instance of a keyed Connection", () => {
+    expectTypeOf(keyed).toMatchTypeOf<ConnectionInstancesDefinition<"acme" | "beta">>()
+    expectTypeOf<Extract<ConnectionDefinitionName, `keyedTest${string}`>>().toEqualTypeOf<"keyedTest:acme" | "keyedTest:beta">()
+    expectTypeOf(keyed.instances).toEqualTypeOf<readonly ("acme" | "beta")[]>()
+    expectTypeOf<"keyedTest">().not.toMatchTypeOf<ConnectionDefinitionName>()
+    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Response>>()
+  })
+
+  it("types the login context", () => {
+    expectTypeOf<ConnectionLoginContext>().toEqualTypeOf<{
+      url: string
+      redirectUri: string
+      credentials: string
+      fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
+      signal: AbortSignal
+    }>()
+    const login = defineConnection({ provider: oauthLogin({ issuer: "https://auth.example.com", login: async ({ redirectUri }) => redirectUri }) })
+    expectTypeOf(login).toMatchTypeOf<ConnectionDefinition>()
   })
 })

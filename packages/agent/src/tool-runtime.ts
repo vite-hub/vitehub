@@ -1,6 +1,6 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
-import { executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
+import { executionBudgetCharged, executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
@@ -170,10 +170,11 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       if (consumeToolApprovalGrant(policyOwner, tool.name, input, context)) {
         context?.abortSignal?.throwIfAborted()
         const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
-        // Budget-owned executors (Workspace and workspace_exec) account for
-        // their own execution. Generic policy tools are charged here.
-        if (!executionBudgetHandledBy(tool)) budget?.recordToolCall()
-        return await execute.call(tool, input, context)
+        if (budget) budget.recordToolCall()
+        const chargedContext = executionBudgetHandledBy(tool) && budget
+          ? { ...context, [executionBudgetCharged]: true }
+          : context
+        return await execute.call(tool, input, chargedContext)
       }
       const decision = typeof policy === "function"
         ? await policy({
@@ -208,10 +209,11 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 
       context?.abortSignal?.throwIfAborted()
       const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
-      // Budget-owned executors account for the call themselves, including
-      // when a reused tool receives an active-budget override.
-      if (!executionBudgetHandledBy(tool)) budget?.recordToolCall()
-      return await execute.call(tool, input, context)
+      if (budget) budget.recordToolCall()
+      const chargedContext = executionBudgetHandledBy(tool) && budget
+        ? { ...context, [executionBudgetCharged]: true }
+        : context
+      return await execute.call(tool, input, chargedContext)
     }
   approvalPreservingExecutorOwners.set(approvalExecute, policyOwner)
   const wrapped = copyToolWithOverrides(tool, { execute: approvalExecute })
