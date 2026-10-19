@@ -44,7 +44,7 @@ export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig 
   signal?: AbortSignal
 }
 
-export type ReplayChannelItemStatus = "completed" | "failed" | "queued" | "skipped" | "started"
+export type ReplayChannelItemStatus = "completed" | "failed" | "skipped" | "started"
 
 export interface ReplayChannelItem {
   /** Error message when `status` is `failed`. */
@@ -52,11 +52,8 @@ export interface ReplayChannelItem {
   /** The Invocation run ID. */
   id: string
   key: string
-  /**
-   * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
-   * already queued, or its `order.version` was not newer than the last one admitted for its `order.key`.
-   */
-  reason?: "duplicate" | "existing" | "handled" | "stale"
+  /** Why the item was skipped: an existing Invocation, or the trigger answered without an Invocation. */
+  reason?: "existing" | "handled"
   status: ReplayChannelItemStatus
 }
 
@@ -65,7 +62,7 @@ export interface ReplayChannelResult {
   items: ReplayChannelItem[]
   /** Pass it as `cursor` to continue. `null` when the history has no more items. */
   nextCursor: string | null
-  /** Items that started an Invocation. A Workflow runtime reports them as `started`; inline runs as `completed`; queued dispatch as `queued`. */
+  /** Items that started an Invocation. A Workflow runtime reports them as `started`; inline runs as `completed`. */
   processed: number
   skipped: number
 }

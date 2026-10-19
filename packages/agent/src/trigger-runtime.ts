@@ -17,7 +17,6 @@ import type {
   AgentChannelDeliveryFinishEffect,
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
-  AgentChannelPullOptions,
   AgentChannelStateBinding,
   AgentChannels,
   AgentInput,
@@ -40,9 +39,8 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { createAgentChannelState, pullAgentChannel } from "./internal/channel-state.ts"
+import { createAgentChannelState } from "./internal/channel-state.ts"
 import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
-import type { ReplayChannelResult } from "./channel-replay.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
   if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
@@ -152,37 +150,6 @@ export function bindAgentChannelTriggerState(request: Request, channelId: string
 function agentChannelTriggerState(request: Request | undefined, channelId: string): AgentChannelStateBinding | undefined {
   const bound = request ? channelTriggerStates.get(request) : undefined
   return bound?.channelId === channelId ? bound.binding : undefined
-}
-
-/** Admits dispatched items to the webhook queue that serves the current request. */
-export type AgentChannelQueuedDispatch = (
-  context: ResolvedAgentRuntimeContext,
-  items: readonly AgentChannelDispatchItem[],
-  options: AgentChannelDispatchOptions,
-) => Promise<ReplayChannelResult>
-
-const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDispatch, channelId: string }>()
-
-/** Lets `dispatch(items, { queue: true })` of one Channel admit items into the webhook queue of this request. */
-export function bindAgentChannelTriggerQueue(request: Request, channelId: string, admit: AgentChannelQueuedDispatch): void {
-  channelTriggerQueues.set(request, { admit, channelId })
-}
-
-async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
-  context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  channelId: string,
-  items: readonly AgentChannelDispatchItem[],
-  options: AgentChannelDispatchOptions,
-): Promise<ReplayChannelResult> {
-  if (options.dryRun) throw new TypeError(`[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`)
-  const bound = context.request ? channelTriggerQueues.get(context.request) : undefined
-  if (bound?.channelId !== channelId) {
-    throw agentDiagnostics.AGENT_R0931({
-      message: `[vitehub] Channel "${channelId}" can queue dispatched items only from its webhook route with a queue-capable State.`,
-    })
-  }
-  // SAFETY: The queue admits items with the runtime context of the trigger that called dispatch().
-  return await bound.admit(context as ResolvedAgentRuntimeContext, items, options)
 }
 
 async function dispatchAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -297,9 +264,8 @@ export async function resolveAgentTriggers<
         id,
         input: trigger.input,
         invoke: (input) => {
-          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
-            ? queueAgentChannelItems(context, channelId, items, options)
-            : dispatchAgentChannelItems(agent, context, channelId, items, options)
+          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
+            dispatchAgentChannelItems(agent, context, channelId, items, options)
           // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
           const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
           const triggerContext = {
@@ -310,8 +276,6 @@ export async function resolveAgentTriggers<
             ...(queuedInvocation ? { queuedInvocation } : {}),
             ...(triggerState ? { channelState: triggerState } : {}),
             dispatch,
-            pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
-              pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
             trigger: {
               channelId,
               id,

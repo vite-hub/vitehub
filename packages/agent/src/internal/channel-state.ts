@@ -1,23 +1,17 @@
 import type { Lock, StateAdapter } from "chat"
 
 import type {
-  AgentChannelDispatchItem,
-  AgentChannelDispatchOptions,
-  AgentChannelPullOptions,
-  AgentChannelPullPage,
-  AgentChannelPullResult,
   AgentChannelState,
   AgentChannelStateBinding,
   AgentChannelStateTransaction,
   AgentChannelStateTransactionOptions,
   MaybePromise,
 } from "../types.ts"
-import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { AgentStateCacheMutation } from "./state-lock.ts"
 import type { AgentWebhookQueue, AgentWebhookQueueDelivery, AgentWebhookQueueRegistration } from "./webhook-queue.ts"
 import { hasAgentWebhookQueue } from "./webhook-queue.ts"
 import { isResponse } from "./response.ts"
-import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
+import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
 export const channelStateLockTtlMs: number = 60_000
 export const channelStateLockWaitMs: number = 10_000
@@ -207,93 +201,5 @@ export function createAgentChannelState(binding: AgentChannelStateBinding, commi
     keyPrefix: binding.keyPrefix,
     state: binding.state,
     transaction: (key, run, options) => runChannelStateTransaction(binding, commit, key, run, options),
-  }
-}
-
-interface PullContext {
-  channelState?: AgentChannelStateBinding
-  dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
-  trigger: { id: string }
-}
-
-function isPullPage(value: unknown, cursorType: "number" | "string"): value is AgentChannelPullPage {
-  if (!isRuntimeObject(value) || !("items" in value) || !("next" in value) || !("more" in value)) return false
-  const items: unknown = value.items
-  return typeof value.next === cursorType
-    && (cursorType === "string" || Number.isFinite(value.next))
-    && typeof value.more === "boolean"
-    && isRuntimeObject(items)
-    && (Symbol.iterator in items || Symbol.asyncIterator in items)
-}
-
-/**
- * `context.pull()`: reads pages from the saved cursor, admits every item through `trigger` in order, and saves the
- * `next` cursor of a page only after all its items are admitted. Holds a lock on the cursor key for the whole pull.
- */
-export async function pullAgentChannel<TCursor extends string | number>(
-  context: PullContext,
-  options: AgentChannelPullOptions<TCursor>,
-): Promise<AgentChannelPullResult<TCursor>> {
-  const binding = context.channelState
-  const name = isRuntimeObject(options) && isRuntimeString(options.key) ? options.key : ""
-  if (!binding) {
-    throw new Error(`[vitehub] Channel trigger "${context.trigger.id}" can pull only with the Channel's State. Run it through the Channel's webhook route.`)
-  }
-  if (!name) throw new TypeError("[vitehub] context.pull() needs a non-empty key.")
-  const cursorType = typeof options.initialCursor
-  if ((cursorType !== "string" && cursorType !== "number") || (cursorType === "number" && !Number.isFinite(options.initialCursor))) {
-    throw new TypeError(`[vitehub] context.pull("${name}") needs a string or finite number initialCursor.`)
-  }
-  if (!isRuntimeFunction(options.fetch)) throw new TypeError(`[vitehub] context.pull("${name}") needs a fetch function.`)
-  if (!isRuntimeString(options.trigger) || !options.trigger.trim()) {
-    throw new TypeError(`[vitehub] context.pull("${name}") needs the trigger that admits its items.`)
-  }
-  const { signal } = options
-  const { state } = binding
-  const cursorKey = `${binding.keyPrefix}${name}`
-  const lock = await acquireChannelStateLock(state, `${cursorKey}:pull`)
-  try {
-    const saved = await state.get<unknown>(cursorKey)
-    if (saved !== null && saved !== undefined && typeof saved !== cursorType) {
-      throw new Error(`[vitehub] The saved cursor of context.pull("${name}") is not a ${cursorType}.`)
-    }
-    // SAFETY: The saved cursor has the type of `initialCursor`, checked above.
-    let cursor = (saved ?? options.initialCursor) as TCursor
-    const result: AgentChannelPullResult<TCursor> = { cursor, pages: 0, queued: 0, skipped: 0 }
-    while (true) {
-      signal?.throwIfAborted()
-      const page: unknown = await options.fetch(cursor, signal)
-      signal?.throwIfAborted()
-      if (!isPullPage(page, cursorType)) {
-        throw new TypeError(`[vitehub] context.pull("${name}") fetch must return { items, next, more } with a ${cursorType} next cursor.`)
-      }
-      // SAFETY: `isPullPage` checked that `next` has the cursor type.
-      const next = page.next as TCursor
-      if (page.first !== undefined && page.first !== cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") has a gap: expected cursor ${cursor}, received ${page.first}.`)
-      }
-      if (isRuntimeNumber(cursor) && isRuntimeNumber(next) && next < cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") moved its cursor back from ${cursor} to ${next}.`)
-      }
-      if (page.more && next === cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") reported more items without advancing its cursor ${cursor}.`)
-      }
-      for await (const item of page.items) {
-        signal?.throwIfAborted()
-        if (!await state.extendLock(lock, channelStateLockTtlMs)) throw channelStateLockLost(lock)
-        const dispatched = await context.dispatch([item], { queue: true, trigger: options.trigger })
-        result.queued += dispatched.processed
-        result.skipped += dispatched.skipped
-      }
-      signal?.throwIfAborted()
-      await commitChannelStateWrites(state, { locks: [lock], mutations: [{ key: cursorKey, type: "set", value: next }] })
-      cursor = next
-      result.cursor = cursor
-      result.pages += 1
-      if (!page.more) return result
-    }
-  }
-  finally {
-    await state.releaseLock(lock).catch(() => undefined)
   }
 }

@@ -304,54 +304,6 @@ triggers: {
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
 
-### Queue dispatched items
-
-`context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue instead of running it now, as if the item arrived as its own webhook delivery. The receiving trigger must answer with `webhook.deliveryId` and `webhook.serialize` or `webhook.concurrencyLimit`, so `debounce` and the queue's retries apply. Items are admitted in order. The first item that cannot be admitted throws, and later items are not admitted. An item that the trigger answers below 400 without a delivery, such as `ignored()`, is skipped with reason `handled`. An item whose delivery ID is already queued is skipped with reason `duplicate`. When a queued item fails its last attempt, the `failed` callback of the receiving trigger runs.
-
-Queued dispatch is available while the Channel's webhook route runs the calling trigger with a queue-capable State, such as SQLite or libSQL. `dryRun` is not available with `queue`.
-
-Give an item `order: { key, version }` when a provider can send changes to one entity again or out of order. The item is skipped with reason `stale`, before the trigger runs, unless `version` is greater than the last version admitted or answered for `key` through the same trigger. The new version commits with the admission of the item. An item whose trigger throws or answers 400 or above does not change the version, so a retry admits it.
-
-```ts
-await context.dispatch(changes.map(change => ({
-  input: change,
-  key: change.eventId,
-  order: { key: change.recordId, version: change.sequence },
-})), { queue: true, trigger: 'change' })
-```
-
-### Pull a provider's change log
-
-Some providers send a short notification and keep the changes in a log that you read with a cursor. `context.pull({ key, initialCursor, fetch, trigger, signal? })` reads that log from the saved cursor:
-
-1. It reads the cursor saved at `channelState.keyPrefix + key`, or uses `initialCursor`.
-2. It calls `fetch(cursor, signal)` for a page `{ items, next, more, first? }`.
-3. It admits each item in order through `trigger`, with queued dispatch, so `order` applies.
-4. It saves `next` only after every item of the page is admitted, then fetches again while `more` is `true`.
-
-The pull throws, and keeps the saved cursor, when `first` is not the requested cursor (a gap, such as expired history), when a number cursor moves back, or when `more` is `true` and the cursor did not change. It checks `signal` before each fetch, before each item, and before it saves the cursor. A failure or an abort keeps the saved cursor, so the next pull fetches the page again. Items that were already admitted are then skipped as `stale` or `duplicate`. A lock on the cursor key lets only one pull run at a time. `items` can be an async iterable, so each item loads just before its admission. The cursor is a number or a string, with the type of `initialCursor`.
-
-```ts
-webhook: defineChannelTrigger({
-  async invoke(context, notification: { webhookId: string }) {
-    await context.pull({
-      key: `cursor:${notification.webhookId}`,
-      initialCursor: 1,
-      trigger: 'change',
-      async fetch(cursor, signal) {
-        const page = await provider.payloads(notification.webhookId, { cursor, signal })
-        return {
-          items: page.changes.map(change => ({ input: change, key: change.eventId, order: { key: change.recordId, version: page.cursor } })),
-          next: page.nextCursor,
-          more: page.hasMore,
-        }
-      },
-    })
-    return ignored('pulled')
-  },
-}),
-```
-
 ### Decide and write Channel State in one step
 
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
@@ -365,7 +317,7 @@ invoke: (context, change: { id: string, version: number, text: string }) =>
   }),
 ```
 
-Inside `invoke` on the Channel's webhook route, or in an item of a queued dispatch, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
 
 How the write and the admission commit depends on the State:
 
