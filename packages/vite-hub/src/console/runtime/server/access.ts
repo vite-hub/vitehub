@@ -184,10 +184,8 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // foreign implementation without accepting an arbitrary constructor
         // name as provenance.
         const hasWindowBinding = (() => {
-          let bindingPrototype: object | null = responsePrototype
-          while (bindingPrototype) {
-            const symbols = Object.getOwnPropertySymbols(bindingPrototype)
-            if (symbols.some(symbol => {
+          const symbols = Object.getOwnPropertySymbols(responsePrototype)
+          return symbols.some(symbol => {
             if (symbol.description !== "window") return false
             const window = Reflect.get(responsePrototype, symbol) as {
             Response?: unknown, Headers?: unknown, window?: unknown, self?: unknown,
@@ -200,15 +198,8 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               return !!window
                 && window.Response === constructor
                 && typeof window.Headers === "function"
-                && window.window === window
-                && window.self === window
-                && !!window.document
-                && window.document.defaultView === window
-                && !!window.location
-            })) return true
-            bindingPrototype = Object.getPrototypeOf(bindingPrototype)
-          }
-          return false
+                && (window.window === window || window.self === window)
+            })
         })()
         hasNativeConstructorLineage = constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
