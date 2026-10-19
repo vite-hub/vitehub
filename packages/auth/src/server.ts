@@ -554,7 +554,21 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (locked && getReader) break
     prototype = Object.getPrototypeOf(prototype)
   }
-  if (!locked || !getReader || Reflect.apply(locked, body, [])) return false
+  if (!locked || !getReader) return false
+  const trustedLocked = (() => {
+    let owner: object | null = Object.getPrototypeOf(body)
+    let intrinsic: (() => boolean) | undefined
+    const owners = new Set<object>()
+    for (let depth = 0; owner && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (owners.has(owner)) break
+      owners.add(owner)
+      const getter = Object.getOwnPropertyDescriptor(owner, "locked")?.get
+      if (typeof getter === "function") intrinsic = getter
+      owner = Object.getPrototypeOf(owner)
+    }
+    return intrinsic
+  })()
+  if (!trustedLocked || Reflect.apply(trustedLocked, body, [])) return false
   const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
   if (ownLocked) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
@@ -583,10 +597,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (!delegatedReaderOverride && intrinsicReader !== getReader) return false
     const fresh = new constructor()
     const probed = Reflect.apply(getReader, fresh, [])
+    if (!Reflect.apply(trustedLocked, fresh, [])) return false
     const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
     if (typeof release !== "function") return false
     Reflect.apply(release, probed, [])
-    const valid = !Reflect.apply(locked, fresh, [])
+    const valid = !Reflect.apply(trustedLocked, fresh, [])
     if (valid && Object(body) === body) authorizationReaderMethods.set(body, getReader)
     return valid
   }

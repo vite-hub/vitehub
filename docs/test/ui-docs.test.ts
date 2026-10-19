@@ -175,7 +175,7 @@ describe("UI documentation", () => {
     expect(layout).toContain("vh-docs-desktop-nav");
     expect(layout).toContain("overflow-x: clip;");
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("hidden lg:flex");
+    expect(layout).toContain("display: flex;");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain("<div class=\"vh-docs-content\">");
   });
