@@ -1,97 +1,109 @@
 ---
 title: Connections
 navigation.title: Overview
-description: Connect provider accounts with OAuth 2 or an API key, call their APIs with access rules, and record how routes and Agents use them.
+description: Connect a Google account or an API key once, then call the provider API from your server.
 navigation.order: 1
 icon: i-lucide-plug
 ---
 
-::agent-only{skill="connections"}
-Use Connections when a person or application must connect a provider account with OAuth 2 or an API key, then call that provider through an explicit access policy.
-
-Read [Get started](/docs/connections/get-started) and [Server API](/docs/connections/server-api).
-
-Connections require a Database and encryption key policy. Keep provider scopes and operation allowlists visible. A connected account is not automatically available to an Agent or route.
-
-Keep the connected account, actor, and operation scope in the request policy.
-Never expose provider tokens to application responses or Agent prompts.
-
-Prove the connect and callback flow, an authorized operation, and a denied operation. Inspect the stored metadata without exposing tokens.
-::
-
-::product-hero{tagline="Call provider APIs as an app-owned account: OAuth 2 or API key, sealed in the app database, checked per call." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
-  ```ts [Definition]
+::product-hero{tagline="Connect a Google account or an API key once, then call its API from your server without handling tokens." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::product-files
+  ```ts [server/connections/google.ts]
   import { useServerEnv } from '#vitehub/env/server'
   import { defineConnection } from 'vite-hub/connections'
   import { google } from 'vite-hub/connections/google'
 
+  // The file name makes this the "google" Connection
   export default defineConnection({
     provider: google({
       clientId: () => useServerEnv().google.clientId,
-      clientSecret: () => useServerEnv().google.clientSecret.unseal(),
+      clientSecret: () =>
+        useServerEnv().google.clientSecret.unseal(),
     }),
-    scopes: ['https://www.googleapis.com/auth/gmail.modify'],
+    scopes: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+    ],
+    // Server code can read, but not write
     access: {
-      server: { write: ['gmail.*'] },
-      agents: {
-        labeller: { write: ['gmail.messages.*', 'gmail.labels.list', 'gmail.drafts.create'], approve: true },
-      },
+      server: { read: true, write: false },
     },
   })
   ```
 
-  ```ts [Route]
-  import { useConnection } from 'vite-hub/connections/server'
+  ```ts [server/api/labels.get.ts]
+  import { defineEventHandler } from 'h3'
+  import {
+    useConnection,
+  } from 'vite-hub/connections/server'
 
-  export default defineEventHandler(async (event) => {
-    const connection = useConnection('google')
-    return await connection.gmail.users.labels.list()
+  // Gmail labels of the connected account
+  export default defineEventHandler(async () => {
+    const google = useConnection('google')
+    return google.gmail.users.labels.list({
+      userId: 'me',
+    })
   })
   ```
 
-  ```ts [API key]
-  import { apiKey, defineConnection } from 'vite-hub/connections'
+  ```ts [server/connections/crm.ts]
+  import {
+    apiKey,
+    defineConnection,
+  } from 'vite-hub/connections'
 
+  // An admin adds the key later.
+  // It is never in your code.
   export default defineConnection({
-    provider: apiKey({ id: 'executor', origins: ['https://executor.sh'] }),
+    provider: apiKey({
+      id: 'crm',
+      origins: ['https://api.crm.example.com'],
+    }),
+    access: {
+      server: { read: true },
+    },
   })
   ```
 
-  ```bash [CLI]
-  vitehub connections list
-  vitehub connections status google
-  vitehub connections activity google
-  vitehub connections connect google
-  vitehub connections refresh google
-  printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
+  ```ts [server/api/contacts.get.ts]
+  import { defineEventHandler } from 'h3'
+  import {
+    useConnection,
+  } from 'vite-hub/connections/server'
+
+  // The key is added to the request for you
+  export default defineEventHandler(async () => {
+    const crm = useConnection('crm')
+    const response = await crm.fetch(
+      'https://api.crm.example.com/contacts',
+    )
+    return response.json()
+  })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Writes are denied until a rule allows them" icon="i-lucide-shield-check" to="/docs/connections/configure#access-rules"}
-  With an `access` map, actors without a matching rule are denied.
+  :::product-feature-item{title="Connect an account once" icon="i-lucide-plug" to="/docs/connections/get-started#connect-the-account"}
+  Sign in to the provider once. The app keeps the tokens, encrypted, in its database.
   :::
 
-  :::product-feature-item{title="The credential goes only to declared origins" icon="i-lucide-shield-alert" to="/docs/connections/configure#provider-origins"}
-  Other origins fail with `CONNECTION_INVALID` and get no credential.
+  :::product-feature-item{title="Typed calls, fresh tokens" icon="i-lucide-code-2" to="/docs/connections/server-api#calls"}
+  `useConnection()` gives typed methods such as `gmail.users.labels.list()`. Tokens refresh before they expire.
   :::
 
-  :::product-feature-item{title="API keys get the same rules and activity" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}
-  `apiKey()` seals a static key; set it in the Console or CLI.
+  :::product-feature-item{title="Decide who can read and write" icon="i-lucide-lock" to="/docs/connections/configure#access-rules"}
+  Rules allow reads and writes for each caller. A caller without a rule is denied.
   :::
 
-  :::product-feature-item{title="Every write, denial, and failure is recorded" icon="i-lucide-activity" to="/docs/connections/server-api"}
-  Activity stores actor, Operation, and outcome, never bodies or tokens.
+  :::product-feature-item{title="Tokens go only to the right API" icon="i-lucide-shield-check" to="/docs/connections/configure#provider-origins"}
+  A request to any other address fails and gets no token.
   :::
 
-  :::product-feature-item{title="Agents call it under their own rule" icon="i-lucide-bot" to="/docs/agents/capabilities/gmail"}
-  An `approve` match makes the Agent tool ask for approval.
+  :::product-feature-item{title="API keys work too" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}
+  Add a key while the app runs instead of in your code. The same rules apply.
   :::
 
-  :::product-feature-item{title="Access stays scoped" icon="i-lucide-shield-check" to="/docs/connections/configure"}
-  Store provider credentials with an explicit account and grant policy.
+  :::product-feature-item{title="A record of each change" icon="i-lucide-history" to="/docs/connections/server-api#activity"}
+  Writes, denied calls, and failures are recorded. Tokens and request bodies are never stored.
   :::
 ::
