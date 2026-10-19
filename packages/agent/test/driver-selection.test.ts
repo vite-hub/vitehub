@@ -278,6 +278,8 @@ describe("built-in Agent Driver selection", () => {
     })).toThrow("does not support Codex option: retention")
     const agent = defineAgent({ driver: { kind: "codex", retention: { maxAge: "14d", maxRecords: 500, maxSize: "45%" } } })
     expect(createAgentInspectionMetadata(agent).config?.driver.provider?.retention).toEqual({ maxAge: 14 * 86_400_000, maxRecords: 500, maxSize: "45%" })
+    const preciseAgent = defineAgent({ driver: { kind: "codex", retention: { maxSize: "99.99999%" } } })
+    expect(createAgentInspectionMetadata(preciseAgent).config?.driver.provider?.retention?.maxSize).toBe("99.99999%")
   })
 
   it("normalizes Codex credentials, reasoning, and provider settings", () => {
