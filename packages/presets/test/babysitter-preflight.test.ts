@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createBabysitterPreflight } from "../src/babysitter/preflight.ts";
 
 afterEach(() => vi.restoreAllMocks());
@@ -48,5 +51,18 @@ describe("Babysitter host prerequisites", () => {
   it("rejects an absolute directory even when it has executable permissions", async () => {
     const result = await createBabysitterPreflight({ command: "/tmp" })();
     expect(result.pause).toMatchObject({ reason: "host-prerequisite", detail: expect.stringContaining("Install /tmp") });
+  });
+
+  it("resolves env shebangs past assignments", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-preflight-"));
+    const executable = join(directory, "installer");
+    try {
+      await writeFile(executable, "#!/usr/bin/env FOO=bar node\nconsole.log('ok')\n");
+      await chmod(executable, 0o755);
+      const result = await createBabysitterPreflight({ command: executable })();
+      expect(result.pause).toBeUndefined();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

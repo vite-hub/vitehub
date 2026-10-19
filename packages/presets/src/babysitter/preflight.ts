@@ -41,7 +41,7 @@ async function validateExecutable(path: string): Promise<void> {
       const line = header.slice(2, header.indexOf("\n") < 0 ? undefined : header.indexOf("\n")).trim();
       const parts = line.split(/\s+/).filter(Boolean);
       const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env"
-        ? parts.slice(1).find(part => !part.startsWith("-"))
+        ? parts.slice(1).find(part => !part.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(part))
         : parts[0];
       if (!interpreter) throw new Error(`Executable has no interpreter: ${path}`);
       await resolveExecutable(interpreter);
