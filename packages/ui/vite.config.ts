@@ -23,6 +23,7 @@ export default defineConfig({
     },
     entry: [
       "src/index.ts",
+      "src/code-block.ts",
       "src/headless.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",

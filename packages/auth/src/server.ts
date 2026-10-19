@@ -588,8 +588,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (value instanceof Response && headers instanceof Headers
       && authorizationResponseProperties.every(key => {
         const ownDescriptor = Object.getOwnPropertyDescriptor(candidate, key)
-        if (ownDescriptor) return typeof ownDescriptor.get === "function" && ownDescriptor.set === undefined
-        return responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        const nativeGetter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        if (ownDescriptor) return ownDescriptor.get === nativeGetter && ownDescriptor.set === undefined
+        return responsePropertyDescriptor(candidate, key)?.get === nativeGetter
       })) return value
     // Response construction rejects bodies for these status codes. Check this
     // before transferring a foreign stream so a rejected candidate retains

@@ -42,7 +42,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, loads `@vite-hub/ui/styles.css`, and auto-imports every public component, for example `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. You do not register a Vue plugin.
+The module installs Nuxt UI, loads `@vite-hub/ui/styles.css`, and auto-imports every public component, for example `AgentChat`, `AgentMarkdown`, and `Trace`. You do not register a Vue plugin.
 
 For explicit imports, import components from `@vite-hub/ui`. The package root exports every component, and bundlers remove the components that you do not use.
 
@@ -175,4 +175,4 @@ The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-m
 
 ## Server rendering
 
-Chat and Invocation output support Vue server rendering. Scroll observers, clipboard actions, and attachment conversion use browser APIs. They become interactive after hydration.
+Chat output supports Vue server rendering. Scroll observers, clipboard actions, and attachment conversion use browser APIs. They become interactive after hydration.

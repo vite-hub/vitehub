@@ -119,6 +119,8 @@ export const docsPageRedirects = {
   "/docs/schedule/agent-capability": "/docs/schedule",
 
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",
+  // The Agent Invocation views moved from @vite-hub/ui into the Console.
+  ...Object.fromEntries(["capability-inspector", "invocation", "invocation-inspector", "invocation-list", "timeline", "blocks/invocation-dashboard"].map(page => [`/docs/ui/${page}`, "/docs/development/console"])),
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),
   ...Object.fromEntries(Object.entries(primitiveCapabilities).map(([id, section]) => [`/docs/capabilities/${id}`, id === "schedule" ? "/docs/schedule" : `/docs/${section}/agent-capability`])),
   ...Object.fromEntries(Object.entries(agentCapabilities).map(([id, page]) => [`/docs/capabilities/${id}`, `/docs/agents/capabilities/${page}`])),
