@@ -9,14 +9,16 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
 
+// Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
-let clockTimer: ReturnType<typeof setInterval> | undefined;
+const clockTimer = ref<ReturnType<typeof setInterval>>();
 onMounted(() => {
   now.value = Date.now();
-  clockTimer = setInterval(() => { now.value = Date.now() }, 60_000);
+  clockTimer.value = setInterval(() => { now.value = Date.now() }, 60_000);
 });
 onUnmounted(() => {
-  if (clockTimer !== undefined) clearInterval(clockTimer);
+  if (clockTimer.value !== undefined) clearInterval(clockTimer.value);
+  clockTimer.value = undefined;
 });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 

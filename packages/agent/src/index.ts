@@ -552,6 +552,7 @@ export type {
   AgentToolStep,
   AgentWaitUntil,
   AgentProviderCredentialContext,
+  AgentProviderReadinessCheck,
   AgentProviderStatus,
   AgentProviderUsageLimits,
   AgentProviderCredentialResolver,
