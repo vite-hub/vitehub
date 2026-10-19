@@ -322,9 +322,24 @@ async function runAccessAuthorize(
     ? await normalizeAuthorizationResponse(returned)
     : undefined
   if (directResponse) return directResponse
-  const result = isPromise
-    ? await new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
-    : await returned
+  let result: unknown
+  if (isPromise) {
+    result = await new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
+  }
+  else {
+    // The intrinsic Promise method is branded across realms and ignores an
+    // overridden `then` on native Promise instances. Fall back to ordinary
+    // thenable assimilation only when the value is not a branded Promise.
+    let adoption: Promise<unknown> | undefined
+    if (Object(returned) === returned) {
+      try {
+        adoption = new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
+      }
+      catch {
+      }
+    }
+    result = adoption ? await adoption : await returned
+  }
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
