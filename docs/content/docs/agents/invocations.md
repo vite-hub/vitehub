@@ -521,6 +521,13 @@ vitehub agent invocations wait-idle --url https://app.example.com --timeout 30m
 ```
 
 `wait-idle` reads the same target as `list`. It prints the Invocations that it waits on and exits with status 0 when none is pending or running, or 1 when `--timeout` (default `30m`) passes first. A record that was not updated for `--stale-after` (default `2h`) is reported and does not block, because a crashed process can leave a record running. `--interval` sets the polling interval (default `5s`), `--agent` waits only on one Agent's Invocations, and `--json` prints one `invocations.waiting`, `invocations.idle`, or `invocations.timeout` event per line.
+Export Invocations as JSON Lines for offline analysis or evals:
+
+```sh
+vitehub agent invocations export --url https://app.example.com --origin webhook --since 7d > invocations.jsonl
+```
+
+`export` reads the same target as `list` and prints one line per Invocation, oldest first. Each line is the record without its observations, plus `prompt` and `runId` from `agent.invocation.start`, `final` (the final assistant text), and `deliveries` (each `agent.channel.delivery.effect` with its `channel`, `kind`, `intent`, `content`, and `skipped` reason). `--status`, `--origin`, and `--agent` select records, and `--since` takes an age such as `7d` or an ISO date such as `2026-10-01`. Add `--observations` to include every observation. A field is present only when the journal retained it, so content storage settings decide whether `prompt`, `final`, and delivery content appear.
 
 Delete and prune open a SQLite or libSQL journal directly:
 

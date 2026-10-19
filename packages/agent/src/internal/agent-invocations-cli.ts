@@ -32,11 +32,11 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "delete" | "list" | "prune" | "show" | "tail" | "wait-idle"
+type Action = "delete" | "export" | "list" | "prune" | "show" | "tail" | "wait-idle"
 
-const actions = new Set<string>(["delete", "list", "prune", "show", "tail", "wait-idle"] satisfies Action[])
+const actions = new Set<string>(["delete", "export", "list", "prune", "show", "tail", "wait-idle"] satisfies Action[])
 /** Actions that read the whole journal instead of one record. */
-const actionsWithoutId = new Set<string | undefined>(["list", "prune", "wait-idle"])
+const actionsWithoutId = new Set<string | undefined>(["export", "list", "prune", "wait-idle"])
 
 function isAction(value: string): value is Action {
   return actions.has(value)
@@ -48,6 +48,7 @@ const fileActions = new Set<string | undefined>(["list", "show", "tail", "wait-i
 interface ParsedArgs {
   action?: Action | "cancel"
   /** wait-idle only waits on this Agent's Invocations. */
+  /** export only prints this Agent's Invocations. */
   agent?: string
   /** Base URL of a deployed Console. list, show, tail, and cancel then use its RPC endpoint. */
   console?: URL
@@ -58,11 +59,17 @@ interface ParsedArgs {
   interval: number
   json: boolean
   limit?: number
+  /** export includes every observation. */
+  observations: boolean
   /** Size limit for prune. Set by --max-size. */
   maxSize?: RetentionSizeLimit
   /** Count limit for prune. Set by --max-records. */
   maxRecords?: number
   olderThanMs?: number
+  /** export only prints Invocations with this origin. */
+  origin?: string
+  /** export only prints Invocations created at or after this ISO time. */
+  since?: string
   status?: string
   tablePrefix?: string
   timeout?: number
@@ -113,6 +120,10 @@ function usage(context: AgentInvocationsCliContext): void {
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
+    "Usage: vitehub agent invocations <list|show|tail|export|cancel|delete|prune> [id] [options]",
+    "",
+    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
@@ -146,6 +157,10 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
     "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
     "  --dry-run                 List the records that prune would delete.",
+    "  --origin <origin>         export only Invocations with this origin, such as webhook.",
+    "  --agent <name>            export only this Agent's Invocations.",
+    "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
+    "  --observations            export every observation too.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -193,6 +208,15 @@ function formatDuration(value: number): string {
   return `${value}ms`
 }
 
+/** An age such as 7d, or an ISO date such as 2026-10-01. Returns the ISO time it selects. */
+function sinceTime(value: string): string {
+  const time = /^\d+(?:ms|s|m|h|d|w)$/.test(value.trim())
+    ? Date.now() - duration(value, "--since")
+    : /^\d{4}-\d{2}-\d{2}/.test(value.trim()) ? Date.parse(value) : Number.NaN
+  if (Number.isNaN(time)) throw agentDiagnostics.AGENT_R0503({ message: "--since requires a duration such as 7d or an ISO date such as 2026-10-01." })
+  return new Date(time).toISOString()
+}
+
 function redactCliArgument(argument: string): string {
   const separator = argument.startsWith("-") ? argument.indexOf("=") : -1
   const prefix = separator === -1 ? "" : argument.slice(0, separator + 1)
@@ -217,6 +241,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     help: false,
     interval: 1_000,
     json: false,
+    observations: false,
     server: false,
     staleAfter: waitIdleDefaults.staleAfter,
     url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
@@ -225,7 +250,15 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   }
   const target: { timeout?: number, url: string } = { url: parsed.url }
   // --timeout is the request timeout, except for wait-idle, where it is how long to wait.
-  const waiting = args.find(argument => argument === "cancel" || isAction(argument)) === "wait-idle"
+  const actionOptionsWithValues = new Set(["--agent", "--url", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since"])
+  let actionFromPositionals: Action | "cancel" | undefined
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (actionOptionsWithValues.has(argument)) { index += 1; continue }
+    if ([...actionOptionsWithValues].some(flag => argument.startsWith(`${flag}=`))) continue
+    if (!argument.startsWith("-") && (argument === "cancel" || isAction(argument))) { actionFromPositionals = argument; break }
+  }
+  const waiting = actionFromPositionals === "wait-idle"
   let intervalSet = false
   let staleAfterSet = false
   for (let index = 0; index < args.length; index += 1) {
@@ -247,6 +280,13 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "-h" || argument === "--help") parsed.help = true
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
+    else if (argument === "--observations") parsed.observations = true
+    else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
+    else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--agent=")) parsed.agent = argument.slice("--agent=".length)
+    else if (argument === "--since") { parsed.since = sinceTime(optionValue(args, index, argument)); index += 1 }
+    else if (argument.startsWith("--since=")) parsed.since = sinceTime(argument.slice("--since=".length))
     else if (argument === "--database") { parsed.database = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--database=")) parsed.database = argument.slice("--database=".length)
     else if (argument === "--table-prefix") { parsed.tablePrefix = optionValue(args, index, argument); index += 1 }
@@ -278,8 +318,6 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     }
     else if (argument === "--stale-after") { parsed.staleAfter = milliseconds(optionValue(args, index, argument), argument); staleAfterSet = true; index += 1 }
     else if (argument.startsWith("--stale-after=")) { parsed.staleAfter = milliseconds(argument.slice("--stale-after=".length), "--stale-after"); staleAfterSet = true }
-    else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
-    else if (argument.startsWith("--agent=")) parsed.agent = argument.slice("--agent=".length)
     else if (argument.startsWith("-")) throw agentDiagnostics.AGENT_R0504({ message: `Unknown option: ${redactCliArgument(argument)}.` })
     else if (!parsed.action && (argument === "cancel" || isAction(argument))) parsed.action = argument
     else if (!parsed.id && parsed.action && !actionsWithoutId.has(parsed.action)) parsed.id = argument
@@ -292,6 +330,15 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     throw agentDiagnostics.AGENT_R0505({ message: `${staleAfterSet ? "--stale-after" : "--agent"} is only supported for wait-idle.` })
   }
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, cancel, delete, or prune." })
+  if (!parsed.help && !actionsWithoutId.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
+  if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
+  const exportOnly = [["--origin", parsed.origin], ["--agent", parsed.agent], ["--since", parsed.since], ["--observations", parsed.observations || undefined]] as const
+  const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
+  if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
+  if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+    throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
+  }
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
@@ -889,6 +936,62 @@ async function waitIdle(parsed: ParsedArgs, context: AgentInvocationsCliContext,
   }
 }
 
+
+type Observation = AgentInvocationRecord["observations"][number]
+
+function observationAttributes(observations: readonly Observation[], name: string): Record<string, unknown>[] {
+  return observations.flatMap(observation => observation.name === name ? [observation.attributes ?? {}] : [])
+}
+
+/**
+ * One export line: the record without observations, plus the prompt, the final assistant text, and each Channel
+ * delivery that the observations carry. `final` is the finish result text, or the final message deltas before finish.
+ */
+function exportLine(record: AgentInvocationRecord, includeObservations: boolean) {
+  const { cursor: _cursor, observations, ...invocation } = record
+  const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
+  const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
+  const finalDeltaGroups = new Map<string, { sequence: number, text: string }>()
+  observations.forEach((observation, index) => {
+    if (observation.name !== "agent.message.delta") return
+    const delta = observation.attributes ?? {}
+    if (delta["message.phase"] !== "final" && delta["message.phase"] !== "final_answer") return
+    const id = hasRuntimeType(delta["message.id"], "string") ? delta["message.id"] : "__anonymous"
+    const group = finalDeltaGroups.get(id) ?? { sequence: index, text: "" }
+    group.sequence = index
+    if (hasRuntimeType(delta["message.content"], "string")) group.text += delta["message.content"]
+    finalDeltaGroups.set(id, group)
+  })
+  const deltas = [...finalDeltaGroups.values()].sort((left, right) => right.sequence - left.sequence)[0]?.text
+  return {
+    ...invocation,
+    runId: start["agent.run.id"],
+    prompt: start["input.prompt"],
+    final: hasRuntimeType(finish, "string") ? finish : deltas || undefined,
+    deliveries: observationAttributes(observations, "agent.channel.delivery.effect").map(effect => ({
+      channel: hasRuntimeType(effect["channel.effect.channel"], "string") ? effect["channel.effect.channel"] : "unknown",
+      content: effect["channel.effect.content"],
+      intent: effect["channel.effect.intent"],
+      kind: effect["channel.effect.kind"],
+      ...(effect["channel.effect.skipped"] === undefined ? {} : { skipped: effect["channel.effect.skipped"] }),
+    })),
+    ...(includeObservations ? { observations } : {}),
+  }
+}
+
+/** Print the matching Invocations as JSON Lines, oldest first. Filters run on the summaries before any record is read. */
+async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, target: InvocationsTarget): Promise<number> {
+  const records = (await target.scan(parsed.status ? [parsed.status] : [...invocationStatuses]))
+    .filter(record => (parsed.origin === undefined || record.origin === parsed.origin)
+      && (parsed.agent === undefined || record.agentName === parsed.agent)
+      && (parsed.since === undefined || record.createdAt >= parsed.since))
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+  for (const summary of records) {
+    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed.observations))}\n`)
+  }
+  return 0
+}
+
 /** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
 async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
   const retention: AgentRetentionPolicy = {
@@ -964,6 +1067,7 @@ export async function runAgentInvocationsCli(
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
     if (parsed.action === "wait-idle") return await waitIdle(parsed, context, target, sleep)
+    if (parsed.action === "export") return await exportInvocations(parsed, context, target)
     if (parsed.action === "list") {
       const result = await target.list()
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
