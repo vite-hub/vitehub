@@ -534,6 +534,17 @@ describe("source scanner", () => {
     expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
   })
 
+  it("finds calls inside switch case expressions", () => {
+    const source = [
+      `switch (value) {`,
+      `  case ready && /* note */ defineThing():`,
+      `    handleResult();`,
+      `    break;`,
+      `}`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
   it("keeps conditional calls after a question mark", () => {
     const calls = findIdentifierCalls(`const value = ready ? defineThing() : fallback`, "defineThing")
     expect(calls).toHaveLength(1)

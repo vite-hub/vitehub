@@ -241,6 +241,19 @@ describe("defineAgent workspace option", () => {
     expect(baseAgent).not.toHaveProperty("__vitehubWorkspaceAgent")
   })
 
+  it("keeps owned workspace options when name is inherited", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const workspace = Object.assign(Object.create({ name: "spoofed-reference" }), {
+      mode: "write",
+      sourceRootDir: "/tmp/owned-workspace",
+    })
+
+    const agent = defineAgent({ workspace, driver: { run: () => "ok" } })
+
+    expect(agent.__vitehubWorkspaceAgent).toBe(true)
+    expect(agent.workspace).toMatchObject({ mode: "write", sourceRootDir: "/tmp/owned-workspace" })
+  })
+
   it("fails when a capability-required workspace path is missing", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
@@ -918,6 +931,40 @@ describe("defineAgent workspace option", () => {
     expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "docs",
+        rules: { "**": { commit: "chore: archive notes", write: true } },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "notes/day.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
+  })
+
+  it("applies auto-commit from an owned workspace with an inherited name", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "notes/day.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive notes",
+      paths: ["notes/day.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const workspace = Object.assign(Object.create({ name: "spoofed-reference" }), {
+      commit: "chore: archive notes",
+      mode: "write",
+    })
+
+    const agent = defineAgent({
+      workspace,
+      driver: { run: async ({ workspace: activeWorkspace }) => {
+          await (activeWorkspace as WritableWorkspaceFacade).fs.writeFile("notes/day.md", "entry")
+          return "ok"
+        } },
+    })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
         rules: { "**": { commit: "chore: archive notes", write: true } },
       }),
       expect.objectContaining({ entries: [expect.objectContaining({ path: "notes/day.md" })] }),

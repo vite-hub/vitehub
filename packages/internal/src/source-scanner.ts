@@ -766,7 +766,9 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   if (source[afterClose] !== ":") return false
   // A switch case expression can also be followed by a colon. It is an
   // executable call, rather than a type-member return annotation.
-  if (/\bcase\s*$/u.test(source.slice(0, index))) return false
+  const prefix = source.slice(0, index)
+  const boundary = Math.max(prefix.lastIndexOf(":"), prefix.lastIndexOf(";"), prefix.lastIndexOf("{"), prefix.lastIndexOf("}"))
+  if (/\bcase\b[\s\S]*$/u.test(prefix.slice(boundary + 1))) return false
   let cursor = afterClose + 1
   const depths = { "{": 0, "[": 0, "<": 0 }
   for (; cursor < source.length; cursor++) {
