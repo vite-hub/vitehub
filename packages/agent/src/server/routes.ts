@@ -1529,9 +1529,10 @@ async function failOpenQueuedWebhookInvocation(
   handlerOptions: AgentChannelWebhookRouteOptions,
   delivery: AgentWebhookQueueDelivery,
   error: unknown,
+  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
 ): Promise<void> {
   // SAFETY: The queue persists run metadata from this route contract.
-  const run = delivery.invocation?.run as AgentRunMetadata | undefined
+  const run = (invocation?.run ?? delivery.invocation?.run) as AgentRunMetadata | undefined
   if (!run?.runId || !isRecord(agent) || !agent.invocations) return
   try {
     // SAFETY: Agent Definitions own this field; the journal boundary validates it.
@@ -1542,6 +1543,12 @@ async function failOpenQueuedWebhookInvocation(
     if (summary?.status !== "pending" && summary?.status !== "running") return
     const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
     const journal = await bindAgentInvocations(invocations, context, { agentName })
+    // A concurrent terminal-record deletion can make the bind create a new record.
+    // Never turn that replacement into a failed Invocation for work that did not run.
+    if (journal?.createdNew) {
+      await journal.releaseClaim()
+      return
+    }
     await journal?.finish("failed", error)
   }
   catch (journalError) {
@@ -1571,7 +1578,7 @@ async function deliverQueuedWebhookFailure(
       return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
     }
     if (!delivery.failure && !await state.markWebhookDeliveryFailure(delivery.scope, delivery.deliveryId, delivery.leaseToken, failure)) return false
-    await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error)
+    await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
     // The dispatch marker is permanent, while queue ownership can expire.
     // Recovery finalizes the failure without repeating a paused callback.
     if (!await state.beginWebhookFailureNotification(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
@@ -1579,7 +1586,7 @@ async function deliverQueuedWebhookFailure(
     return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
   }
   if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
-  await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error)
+  await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
   await notifyQueuedWebhookFailure(agent, handlerOptions, delivery, error, attempts, invocation)
   return true
 }
