@@ -113,13 +113,11 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     }
     // Node exposes a non-observable proxy brand check. Use it before any
     // reflection so proxy traps cannot run during source authority checks.
-    // An unavailable detector cannot identify a proxy, but it also cannot
-    // establish that an ordinary object is a proxy. Only positively
-    // identified proxies are rejected here so plain source fingerprints keep
-    // working in non-Node runtimes.
+    // An unavailable detector cannot establish that either value is safe to
+    // reflect. Fail closed so proxy traps cannot run in non-Node runtimes.
     const leftProxy = isWorkspaceSourceProxy(left)
     const rightProxy = isWorkspaceSourceProxy(right)
-    if (leftProxy === true || rightProxy === true) return false
+    if (leftProxy !== false || rightProxy !== false) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
