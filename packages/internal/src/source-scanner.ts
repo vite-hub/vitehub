@@ -767,7 +767,10 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   // A switch case expression can also be followed by a colon. It is an
   // executable call, rather than a type-member return annotation.
   const prefix = source.slice(0, index)
-  const boundary = Math.max(prefix.lastIndexOf(":"), prefix.lastIndexOf(";"), prefix.lastIndexOf("{"), prefix.lastIndexOf("}"))
+  // Conditional expressions inside a case clause may contain colons before
+  // the call (`case ready ? fallback : defineThing():`). Use statement/block
+  // boundaries here so those expression colons do not hide the `case` token.
+  const boundary = Math.max(prefix.lastIndexOf(";"), prefix.lastIndexOf("{"), prefix.lastIndexOf("}"))
   if (/\bcase\b[\s\S]*$/u.test(prefix.slice(boundary + 1))) return false
   let cursor = afterClose + 1
   const depths = { "{": 0, "[": 0, "<": 0 }

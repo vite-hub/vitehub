@@ -1,6 +1,5 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
-
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
 
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -69,7 +68,6 @@ function validPath(value: unknown): value is string {
   catch {
     return false
   }
-
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
