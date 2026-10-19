@@ -367,6 +367,9 @@ function usageMetadataValue(result: unknown, key: string): unknown {
   if (!hasTraceableStreamResult(result)) return readableRecordValue(result, key)
   // Stream result getters can create rejecting promise projections while the provider is still running.
   const descriptor = resultPropertyDescriptor(result, key)
+  // Inherited data properties are ambient prototype metadata, not provider output.
+  // Keep own data properties eligible while retaining the deferred-getter guard.
+  if (descriptor && !(Object.prototype.hasOwnProperty.call(result, key) || "get" in descriptor)) return
   return descriptor && "value" in descriptor ? descriptor.value : undefined
 }
 
