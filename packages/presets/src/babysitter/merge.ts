@@ -243,8 +243,9 @@ export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { 
     // Once the review push budget is spent, GitHub may still expose a stale aggregate
     // decision from automated reviewers. Keep human-required decisions blocking.
     const reviews = reviewPolicy.reviews ?? [];
-    const humanReview = reviews.some(review => !isAutomatedFeedback(review));
-    if (!reviewPolicy.automatedReviewSettled || humanReview || reviews.length === 0) return no("required review not satisfied");
+    const humanChangesRequested = reviews.some(review => !isAutomatedFeedback(review) && String(review.state ?? "").toUpperCase() === "CHANGES_REQUESTED");
+    const humanReviewRequired = reviewDecision === "REVIEW_REQUIRED" && reviews.some(review => !isAutomatedFeedback(review));
+    if (!reviewPolicy.automatedReviewSettled || humanChangesRequested || humanReviewRequired || reviews.length === 0) return no("required review not satisfied");
   }
   // A stacked PR keeps its old base after the parent merges when merged branches are kept.
   // Merging it there would strand the change outside the default branch.

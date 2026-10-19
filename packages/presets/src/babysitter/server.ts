@@ -446,9 +446,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         signal.throwIfAborted();
         [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
       }
-      const liveReviews = reviewPushBudgetSpent(snapshot, waitPolicy)
-        ? await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]", signal)
-        : [];
+      const liveReviews = await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]", signal);
       const current = liveMergeReadiness(live, decision.head, {
         automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy),
         reviews: liveReviews,
