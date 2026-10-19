@@ -113,7 +113,7 @@ it("gates recovery model work on host admission and the same-head progress budge
 
 it("includes live SQLite observations and exposes retained-journal accounting after pruning", async () => {
   const client = createClient({ url: ":memory:" });
-  const store = createLibsqlAgentInvocationStore({ client, maxRecords: 1, maxAgeMs: false });
+  const store = createLibsqlAgentInvocationStore({ client, maxRecords: 1, maxAge: false });
   const now = Date.now();
   const timestamp = new Date(now).toISOString();
   const invocations = defineAgentInvocations({ store });

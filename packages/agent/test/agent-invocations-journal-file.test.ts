@@ -42,7 +42,7 @@ function invocation(id: string, status: AgentInvocationStoreCreateInput["status"
 /** A journal written by the SQLite store. The running record keeps its appended observation in the observations table. */
 async function storeJournal() {
   const path = join(await temporaryDirectory(), "console.sqlite")
-  const store = createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url: `file:${path}` })
+  const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
   await store.create(invocation("first", "completed"))
   await store.create(invocation("second", "running"))
   await store.update("second", { appendObservation: { attributes: { "vitehub.observation.id": "obs-2" }, name: "agent.message.delta", timestamp: "2026-10-06T10:00:02.000Z", type: "run" }, timestamp: "2026-10-06T10:01:00.000Z" })
