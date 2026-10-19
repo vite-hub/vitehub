@@ -1692,7 +1692,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 await acquireModelSlot(abortSignal, `${repository}#${number}`);
                 try {
                   // Each pass that starts the model counts once against the daily pass budget.
-                  if (!modelDispatched && dailyPassBudget !== false) await pullRequestInbox.recordModelPass(inboxClaim, dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed);
+                  if (!modelDispatched && dailyPassBudget !== false) {
+                    const recorded = await pullRequestInbox.recordModelPass(inboxClaim, dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed);
+                    if (!recorded || !await pullRequestInbox.isClaimCurrent(inboxClaim)) throw new DOMException("Provider dispatch lost its inbox lease.", "AbortError");
+                  }
                   modelDispatched = true;
                   return await runAgent(
                     agent,

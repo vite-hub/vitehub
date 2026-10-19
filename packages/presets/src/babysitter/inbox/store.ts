@@ -1194,7 +1194,9 @@ export class PullRequestInbox {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
       s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, this.clock(), s.humanFeedbackGeneration, exemption)
+      s.revision = (s.revision ?? 0) + 1
       await this.put(tx, s)
+      Object.assign(claim.snapshot, { dailyPassBudget: structuredClone(s.dailyPassBudget), revision: s.revision })
       return true
     })
   }
