@@ -54,6 +54,7 @@ import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
   resolveAgentTriggerInvocationResult,
   verifyAgentWebhookRequest,
+  webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
@@ -8400,7 +8401,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
         const secret = await resolveWebhookSecret(registration.secretToken, context)
-        if (!registration.secretHeader || !secret) {
+        if (!webhookSecretHeader(registration) || !secret) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
         }
         try {

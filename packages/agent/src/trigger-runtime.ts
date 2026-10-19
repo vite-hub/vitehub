@@ -344,7 +344,7 @@ function unsealWebhookSecret(value: unknown): unknown {
 }
 
 /** `signature: "bearer"` reads `Authorization` unless `secretHeader` names another header. */
-function webhookSecretHeader(registration: AgentWebhookRegistrationDefinition): string | undefined {
+export function webhookSecretHeader(registration: AgentWebhookRegistrationDefinition): string | undefined {
   return registration.secretHeader ?? (registration.signature === "bearer" ? "authorization" : undefined)
 }
 

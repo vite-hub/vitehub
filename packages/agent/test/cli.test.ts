@@ -417,6 +417,40 @@ describe("agent CLI", () => {
     }
   })
 
+  it("uses the default Authorization bearer header for Channel history", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-bearer-"))
+    const registration = { id: "prefect", provider: "prefect", secretToken: "history-secret", signature: "bearer" as const }
+    let verified: unknown
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+        "--thread", "prefect:123",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir: "/repo",
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: async (input, init) => {
+          if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "prefect" }, status: 204 })
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer history-secret")
+          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          return Response.json({ messages: [], schemaVersion: 1, threadId: "prefect:123" })
+        },
+        loadTargets: async () => [{ agent: "support", channel: "prefect", mode: "webhook" as const, provider: "prefect", registration }],
+      })
+
+      expect(exitCode).toBe(0)
+      expect(verified).toMatchObject({ verified: true })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("uses deployed webhook IDs when selecting Channel history registrations", async () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const channel = {

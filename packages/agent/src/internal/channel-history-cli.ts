@@ -90,7 +90,8 @@ function normalizedOrigin(value: string): string {
 
 function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   const registration = target.registration
-  if (!registration?.secretHeader || !registration.secretToken) {
+  const secretHeader = registration?.secretHeader || (registration?.signature === "bearer" ? "authorization" : undefined)
+  if (!secretHeader || !registration?.secretToken) {
     throw agentDiagnostics.AGENT_R0524({ message: `Channel ${target.agent}/${target.channel} needs a configured webhook secret before history can be exported.` })
   }
   const secret = registration.secretToken
@@ -102,7 +103,9 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
     if (!decoded) throw agentDiagnostics.AGENT_R0524({ message: "Channel history webhook secret is not valid canonical base64." })
     hmacSecret = decoded
   }
-  const value = signature !== undefined && !hasRuntimeType(signature, "string")
+  const value = registration.signature === "bearer"
+    ? `Bearer ${secret}`
+    : signature !== undefined && !hasRuntimeType(signature, "string")
     ? `${signature.prefix ?? ""}${createHmac("sha256", hmacSecret).update(body).digest(signature.encoding ?? "hex")}`
     : signature === "stripe-sha256"
       ? `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
@@ -110,7 +113,7 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   return new Headers({
     "content-type": "application/json",
     [agentChannelHistoryHeader]: "1",
-    [registration.secretHeader]: value,
+    [secretHeader]: value,
   })
 }
 
