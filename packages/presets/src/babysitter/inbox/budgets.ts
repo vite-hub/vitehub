@@ -54,11 +54,35 @@ export function nextReviewPushBudget(budget: ReviewPushBudget | undefined, limit
   if (spent && claimedHead) heads.add(claimedHead)
   return { count: pushes, heads: [...heads].slice(-reviewPushHeads) }
 }
-export interface InboxBudgets { providerRetries?: number; noProgress?: number; reviewPushes?: number }
+const dailyPassBudgetSchema = v.object({ passes: v.array(count), human: v.optional(count), exemptions: v.array(v.string()) })
+/**
+ * Model passes on one PR in the last 24 hours. `passes` holds the time each pass started the model.
+ * `human` is the generation of the last person's feedback that a pass saw. `exemptions` lists the
+ * exemptions already used, so each applies once.
+ */
+export interface DailyPassBudget { passes: number[]; human?: number; exemptions: string[] }
+export function parseDailyPassBudget(value: unknown): DailyPassBudget { return v.parse(dailyPassBudgetSchema, value) }
+const day = 24 * 60 * 60_000
+/** Exemption keys kept per PR. Each names a head, so older keys cannot match again. */
+const dailyPassExemptions = 20
+/** The record after a pass starts the model at `now`. Passes older than 24 hours leave the window. */
+export function nextDailyPassBudget(budget: DailyPassBudget | undefined, now: number, human: number | undefined, exemption?: string): DailyPassBudget {
+  const exemptions = [...budget?.exemptions ?? []]
+  if (exemption && !exemptions.includes(exemption)) exemptions.push(exemption)
+  const seen = Math.max(budget?.human ?? 0, human ?? 0)
+  return { passes: [...(budget?.passes ?? []).filter(at => at > now - day), now], ...seen ? { human: seen } : {}, exemptions: exemptions.slice(-dailyPassExemptions) }
+}
+/** When the next pass may start, or undefined while fewer than `limit` passes started in the last 24 hours. */
+export function dailyPassResumeAt(budget: DailyPassBudget | undefined, limit: number, now: number): number | undefined {
+  const passes = (budget?.passes ?? []).filter(at => at > now - day).sort((left, right) => left - right)
+  return passes.length < limit ? undefined : passes[passes.length - limit]! + day
+}
+export interface InboxBudgets { providerRetries?: number; noProgress?: number; reviewPushes?: number; dailyPasses?: number }
 export function validateBudgets(budgets: InboxBudgets): void {
   if (budgets.providerRetries !== undefined) v.parse(count, budgets.providerRetries)
   if (budgets.noProgress !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.noProgress)
   if (budgets.reviewPushes !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.reviewPushes)
+  if (budgets.dailyPasses !== undefined) v.parse(v.pipe(count, v.minValue(1)), budgets.dailyPasses)
 }
 export function requireEvidence(evidence: string): void {
   if (!evidence.trim()) throw new Error('A non-empty verified evidence or reset reason is required')

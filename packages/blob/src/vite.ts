@@ -17,6 +17,7 @@ import { dirname, relative, resolve } from "pathe"
 
 import { blobDevRuntimeRoute, blobDevTokenNamespace, blobDevTokenServerHeader } from "./dev.ts"
 import { cloudflareImagesBinding, createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, registerSupportedProviderRuntimeModules, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
+import { getBlobVercelRuntimePackages } from "./internal/nitro-runtime.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -495,6 +496,14 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       if (siblingRuntime) {
         contributeProviderRuntime(useProviderOutputCatalog(config), siblingRuntime)
       }
+      await generateProviderOutputs({
+        blob: runtimeConfig.blob,
+        clientOutDir: resolve(rootDir, config.build.outDir),
+        cloudflareOwnedByNitro: cloudflare,
+        providerOutput: useProviderOutputCatalog(config),
+        rootDir,
+        serverFunctionName: resolveNitroVercelFunctionName(config, "blob"),
+      })
       await refreshBlobGeneratedFiles(
         rootDir,
         runtimeConfig.blob,
