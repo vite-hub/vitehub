@@ -17,7 +17,7 @@ type MaybePromise<T> = Promise<T> | T
 interface ViteHubCliContext {
   env?: NodeJS.ProcessEnv
   rootDir: string
-  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
+  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, shell?: boolean, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -135,9 +135,13 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     ...forwardDrizzleArgs(args),
   ]
   const env = withProjectBinPath(context.rootDir, context.env)
-  const result = await context.spawn("drizzle-kit", drizzleArgs, {
+  // Windows exposes package-manager binaries as `.cmd` shims. Those shims
+  // need a shell to be executable when spawn is called with a bare command.
+  const command = process.platform === "win32" ? "drizzle-kit.cmd" : "drizzle-kit"
+  const result = await context.spawn(command, drizzleArgs, {
     cwd: context.rootDir,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
+    shell: process.platform === "win32",
     stderr: "inherit",
     stdout: "inherit",
   })
