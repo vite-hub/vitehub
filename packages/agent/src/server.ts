@@ -45,7 +45,6 @@ export type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
-  AgentInvocationRetentionOptions,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
@@ -56,6 +55,7 @@ export type {
   AgentInvocationStoreCreateResult,
   AgentInvocationStoreUpdateInput,
 } from "./invocations.ts"
+export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
 
 export type {
   AgentRunEvent,

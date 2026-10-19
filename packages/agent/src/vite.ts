@@ -65,6 +65,9 @@ function invalidateAgentDevModules(server: ViteDevServer, ids: readonly string[]
 export { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 export { discoverAgentChannelEnv, discoverAgentGatewayEnv } from "./channel-env-discovery.ts"
 export type { AgentChannelEnv } from "./channel-env-discovery.ts"
+/** Validates a retention policy at build time, so a ViteHub integration reports a bad limit before it generates output. */
+export { normalizeRetention } from "./internal/retention-policy.ts"
+export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retention-policy.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"

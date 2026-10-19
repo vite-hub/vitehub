@@ -3,7 +3,8 @@ import { createClient } from "@libsql/client"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
-import { countRetentionDue } from "./retention.ts"
+import { countRetentionDue, createSizeRetentionCadence } from "./retention.ts"
+import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
@@ -11,8 +12,8 @@ import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 import type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
+  AgentInvocationPruneResult,
   AgentInvocationRecord,
-  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
   AgentInvocationStore,
   AgentInvocationStoreCreateInput,
@@ -20,22 +21,32 @@ import type {
 } from "../invocations.ts"
 import type { Client, InStatement, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
+import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
+import type { AgentRetentionPolicy } from "../retention.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-export interface LibsqlAgentInvocationStoreOptions extends AgentInvocationRetentionOptions {
+export interface LibsqlAgentInvocationStoreOptions extends AgentRetentionPolicy {
   authToken?: string
   client?: Client
-  /** Maximum age of terminal invocation records. Defaults to 30 days. Set to false to disable age-based retention. */
-  maxAgeMs?: false | number
+  /** Maximum age of terminal invocation records, such as `"14d"` or a number of milliseconds. Defaults to 30 days. Set to false to disable age-based retention. */
+  maxAge?: AgentRetentionPolicy["maxAge"]
   /** Maximum number of terminal invocation records. Defaults to 10,000. Set to false to disable count-based retention. Writes apply it on about 1 in `ceil(maxRecords / 100)` prunes, so the count can exceed it by about 1%. */
   maxRecords?: false | number
+  /**
+   * Maximum live bytes of the database file, such as `"500MB"`, `"30%"` of its volume, or a number of bytes. Defaults to false.
+   * It counts every table in the file, so give the journal its own file. Only a local SQLite file supports it.
+   * Writes check it on a cadence and delete the oldest terminal records. Freed pages return to the file system only in files
+   * that use `auto_vacuum = INCREMENTAL`, which the store sets on new files.
+   */
+  maxSize?: AgentRetentionPolicy["maxSize"]
   tablePrefix?: string
   url?: string
 }
 
 const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
-const maximumDateMs = 8_640_000_000_000_000
+/** Pages that one incremental vacuum returns to the file system. */
+const incrementalVacuumPages = 1000
 const backfillPageSize = 100
 const observationInsertChunkSize = 200
 const searchVersion = 3
@@ -197,13 +208,14 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, match => `\\${match}`)
 }
 
-function retentionValue(value: false | number | undefined, fallback: number, name: string, maximum = Number.MAX_SAFE_INTEGER): false | number {
-  if (value === false) return false
-  if (value === undefined) return fallback
-  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
-    throw agentDiagnostics.AGENT_R0632({ message: `[vitehub] SQLite Agent Invocation ${name} must be a positive safe integer or false.` })
-  }
-  return value
+/** Text length of the arguments of a statement. Size retention uses it to estimate the bytes that a write added. */
+function statementTextLength(statement: InStatement): number {
+  if (typeof statement === "string" || !Array.isArray(statement.args)) return 0
+  return statement.args.reduce<number>((length, value) => length + (typeof value === "string" ? value.length : 0), 0)
+}
+
+function retentionError(message: string): Error {
+  return agentDiagnostics.AGENT_R0632({ message: `[vitehub] ${message}` })
 }
 
 function hasSqliteCode(error: unknown, code: string): boolean {
@@ -243,10 +255,21 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
   }
+  const { maxAgeMs, maxRecords, maxSize } = normalizeRetention({ maxAge: options.maxAge, maxRecords: options.maxRecords, maxSize: options.maxSize }, {
+    label: "SQLite Agent Invocation",
+    defaults: { maxAgeMs: defaultMaxAgeMs, maxRecords: defaultMaxRecords, maxSize: false },
+    size: "any",
+    error: retentionError,
+  })
   const client = options.client || createClient({
     ...(options.authToken ? { authToken: options.authToken } : {}),
     url: options.url!,
   })
+  // libSQL reports "file" for local and in-memory databases. A remote database does not report the size of its file.
+  if (maxSize !== false && client.protocol !== "file") {
+    if (!options.client) client.close()
+    throw retentionError("SQLite Agent Invocation maxSize needs a local SQLite file. Remote libSQL databases do not support it.")
+  }
   const table = tableName(options.tablePrefix)
   const observationTable = `${table}_observations`
   const insertObservationRows = (sequence: number, observations: readonly TraceEventLogEntry[]): InStatement[] => {
@@ -268,9 +291,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         ? ""
         : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`,
   })
-  const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs)
-  const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords")
   let initialized: Promise<void> | undefined
+  /** The database file. Set by initialize() when maxSize is set. */
+  let storePath: string | undefined
   let synchronousNormal = false
   // synchronous is a per-connection setting, and libSQL opens pooled connections on demand.
   // Each write sets it on the idle connection that the write borrows next.
@@ -340,13 +363,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         // list and the terminal update rebuild it. Writing the current version again would fire the
         // stale-search trigger, so a terminal record that already has it is also marked stale.
         const freshSearch = terminal && numberValue(row.search_version) !== searchVersion
+        const serializedRow = serialize(recordRow)
         await transaction.execute(freshSearch
           ? {
-              args: [updated.status, agentNameRecord(next), searchableAgentInvocationText(next), searchVersion, serializedSummary(next), updated.updatedAt, serialize(recordRow), id],
+              args: [updated.status, agentNameRecord(next), searchableAgentInvocationText(next), searchVersion, serializedSummary(next), updated.updatedAt, serializedRow, id],
               sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, summary = ?, updated_at = ?, record = ?, capability_ids = NULL WHERE id = ?`,
             }
           : {
-              args: [updated.status, agentNameRecord(next), serializedSummary(next), updated.updatedAt, serialize(recordRow), id],
+              args: [updated.status, agentNameRecord(next), serializedSummary(next), updated.updatedAt, serializedRow, id],
               sql: `UPDATE ${table} SET status = ?, agent_name = ?, search_version = 0, summary = ?, updated_at = ?, record = ?, capability_ids = NULL WHERE id = ?`,
             })
         if (changes) {
@@ -360,13 +384,15 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         else if (rows.length) {
           await transaction.execute({ args: [sequence], sql: `DELETE FROM ${observationTable} WHERE invocation_sequence = ?` })
         }
-        for (const statement of insertObservationRows(sequence, terminal ? [] : changes ? changes.added : updated.observations)) {
+        const inserted = insertObservationRows(sequence, terminal ? [] : changes ? changes.added : updated.observations)
+        for (const statement of inserted) {
           await transaction.execute(statement)
         }
         if (terminal) {
           await prune(transaction)
         }
         await transaction.commit()
+        recordWrite(serializedRow.length + inserted.reduce((bytes, statement) => bytes + statementTextLength(statement), 0), terminal)
         return results
       }
       catch (error) {
@@ -474,6 +500,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     if (!initialized) initialized = (async () => {
       // libSQL reports "file" for local and in-memory databases. Remote libSQL and D1 manage their own journal.
       if (client.protocol === "file") {
+        // auto_vacuum can change only before the first table exists. INCREMENTAL lets size retention return
+        // freed pages to the file system. Existing files keep their mode until a VACUUM rebuilds them.
+        const pages = await client.execute("PRAGMA page_count")
+        if (numberValue(pages.rows[0]?.page_count) === 0) {
+          await client.execute("PRAGMA auto_vacuum = INCREMENTAL").catch((error: unknown) => {
+            if (!hasSqliteCode(error, "SQLITE_READONLY")) throw error
+          })
+        }
         // WAL appends each commit instead of copying pages to a rollback journal, and readers do not block the writer.
         // NORMAL then syncs at checkpoints instead of at every commit: a power loss can drop the latest commits,
         // but the database stays consistent. A read-only file keeps its mode, so read-only inspection still works.
@@ -482,6 +516,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           throw error
         })
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
+      }
+      if (maxSize !== false) {
+        const databases = await client.execute("PRAGMA database_list")
+        const file = databases.rows.find(row => row.name === "main")?.file
+        if (!hasRuntimeType(file, "string") || !file) {
+          throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
+        }
+        storePath = file
       }
       await client.execute(`CREATE TABLE IF NOT EXISTS ${table} (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -768,6 +810,149 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   const prune = async (executor: Pick<Client, "execute">) => {
     for (const statement of pruneStatements(countRetentionDue(maxRecords))) await executor.execute(statement)
   }
+  let liveBytesStatement: "pragma-functions" | "pragmas" = "pragma-functions"
+  /** Bytes of the pages that hold data. Free pages do not count, so deletes lower it before the file shrinks. */
+  const liveBytes = async (executor: Pick<Client, "execute">): Promise<number> => {
+    if (liveBytesStatement === "pragma-functions") {
+      try {
+        const result = await executor.execute(`SELECT (page_count - freelist_count) * page_size AS bytes
+          FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`)
+        return numberValue(result.rows[0]?.bytes)
+      }
+      catch (error) {
+        if (isSqliteBusy(error)) throw error
+        liveBytesStatement = "pragmas"
+      }
+    }
+    const pages = numberValue((await executor.execute("PRAGMA page_count")).rows[0]?.page_count)
+    const free = numberValue((await executor.execute("PRAGMA freelist_count")).rows[0]?.freelist_count)
+    const pageSize = numberValue((await executor.execute("PRAGMA page_size")).rows[0]?.page_size)
+    return (pages - free) * pageSize
+  }
+  const budgetBytes = async (limit: RetentionSizeLimit): Promise<number> => {
+    if ("bytes" in limit) return limit.bytes
+    // Workers can load this module, so the volume reader loads only for a percent budget.
+    const { retentionBudgetBytes } = await import("../internal/retention-volume.ts")
+    return await retentionBudgetBytes(limit, storePath!)
+  }
+  /** Deletes the oldest terminal records in batches until the live bytes fit the budget. Pending and running records stay. */
+  const pruneSize = async (executor: Pick<Client, "execute">, budget: number) => {
+    let bytes = await liveBytes(executor)
+    const ids: string[] = []
+    if (bytes <= budget) return { afterBytes: bytes, ids }
+    let rows = numberValue((await executor.execute(`SELECT count(*) AS count FROM ${table}`)).rows[0]?.count)
+    for (let round = 0; round < 16 && bytes > budget; round += 1) {
+      const averageRowBytes = bytes / Math.max(1, rows)
+      const batch = Math.min(500, Math.max(1, Math.ceil((bytes - budget) / averageRowBytes * 1.1)))
+      const deleted = await executor.execute({
+        args: [...terminalStatuses, batch],
+        sql: `DELETE FROM ${table} WHERE sequence IN (
+          SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence LIMIT ?
+        ) RETURNING id`,
+      })
+      if (!deleted.rows.length) break
+      for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+      rows -= deleted.rows.length
+      await executor.execute(deleteOrphanClaims)
+      bytes = await liveBytes(executor)
+    }
+    return { afterBytes: bytes, ids }
+  }
+  /** Returns free pages to the file system. A failure only delays it, so it does not fail the prune. */
+  const vacuumFreePages = async () => {
+    await client.execute(`PRAGMA incremental_vacuum(${incrementalVacuumPages})`).catch((error: unknown) => {
+      console.warn(`[vitehub] SQLite Agent Invocation incremental vacuum failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+  const sizeCadence = createSizeRetentionCadence()
+  let knownBudgetBytes: number | undefined
+  let sizeRetentionQueued = false
+  let overBudget = false
+  const applySizeRetention = async (limit: RetentionSizeLimit) => {
+    const budget = await budgetBytes(limit)
+    knownBudgetBytes = budget
+    // Most checks find the store within budget, so measure before taking the write lock.
+    if (await liveBytes(client) <= budget) {
+      overBudget = false
+      return
+    }
+    await prepareWrite()
+    const transaction = await client.transaction("write")
+    let result: Awaited<ReturnType<typeof pruneSize>>
+    try {
+      result = await pruneSize(transaction, budget)
+      await transaction.commit()
+    }
+    catch (error) {
+      await transaction.rollback().catch(() => undefined)
+      throw error
+    }
+    finally {
+      await transaction.close()
+    }
+    if (result.ids.length) await vacuumFreePages()
+    if (result.afterBytes > budget && !overBudget) {
+      console.warn(`[vitehub] SQLite Agent Invocation journal uses ${result.afterBytes} live bytes, above its maxSize budget of ${budget} bytes. Only pending and running records remain to delete.`)
+    }
+    overBudget = result.afterBytes > budget
+  }
+  /** Counts the bytes of a committed write, and queues a size check after create and terminal commits when it is due. */
+  const recordWrite = (bytes: number, check: boolean) => {
+    if (maxSize === false) return
+    sizeCadence.record(bytes)
+    if (!check || sizeRetentionQueued || !sizeCadence.due(knownBudgetBytes)) return
+    sizeRetentionQueued = true
+    void write(async () => {
+      try {
+        await retrySqliteBusy(async () => await applySizeRetention(maxSize))
+      }
+      catch (error) {
+        console.warn(`[vitehub] SQLite Agent Invocation size retention failed and will run again after later writes: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      finally {
+        sizeRetentionQueued = false
+        sizeCadence.checked()
+      }
+    })
+  }
+  /**
+   * Applies age, count, and size retention in one write transaction. A dry run makes the same deletes and rolls them back,
+   * so it reports exactly what a prune would delete.
+   */
+  const pruneWithSize = async (limit: RetentionSizeLimit, dryRun: boolean, updatedBefore?: string): Promise<AgentInvocationPruneResult> => {
+    const budget = await budgetBytes(limit)
+    knownBudgetBytes = budget
+    const result = await retrySqliteBusy(async () => {
+      await prepareWrite()
+      const transaction = await client.transaction("write")
+      try {
+        const beforeBytes = await liveBytes(transaction)
+        const ids: string[] = []
+        for (const selection of pruneSelections(true, updatedBefore)) {
+          const deleted = await transaction.execute({ args: selection.args, sql: `DELETE FROM ${table} WHERE ${selection.where} RETURNING id` })
+          for (const row of deleted.rows) if (hasRuntimeType(row.id, "string")) ids.push(row.id)
+        }
+        await transaction.execute(deleteOrphanClaims)
+        const size = await pruneSize(transaction, budget)
+        ids.push(...size.ids)
+        if (dryRun) await transaction.rollback()
+        else await transaction.commit()
+        return { dryRun, ids, size: { beforeBytes, afterBytes: size.afterBytes, budgetBytes: budget } }
+      }
+      catch (error) {
+        await transaction.rollback().catch(() => undefined)
+        throw error
+      }
+      finally {
+        await transaction.close()
+      }
+    })
+    if (!dryRun) {
+      overBudget = result.size.afterBytes > budget
+      if (result.ids.length) await vacuumFreePages()
+    }
+    return result
+  }
   return {
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
@@ -793,13 +978,14 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         return await retrySqliteBusy(async () => {
           await prepareWrite()
           const retentionNow = Date.now()
+          const serializedInput = serialize(input)
           const count = countRetentionDue(maxRecords)
           const prePrune = pruneStatements(count, retentionNow)
           const insertIndex = prePrune.length
           const statements: InStatement[] = [
             ...prePrune,
             {
-              args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, serializedSummary(input), input.updatedAt, serialize(input)],
+              args: [input.id, input.status, agentNameRecord(input), searchableAgentInvocationText(input), searchVersion, serializedSummary(input), input.updatedAt, serializedInput],
               sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, summary, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             }
           ]
@@ -815,7 +1001,9 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           const stored = row ? deserialize(row.record, row.sequence) : undefined
           const record = stored && withObservationRows(stored, results.at(-1)?.rows ?? [])
           if (!record) throw agentDiagnostics.AGENT_R0634({ message: `[vitehub] SQLite Agent Invocation ${JSON.stringify(input.id)} was removed by retention.` })
-          return { created: results[insertIndex]!.rowsAffected > 0, record }
+          const created = results[insertIndex]!.rowsAffected > 0
+          if (created) recordWrite(serializedInput.length, true)
+          return { created, record }
         })
       })
     },
@@ -989,6 +1177,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const dryRun = pruneOptions.dryRun === true
       return write(async () => {
         await initialize()
+        if (maxSize !== false) return await pruneWithSize(maxSize, dryRun, pruneOptions.updatedBefore)
         return await retrySqliteBusy(async () => {
           const selections = pruneSelections(true, pruneOptions.updatedBefore)
           if (!selections.length) return { dryRun, ids: [] }
