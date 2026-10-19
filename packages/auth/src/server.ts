@@ -552,7 +552,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (locked && getReader) break
     prototype = Object.getPrototypeOf(prototype)
   }
-  if (!locked || !getReader || lockedOwner !== readerOwner || Reflect.apply(locked, body, [])) return false
+  if (!locked || !getReader || Reflect.apply(locked, body, [])) return false
   const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
   if (ownLocked) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
@@ -567,29 +567,18 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // A subclass that replaces the stream implementation's reader method can
     // return a reader owned by an unrelated stream. Preserve subclasses that
     // inherit their realm's native method, but fail closed for overrides.
-    if (constructor.prototype === lockedOwner && getReader !== trustedReadableStreamGetReader) {
+    let delegatedReaderOverride = false
+    if (getReader !== trustedReadableStreamGetReader) {
       // A subclass may wrap both accessors while delegating to the native
       // implementation.  Keep that supported shape, but reject arbitrary
       // constructor-owned overrides that can return a reader for another
       // stream.
       const readerSource = Function.prototype.toString.call(getReader)
-      const lockedSource = Function.prototype.toString.call(locked)
-      if (!readerSource.includes("super.getReader") || !lockedSource.includes("super.locked")) return false
-      let parent: object | null = Object.getPrototypeOf(lockedOwner)
-      const seenParents = new Set<object>()
-      while (parent && !seenParents.has(parent)) {
-        seenParents.add(parent)
-        const inherited = Object.getOwnPropertyDescriptor(parent, "getReader")?.value
-        if (typeof inherited === "function") return false
-        parent = Object.getPrototypeOf(parent)
-      }
+      if (!readerSource.includes("super.getReader")) return false
+      delegatedReaderOverride = true
     }
-    // A getReader supplied by an intermediate prototype is an override rather
-    // than the stream implementation's intrinsic operation. Reject it before
-    // allowing that override to select the bridge reader.
-    if (constructor === ReadableStream && (constructor.prototype !== lockedOwner || getReader !== trustedReadableStreamGetReader)) return false
     const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value
-    if (intrinsicReader !== getReader) return false
+    if (!delegatedReaderOverride && intrinsicReader !== getReader) return false
     const fresh = new constructor()
     const probed = Reflect.apply(getReader, fresh, [])
     const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
