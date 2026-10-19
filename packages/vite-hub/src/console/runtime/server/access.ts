@@ -179,11 +179,13 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // in a comment, string, or method body is caller-controlled text and does
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
+        const isKnownStandaloneImplementation = isClassConstructor && (constructor.name === "Response" || constructor.name === "_Response")
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
           // base. A callback-created standalone class can otherwise reproduce
           // the entire public Response surface and bypass this boundary.
-          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function))
+          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function)
+          || isKnownStandaloneImplementation)
           && typeof parentConstructor === "function"
           // `extends Function` can be aliased by the authorization callback.
           // It is the intrinsic Function constructor, not an implementation-owned

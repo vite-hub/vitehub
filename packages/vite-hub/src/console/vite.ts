@@ -64,6 +64,10 @@ type ConsoleNitroConfig = {
  */
 export interface ConsoleOptions {
   auth: false | "app" | ConsoleAuthConfig
+  /** @deprecated Use `auth` instead. */
+  access?: "auth" | "local" | "open"
+  /** @deprecated Use `auth` instead. */
+  exposure?: "host-managed" | "open"
   /**
    * Server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it after the `auth` check.
    * It returns `true`, `false`, a `Response`, or `{ sections }` to allow only some Console sections.
@@ -94,6 +98,17 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   }
   if (!(value instanceof Object) || Array.isArray(value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
+  }
+  const legacy = value as { access?: unknown, exposure?: unknown, auth?: unknown }
+  if (legacy.access !== undefined && legacy.access !== "auth" && legacy.access !== "local" && legacy.access !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access must be "auth", "local", or "open". Use console.auth instead.' })
+  }
+  if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
+  }
+  if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
+    const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : false
+    return { ...value, auth } as ConsoleOptions
   }
   if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
