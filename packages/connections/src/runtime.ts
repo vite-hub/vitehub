@@ -7,7 +7,9 @@ import { createConnectionTransport } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
 import { connectionResult, isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
-import { isConnectionDefinition } from "./definition.ts"
+import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
+import { isLoginProvider } from "./oauth-login.ts"
+import { createLoginSessions } from "./runtime/login.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
@@ -22,6 +24,8 @@ import type {
   ConnectionDefinition,
   ConnectionFetchInit,
   ConnectionInspection,
+  ConnectionInstancesDefinition,
+  ConnectionLoginDefinition,
   ConnectionProvider,
   ConnectionTokenResponse,
   ConnectionValue,
@@ -38,6 +42,7 @@ const API_KEY_PATTERN = /^[\x21-\x7e]{1,8192}$/
 // The approval grant of a write requested while the provider `fallback` key was in use.
 // Stored grants use random 43-character ids, so the two never match.
 const FALLBACK_GRANT = "fallback"
+const LOGIN_GRANT = "login"
 
 interface StoredToken {
   grantId?: string
@@ -51,7 +56,7 @@ interface StoredToken {
 
 export interface ConnectionsRuntimeOptions {
   /** Connection definitions by name, or loaders that import them. */
-  definitions: Readonly<Record<string, ConnectionDefinition | (() => Promise<unknown>)>>
+  definitions: Readonly<Record<string, ConnectionDefinition | ConnectionInstancesDefinition | (() => Promise<unknown>)>>
   store: ConnectionStore | (() => ConnectionStore | Promise<ConnectionStore>)
   fetch?: typeof fetch
   now?: () => number
@@ -206,6 +211,10 @@ async function readResponse(response: Response): Promise<unknown> {
   }
 }
 
+type ConnectionModule = ConnectionDefinition | ConnectionInstancesDefinition
+function isConnectionModule(value: unknown): value is ConnectionModule { return isConnectionDefinition(value) || isConnectionInstances(value) }
+function isLoginDefinition(definition: ConnectionDefinition): definition is ConnectionLoginDefinition { return isLoginProvider(definition.provider) }
+
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const request = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
@@ -231,7 +240,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
   let store: Promise<ConnectionStore> | undefined
-  const definitions = new Map<string, Promise<ConnectionDefinition | undefined>>()
+  const definitions = new Map<string, Promise<ConnectionModule | undefined>>()
+  const instanceDefinitions = new Map<string, ConnectionDefinition>()
+  const logins = createLoginSessions({ now, request })
 
   // A store factory that throws synchronously still rejects, so callers can treat the store as unavailable.
   const getStore = () => (store ??= Promise.resolve().then(() => v.is(v.function(), options.store) ? options.store() : options.store).catch((error: unknown) => {
@@ -239,17 +250,17 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     throw error
   }))
 
-  async function loadDefinition(name: string): Promise<ConnectionDefinition | undefined> {
+  async function loadDefinition(name: string): Promise<ConnectionModule | undefined> {
     const entry = Object.hasOwn(options.definitions, name) ? options.definitions[name] : undefined
     if (!entry) return undefined
-    if (isConnectionDefinition(entry)) return entry
+    if (isConnectionModule(entry)) return entry
     if (!v.is(v.function(), entry)) return undefined
     let loaded = definitions.get(name)
     if (!loaded) {
       loaded = entry().then((module) => {
-        if (isConnectionDefinition(module)) return module
+        if (isConnectionModule(module)) return module
         const parsedModule = v.safeParse(v.object({ default: v.unknown() }), module)
-        return parsedModule.success && isConnectionDefinition(parsedModule.output.default) ? parsedModule.output.default : undefined
+        return parsedModule.success && isConnectionModule(parsedModule.output.default) ? parsedModule.output.default : undefined
       }).then((result) => {
         if (!result) definitions.delete(name)
         return result
@@ -270,8 +281,20 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ problem: "length" })
     }
     const loaded = await loadDefinition(name)
-    if (!loaded) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_FOUND({ connection: name })
-    return loaded
+    if (loaded && isConnectionInstances(loaded)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "name" })
+    if (loaded) return loaded
+    const separator = name.lastIndexOf(":")
+    const group = separator > 0 ? await loadDefinition(name.slice(0, separator)) : undefined
+    const instance = name.slice(separator + 1)
+    if (!group || !isConnectionInstances(group) || !group.instances.includes(instance)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_FOUND({ connection: name })
+    let resolved = instanceDefinitions.get(name)
+    if (!resolved) {
+      const candidate: unknown = group.definition(instance)
+      if (!isConnectionDefinition(candidate)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "definition" })
+      resolved = candidate
+      instanceDefinitions.set(name, resolved)
+    }
+    return resolved
   }
 
   function envContext(store: ConnectionStore, name: string, permission: "activity" | "replace" | "use", actor: string, options: UseConnectionOptions = {}): EnvAccessContext {
@@ -303,8 +326,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   function oauthProvider(definition: ConnectionDefinition, name: string): ConnectionProvider {
     const provider = definition.provider
-    if (isApiKeyProvider(provider)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: name })
+    if (isApiKeyProvider(provider) || isLoginProvider(provider)) {
+      throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: isApiKeyProvider(provider), connection: name })
     }
     return provider
   }
@@ -600,6 +623,10 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   /** Send one provider request with the Connection token inside an audited Env Bridge use. */
   async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {
+    if (isLoginDefinition(context.definition)) {
+      const token = await logins.token(context.name, context.definition)
+      return await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, token))
+    }
     const fallback = await fallbackFor(context)
     if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
     const connections = await getStore()
@@ -644,6 +671,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   /** The credential that an approval binds to: the stored grant, or the provider `fallback` key. */
   async function approvalGrant(context: CallContext): Promise<string> {
+    if (isLoginProvider(context.definition.provider)) return LOGIN_GRANT
     if (await fallbackFor(context)) return FALLBACK_GRANT
     await requireConnected(context.name)
     const current = await (await getStore()).secrets.read(tokenKey(context.name))
@@ -752,6 +780,22 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function inspect(name: string): Promise<ConnectionInspection> {
     const loaded = await definition(name)
+    if (isLoginDefinition(loaded)) {
+      const token = logins.latest(name)
+      const declared = [...(loaded.scopes ?? [])]
+      const credentials = await logins.credentials(loaded.provider).catch(() => undefined)
+      return {
+        account: token?.account,
+        actions: connectionActions(loaded),
+        credential: "oauth2",
+        ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
+        name,
+        provider: loaded.provider.id,
+        refreshedAt: token?.refreshedAt,
+        scopes: { declared, granted: token?.scopes ?? [], missing: token ? declared.filter(scope => !token.scopes.includes(scope)) : declared },
+        status: credentials === undefined ? "disconnected" : "connected",
+      }
+    }
     const provider = loaded.provider
     const apiKeyProvider = isApiKeyProvider(provider)
     const hasFallback = isApiKeyProvider(provider) && provider.fallback !== undefined
@@ -936,7 +980,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const key = tokenKey(input.name)
     const actor = input.actor ?? "user:local"
     // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
-    const revocationEndpoint = isApiKeyProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
+    const revocationEndpoint = isApiKeyProvider(loaded.provider) || isLoginProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
     const owner = await claimMutationLease(input.name)
     let releaseLease = true
     let providerFailure: Error | undefined
