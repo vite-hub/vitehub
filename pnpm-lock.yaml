@@ -8348,7 +8348,7 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
+    resolution: {integrity: sha512-O4vQ+ZsHBiWMkhD9yOKsL7aiz+Jhl4yXdMw7ZgxZ3Fev2V6gFxE0sF6o92EzuQLHrM/xzVy2/nadjQkVGka5nQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.5
