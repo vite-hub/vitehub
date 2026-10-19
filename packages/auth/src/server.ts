@@ -366,10 +366,6 @@ async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
     adopted = new Promise((resolve, reject) => {
       Reflect.apply(intrinsicPromiseThen, value, [resolve, reject])
     })
-    if (needsStableConstructor) {
-      if (constructorDescriptor) Object.defineProperty(value, "constructor", constructorDescriptor)
-      else Reflect.deleteProperty(value, "constructor")
-    }
   }
   catch (error) {
     // A non-configurable own constructor cannot be stabilized. Do not fall
@@ -380,7 +376,7 @@ async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
     // Promise subclasses can expose a throwing species getter. Retry the
     // intrinsic adoption with the standard constructor, restoring the object
     // immediately after the intrinsic has captured it.
-    const descriptor = Object.getOwnPropertyDescriptor(value, "constructor")
+    const descriptor = constructorDescriptor
     try {
       Object.defineProperty(value, "constructor", { configurable: true, value: Promise })
       adopted = new Promise((resolve, reject) => {
@@ -395,6 +391,12 @@ async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
       else Reflect.deleteProperty(value, "constructor")
     }
     if (!adopted) throw error
+  }
+  finally {
+    if (needsStableConstructor) {
+      if (constructorDescriptor) Object.defineProperty(value, "constructor", constructorDescriptor)
+      else Reflect.deleteProperty(value, "constructor")
+    }
   }
   return adopted
 }

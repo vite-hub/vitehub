@@ -213,6 +213,19 @@ describe("agent public types", () => {
     expectTypeOf(inlineInvocation).toMatchTypeOf<AgentTriggerRunInvokeResult<Options>>()
   })
 
+  it("types webhook.serialize as a replacement for concurrencyKey and concurrencyLimit", () => {
+    type Webhook = NonNullable<AgentTriggerRunInvokeResult["webhook"]>
+
+    expectTypeOf({ deliveryId: "delivery-1", serialize: "ticket:1" }).toMatchTypeOf<Webhook>()
+    expectTypeOf({ busy: "steer" as const, deliveryId: "delivery-1", serialize: "ticket:1" }).toMatchTypeOf<Webhook>()
+    // @ts-expect-error serialize replaces concurrencyKey.
+    const withKey: Webhook = { concurrencyKey: "ticket:1", deliveryId: "delivery-1", serialize: "ticket:1" }
+    // @ts-expect-error serialize replaces concurrencyLimit.
+    const withLimit: Webhook = { concurrencyLimit: 1, deliveryId: "delivery-1", serialize: "ticket:1" }
+    expectTypeOf(withKey).toMatchTypeOf<Webhook>()
+    expectTypeOf(withLimit).toMatchTypeOf<Webhook>()
+  })
+
   it("types bounded driver capacity", () => {
     const queue = { maxPending: 20, timeout: 300_000 } satisfies AgentDriverCapacityQueueOptions
     const adaptive = {

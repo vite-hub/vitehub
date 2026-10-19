@@ -13,6 +13,8 @@ export interface InlineConsoleAuth {
   secretEnv?: string
   /** Better Auth session options. `expiresIn` is in seconds. */
   session?: { expiresIn?: number }
+  /** Environment key containing the selected project root secret. */
+  developmentSecretEnvKey?: string
 }
 
 export interface InlineConsoleAuthGates {
