@@ -610,6 +610,9 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
     const name = readOpaquePropertyExpression(trimmed, "databaseName", source, seen)
     const hasId = opaqueObjectContainsKey(trimmed, source, "databaseId")
     const hasName = opaqueObjectContainsKey(trimmed, source, "databaseName")
+    // An unresolved spread may provide either resource key at runtime. Keep
+    // ownership unknown until every spread path is proven key-free.
+    if (hasId === undefined || hasName === undefined) return undefined
     if (!hasId && !hasName) return false
     const resolving = new Set<string>()
     const resolve = (value: string | undefined): string | undefined => {
@@ -663,21 +666,29 @@ function readOpaquePropertyExpression(expression: string, key: string, source: s
   return found ? value : undefined
 }
 
-function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean {
+function opaqueObjectContainsKey(expression: string, source: string, key: string, seen = new Set<string>()): boolean | undefined {
   const trimmed = expression.trim()
   const body = objectLiteralBody(trimmed)
   if (body !== undefined) {
-    return splitTopLevel(body).some(property => {
+    let unresolved = false
+    for (const property of splitTopLevel(body)) {
       const normalized = stripLeadingEntryComments(property).trim()
-      if (!normalized) return false
+      if (!normalized) continue
       if (readEntryKey(normalized) === key) return true
-      return normalized.startsWith("...") && opaqueObjectContainsKey(normalized.slice(3), source, key, seen)
-    })
+      if (normalized.startsWith("...")) {
+        const result = opaqueObjectContainsKey(normalized.slice(3), source, key, new Set(seen))
+        if (result === true) return true
+        if (result === undefined) unresolved = true
+      }
+    }
+    return unresolved ? undefined : false
   }
   const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
-  if (!identifier || seen.has(identifier)) return false
-  seen.add(identifier)
-  return opaqueObjectContainsKey(readOpaqueDeclarationExpression(identifier, source) ?? "", source, key, seen)
+  if (!identifier || seen.has(identifier)) return undefined
+  const next = new Set(seen)
+  next.add(identifier)
+  const declaration = readOpaqueDeclarationExpression(identifier, source)
+  return declaration === undefined ? undefined : opaqueObjectContainsKey(declaration, source, key, next)
 }
 
 function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
@@ -706,7 +717,9 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
         // visited set can turn a previously proven HTTP-only value into an
         // unresolved result when both paths reference the same nested object.
         const spread = readOpaqueHttpOnly(spreadExpression, source, new Set(seen))
-        if (opaqueObjectContainsKey(spreadExpression, source, "http")) httpOnly = spread
+        const hasHttp = opaqueObjectContainsKey(spreadExpression, source, "http")
+        if (hasHttp === undefined) httpOnly = undefined
+        else if (hasHttp) httpOnly = spread
       }
     }
     return httpOnly
