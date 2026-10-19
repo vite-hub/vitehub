@@ -219,7 +219,7 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
         ready: queue.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked).length,
         stackBlocked: queue.filter(item => item.stackBlocked).length,
         waiting: queue.filter(item => item.status === "waiting").length,
-        // PRs that `reviewPushBudget` parked, with the recorded reason.
+        // PRs that `reviewPushBudget` or `dailyPassBudget` parked, with the reason and the resume time.
         parked: budgetParks(queue),
       }, admission: {
         accepting: guard.accepting,
