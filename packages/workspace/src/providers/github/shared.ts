@@ -110,7 +110,8 @@ export async function requestGitHub(input: string | URL | Request, init: Request
       response = await fetch(input, init);
     }
     catch (error) {
-      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw new GitHubNetworkError(error);
+      if (init.signal?.aborted) throw error;
+      if (!retryable || attempt + 1 >= githubReadAttempts) throw new GitHubNetworkError(error);
       await waitForRetry(100 * 2 ** attempt, init.signal);
       continue;
     }
@@ -141,14 +142,22 @@ async function validateGitHubResponse(input: string | URL | Request, response: R
     body = await response.clone().json()
   }
   catch {
-    return
+    throw new ForgeResponseError(`GitHub returned a malformed ${kind} response.`)
   }
   const valid = kind === "commit"
-    ? isRecord(body) && isRecord(body.commit) && isRecord(body.commit.tree) && typeof body.sha === "string"
+    ? isRecord(body) && typeof body.sha === "string" && isRecord(body.commit) && isRecord(body.commit.tree) && typeof body.commit.tree.sha === "string"
     : kind === "tree"
-      ? isRecord(body) && Array.isArray(body.tree)
-      : Array.isArray(body)
+      ? isRecord(body) && Array.isArray(body.tree) && body.tree.every(isTreeEntry)
+      : Array.isArray(body) && body.every(isBranchEntry)
   if (!valid) throw new ForgeResponseError(`GitHub returned a malformed ${kind} response.`)
+}
+
+function isTreeEntry(value: unknown): boolean {
+  return isRecord(value) && typeof value.path === "string" && typeof value.type === "string" && typeof value.sha === "string"
+}
+
+function isBranchEntry(value: unknown): boolean {
+  return isRecord(value) && typeof value.name === "string" && isRecord(value.commit) && typeof value.commit.sha === "string"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
