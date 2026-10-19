@@ -590,11 +590,11 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           // Prove that this exact reader owns the supplied stream. Releasing it
           // must clear the body's lock; a stateful or spoofed getReader() can
           // otherwise lock the body and return a reader for another stream.
-          Reflect.apply(probeMethods.releaseLock, ownershipReader, [])
-          if (Reflect.apply(locked.get, body, []) !== false) return
-          const validatedReader = Reflect.apply(descriptor.value, body, []) as object
-          if (Reflect.apply(locked.get, body, []) !== true || !hasNativeAuthorizationReaderPrototype(validatedReader)) return
-          validatedAuthorizationReaders.set(body, validatedReader)
+          if (Reflect.apply(locked.get, body, []) !== true) return
+          // Retain the reader returned by the ownership probe. Releasing it
+          // and calling getReader again would let a stateful override swap in
+          // a reader for a different stream between validation and bridging.
+          validatedAuthorizationReaders.set(body, ownershipReader)
           foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
