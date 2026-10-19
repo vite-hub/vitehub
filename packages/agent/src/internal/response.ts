@@ -79,6 +79,20 @@ export function isResponse(value: unknown): value is Response {
         // before accepting a null body.
         if (body.call(value) == null) {
           const candidate = value as object
+          const ownBody = Object.getOwnPropertyDescriptor(candidate, "body")
+          if (ownBody) return false
+          const bodyInit = Object.getOwnPropertyDescriptor(candidate, "bodyInit")
+          const options = Object.getOwnPropertyDescriptor(candidate, "options")
+          const bodyFactory = Object.getOwnPropertyDescriptor(candidate, "_bodyFactory")
+          const generatedBody = Object.getOwnPropertyDescriptor(candidate, "_generatedBody")
+          const signal = Object.getOwnPropertyDescriptor(candidate, "_signal")
+          const bodyUsed = Object.getOwnPropertyDescriptor(candidate, "bodyUsed")
+          if (!bodyInit || bodyInit.get || bodyInit.value != null
+            || !options || options.get || !options.value || typeof options.value !== "object"
+            || !bodyFactory || bodyFactory.get || typeof bodyFactory.value !== "function"
+            || !generatedBody || generatedBody.get || generatedBody.value !== null
+            || !signal || signal.get
+            || !bodyUsed || bodyUsed.get || bodyUsed.value !== false) return false
           if (!Object.prototype.hasOwnProperty.call(candidate, "bodyInit")
             || !Object.prototype.hasOwnProperty.call(candidate, "options")
             // The ponyfill initializes these implementation-owned state
