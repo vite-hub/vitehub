@@ -463,9 +463,11 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           if (held.length === 0) throw new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
         }
         const queued = writes.delivery ? await this.insertWebhookDelivery(tx, writes.delivery) : true
-        for (const mutation of writes.mutations) {
-          if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
-          else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+        if (queued) {
+          for (const mutation of writes.mutations) {
+            if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
+            else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+          }
         }
         return queued
       })

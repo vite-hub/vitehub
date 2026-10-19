@@ -8432,10 +8432,11 @@ function createQueuedChannelDispatch(
       }
       const commit = createAgentChannelStateCommit(webhookState.state)
       try {
+        let admitted: unknown
         if (order) {
           const orderKey = `${webhookState.keyPrefix}order:${triggerId}:${order.key}`
           commit.locks.push(await acquireChannelStateLock(webhookState.state, `${orderKey}:transaction`))
-          const admitted = await webhookState.state.get<unknown>(orderKey)
+          admitted = await webhookState.state.get<unknown>(orderKey)
           if (isRuntimeNumber(admitted) && order.version <= admitted) {
             result.items.push({ id: item.key, key: item.key, reason: "stale", status: "skipped" })
             result.skipped += 1
@@ -8822,7 +8823,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               type: queued ? "queued" : "duplicate",
               runId: invocation.run?.runId,
             })
-            return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
+            return webhookReceipt(invocation.webhook, { accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
           let deliveryClaimKey: string | undefined
