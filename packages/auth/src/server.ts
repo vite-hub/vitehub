@@ -448,6 +448,7 @@ function hasTrustedResponseDescriptors(prototype: object): boolean {
 }
 
 const authorizationResponsePrototypeLimit = 32
+const trustedReadableStreamGetReader = ReadableStream.prototype.getReader
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -560,8 +561,13 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   // same fresh stream. An override that returns a reader from another stream
   // leaves the probed stream locked and fails closed.
   try {
-    const constructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")
+    const constructor = constructorDescriptor?.value
     if (typeof constructor !== "function") return false
+    // A getReader supplied by an intermediate prototype is an override rather
+    // than the stream implementation's intrinsic operation. Reject it before
+    // allowing that override to select the bridge reader.
+    if (constructor === ReadableStream && (constructor.prototype !== lockedOwner || getReader !== trustedReadableStreamGetReader)) return false
     const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value
     if (intrinsicReader !== getReader) return false
     const fresh = new constructor()
