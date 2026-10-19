@@ -110,13 +110,20 @@ describe("discoverChannelDefinitions", () => {
     expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] })).toEqual(expected)
   })
 
-  it("skips Channel factories and modules without a default or connectors export", async () => {
+  it("skips factories, classes, primitives, and modules without a default or connectors export", async () => {
     const root = await createTempProject()
     await touch(root, "server/channels/arrow.ts", "export default (name: string) => ({ connectors: { [name]: { send() {} } } })\n")
     await touch(root, "server/channels/declared.ts", "export default function createChannel() { return {} }\n")
     await touch(root, "server/channels/named.ts", "function createChannel() { return {} }\nexport { createChannel as default }\n")
     await touch(root, "server/channels/helpers.ts", "export const format = (text: string) => text.trim()\n")
     await touch(root, "server/channels/types.ts", "export type Message = { text: string }\n")
+    await touch(root, "server/channels/shape.ts", "export default interface Shape { text: string }\n")
+    await touch(root, "server/channels/client.ts", "class Client {}\nexport default Client\n")
+    await touch(root, "server/channels/inline-class.ts", "export default class {}\n")
+    await touch(root, "server/channels/count.ts", "export default 1\n")
+    await touch(root, "server/channels/empty.ts", "export default null\n")
+    await touch(root, "server/channels/list.ts", "export default []\n")
+    await touch(root, "server/channels/label.ts", "export default `label`\n")
 
     expect(discoverChannelDefinitions({ rootDir: root })).toEqual([])
   })

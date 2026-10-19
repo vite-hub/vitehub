@@ -35,6 +35,17 @@ function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["
 }
 
 const agentChannelModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
+// Default exports that cannot be a Channel Definition object.
+const nonDefinitionTypes = new Set<string>([
+  "ArrayExpression",
+  "ArrowFunctionExpression",
+  "ClassDeclaration",
+  "ClassExpression",
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "Literal",
+  "TemplateLiteral",
+])
 
 function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
   return node.type === "Identifier" ? node.name : node.value
@@ -42,9 +53,9 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
 
 /**
  * `server/channels` can also hold Agent Channels from `defineChannel()` and Channel factories. A module is an
- * outbound Channel when it exports `connectors`, or when its default export is neither a function nor an Agent
- * `defineChannel()` call. The module is read, not run. A module that cannot be read statically stays a Channel, so
- * the runtime reports its problems.
+ * outbound Channel when it exports `connectors`, or when its default export can be a Channel Definition object: not
+ * a function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read, not run. A
+ * module that cannot be read statically stays a Channel, so the runtime reports its problems.
  */
 function isOutboundChannelModule(file: string): boolean {
   const module = scanModule(readFileSync(file, "utf8"), file)
@@ -69,10 +80,10 @@ function isOutboundChannelModule(file: string): boolean {
     }
     if (statement.type === "ExportDefaultDeclaration") {
       const declaration = statement.declaration
+      // An interface is a type. The module has no default export at runtime.
+      if (declaration.type === "TSInterfaceDeclaration") continue
       hasDefault = true
-      defaultExport = declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" || declaration.type === "TSInterfaceDeclaration"
-        ? declaration
-        : unwrapExpression(declaration)
+      defaultExport = declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" ? declaration : unwrapExpression(declaration)
       continue
     }
     if (statement.type === "ExportAllDeclaration") {
@@ -93,7 +104,7 @@ function isOutboundChannelModule(file: string): boolean {
         if (exported && item.id.name === "connectors") exportsConnectors = true
       }
     }
-    if (declaration?.type === "FunctionDeclaration" && declaration.id) bindings.set(declaration.id.name, declaration)
+    if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id) bindings.set(declaration.id.name, declaration)
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
     for (const specifier of statement.specifiers) {
       if (specifier.exportKind === "type") continue
@@ -118,8 +129,7 @@ function isOutboundChannelModule(file: string): boolean {
     value = binding
   }
   if (!value) return true
-  if (value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "FunctionDeclaration") return false
-  if (value.type !== "CallExpression") return true
+  if (value.type !== "CallExpression") return !nonDefinitionTypes.has(value.type)
   const callee = unwrapExpression(value.callee)
   if (callee.type === "Identifier") return !agentChannelFactories.has(callee.name)
   return !(callee.type === "MemberExpression"
