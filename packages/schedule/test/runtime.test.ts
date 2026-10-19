@@ -2,9 +2,10 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
-import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { defineSchedule, defineScheduleTarget, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
+import { schedules, createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -732,6 +733,27 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
+  })
+
+
+
+  it("rejects hostile scheduledAt values with a stable diagnostic", async () => {
+    const hostile = { get [Symbol.toStringTag]() { throw new Error("hostile") } }
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "hostile-date",
+      scheduledAt: hostile as Date,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "revoked-date",
+      scheduledAt: revoked.proxy,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
   it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
