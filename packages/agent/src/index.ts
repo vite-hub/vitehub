@@ -2406,18 +2406,20 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const executionBudget = createExecutionBudget({
-      ...(context.input.executionBudget || {}),
-      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
-      signal: context.input.abortSignal,
-    })
+    const executionBudget = executionBudgetHasConstraints(context.input)
+      ? createExecutionBudget({
+          ...(context.input.executionBudget || {}),
+          ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
+          signal: context.input.abortSignal,
+        })
+      : undefined
     const invocationInput = {
       ...context.input,
-      abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+      ...(executionBudget ? { abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal } : {}),
     }
     let release: (() => void) | undefined
     let budgetDeferred = false
-    const disposeBudget = () => executionBudget.dispose()
+    const disposeBudget = () => executionBudget?.dispose()
     try {
       context = { ...context, input: invocationInput }
       release = await acquireAgentCapacity(definition, invocationInput.abortSignal)
@@ -8400,15 +8402,17 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  })
+  const executionBudget = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined
   const inputBeforeBudgetSignal = input
   input = {
     ...input,
-    abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+    ...(executionBudget ? { abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal } : {}),
   }
   transferParsedAgentWorkflowInput(inputBeforeBudgetSignal, input)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -8452,7 +8456,7 @@ async function executeAgentInvocation<
       throw error
     }
     finally {
-      executionBudget.dispose()
+      executionBudget?.dispose()
     }
   }
   if (!release) {
@@ -8472,7 +8476,7 @@ async function executeAgentInvocation<
         throw error
       }
       finally {
-        executionBudget.dispose()
+        executionBudget?.dispose()
       }
     }
   }
@@ -8511,7 +8515,7 @@ async function executeAgentInvocation<
       throw error
     }
     finally {
-      executionBudget.dispose()
+      executionBudget?.dispose()
     }
   }
 }

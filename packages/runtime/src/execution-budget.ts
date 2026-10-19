@@ -155,7 +155,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     const limit = limitFor(counter, limits)
     if (limit !== undefined && next > limit) {
       const error = new ExecutionBudgetExceededError(counter, limit)
-      state.controller.abort(error)
+      ;(controller === state.controller ? state.controller : controller).abort(error)
       throw error
     }
   }
