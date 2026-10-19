@@ -14,10 +14,11 @@ Each provider declares the API origins that may receive its credential. `call` a
 | --- | --- | --- |
 | `google()` | `vite-hub/connections/google` | The root URL origins of its API catalogs, for example `https://gmail.googleapis.com`. |
 | `apiKey()` | `vite-hub/connections` | Its `origins` and the root URL origins of its `apis` catalogs. |
+| `oauthLogin()` | `vite-hub/connections` | Its `mcp` endpoint, its `origins`, and the root URL origins of its `apis` catalogs. |
 
 An origin is `https://host` or `https://host:port`. ViteHub compares origins exactly, so list each host. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider function yet. For another service, declare an [OAuth provider object](#oauth-provider-objects), or use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, declare an [OAuth provider object](#oauth-provider-objects), use [`oauthLogin()`](#oauth-login-connections) when a service account must sign in without a person, or use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
 
 ## OAuth provider objects
 
@@ -93,6 +94,65 @@ The CLI reads the key only from stdin, so it does not stay in the shell history.
 
 ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth Connections. An API key has no scopes and no refresh: a `401` response does not change the status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking the Connection deletes the stored key; revoke the key at the provider too.
 
+## OAuth login Connections
+
+`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser:
+
+```ts [server/connections/portal.ts]
+import { defineConnection, oauthLogin } from 'vite-hub/connections'
+
+export default defineConnection({
+  provider: oauthLogin({
+    id: 'portal',
+    mcp: 'https://portal.example.com/mcp',
+    clientName: 'Support Agent',
+    credentials: () => useServerEnv().portal.login,
+    async login({ url, redirectUri, credentials, fetch }) {
+      const [email, password] = credentials.split(':')
+      await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
+      return (await fetch(url)).headers.get('location')!
+    },
+  }),
+  scopes: ['openid', 'email'],
+  access: { 'agent:support': { read: true, write: ['fetch'], approve: false } },
+})
+```
+
+ViteHub reads the protected resource metadata of `mcp` (RFC 9728) to find the authorization server, then its metadata (RFC 8414, or OpenID Connect discovery). It registers a public client (RFC 7591) once per process, builds the authorization URL with PKCE, `state`, `scope`, and `resource`, calls `login`, checks the returned `code` and `state`, and exchanges the code. A token that expires within a minute is refreshed with its refresh token or replaced by a new sign-in. A `401` signs in again once and retries the request. Concurrent requests share one sign-in, also when it fails.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `login` | Required | Receives `{ url, redirectUri, credentials, fetch, signal }` and returns the URL that the provider redirects to `redirectUri`. `fetch` keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `signal` aborts after 60 seconds. |
+| `mcp` | None | The provider's MCP endpoint. Discovery starts here, and it receives the token. `mcp` or `issuer` is required. |
+| `issuer` | From the `mcp` resource metadata | The authorization server issuer. |
+| `resource` | `mcp` | The `resource` of authorization and token requests (RFC 8707). |
+| `credentials` | None | The secret that `login` gets, for example from Server Env. A sealed secret is unsealed. While it resolves to nothing, the Connection is `disconnected`. |
+| `clientId` | Registered | A registered public client id. Without it, the authorization server must support registration. |
+| `clientName` | `'ViteHub'` | `client_name` for client registration. |
+| `redirectUri` | `http://127.0.0.1/callback` | The redirect URI of the client. ViteHub never listens on it. |
+| `authorizationParams` | None | Extra authorization request parameters. |
+| `origins`, `apis` | None | Other origins and typed API catalogs that receive the token. |
+| `account` | The ID token claims when `scopes` includes `openid` | Reads the account from the token response. |
+| `requests` | None | The [request policy](#request-policy). |
+
+Tokens and the client registration stay in memory, so each process signs in again, and requests work without the Connections store. While `credentials` resolves to a value, the Connection is `connected`; a failed sign-in fails only the request that needed it. An error that `login` throws becomes `CONNECTION_PROVIDER` without its message, because the message could contain the credentials. The Connection has no connect flow and no key: the Console connect route, `authorize()`, and `setKey()` reject it, and a revoke drops the tokens, so the next request signs in again.
+
+## Keyed Connections
+
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
+
+```ts [server/connections/portal.ts]
+export default defineConnection({
+  instances: ['acme', 'globex'],
+  definition: tenant => ({
+    provider: oauthLogin({ mcp: `https://${tenant}.example.com/mcp`, credentials: () => useServerEnv().portal[tenant], login }),
+    scopes: ['openid'],
+  }),
+})
+```
+
+This file defines `portal:acme` and `portal:globex`. Use the full name everywhere, for example `useConnection('portal:acme')` or `mcp({ servers: { portal_acme: { connection: 'portal:acme' } } })`. The CLI and the Console list each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
+
 ## MCP endpoint
 
 A provider can declare its MCP endpoint with `mcp`. `apiKey({ mcp })` and OAuth providers accept it. The endpoint origin also receives the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, and must not have credentials, a query, or a fragment.
@@ -107,7 +167,7 @@ An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, witho
 
 ## Request policy
 
-`requests` on an OAuth provider or in `apiKey()` sets how ViteHub sends provider requests. It applies to `fetch` and to API method calls, but not to the provider's [MCP endpoint](#mcp-endpoint), whose sessions are long-lived streams. Without it, ViteHub sends each request once, with no pacing and no timeout.
+`requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` sets how ViteHub sends provider requests. It applies to `fetch` and to API method calls, but not to the provider's [MCP endpoint](#mcp-endpoint), whose sessions are long-lived streams. Without it, ViteHub sends each request once, with no pacing and no timeout.
 
 ```ts [server/connections/airtable.ts]
 export default defineConnection({

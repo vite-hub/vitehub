@@ -70,6 +70,8 @@ interface OpenAPIOperationTool {
   bodySchema?: JsonSchema
   description: string
   method: OpenAPIMethod
+  /** Name from the `operations` record. It replaces the tool name and the CLI command name. */
+  name?: string
   operationId: string
   path: string
   pathParameters: OpenAPIParameter[]
@@ -171,13 +173,24 @@ export interface OpenAPICapabilityOptions<
   description?: string
   hooks?: OpenAPIHooks<TRuntimeConfig, Name>
   maxResponseBytes?: number
-  operations: readonly string[]
+  /**
+   * Allowed operations: a list of `operationId`s, or a record of names to `operationId`s.
+   * A record name becomes the tool name and the CLI command name, for example `{ "flow-run": "read_flow_run_flow_runs__id__get" }`.
+   */
+  operations: OpenAPIOperationSelection
   responseType?: "json" | "text"
   server?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
   spec: OpenAPIContextValue<string | URL | OpenAPIDocument, TRuntimeConfig, Name>
   specHeaders?: OpenAPIHeaders
   timeout?: number
   transformResponse?: (response: unknown, context: OpenAPIResponseContext<TRuntimeConfig, Name>) => MaybePromise<unknown>
+}
+
+export type OpenAPIOperationSelection = readonly string[] | Readonly<Record<string, string>>
+
+interface OpenAPISelectedOperation {
+  name?: string
+  operationId: string
 }
 
 const pathMethods = new Set<OpenAPIPathMethod>(["get", "head", "post", "put", "patch", "delete", "options", "trace"])
@@ -188,14 +201,15 @@ export function openapi<
   Name extends WorkspaceName = WorkspaceName,
 >(options: OpenAPICapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   assertOpenAPIOptions(options)
+  const selection = selectOpenAPIOperations(options.operations)
   // The schema trims the name, so lookup and metadata use the parsed value.
   const connectionName = options.connection === undefined ? undefined : v.parse(connectionNameSchema, options.connection)
   let operations: Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> | undefined
   const dynamicOperations = typeof options.spec === "function" || typeof options.server === "function"
   const loadOperations = (context: AgentCapabilityContext<TRuntimeConfig, Name>) => {
-    if (dynamicOperations) return loadOpenAPIOperations(options, context)
+    if (dynamicOperations) return loadOpenAPIOperations(options, selection, context)
     if (operations) return operations
-    const pending = loadOpenAPIOperations(options, context)
+    const pending = loadOpenAPIOperations(options, selection, context)
     operations = pending
     pending.catch(() => {
       if (operations === pending) operations = undefined
@@ -211,7 +225,7 @@ export function openapi<
     id: "openapi",
     metadata: {
       ...(connectionName ? { connection: connectionName } : {}),
-      operations: [...options.operations],
+      operations: selection.map(entry => entry.operationId),
       spec: dynamicOperations
         ? "dynamic"
         : typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
@@ -228,9 +242,9 @@ export function openapi<
       if (options.cli) return undefined
       const resolved = await loadOperations(context)
       const bound = connection(context)
-      // SAFETY: Each entry is an AgentTool built by createOpenAPITool, keyed by its unique operationId.
+      // SAFETY: Each entry is an AgentTool built by createOpenAPITool, keyed by its unique record name or operationId.
       return Object.fromEntries(resolved.tools.map(operation => [
-        operation.operationId,
+        operation.name ?? operation.operationId,
         createOpenAPITool(operation, resolved.baseUrl, options, context, bound),
       ])) as AgentToolSet
     },
@@ -241,9 +255,6 @@ export function openapi<
 function assertOpenAPIOptions(options: OpenAPICapabilityOptions): void {
   if (!options || typeof options !== "object") throw agentDiagnostics.AGENT_R0126({ message: "[vitehub] openapi() requires options." })
   if (!options.spec) throw agentDiagnostics.AGENT_R0127({ message: "[vitehub] openapi({ spec }) requires an OpenAPI document URL or object." })
-  if (!Array.isArray(options.operations) || !options.operations.length) {
-    throw agentDiagnostics.AGENT_R0128({ message: "[vitehub] openapi({ operations }) requires at least one allowed operationId." })
-  }
   if (options.connection !== undefined && !v.is(connectionNameSchema, options.connection)) {
     throw agentDiagnostics.AGENT_R0126({ message: "[vitehub] openapi({ connection }) must be a Connection name." })
   }
@@ -254,16 +265,16 @@ async function loadOpenAPIOperations<
   Name extends WorkspaceName,
 >(
   options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  selection: OpenAPISelectedOperation[],
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
 ): Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> {
   const { document, specUrl } = await loadOpenAPIDocument(options, context)
   const baseUrl = resolveBaseUrl(await resolveContextValue(options.server, context), document, specUrl)
-  const allowed = new Set(options.operations)
-  const allOperations = collectOperations(document, allowed)
-  const selected = options.operations.map((operationId) => {
+  const allOperations = collectOperations(document, new Set(selection.map(entry => entry.operationId)))
+  const selected = selection.map(({ name, operationId }) => {
     const operation = allOperations.get(operationId)
     if (!operation) throw agentDiagnostics.AGENT_R0129({ message: `[vitehub] openapi() operationId "${operationId}" was not found in the OpenAPI spec.` })
-    return operation
+    return name === undefined ? operation : { ...operation, name }
   })
   return { baseUrl, tools: selected }
 }
@@ -308,19 +319,18 @@ function resolveBaseUrl(baseUrl: string | URL | undefined, document: OpenAPIDocu
   return value instanceof URL ? new URL(value) : new URL(value, specUrl)
 }
 
+/** Reads only the selected operations, so an unselected operation with an unusable or duplicate operationId does not fail the spec. */
 function collectOperations(document: OpenAPIDocument, allowed: Set<string>): Map<string, OpenAPIOperationTool> {
   const result = new Map<string, OpenAPIOperationTool>()
   for (const [path, pathItem] of Object.entries(document.paths || {})) {
     for (const [methodName, value] of Object.entries(pathItem)) {
       if (!pathMethods.has(methodName as OpenAPIPathMethod)) continue
       const operation = dereference(document, value) as OpenAPIOperation
-      if (!operation?.operationId) continue
-      assertToolName(operation.operationId)
+      if (!operation?.operationId || !allowed.has(operation.operationId)) continue
       const method = methodName.toUpperCase()
-      if (!supportedMethods.has(method) && allowed.has(operation.operationId)) {
+      if (!supportedMethods.has(method)) {
         throw agentDiagnostics.AGENT_R0133({ message: `[vitehub] openapi() operation "${operation.operationId}" uses ${method}; v1 supports GET, HEAD, and POST.` })
       }
-      if (!supportedMethods.has(method)) continue
       if (result.has(operation.operationId)) {
         throw agentDiagnostics.AGENT_R0134({ message: `[vitehub] Duplicate OpenAPI operationId "${operation.operationId}".` })
       }
@@ -336,6 +346,37 @@ function collectOperations(document: OpenAPIDocument, allowed: Set<string>): Map
     }
   }
   return result
+}
+
+/**
+ * Accepts `["operationId"]` or `{ name: "operationId" }`.
+ * A list uses each operationId as the tool name. A record name is used verbatim as the tool name and the CLI command name.
+ */
+function selectOpenAPIOperations(operations: OpenAPIOperationSelection): OpenAPISelectedOperation[] {
+  const selection: OpenAPISelectedOperation[] = isOperationIdList(operations)
+    ? operations.map(operationId => ({ operationId }))
+    : operations && typeof operations === "object"
+      ? Object.entries(operations).map(([name, operationId]) => ({ name, operationId }))
+      : []
+  if (!selection.length || selection.some(entry => typeof entry.operationId !== "string" || !entry.operationId)) {
+    throw agentDiagnostics.AGENT_R0128({ message: "[vitehub] openapi({ operations }) requires at least one allowed operationId, as a list of operationIds or a record of names to operationIds." })
+  }
+  for (const { name, operationId } of selection) {
+    if (name === undefined) assertToolName(operationId)
+    else assertOperationName(name)
+  }
+  return selection
+}
+
+function isOperationIdList(operations: OpenAPIOperationSelection): operations is readonly string[] {
+  return Array.isArray(operations)
+}
+
+// Same rule as Capability CLI names, so one record name works as both a tool name and a command name.
+function assertOperationName(name: string): void {
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name)) {
+    throw agentDiagnostics.AGENT_R0135({ message: `[vitehub] openapi() operation name "${name}" must start with a letter and use only letters, numbers, underscores, and hyphens.` })
+  }
 }
 
 function assertToolName(operationId: string): void {
@@ -392,7 +433,7 @@ function createOpenAPITool<
         path: operation.path,
       },
     },
-    name: operation.operationId,
+    name: operation.name ?? operation.operationId,
   })
 }
 
@@ -407,10 +448,11 @@ function createOpenAPICli<
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   connection: OpenAPIConnection | undefined,
 ): AgentCapabilityCliContribution<TRuntimeConfig, Name> {
-  const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = {}
+  // A record name such as `toString` is a valid command, so the map has no prototype to collide with.
+  const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = Object.create(null)
   for (const operation of operations) {
-    const name = operationCommandName(cli.name, operation.operationId)
-    if (commands[name]) {
+    const name = operation.name ?? operationCommandName(cli.name, operation.operationId)
+    if (Object.hasOwn(commands, name)) {
       throw agentDiagnostics.AGENT_R0136({ message: `[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".` })
     }
     const outputFormat = options.responseType === "text" ? "text" : "json"

@@ -1776,9 +1776,19 @@ export type AgentAskQuestionsResolver<
   | ((context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<AgentAskQuestions<TOutput>>)
 
 /**
- * Answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output.
+ * Answers typed questions with TypeSafe Jev in bounded requests. The answers are the Invocation output.
  * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
  * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
+ *
+ * Each question is recorded in the Invocation's trace as `agent.tool.start` (`tool.input`: the question sent), then
+ * `agent.tool.finish` (`tool.output`: the answer; `ask.answer`: the choice, score, chance or boolean;
+ * `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs`) or `agent.tool.error` (`tool.error`,
+ * `error.status`, `error.requestId`). All three carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`,
+ * `ask.batch.index`, `ask.batch.count`, `ask.batch.size`, `gen_ai.operation.name: "ask"` and
+ * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
+ * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`. The shared state is `input.data` (or the prompt) on
+ * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
+ * No credentials or request headers are recorded.
  */
 export interface AgentAskDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
