@@ -342,6 +342,17 @@ function isNativeReaderMethod(value: unknown, key: string): value is (...args: u
   return value === nativeReaderMethods[key]
 }
 
+const functionToString = Function.prototype.toString
+function hasNativeFunctionSource(value: unknown): value is (...args: unknown[]) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return functionToString.call(value).includes("[native code]")
+  }
+  catch {
+    return false
+  }
+}
+
 const foreignReaderMethods = new WeakMap<Function, Record<string, Function>>()
 const validatedAuthorizationReaders = new WeakMap<object, object>()
 
@@ -510,7 +521,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
         // Probe and capture the source runtime's native reader methods. This
         // supports genuine streams from another realm while rejecting
         // caller-provided lookalikes through the native brand probes below.
-        if (typeof descriptor.value === "function") {
+        if (typeof descriptor.value === "function" && hasNativeFunctionSource(descriptor.value)) {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
@@ -528,6 +539,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const readerMethodShape = { read: ["read", 0], cancel: ["cancel", 1], releaseLock: ["releaseLock", 0] } as const
           if ((Object.entries(probeMethods) as Array<[keyof typeof readerMethodShape, Function]>).some(([key, method]) =>
             typeof method !== "function"
+            || !hasNativeFunctionSource(method)
             || method.name !== readerMethodShape[key][0]
             || method.length !== readerMethodShape[key][1]
             || Object.prototype.hasOwnProperty.call(method, "prototype"))) return
@@ -608,9 +620,11 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, _getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
   // Invoke the source stream's native operations so separate realms retain their brand.
-  const reader = (validatedAuthorizationReaders.get(body) ?? Reflect.apply(getReader, body, [])) as ReadableStreamDefaultReader<Uint8Array>
+  const validatedReader = validatedAuthorizationReaders.get(body)
+  if (!validatedReader) throw new Error("Authorization response reader was not validated")
+  const reader = validatedReader as ReadableStreamDefaultReader<Uint8Array>
   // Ensure the returned reader owns the supplied body; an override that
   // returns a reader for another stream must never cross the boundary.
   if (!body.locked) throw new Error("Authorization response reader does not own body")
