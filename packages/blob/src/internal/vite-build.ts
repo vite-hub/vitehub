@@ -676,12 +676,18 @@ export async function generateProviderOutputs(
   const stageSharedVercelRuntime = !options.cloudflareOwnedByNitro
     && (!options.serverFunctionName || options.serverFunctionName === "__server.func")
     && hasSiblingVercelRuntime(options.providerOutput)
-  const cleanupVercel = options.cloudflareOwnedByNitro ? getVercelBlobOutputCleanup(options) : undefined
+  // Provider outputs are owned by Blob even when the current configuration
+  // no longer creates them. Clean up marked artifacts on transitions to a
+  // local/FS setup as well as when Nitro takes ownership of Cloudflare.
+  const cleanupCloudflare = !createCloudflare
+    ? () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution)
+    : undefined
+  const cleanupVercel = !createVercel ? getVercelBlobOutputCleanup(options) : undefined
   const hasCurrentCloudflareContribution = Boolean(createCloudflareR2Bindings(resolveBlobConfig(options.blob, "cloudflare"))?.length)
-  if (options.cloudflareOwnedByNitro) {
+  if (cleanupCloudflare) {
     await write({
       clientOutDir: options.clientOutDir,
-      cleanup: { cloudflare: () => createNitroCloudflareCleanup(options.rootDir, hasCurrentCloudflareContribution) },
+      cleanup: { cloudflare: cleanupCloudflare },
       rootDir: options.rootDir,
     })
     options.signal?.throwIfAborted()
