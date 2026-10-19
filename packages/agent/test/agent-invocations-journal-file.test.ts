@@ -93,6 +93,13 @@ describe("vitehub agent invocations --database", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
   })
 
+  it("waits against the journal file without requesting the local endpoint", async () => {
+    const path = await storeJournal()
+    const result = await run(["wait-idle", "--database", path, "--json"])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({ event: "invocations.idle", stale: [{ id: "second" }] })
+  })
+
   it("reads an older read-only journal without migrating it", async () => {
     const path = join(await temporaryDirectory(), "journal.sqlite")
     const db = new DatabaseSync(path)
@@ -110,7 +117,7 @@ describe("vitehub agent invocations --database", () => {
 
   it.each([
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
-    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app."],
+    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
     [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
