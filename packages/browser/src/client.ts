@@ -85,7 +85,8 @@ function randomId(prefix: string): string {
 
 function timestamp(value: Date | string | undefined): string | undefined {
   if (!value) return
-  return value instanceof Date ? value.toISOString() : value
+  if (typeof value === "string") return value
+  return Date.prototype.toISOString.call(value)
 }
 
 function assertAudience(value: unknown): asserts value is string {

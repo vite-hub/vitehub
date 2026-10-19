@@ -16,4 +16,3 @@ export function payloadText(value: unknown): string {
     return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
   }
 }
-

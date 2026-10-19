@@ -1,0 +1,275 @@
+import { createHash } from "node:crypto";
+import type { GitHubEvidence } from "./inbox/types.ts";
+import type { PullRequestWait } from "./inbox/wait-state.ts";
+import type { DailyPassBudget } from "./inbox/budgets.ts";
+import type { Snapshot } from "./inbox/store.ts";
+import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
+
+const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
+const failed = new Set(["failure", "error", "timed_out", "action_required", "startup_failure"]);
+/** Check conclusions that need repair. */
+export const failedConclusions: ReadonlySet<string> = failed;
+/** A check that runs this long is treated as stuck. */
+const stuckCheckMs = 30 * 60_000;
+
+export interface BabysitterWaitPolicy {
+  /** Logins whose comments and reviews come from this host's repairs. They never wake a wait. */
+  workerAuthors: ReadonlySet<string>;
+  /** Configured logins, such as deployment preview bots, whose items never wake a wait. */
+  ignoreFeedbackAuthors?: ReadonlySet<string>;
+  /** Check names whose pending run means a review is in progress. */
+  pendingReviewChecks: ReadonlySet<string>;
+  /** Wake when required checks pass, so the host can merge a ready PR. */
+  wakeWhenReady: boolean;
+  /** Body prefixes of reviews that report no findings. Such reviews never wake a wait. */
+  noFindingsReviews: readonly string[];
+  /**
+   * Review-driven pushes after which bot feedback and failed `pendingReviewChecks` no longer wake a
+   * wait. Undefined disables the budget.
+   */
+  reviewPushBudget?: number;
+}
+
+/** The PR made `reviewPushBudget` review-driven pushes. Automated review then no longer needs a pass. */
+export function reviewPushBudgetSpent(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
+  return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
+}
+
+function login(value: GitHubEvidence): string {
+  const user: unknown = value.user ?? value.author;
+  return isRuntimeRecord(user) && hasRuntimeType(user.login, "string") ? user.login.toLowerCase() : "";
+}
+
+function commentIds(value: GitHubEvidence): string[] {
+  return [value.id, value.node_id, value.databaseId].filter(id => id !== undefined && id !== null).map(String);
+}
+
+/** Webhook replays carry fresh transport metadata. Ignore it, so unchanged feedback keeps a wait. */
+function stableFeedback(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableFeedback);
+  if (!isRuntimeRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !["updated_at", "updatedAt", "url", "html_url", "resolutionSource", "resolutionObservedAt"].includes(key))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => [key, stableFeedback(item)]));
+}
+
+type ContextPolicy = Pick<BabysitterWaitPolicy, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "reviewPushBudget">;
+
+/**
+ * A comment-only review that asks for nothing. An empty body only groups inline comments, which the
+ * context keeps. A review bot can submit that empty review first and edit it to a no-findings verdict.
+ */
+function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean {
+  if (String(review.state ?? "").toLowerCase() !== "commented") return false;
+  const body = hasRuntimeType(review.body, "string") ? review.body.trimStart() : "";
+  return !body || policy.noFindingsReviews.some(prefix => body.startsWith(prefix));
+}
+
+/** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
+function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
+  const pr = s.pr;
+  // After the review push budget is spent, bot feedback is not repair work, even a request for changes.
+  const settled = reviewPushBudgetSpent(s, policy);
+  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value)
+    || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
+  const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
+  const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
+  const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
+  const threads = s.threads.map((thread) => {
+    const { isResolved: _resolved, node_id, comments, ...metadata } = thread;
+    const items: GitHubEvidence[] = Array.isArray(comments) ? comments : comments?.nodes ?? [];
+    // Hydration supplies GraphQL comment IDs and a resolution webhook supplies REST IDs. Both identify the same comment.
+    const identities = items.filter(value => !fromWorker(value) && !commentIds(value).some(id => ownCommentIds.has(id))).map(commentIds).sort();
+    return { ...metadata, id: node_id ?? thread.id, comments: identities };
+  }).filter(thread => !settled || thread.comments.length);
+  return hash({ title: pr?.title, body: pr?.body, draft: pr?.draft, state: pr?.state, base: [pr?.base?.sha, pr?.base?.ref],
+    comments: stableFeedback(external(s.comments)), reviews: stableFeedback(reviews),
+    reviewComments: stableFeedback(external(s.reviewComments)), threads: stableFeedback(threads) });
+}
+
+/** Current-head check runs, without workflow aggregates, and commit statuses. */
+function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
+  const head = s.pr?.head?.sha;
+  const signals = new Map<string, GitHubEvidence>();
+  for (const check of Object.values(s.checks)) {
+    // Suites and workflow runs have no producing app; check runs do.
+    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app) continue;
+    signals.set(`check:${String(check.id)}`, check);
+  }
+  for (const status of Object.values(s.statuses)) {
+    if (!head || status.sha !== head || status.deleted) continue;
+    signals.set(`status:${String(status.context)}`, { ...status, name: status.context, status: status.state, conclusion: status.state });
+  }
+  return [...signals.values()];
+}
+
+/**
+ * The newest run of each current-head check, by name and app. Some integrations leave an earlier
+ * run in progress forever and report the result in a later run; the earlier run is not a gate.
+ */
+function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
+  const latest = new Map<string, GitHubEvidence>();
+  for (const signal of currentCheckSignals(s)) {
+    const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
+    const previous = latest.get(key);
+    if (!previous || Number(signal.id ?? 0) >= Number(previous.id ?? 0)) latest.set(key, signal);
+  }
+  return [...latest.values()];
+}
+
+/** A configured review check still runs on the current head. */
+export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): boolean {
+  return latestCheckSignals(s).some(signal => policy.pendingReviewChecks.has(String(signal.name).toLowerCase())
+    && pending.has(String(signal.status ?? signal.state)));
+}
+
+/**
+ * A current-head check is still queued or running. A required check that has not reported yet counts
+ * only through the workflow jobs that run before it. A check that runs for half an hour is stuck.
+ */
+export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
+  return latestCheckSignals(s).some(signal => {
+    if (!pending.has(String(signal.status ?? signal.state))) return false;
+    const timestamp = Date.parse(String(signal.started_at ?? signal.created_at ?? ""));
+    // External commit statuses often have no timestamp. They cannot prove a
+    // currently running check, so they must not defer a pass forever.
+    return Number.isFinite(timestamp) && timestamp >= now - stuckCheckMs;
+  });
+}
+
+export function failureKeys(s: Snapshot): string[] {
+  return latestCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state)))
+    .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
+}
+
+/** Failed current-head checks outside the configured review checks. */
+function repairFailureKeys(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): string[] {
+  return latestCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state))
+    && !policy.pendingReviewChecks.has(String(signal.name).toLowerCase()))
+    .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
+}
+
+/** Failures that need repair. A spent review push budget leaves out the review checks. */
+function actionableFailureKeys(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks" | "reviewPushBudget">): string[] {
+  return reviewPushBudgetSpent(s, policy) ? repairFailureKeys(s, policy) : failureKeys(s);
+}
+
+const conflicted = (s: Snapshot) => s.pr?.mergeable === false || s.pr?.mergeable_state === "dirty";
+
+/**
+ * Whether a push from a pass on this snapshot answers review. Without a merge conflict and without a
+ * failing check outside the review checks, only review feedback, review threads and review checks
+ * were left to repair. The host decides this from GitHub state, not from the model's report.
+ */
+export function pushCause(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): "review" | "repair" {
+  return conflicted(s) || repairFailureKeys(s, policy).length ? "repair" : "review";
+}
+
+/**
+ * Why a PR that spent its review push budget still needs a model pass. Empty means only automated
+ * review is left, so the PR parks until a person, a conflict, a failing check or a new head needs it.
+ * `assessedFeedback` holds the fingerprints of feedback that an earlier pass assessed.
+ */
+export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
+  const work: string[] = [];
+  if (conflicted(s)) work.push("merge-conflict");
+  if (repairFailureKeys(s, policy).length) work.push("failed-check");
+  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true }).some(id => !assessedFeedback.has(id))) work.push("feedback");
+  if (s.threads.some(thread => thread.isResolved !== true && hasHumanComment(thread, policy.workerAuthors))) work.push("unresolved-thread");
+  const head = s.pr?.head?.sha;
+  if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
+  return work;
+}
+
+/** The daily pass exemption for a person's feedback. The record's `human` generation tracks it, not `exemptions`. */
+export const humanFeedbackExemption = "human-feedback";
+
+/**
+ * The exemption that lets a pass run after the PR spent its daily pass budget, or undefined. A
+ * person's feedback that no pass saw yet, a merge conflict on a PR without failing checks or open
+ * threads (once per head and base), and the first failing required check on a head are exempt.
+ */
+export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined): string | undefined {
+  if ((s.humanFeedbackGeneration ?? 0) > (budget?.human ?? 0)) return humanFeedbackExemption;
+  const head = s.pr?.head?.sha;
+  if (!head) return undefined;
+  const used = new Set(budget?.exemptions ?? []);
+  const conflict = `conflict:${head}:${s.pr?.base?.sha ?? ""}`;
+  if (conflicted(s) && requiredChecks !== "failed" && !failureKeys(s).length && s.threads.every(thread => thread.isResolved === true) && !used.has(conflict)) return conflict;
+  const failure = `required-failure:${head}`;
+  return requiredChecks === "failed" && !used.has(failure) ? failure : undefined;
+}
+
+/** The wait that a pass parks on: feedback the model saw and failures it already knew. */
+export function createCheckWait(observed: Snapshot, policy: ContextPolicy): Omit<PullRequestWait, "headSha"> {
+  return { reason: "checks", evidenceKey: repairContextKey(observed, policy), knownFailures: failureKeys(observed) };
+}
+
+/**
+ * Decides whether new events on a parked PR still need no model pass. This only suppresses
+ * passes; it never authorizes a merge.
+ */
+export function shouldKeepWaiting(s: Snapshot, requiredChecks: GitHubRequiredCheckState, policy: BabysitterWaitPolicy): boolean {
+  return wakeReasons(s, requiredChecks, policy).length === 0;
+}
+
+/** Why a parked PR needs a model pass or a direct merge. Empty means it keeps waiting. */
+export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckState, policy: BabysitterWaitPolicy): string[] {
+  const wait = s.wait;
+  if (!wait) return ["no-wait"];
+  if (s.pr?.state !== "open") return ["not-open"];
+  // The synchronize event for a pushed head has not arrived yet.
+  if (wait.headSha !== s.pr.head?.sha) return [];
+  const known = new Set(wait.knownFailures ?? []);
+  if (wait.defer === "checks") {
+    // A deferred pass waits for running checks, so one pass handles CI and review results together.
+    // A conflict needs repair now. A fast failure waits for the checks that still run: a pass that
+    // started on it missed their findings and needed another pass. The deferral recorded no
+    // assessment, so the PR wakes when its checks stop running.
+    const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
+    if (!conflict && checksStillRunning(s)) return [];
+    const failure = actionableFailureKeys(s, policy).some(key => !known.has(key));
+    return [...conflict ? ["merge-conflict"] : [], ...failure ? ["new-failure"] : [], ...conflict || failure ? [] : ["gates-settled"]];
+  }
+  const reasons: string[] = [];
+  if (wait.evidenceKey !== repairContextKey(s, policy)) reasons.push("feedback-changed");
+  // A reproduced external blocker keeps existing conflicts, threads and unrelated CI parked.
+  // Maintainer feedback or PR intent/base changes still resume the work.
+  if (wait.kind === "external" || wait.wake) return reasons;
+  if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
+  const settled = reviewPushBudgetSpent(s, policy);
+  if (s.threads.some(thread => thread.isResolved !== true && (!settled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
+  if (reasons.length) return reasons;
+  // The same failures are not new repair work. A later green result wakes below.
+  if (requiredChecks === "failed") return [];
+  if (reviewCheckRunning(s, policy) || requiredChecks === "pending") return [];
+  if (requiredChecks === "passed") return policy.wakeWhenReady ? ["ready-to-merge"] : [];
+  // Unknown policy cannot prove readiness. Feedback and new failures still wake the PR.
+  return [];
+}
+
+/** Infer a check wait only from pending current-head provider evidence. */
+export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPolicy): boolean {
+  return latestCheckSignals(snapshot).some(signal => pending.has(String(signal.status ?? signal.state)));
+}
+
+/** The reader paginates and projects individual records from every REST page. */
+export async function checksDependencyEvidence(wake: { repository: string; headSha: string }, read: (path: string, projection: string) => Promise<unknown[]>) {
+  const checks = await read(`repos/${wake.repository}/commits/${wake.headSha}/check-runs?per_page=100`, ".check_runs[]");
+  const statuses = await read(`repos/${wake.repository}/commits/${wake.headSha}/statuses?per_page=100`, ".[]");
+  return hash({
+    checks: checks.map(check => {
+      if (!isRuntimeRecord(check)) throw new Error("Invalid dependency check evidence.");
+      return JSON.stringify([check.id, check.status, check.conclusion]);
+    }).sort(),
+    statuses: statuses.map(status => {
+      if (!isRuntimeRecord(status)) throw new Error("Invalid dependency status evidence.");
+      return JSON.stringify([status.id, status.context, status.state]);
+    }).sort(),
+  });
+}

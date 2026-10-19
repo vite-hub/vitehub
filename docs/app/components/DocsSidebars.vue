@@ -11,6 +11,7 @@ defineProps<{
     <div v-if="panel" class="vh-docs-panel">
       <DocsAsideLeftTop />
       <DocsAsideLeftBody />
+      <DocsAsideFooter />
     </div>
   </div>
 </template>

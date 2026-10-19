@@ -2,6 +2,7 @@ import { minimatch } from "minimatch"
 
 import { workspaceError } from "./errors.ts"
 import { contentToBytes, normalizeWorkspacePath } from "./path.ts"
+import { workspaceDefinitionPlugins, workspacePluginsVersion } from "./plugins.ts"
 
 import type {
   ResolvedWorkspaceRule,
@@ -70,7 +71,7 @@ function normalizePolicy(definition: WorkspaceDefinition): NormalizedWorkspacePo
   let hooks: WorkspaceHooks = {}
   let rules: WorkspaceRules = {}
 
-  for (const plugin of definition.plugins || []) {
+  for (const plugin of workspaceDefinitionPlugins(definition)) {
     if (!plugin?.id) throw workspaceErrorDiagnostics.WORKSPACE_R0024({ message: "[vitehub] Workspace plugins require an id." })
     rules = { ...rules, ...plugin.rules }
     hooks = mergeHooks(hooks, plugin.hooks)
@@ -148,15 +149,22 @@ async function runValidators(validators: WorkspaceWriteValidator[], input: Works
 }
 
 export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): WorkspaceWritePolicy {
-  const policy = normalizePolicy(definition)
+  // Contributed plugins can arrive after a Workspace facade exists. Rebuild the policy when they change.
+  let cached = { version: workspacePluginsVersion(), policy: normalizePolicy(definition) }
+  const currentPolicy = () => {
+    const version = workspacePluginsVersion()
+    if (cached.version !== version) cached = { version, policy: normalizePolicy(definition) }
+    return cached.policy
+  }
 
   return {
     check(input) {
-      const current = { ...input, rule: matchRule(policy, input.path) }
-      assertRuleAllows(current)
-      return current
+      const checked = { ...input, rule: matchRule(currentPolicy(), input.path) }
+      assertRuleAllows(checked)
+      return checked
     },
     async before(input) {
+      const policy = currentPolicy()
       const rule = matchRule(policy, input.path)
       let current: WorkspaceWriteInput = { ...input, rule }
       await runHooks(policy.hooks, "write:before", current)
@@ -169,10 +177,10 @@ export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): Wor
       return current
     },
     async after(input) {
-      await runHooks(policy.hooks, "write:after", input)
+      await runHooks(currentPolicy().hooks, "write:after", input)
     },
     async error(input, error) {
-      for (const hook of toArray(policy.hooks["write:error"])) await hook({ ...input, error })
+      for (const hook of toArray(currentPolicy().hooks["write:error"])) await hook({ ...input, error })
     },
   }
 }

@@ -438,6 +438,7 @@ function isBoxRuntime(value: unknown): value is BoxRuntime {
   return hasDeclaredBoxRuntimeMember(runtime, "name")
     && hasDeclaredBoxRuntimeMember(runtime, "open")
     && hasDeclaredBoxRuntimeMember(runtime, "prepare")
+
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime detection validates the name and callable operations after checking their declaring prototypes.
     && typeof runtime.name === "string"
     && typeof runtime.open === "function"
@@ -669,13 +670,21 @@ function normalizeFiles<Context>(
       const target = relativePath(path, `${label} target`);
       if (!value || typeof value !== "object")
         throw boxErrorDiagnostics.BOX_R0044({ message: `[vitehub] Box file ${path} requires from or contents.` });
-      if ("from" in value) {
+
+      const hasFrom = "from" in value;
+      const hasContents = "contents" in value;
+      const ownsFrom = Object.hasOwn(value, "from");
+      const ownsContents = Object.hasOwn(value, "contents");
+      if ((hasFrom !== ownsFrom) || (hasContents !== ownsContents))
+        throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
+      if (hasFrom && ownsFrom) {
         if (Object.keys(value).length !== 1 || typeof value.from !== "string")
           throw boxErrorDiagnostics.BOX_R0045({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
         const source = relativePath(value.from, `${label} source`);
         return [target, { resolve: async () => await readProjectFile(source) }];
       }
-      if (!("contents" in value) || Object.keys(value).length !== 1)
+
+      if (!(hasContents && ownsContents) || Object.keys(value).length !== 1)
         throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
       return [
         target,
@@ -805,7 +814,10 @@ function normalizeRequirements(
     ) {
       throw boxErrorDiagnostics.BOX_R0058({ message: "[vitehub] Box requirements must be commands or direct command checks." });
     }
-    const args = value.args === undefined ? [] : [...value.args];
+    const rawArgs = value.args;
+    if (rawArgs !== undefined && !Array.isArray(rawArgs))
+      throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be an array of strings." });
+    const args = rawArgs === undefined ? [] : [...rawArgs];
     if (args.some((argument) => typeof argument !== "string"))
       throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be strings." });
     const command = value.command.trim();

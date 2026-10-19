@@ -6,6 +6,16 @@ navigation.group: Application APIs
 icon: i-vscode-icons-file-type-markdown
 ---
 
+::agent-only{skill="markdown-template"}
+Use Markdown Templates when an application needs predictable Markdown composition with data bindings, conditions, or fragments. The renderer does not evaluate JavaScript or read files implicitly.
+
+Start with the [Markdown Template tutorial](/docs/reference/markdown-template-tutorial).
+
+Keep input data explicit and validate it before rendering. Use the file integration only with explicit paths or `file:` URLs.
+
+Prove interpolation, a false condition, a fragment, and a missing or invalid value. Compare the rendered Markdown with the expected output before sending it to email or an Agent.
+::
+
 `@vite-hub/markdown-template` composes Markdown without evaluating JavaScript or reading files implicitly. Use it when Agent Instructions, review prompts, or other generated documents need predictable data binding and conditional sections while preserving authored Markdown structure.
 
 Start with [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for a short working example. This page covers the full renderer contract.

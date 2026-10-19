@@ -65,7 +65,7 @@ export function createWorkspaceSourceRequestExecution(
       return await executor(input, createSourceContext(definition, {
         key: source.key,
         mountPath: source.mountPath,
-      }, undefined, contextOptions))
+      }, undefined, { abortSignal: input.signal, selectedWorkspaceScope: options.selectedWorkspaceScope }))
     },
   }
 }

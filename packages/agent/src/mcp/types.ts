@@ -25,6 +25,30 @@ export interface McpClientConfig extends AiSdkMcpClientConfig {
     timeout?: number
   }
   protocolVersionDiscovery?: boolean
+  /** Expose only these tools, by their name on the server. Default: every tool. */
+  tools?: readonly string[]
+  /**
+   * Install the Agent Skills that the server serves as `skill://<name>/<path>` resources into the
+   * Invocation's Workspace at `.agents/skills/<name>/`. The Agent's own Skill with the same name wins.
+   * Default: `true`.
+   */
+  skills?: boolean
+}
+
+/**
+ * An MCP server reached through a Connection. Without `transport.url`, the server is the `mcp`
+ * endpoint that the Connection's provider declares, over HTTP. `transport` can still add `headers`.
+ */
+export interface McpConnectionServerConfig extends Omit<McpClientConfig, "connection" | "transport"> {
+  /** Name of a Connection in `server/connections/`. */
+  connection: string
+  /** Leave the server out, without an unavailable notice, until its Connection is connected. */
+  optional?: boolean
+  transport?: {
+    type?: "http" | "sse"
+    url?: string
+    headers?: Record<string, string>
+  }
 }
 
 export type McpServerConfig<
@@ -33,10 +57,11 @@ export type McpServerConfig<
 > =
   | McpClient
   | McpClientConfig
+  | McpConnectionServerConfig
   | false
   | null
   | undefined
-  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig | false | null | undefined>)
+  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig | McpConnectionServerConfig | false | null | undefined>)
 
 export type McpToolFingerprints = Record<string, string>
 
@@ -71,7 +96,15 @@ export interface McpCapabilityOptions<
    * override does not change the arguments sent to the remote server.
    */
   toolOverrides?: McpToolOverrides
+  /**
+   * MCP servers by name. In an Agent that `extends` another, `servers`, `integrity`, and
+   * `toolOverrides` merge by server name into the parent's `mcp()` Capability, and the child's entry
+   * wins. Set a server to `false` to remove an inherited server. Options that the child leaves unset,
+   * such as `unavailableNotice`, are inherited.
+   */
   servers: Record<string, McpServerConfig<TRuntimeConfig, Name>>
+  /** Set to `false` to replace the parent's `mcp()` Capability instead of extending it. Default: `true`. */
+  inherit?: boolean
   /**
    * Append a notice to the final chat reply when a server is unavailable.
    * `true` uses the default text. A function receives the unavailable server names.

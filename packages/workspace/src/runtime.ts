@@ -27,6 +27,7 @@ export {
   resolveWorkspaceSources,
 } from "./sources/resolution.ts"
 export { createWorkspaceHistoryReader } from "./core/history.ts"
+export { registerWorkspacePlugin } from "./core/plugins.ts"
 export {
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,

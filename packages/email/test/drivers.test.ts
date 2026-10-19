@@ -53,6 +53,59 @@ const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[]
 ];
 
 describe("Resend Email driver", () => {
+  it("classifies AbortErrors from another realm as cancellations", async () => {
+    const abortError = runInNewContext(
+      "Object.assign(new Error('aborted'), { name: 'AbortError' })",
+    );
+    const request = vi.fn(async () => { throw abortError });
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({
+      data: null,
+      error: { code: "CANCELLED" },
+    });
+  });
+
+  it("rejects inherited provider options", () => {
+    const request = vi.fn();
+    const options = Object.create({ apiKey: "re_secret", fetch: request }) as ResendEmailDriverOptions;
+
+    expect(() => resend(options)).toThrow("apiKey is required");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("ignores inherited optional provider options", async () => {
+    const inheritedFetch = vi.fn();
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", request);
+    try {
+      const options = Object.assign(
+        Object.create({ endpoint: "https://inherited.example.test", fetch: inheritedFetch }),
+        { apiKey: "re_secret" },
+      ) as ResendEmailDriverOptions;
+      await expect(resend(options).send(message, context)).resolves.toMatchObject({ error: null });
+      expect(request).toHaveBeenCalledWith("https://api.resend.com/emails", expect.any(Object));
+      expect(inheritedFetch).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses the validated API key even if options mutate before delivery", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    const options = { apiKey: "re_secret", fetch: request } as ResendEmailDriverOptions;
+    const driver = resend(options);
+    delete (options as Partial<ResendEmailDriverOptions>).apiKey;
+    Object.setPrototypeOf(options, { apiKey: "re_inherited" });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: null });
+    expect(request).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer re_secret" }) }),
+    );
+  });
+
   it("accepts fetch functions from another realm", async () => {
     const request = runInNewContext(
       "async () => new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })",
@@ -1327,6 +1380,84 @@ describe("Cloudflare Email driver", () => {
     const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
 
     await expect(driver.send({ ...message, ...override }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([123, null, undefined, false, {}, []])("classifies malformed mailbox email %j as invalid options", async (email) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: { email } as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([123, null, false, {}, []])("rejects malformed mailbox display name %j", async (name) => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(
+      driver.send({ ...message, from: { email: "hello@example.com", name } as never }, context),
+    ).resolves.toMatchObject({ error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" } });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies throwing mailbox fields as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = {};
+    Object.defineProperty(mailbox, "email", {
+      get() {
+        throw new Error("malformed mailbox");
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies a mailbox with a throwing tag as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = {};
+    Object.defineProperty(mailbox, Symbol.toStringTag, {
+      get() {
+        throw new Error("malformed mailbox");
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
+      error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
+    });
+    expect(Constructor).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("classifies a mailbox array with a throwing iterator as invalid options", async () => {
+    const send = vi.fn();
+    const Constructor = vi.fn();
+    const mailbox = new Proxy(["hello@example.com"], {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator) throw new Error("malformed mailbox");
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+    await expect(driver.send({ ...message, from: mailbox as never }, context)).resolves.toMatchObject({
       error: { code: "INVALID_OPTIONS", driver: "cloudflare-email" },
     });
     expect(Constructor).not.toHaveBeenCalled();

@@ -234,7 +234,7 @@ export function nodeDistribution(
   return {
     archive: (version: string) => `node-v${version}-${suffix}.tar.gz`,
     base,
-    file: musl ? `linux-${platform.arch}-musl` : platform.os === "darwin" ? `osx-${platform.arch}-tar` : `linux-${platform.arch}`,
+    file: musl ? `linux-${platform.arch}-musl` : platform.os === "darwin" ? `darwin-${platform.arch}` : `linux-${platform.arch}`,
     key: (version: string) => `node-v${version}-${suffix}`,
     url: (version: string, file: string) => `${base}/v${version}/${file}`,
   };

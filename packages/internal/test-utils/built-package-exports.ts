@@ -15,7 +15,8 @@ export async function verifyBuiltPackageExports(
 ): Promise<void> {
   const packageRoot = fileURLToPath(packageRootURL)
   const distRoot = join(packageRoot, "dist")
-  for (const subpath of subpaths) {
+  // Each entry loads in its own Node process, so one entry cannot hide a missing import of another. The processes run in parallel.
+  await Promise.all(subpaths.map(async (subpath) => {
     const specifier = subpath === "." ? packageName : `${packageName}/${subpath.replace(/^\.\//, "")}`
     const resolved = resolveModuleURL(specifier, { from: packageRootURL })
     const target = fileURLToPath(resolved)
@@ -27,5 +28,5 @@ export async function verifyBuiltPackageExports(
 
     await access(target)
     await execFileAsync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(resolved)})`])
-  }
+  }))
 }

@@ -96,9 +96,7 @@ function cloneRecord(value: unknown): Record<string, unknown> {
 function mergeNitroExternal(value: unknown, addition: string): unknown {
   if (value === undefined) return [addition]
   if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public string-or-RegExp external value, so this config boundary must distinguish the string representation.
   if (typeof value === "string" || value instanceof RegExp) return [value, addition]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro accepts a public callback external value, so this config boundary must distinguish the callable representation.
   if (typeof value === "function") {
     return (source: string, importer?: string, isResolved?: boolean) => source === addition || Boolean(value(source, importer, isResolved))
   }

@@ -79,7 +79,7 @@ The skill selects one primary product lane, reads only the matching references a
 It reports the proof for each requested behavior.
 When the documentation and the installed version differ, the installed contract controls the implementation and the agent reports the difference.
 
-The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, and public project patterns.
+The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Sandboxes and hosts, proof and recovery, and public project patterns.
 
 ## Add live docs lookups
 

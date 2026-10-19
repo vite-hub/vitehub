@@ -13,7 +13,6 @@ icon: i-lucide-code-2
 | `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
 | `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return static command facts. |
 | `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
-| `createCloudflareShellProvider` from `@vite-hub/shell/providers/cloudflare` | Adapt a Cloudflare execution client to Shell. |
 | `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace file access into Shell providers at `/workspace`. |
 | `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
 | `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |

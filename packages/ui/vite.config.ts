@@ -1,5 +1,5 @@
 import { defineConfig } from "vite-plus";
-import { componentEntryName, componentNames } from "./src/component-entries.ts";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -22,8 +22,29 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      ...componentNames.map((name) => `src/${componentEntryName(name)}.ts`),
       "src/index.ts",
+      "src/components/agent-chat.ts",
+      "src/components/agent-chat-message.ts",
+      "src/components/agent-chat-prompt.ts",
+      "src/components/agent-code-view.ts",
+      "src/components/agent-file-tree.ts",
+      "src/components/agent-markdown.ts",
+      "src/components/agent-message-parts.ts",
+      "src/components/agent-session.ts",
+      "src/components/agent-tool-list.ts",
+      "src/attachment.ts",
+      "src/bubble.ts",
+      "src/chat.ts",
+      "src/chat-message.ts",
+      "src/chat-session.ts",
+      "src/components/agent-trace.ts",
+      "src/code-block.ts",
+      "src/markdown.ts",
+      "src/marker.ts",
+      "src/message.ts",
+      "src/message-parts.ts",
+      "src/prompt-input.ts",
+      "src/trace.ts",
       "src/headless.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
@@ -40,7 +61,19 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...publicExports, "./styles.css": "./dist/styles.css" };
+        const normalized = normalizePackageExports(publicExports);
+        for (const key of Object.keys(normalized)) {
+          if (key !== "." && key !== "./headless" && key !== "./nuxt" && key !== "./primitive-rail" && key !== "./vite") {
+            const entry = normalized[key];
+            if (entry && typeof entry === "object") delete entry.require;
+          }
+        }
+        const remapped = Object.fromEntries(
+          Object.entries(normalized).map(([key, value]) =>
+            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
+          ),
+        );
+        return { ...remapped, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

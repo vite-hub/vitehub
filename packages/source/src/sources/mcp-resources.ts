@@ -1,6 +1,5 @@
-import { createEffectBoundary } from "@vite-hub/internal/effect"
+import { abortable } from "@vite-hub/internal/abort"
 import { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema } from "@modelcontextprotocol/sdk/types.js"
-import { Effect } from "effect"
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath } from "../core/path.ts"
@@ -128,10 +127,7 @@ interface ResourceEntry<TKey extends string = string> {
   resource: McpResourceDescriptor
 }
 
-const mcpEffectBoundary = createEffectBoundary({
-  aggregateMessage: "[vitehub] MCP Resource Source operation failed for multiple reasons.",
-  interruptionMessage: "[vitehub] MCP Resource Source operation was interrupted.",
-})
+const mcpInterruptedMessage = "[vitehub] MCP Resource Source operation was interrupted."
 
 function isMcpResourcesClient(value: unknown): value is McpResourcesClient {
   return typeof value === "object"
@@ -156,7 +152,6 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 function isMcpTransportConfig(value: unknown): value is Exclude<McpResourcesTransportConfig, McpResourcesTransport> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Transport configs cross the MCP configuration boundary and require object validation.
   return typeof value === "object"
     && value !== null
     && Object.hasOwn(value, "url")
@@ -164,14 +159,12 @@ function isMcpTransportConfig(value: unknown): value is Exclude<McpResourcesTran
 }
 
 function hasDeclaredProperty(value: unknown, key: PropertyKey): value is object {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability lookup requires an object before inspecting its own fields and prototypes.
   if (typeof value !== "object" || value === null) return false
   if (Object.hasOwn(value, key)) return true
   let prototype = Object.getPrototypeOf(value)
   while (prototype && prototype !== Object.prototype) {
     if (Object.hasOwn(prototype, key)) {
       const constructor = Object.hasOwn(prototype, "constructor") ? prototype.constructor : undefined
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only class constructors can declare inherited MCP capabilities; plain functions can forge prototype links.
       return typeof constructor === "function"
         && constructor.prototype === prototype
         && /^class\b/.test(Function.prototype.toString.call(constructor))
@@ -182,7 +175,6 @@ function hasDeclaredProperty(value: unknown, key: PropertyKey): value is object 
 }
 
 function hasDeclaredFunction(value: unknown, key: PropertyKey): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP methods must be callable before they cross the client or transport boundary.
   return hasDeclaredProperty(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
@@ -230,28 +222,30 @@ async function withMcpClient<T>(
   request: McpResourcesRequestOptions | undefined,
   callback: (client: McpResourcesClient, request: McpResourcesRequestOptions) => Promise<T>,
 ) {
-  const effect = Effect.flatMap(
-    mcpEffectBoundary.tryPromise(() => resolveMcpServer(server, ctx)),
-    (resolved) => {
-      if (isMcpResourcesClient(resolved)) {
-        return mcpEffectBoundary.tryPromise(
-          signal => callback(resolved, withRequestSignal(request, signal)),
-        )
-      }
-      return Effect.acquireUseRelease(
-        mcpEffectBoundary.tryPromise(() => createMcpClient(resolved)),
-        ({ client, transport }) => mcpEffectBoundary.tryPromise(
-          signal => client.connect(transport, { signal }),
-        ).pipe(
-          Effect.andThen(mcpEffectBoundary.tryPromise(
-            signal => callback(client, withRequestSignal(request, signal)),
-          )),
-        ),
-        ({ client }) => mcpEffectBoundary.tryPromise(() => client.close?.()),
-      )
-    },
-  )
-  return await mcpEffectBoundary.run(effect, { signal: ctx.abortSignal })
+  const signal = ctx.abortSignal
+  const requestSignal = signal ?? new AbortController().signal
+  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, ctx))
+  if (isMcpResourcesClient(resolved)) {
+    return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
+  }
+  // Create the owned client without interruption, so this function always closes it.
+  const { client, transport } = await createMcpClient(resolved)
+  let result: T
+  try {
+    await abortable(signal, mcpInterruptedMessage, () => client.connect(transport, { signal: requestSignal }))
+    result = await abortable(signal, mcpInterruptedMessage, () => callback(client, withRequestSignal(request, requestSignal)))
+  }
+  catch (error) {
+    try {
+      await client.close?.()
+    }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] MCP Resource Source operation failed for multiple reasons.")
+    }
+    throw error
+  }
+  await client.close?.()
+  return result
 }
 
 function extensionForMimeType(mimeType: string | undefined) {
@@ -309,8 +303,11 @@ function resourceWithContentMimeType(resource: McpResourceDescriptor, contents: 
   return mimeType ? { ...resource, mimeType } : resource
 }
 
-function resourceKey<TKey extends string>(resource: McpResourceDescriptor, options: McpResourcesSourceOptions<TKey>) {
-  const resolved = options.path?.(resource) ?? defaultResourcePath(resource)
+function resourceKey<TKey extends string>(
+  resource: McpResourceDescriptor,
+  options: McpResourcesSourceOptions<TKey>,
+  resolved = options.path?.(resource) ?? defaultResourcePath(resource),
+) {
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
@@ -320,15 +317,30 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
   return true
 }
 
+function isIgnoredBeforeContentRead(
+  resource: McpResourceDescriptor,
+  candidate: string,
+  options: Pick<McpResourcesSourceOptions, "ignore" | "path">,
+) {
+  if (!options.ignore) return false
+  if (options.path || resource.mimeType || candidate.split("/").at(-1)?.includes(".")) {
+    return matchesAny(candidate, options.ignore)
+  }
+  // An extensionless descriptor is only a provisional path. Its final key is
+  // determined by the content MIME type, so do not guess an extension here.
+  // A global catch-all remains conclusive, while an exact provisional match
+  // must be deferred until MIME inference determines the exposed key.
+  const patterns = Array.isArray(options.ignore) ? options.ignore : [options.ignore]
+  return patterns.some(pattern => (pattern === "**" || pattern === "**/*") && matchesAny(candidate, pattern))
+}
+
 type McpRecord = Record<PropertyKey, unknown>
 
 function isRecord(value: unknown): value is McpRecord {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isMcpString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
   return typeof value === "string"
 }
 
@@ -356,7 +368,6 @@ function hasOptionalMcpField(value: McpRecord, key: PropertyKey, validate: (fiel
 }
 
 function isMcpNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP numeric metadata crosses a runtime protocol boundary.
   return typeof value === "number" && Number.isFinite(value)
 }
 
@@ -474,16 +485,20 @@ async function createEntries<TKey extends string>(
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
   for (const resource of resources) {
+    // Apply an explicit ignore before reading content to infer a missing MIME type.
+    // An excluded resource must not trigger a remote read or leak a provider error.
+    const candidate = resourceKey(resource, options)
+    if (isIgnoredBeforeContentRead(resource, candidate, options)) continue
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
       contents = await readResourceContents(client, resource, options.request)
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
-    const key = resourceKey(resolvedResource, options)
+    const key = resourceKey(resolvedResource, options, options.path ? candidate : undefined)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
-    if (existingUri) {
+    if (seen.has(key)) {
       throw sourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
     }
     seen.set(key, resource.uri)
@@ -507,9 +522,7 @@ function decodeBase64(value: string) {
 }
 
 function contentToSourceContent(content: McpResourceContent): SourceContent {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP text content must be an own string field before decoding.
   if (Object.hasOwn(content, "text") && "text" in content && typeof content.text === "string") return content.text
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP binary content must be an own string field before base64 decoding.
   if (Object.hasOwn(content, "blob") && "blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
   return ""
 }

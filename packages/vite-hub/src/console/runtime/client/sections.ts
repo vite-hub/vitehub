@@ -31,7 +31,6 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   return {
     auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
     contributions,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
       : {}),

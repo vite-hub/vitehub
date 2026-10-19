@@ -12,7 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
 | `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
-| `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Provider Output. |
+| `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
 | `@vite-hub/database/nuxt` | Use the narrow Nuxt D1 host-resource bridge. |
@@ -32,7 +32,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server code and Provider Output. Do not run files that import it with plain `node`. Run them through your Vite-built server or Provider Output.
+The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server code that Nitro builds. Do not run files that import it with plain `node`. Run them through your Nitro server output.
 
 ### Use Named Databases
 

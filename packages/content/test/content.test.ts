@@ -731,6 +731,15 @@ describe("contentSource", () => {
     await expect(source.getItem("index.md")).resolves.toBe("# Native")
   })
 
+  it("decodes content bytes created in another realm", async () => {
+    const foreignBytes = runInNewContext("new Uint8Array([35, 32, 70, 111, 114, 101, 105, 103, 110])")
+    const source = contentSource({
+      items: async () => [{ key: "index.md", content: foreignBytes }],
+    } as never)
+
+    await expect(source.getItem("index.md")).resolves.toBe("# Foreign")
+  })
+
   it("does not treat a reader with inherited Comark methods as a native source", async () => {
     const source = Object.assign(Object.create({
       keys: async () => ["inherited.md"],
@@ -801,6 +810,38 @@ describe("contentSource", () => {
     })
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
+  })
+
+  it("reports malformed source paths with the content diagnostic", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: 42, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("reports an explicitly malformed path even when the key is valid", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: "valid.md", path: 0, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("honors an inherited source path", async () => {
+    const prototype = { path: "declared.md" }
+    const item = Object.assign(Object.create(prototype), { key: "fallback.md", content: "# Declared" })
+    const source = contentSource({ items: async () => [item] } as never)
+
+    await expect(source.keys()).resolves.toEqual(["declared.md"])
+  })
+
+  it("falls back to the key when the optional path is undefined", async () => {
+    const source = contentSource({
+      items: async () => [{ key: "fallback.md", path: undefined, content: "# Fallback" }],
+    } as never)
+
+    await expect(source.keys()).resolves.toEqual(["fallback.md"])
   })
 })
 

@@ -375,7 +375,7 @@ function explicitChatWebhookRegistrations(options: AgentChatOptions): AgentWebho
     .flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
 }
 
-export function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
   const registrations = [...explicitChatWebhookRegistrations(options), ...inferredChatWebhookRegistrations(options)]
   return registrations.length ? registrations : undefined
 }

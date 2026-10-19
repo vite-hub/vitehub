@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { github } from "../src/channels.ts"
-import { defineAgent, runAgentInline } from "../src/index.ts"
+import { defineCapability } from "../src/capability-runtime.ts"
+import { defineAgent, runAgentInline, streamAgent } from "../src/index.ts"
 import type { AgentGitHub, AgentRuntimeContext } from "../src/types.ts"
 
 function runtime(): AgentRuntimeContext {
@@ -26,6 +27,42 @@ describe("Agent GitHub identity", () => {
 
     expect(agent.github).toBe(host)
     expect(await runAgentInline(agent, runtime(), {})).toBe(host)
+  })
+
+  it("gives streamed runs the github identity", async () => {
+    const host = identity()
+    const seen: unknown[] = []
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "github-identity-probe",
+        resolve(context) {
+          seen.push(context.runtimeContext?.githubIdentity)
+        },
+      })],
+      driver: {
+        run: (context) => {
+          seen.push(context.githubIdentity)
+          return (async function* () {
+            yield "done"
+          })()
+        },
+      },
+      github: host,
+      runtime: false,
+    })
+
+    // SAFETY: streamAgent returns an async iterable for a driver that yields text.
+    const stream = await streamAgent(agent, runtime(), {}) as AsyncIterable<unknown>
+    for await (const _event of stream) { /* consume the stream */ }
+
+    expect(seen).toEqual([host, host])
+  })
+
+  it("keeps a github identity that the caller already supplied", async () => {
+    const callerHost = identity("caller[bot]")
+    const agent = defineAgent({ github: identity(), driver: { run: context => context.githubIdentity }, runtime: false })
+
+    expect(await runAgentInline(agent, { ...runtime(), githubIdentity: callerHost }, {})).toBe(callerHost)
   })
 
   it("keeps the github identity through extends", async () => {

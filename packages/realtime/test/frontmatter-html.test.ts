@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core"
 import { DOMParser } from "@tiptap/pm/model"
 import { parseHTML } from "linkedom"
 
-import { createRealtimeEditorExtensions } from "../src/editor-extensions.ts"
+import { createRealtimeEditorExtensions } from "../src/editor.ts"
 
 describe("frontmatter HTML", () => {
   afterEach(() => vi.unstubAllGlobals())

@@ -98,7 +98,7 @@ describe("SQLite invocation journal", () => {
   })
 
   it.each(["observation read", "later page"])("revisits stale search rows after a raced %s", async (race) => {
-    const writer = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const writer = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await writer.create(invocation("run"))
     await writer.list({ search: "initial" })
     await writer.update("run", { observation: step(1), timestamp: at(1) })
@@ -125,14 +125,14 @@ describe("SQLite invocation journal", () => {
         }
       },
     })
-    const reader = createLibsqlAgentInvocationStore({ client: readerClient, maxAgeMs: false, maxRecords: false })
+    const reader = createLibsqlAgentInvocationStore({ client: readerClient, maxAge: false, maxRecords: false })
     const result = await reader.list({ search: "raced-search-needle" })
     expect(raced).toBe(true)
     expect(result.invocations.map(record => record.id)).toEqual(["run"])
   })
 
   it("backfills null search text even when its version is current", async () => {
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("null-search"))
     await store.list({ search: "null-search" })
     await client.execute("UPDATE vitehub_agent_invocations SET search = NULL")
@@ -141,7 +141,7 @@ describe("SQLite invocation journal", () => {
 
   it("uses WAL with synchronous NORMAL for local database files", async () => {
     const recording = recordingClient(client)
-    const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
@@ -157,7 +157,7 @@ describe("SQLite invocation journal", () => {
     const memory = createClient({ url: ":memory:" })
     try {
       const recording = recordingClient(memory, protocol)
-      const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
       expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA journal_mode") || sql.startsWith("PRAGMA synchronous"))).toEqual([])
@@ -171,7 +171,7 @@ describe("SQLite invocation journal", () => {
     const memory = createClient({ url: ":memory:" })
     try {
       const recording = recordingClient(memory)
-      const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
       await store.create(invocation("run"))
       await store.update("run", { observation: step(1), timestamp: at(1) })
       expect(recording.statements.map(statementSql).filter(sql => sql.startsWith("PRAGMA synchronous"))).toEqual([])
@@ -183,7 +183,7 @@ describe("SQLite invocation journal", () => {
 
   it("writes a bounded amount per append to a running invocation", async () => {
     const recording = recordingClient(client)
-    const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     const writtenPerUpdate: number[] = []
     for (let sequence = 1; sequence <= 40; sequence++) {
@@ -210,7 +210,7 @@ describe("SQLite invocation journal", () => {
   })
 
   it("moves every observation into the record column on the terminal update", async () => {
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("run", { observations: [step(1)] }))
     for (let sequence = 2; sequence <= 5; sequence++) await store.update("run", { observation: step(sequence), timestamp: at(sequence) })
     await store.update("run", { status: "completed", timestamp: at(6) })
@@ -222,7 +222,7 @@ describe("SQLite invocation journal", () => {
   })
 
   it("keeps get, observation filters, list, search, and Capability filters for running invocations", async () => {
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     await store.create(invocation("other", { agentName: "other" }))
     await store.update("run", { observation: step(1), timestamp: at(1) })
@@ -243,7 +243,7 @@ describe("SQLite invocation journal", () => {
   })
 
   it("deletes observation rows with their invocation", async () => {
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     await store.update("run", { observation: step(1), timestamp: at(1) })
     await client.execute("UPDATE vitehub_agent_invocations SET status = 'failed' WHERE id = 'run'")
@@ -276,7 +276,7 @@ describe("SQLite invocation journal", () => {
       sql: `INSERT INTO vitehub_agent_invocations (id, status, agent_name, search, search_version, summary, updated_at, record)
         VALUES (?, ?, ?, NULL, 0, ?, ?, ?)`,
     })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     expect(withoutCursor(await store.get("legacy"))).toEqual(legacy)
     expect((await store.list({ search: "step 2" })).invocations.map(entry => entry.id)).toEqual(["legacy"])
     // The redundant trigger is replaced by one that does not rewrite the row after each update.
@@ -327,7 +327,7 @@ describe("SQLite invocation journal", () => {
       }
       return results
     }
-    const sqlite = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const sqlite = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     expect(await run(sqlite)).toEqual(await run(createMemoryAgentInvocationStore()))
   })
 })
