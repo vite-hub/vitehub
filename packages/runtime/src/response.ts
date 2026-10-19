@@ -64,9 +64,14 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
     if (typeof blobTypeGetter !== "function" || typeof blobArrayBufferMethod !== "function") return undefined
+    // The intrinsic accessor establishes the Blob internal-slot brand before
+    // consulting the value's realm-specific stream method.
     const type = String(Reflect.apply(blobTypeGetter, value, []))
+    const prototype = Object.getPrototypeOf(value)
+    const stream = prototype && typeof prototype.stream === "function" ? prototype.stream : undefined
+    if (typeof stream === "function") return { type, body: () => Reflect.apply(stream, value, []) }
     const body = () => new ReadableStream<Uint8Array>({
-      async start(controller) {
+      async pull(controller) {
         try {
           const bytes = new Uint8Array(await Reflect.apply(blobArrayBufferMethod!, value, []))
           controller.enqueue(bytes)
