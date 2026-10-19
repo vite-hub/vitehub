@@ -677,10 +677,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // The trusted brand probe above establishes native Header internal slots;
     // method identities may legitimately differ across Web realms.
     // Cookie extraction must use the trusted intrinsic selected by the brand probe.
-    const candidateGetSetCookie = responsePropertyDescriptor(headerCarrier, "getSetCookie")?.value
-    const cookies: unknown = typeof candidateGetSetCookie === "function"
-      ? Reflect.apply(candidateGetSetCookie, headers, [])
-      : trustedGetSetCookie ? Reflect.apply(trustedGetSetCookie, headers, []) : []
+    // Never invoke a method supplied by the candidate Headers object. A native
+    // subclass can override this accessor while retaining valid internal slots.
+    const cookies: unknown = trustedGetSetCookie ? Reflect.apply(trustedGetSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined

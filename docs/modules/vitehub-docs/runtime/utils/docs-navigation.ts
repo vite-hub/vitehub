@@ -131,6 +131,7 @@ export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] 
 export function getDocsSectionKind(section: DocsSection): string {
   if (section.id === docsRootSectionId) return "Get started";
   if (section.id === "ui") return "UI components";
+  if (section.id === "agents") return "Agent runtime";
   if (primitiveCategories.has(section.category || "")) return "Server Primitive";
   return section.category || "Platform";
 }
