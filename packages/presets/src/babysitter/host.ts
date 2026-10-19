@@ -15,6 +15,7 @@ import { babysitterQueueHealth } from "./queue-health.ts";
 import { presetsBuildRevision } from "../internal/build-revision.ts";
 import { fileURLToPath } from "node:url";
 import { createBabysitterRuntime } from "./server.ts";
+import { budgetParks } from "./inbox/store.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 
 declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
@@ -231,7 +232,7 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
       }
       const guard = await admission.health();
       const lastSkip = await inbox.meta("admission-skipped");
-      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: babysitterQueueHealth(queue), admission: {
+      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,
         reason: guard.reason,
