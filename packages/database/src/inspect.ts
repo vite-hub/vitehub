@@ -36,7 +36,15 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
         : [],
       ...await Promise.all((byDatabase[definition.name] ?? []).map(async contribution => {
-        const tables = await loadContributedDatabaseSchema(contribution, join(options.rootDir, "package.json"), { onFallback: () => {} }).then(schema => schema.loaded ? schema.tableNames.join(", ") || "No tables" : "Module did not load")
+        let tables: string
+        try {
+          tables = await loadContributedDatabaseSchema(contribution, join(options.rootDir, "package.json"), { onFallback: () => {} })
+            .then(schema => schema.loaded ? schema.tableNames.join(", ") || "No tables" : "Module did not load")
+        }
+        catch {
+          // Inspection must remain useful when a contribution has an invalid export.
+          tables = "Module did not load"
+        }
         return { label: "Contributed tables", value: `${tables} from ${describeDatabaseContribution(contribution)}` }
       })),
     ],

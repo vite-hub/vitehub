@@ -99,7 +99,7 @@ async function runDrizzleKit(
 
   for (const { configFile, database } of runs) {
     if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, { ...context, rootDir })
-    const result = await runDrizzleKitWithConfig(feature, args, { ...context, rootDir }, toConfigPath(rootDir, configFile))
+    const result = await runDrizzleKitWithConfig(feature, args, { ...context, rootDir }, toConfigPath(rootDir, configFile), [rootDir, context.rootDir])
     if (result !== 0) return result
   }
   return 0
@@ -130,17 +130,20 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
-function resolveDrizzleKit(rootDir: string): string {
-  try {
-    // Resolve from the Database project so external project roots can provide
-    // their own peer dependency instead of relying on this package's ancestry.
-    return createRequire(join(rootDir, "package.json")).resolve("drizzle-kit")
-  } catch {
-    return require.resolve("drizzle-kit")
+function resolveDrizzleKit(rootDirs: string[]): string {
+  for (const rootDir of [...new Set(rootDirs)]) {
+    try {
+      // Prefer the Database project, then the invoking application. Both roots
+      // are supported when the Database project is external to the app.
+      return createRequire(join(rootDir, "package.json")).resolve("drizzle-kit")
+    } catch {
+      // Try the next supported project root.
+    }
   }
+  return require.resolve("drizzle-kit")
 }
 
-async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string): Promise<number> {
+async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string, drizzleKitRoots: string[] = [context.rootDir, process.cwd()]): Promise<number> {
   const drizzleArgs = [
     feature,
     "--config",
@@ -153,7 +156,9 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
   // Run Drizzle Kit's JavaScript entry through Node instead.
   const windows = process.platform === "win32"
   const command = windows ? process.execPath : "drizzle-kit"
-  const commandArgs = windows ? [join(dirname(resolveDrizzleKit(context.rootDir)), "bin.cjs"), ...drizzleArgs] : drizzleArgs
+  const commandArgs = windows
+    ? [join(dirname(resolveDrizzleKit(drizzleKitRoots)), "bin.cjs"), ...drizzleArgs]
+    : drizzleArgs
   const result = await context.spawn(command, commandArgs, {
     cwd: context.rootDir,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
