@@ -47,8 +47,14 @@ function hasConfiguredPublicUrl(): boolean {
 }
 
 
-export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  getAuthRuntimeState().envResolver = resolver
+export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
+  const state = getAuthRuntimeState()
+  if (definition) state.envResolvers?.set(definition as object, resolver as AuthRuntimeEnvResolver)
+  else state.envResolver = resolver
+}
+
+function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | undefined {
+  return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -208,7 +214,7 @@ export function createAuthRequestRuntimeOptions(
   event?: unknown,
 ): AuthRuntimeOptions {
 
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -223,7 +229,7 @@ export function createBetterAuthOptions(
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
 
-  return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeState().envResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -249,7 +255,7 @@ export function createAuthForRequest(
   event?: unknown,
 ): ViteHubAuth {
 
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -304,7 +310,7 @@ export function getAuthForRequest(
     return getAuthForDefinition(definition)
   }
 
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -395,7 +401,7 @@ async function createSignInResponse(
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
 
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeState().envResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -424,8 +430,8 @@ const nativeHeadersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get
  * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
  */
 function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object" || !(value instanceof Response)) return false
   try {
+    if (!nativeResponseStatus || value === null || typeof value !== "object" || !(value instanceof Response)) return false
     Reflect.apply(nativeResponseStatus, value, [])
     return true
   }
@@ -438,6 +444,7 @@ function isRuntimeResponse(value: unknown): value is Response {
 }
 
 const nativePromiseThen = Object.getOwnPropertyDescriptor(Promise.prototype, "then")?.value
+const nativePromiseResolve = Promise.resolve
 
 function hasNativePromiseBrand(value: object): boolean {
   if (!nativePromiseThen) return false
@@ -664,7 +671,7 @@ async function runAccessAuthorize(
         // Native resolution adopts the source without creating a species
         // derived promise, so immutable species descriptors cannot hide the
         // source settlement.
-        nativePromise = Promise.resolve(result)
+        nativePromise = Reflect.apply(nativePromiseResolve, Promise, [result])
       }
       catch {
         nativePromise = Promise.reject(error)
