@@ -346,6 +346,7 @@ After a create or a terminal update, the adapter measures the file when the byte
 
 Deletes free pages inside the file. The file shrinks only when it uses `auto_vacuum = INCREMENTAL`. The adapter sets that mode when it creates a new file, and after a size prune it returns up to 1,000 free pages to the file system. A file created before this mode keeps its largest size until a `VACUUM` rebuilds it, but its free pages are reused for new records.
 
+
 To shrink such a file, run [`vitehub agent invocations compact`](#compact-a-journal-file) once. It rebuilds the file to its live data and sets `auto_vacuum = INCREMENTAL`, so later size prunes shrink it without help.
 
 ### Choose how storage failures affect a run
@@ -527,6 +528,7 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
 Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+
 
 #### Compact a journal file
 

@@ -140,6 +140,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --max-size <size>         Prune the oldest records until the live data of the database file fits this size,",
     "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
     "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
+
     "  --dry-run                 List the records that prune would delete. For compact, print the file size, the",
     "                            projected size, and the free space check, and change nothing.",
     "  --json                    Print JSON or JSON Lines.",
@@ -248,6 +249,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (!parsed.id && parsed.action && !journalActions.has(parsed.action)) parsed.id = argument
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
+
   if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") {
@@ -778,6 +780,7 @@ async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliCon
   }
   return 0
 }
+
 
 const defaultCompactBusyTimeoutMs = 5_000
 

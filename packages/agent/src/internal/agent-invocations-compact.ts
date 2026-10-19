@@ -174,12 +174,22 @@ export async function compactJournalFile(options: JournalCompactOptions): Promis
       message: `${label} is busy. VACUUM needs the write lock, and another process held it for more than ${options.busyTimeoutMs} ms. Stop the server that uses the journal, or run compact during a quiet window.`,
     })
   }
-  const checkpoint = await client.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+  let walTruncated = true
+  try {
+    const checkpoint = await client.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    walTruncated = numberValue(checkpoint.rows[0]?.busy) === 0
+  }
+  catch (error) {
+    // VACUUM has already committed at this point. A competing reader or writer
+    // can prevent the cleanup checkpoint, but must not hide the compact result.
+    if (!isSqliteLockError(error)) throw error
+    walTruncated = false
+  }
   const after = await measure(client, path)
   return {
     ...result,
     after,
     reclaimedBytes: before.fileBytes + before.walBytes - after.fileBytes - after.walBytes,
-    walTruncated: numberValue(checkpoint.rows[0]?.busy) === 0,
+    walTruncated,
   }
 }

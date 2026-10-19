@@ -840,6 +840,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     let bytes = await liveBytes(executor)
     const ids: string[] = []
     if (bytes <= budget) return { afterBytes: bytes, ids }
+
     let rows = numberValue((await executor.execute(`SELECT count(*) AS count FROM ${table}`)).rows[0]?.count)
     for (let round = 0; round < 16 && bytes > budget; round += 1) {
       const averageRowBytes = bytes / Math.max(1, rows)

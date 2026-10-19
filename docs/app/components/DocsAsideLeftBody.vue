@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   docsManifest,
+  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -13,11 +14,16 @@ import {
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path)
-  ?? (['/tutorials', '/projects', '/templates'].some(path => normalizeDocsPath(route.path) === path)
-    ? docsManifest.sections.find(candidate => candidate.id === docsRootSectionId) ?? null
-    : null));
-const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
+const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const pageGroups = computed(() => {
+  if (!section.value) return [];
+  const groups = getDocsSidebarGroups(section.value);
+  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
+  if (section.value.id !== "ui" || !perspective) return groups;
+  return groups.map((group) =>
+    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
+  );
+});
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
@@ -32,10 +38,7 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template
-      v-for="(pageGroup, pageGroupIndex) in pageGroups"
-      :key="pageGroup.label || `pages-${pageGroupIndex}`"
-    >
+    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
