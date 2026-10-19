@@ -66,13 +66,24 @@ function readDefinitionObjectBody(file: string, exact = false): ObjectExpression
       }
     }
   }
+  for (const statement of module.program.body) {
+    if (statement.type !== "ExpressionStatement" || statement.expression.type !== "AssignmentExpression") continue
+    const assignment = statement.expression
+    if (assignment.left.type !== "Identifier") continue
+    const value = unwrapExpression(assignment.right)
+    if (value?.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "defineDatabase") {
+      callsByIdentifier.set(assignment.left.name, value)
+    }
+  }
   let call: Expression | undefined
+  let indirectExport = false
   if (exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase") {
     call = exported
   } else if (exported?.type === "Identifier") {
+    indirectExport = true
     call = callsByIdentifier.get(exported.name)
   }
-  if (!call) call = findCalls(module, ["defineDatabase"])[0]
+  if (!call && !indirectExport) call = findCalls(module, ["defineDatabase"])[0]
   const argument = call?.type === "CallExpression" ? call.arguments[0] : undefined
   if (argument === undefined || argument.type === "SpreadElement") return
   const object = exact ? argument : argumentExpression(argument)
@@ -105,7 +116,19 @@ function readObjectKeys(body: ObjectExpression | undefined) {
   return [...new Set(readObjectEntries(body).map(entry => entry.key).filter((key): key is string => Boolean(key)))]
 }
 
-function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
+function objectLiteral(value: Expression | undefined, file?: string): ObjectExpression | undefined {
+  if (value?.type === "Identifier" && file) {
+    const module = scanModule(readFileSync(file, "utf8"), file)
+    for (const statement of module.program.body) {
+      if (statement.type !== "VariableDeclaration") continue
+      for (const declaration of statement.declarations) {
+        if (declaration.id.type === "Identifier" && declaration.id.name === value.name) {
+          const resolved = declaration.init ? unwrapExpression(declaration.init) : undefined
+          if (resolved?.type === "ObjectExpression") return resolved
+        }
+      }
+    }
+  }
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
@@ -194,9 +217,9 @@ function readStringValue(body: ObjectExpression | undefined, property: string): 
 
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
-function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
+function readDefinitionCloudflareResource(expression: Expression | undefined, file: string): DefinitionCloudflareResource {
   if (isUndefinedIdentifier(expression)) return "inherited"
-  const body = objectLiteral(expression)
+  const body = objectLiteral(expression, file)
   if (body === undefined) return "opaque"
   let resource: DefinitionCloudflareResource = "inherited"
   for (const entry of readObjectEntries(body)) {
@@ -220,7 +243,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
       resource = "opaque"
     }
     else if (entry.key === "cloudflare") {
-      resource = readDefinitionCloudflareResource(entry.value)
+      resource = readDefinitionCloudflareResource(entry.value, file)
     }
   }
   const body = objectLiteral(expression)
@@ -644,6 +667,16 @@ export function resolveDBViteConfig(
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
+  const bindingOwners = new Map<string, string>()
+  for (const name of definitions.map(definition => definition.name)) {
+    const binding = databases[name]?.cloudflare?.binding
+    if (!binding) continue
+    const previous = bindingOwners.get(binding)
+    if (previous) {
+      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${name}"` })
+    }
+    bindingOwners.set(binding, name)
+  }
   return {
     databaseNames: definitions.map(definition => definition.name),
     databases,
