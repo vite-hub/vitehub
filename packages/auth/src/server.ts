@@ -341,17 +341,21 @@ async function runAccessAuthorize(
   // normal thenable assimilation for other callback results.
   let result: unknown
   if (directResult !== null && (typeof directResult === "object" || typeof directResult === "function")) {
-    let adopted: Promise<unknown> | undefined
+    let isNativePromise = false
     try {
-      adopted = new nativePromiseConstructor((resolve, reject) => {
+      // The intrinsic `then` performs the native Promise brand check. Plain
+      // objects and ordinary thenables throw here and must use assimilation.
+      Reflect.apply(nativePromiseThen, directResult, [() => {}, () => {}])
+      isNativePromise = true
+    }
+    catch { /* ordinary thenable */ }
+    if (isNativePromise) {
+      const adopted = new nativePromiseConstructor((resolve, reject) => {
         Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
       })
+      result = await adopted
     }
-    catch {
-      adopted = undefined
-    }
-    if (adopted) result = await adopted
-    else result = Reflect.apply(nativePromiseResolve, nativePromiseConstructor, [directResult])
+    else result = await Reflect.apply(nativePromiseResolve, nativePromiseConstructor, [directResult])
   }
   else result = await directResult
   const response = await normalizeAuthorizationResponse(result)
@@ -617,7 +621,6 @@ function getTrustedAuthorizationReaderRelease(
               const freshRelease = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "releaseLock")?.value
               if (freshClosed === closed && freshRead === read && freshCancel === cancel && freshRelease === releaseLock) {
                 if (typeof freshRelease === "function") {
-                  Reflect.apply(freshRelease, freshReader, [])
                   // A fabricated reader can copy the method identities while
                   // making releaseLock a no-op. Prove the operation changed
                   // the source stream's own lock state before retaining it.
@@ -634,10 +637,16 @@ function getTrustedAuthorizationReaderRelease(
                     }
                     lockedPrototype = Object.getPrototypeOf(lockedPrototype)
                   }
-                  if (lockedGetter && Reflect.apply(lockedGetter, freshBody, []) === false) return releaseLock
+                  if (lockedGetter
+                    && Reflect.apply(lockedGetter, freshBody, []) === true) {
+                    Reflect.apply(freshRelease, freshReader, [])
+                    if (Reflect.apply(lockedGetter, freshBody, []) === false) return releaseLock
+                  }
                 }
               }
-              if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
+              if (typeof freshRelease === "function") {
+                try { Reflect.apply(freshRelease, freshReader, []) } catch { /* best effort */ }
+              }
             }
             catch { /* try the next runtime-owned ancestor */ }
           }
