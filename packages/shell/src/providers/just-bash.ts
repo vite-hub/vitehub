@@ -80,6 +80,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands,
           cwd,
           networkGrants,
+          maxOutputLength: runOptions.maxOutputLength,
           signal: runOptions.signal,
         })
         if (curlResult) return curlResult
@@ -130,7 +131,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
 
 async function runControlledCurlCommand(
   command: string,
-  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
+  options: { commands?: string[], cwd?: string, maxOutputLength?: number, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
   options.signal?.throwIfAborted()
