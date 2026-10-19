@@ -270,10 +270,12 @@ async function createSignInResponse(
   signIn: AuthSignInConfiguration,
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
-  const origin = new URL(options.baseURL as string).origin
+  const origin = new URL(options.baseURL as string).origin;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
+  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined));
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -281,7 +283,7 @@ async function createSignInResponse(
       requestSignUp: signIn.requestSignUp,
       scopes: signIn.scopes,
     }),
-  );
+  }));
 
   if (!response.ok) return response;
 
@@ -353,7 +355,6 @@ function hasTrustedResponseDescriptors(prototype: object): boolean {
     Object.getOwnPropertyDescriptor(prototype, key)?.get === trustedResponseGetters[key])
 }
 
-const authorizationResponsePrototypeLimit = 32
 const trustedReadableStreamGetReader = ReadableStream.prototype.getReader
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -435,81 +436,41 @@ const authorizationReaderMethods = new WeakMap<object, () => unknown>()
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true;
   if (Object(body) !== body) return false;
-  const stream = body as object;
   try {
+    const stream = body as object;
     if (!hasNativeStreamBrand(stream)) return false;
-    if (stream instanceof ReadableStream) {
-      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get;
-      if (locked && Reflect.apply(locked, stream, []) !== false) return false;
+    let prototype: object | null = Object.getPrototypeOf(stream);
+    let locked: (() => boolean) | undefined;
+    let getReader: (() => unknown) | undefined;
+    let lockedOwner: object | undefined;
+    const seen = new Set<object>();
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false;
+      seen.add(prototype);
+      const getter = Object.getOwnPropertyDescriptor(prototype, "locked")?.get;
+      if (!locked && typeof getter === "function") { locked = getter; lockedOwner = prototype; }
+      const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value;
+      if (!getReader && typeof reader === "function") getReader = reader;
+      prototype = Object.getPrototypeOf(prototype);
     }
-    if (!getReader && typeof readerDescriptor?.value === "function") {
-      getReader = readerDescriptor.value
-      readerOwner = prototype
+    if (!locked || !getReader || !lockedOwner || Reflect.apply(locked, stream, [])) return false;
+    if (getReader === trustedReadableStreamGetReader) {
+      authorizationReaderMethods.set(stream, getReader);
+      return true;
     }
-    if (locked && getReader) break
-    prototype = Object.getPrototypeOf(prototype)
-  }
-  if (!locked || !getReader) return false
-  const trustedLocked = (() => {
-    let owner: object | null = Object.getPrototypeOf(body)
-    let intrinsic: (() => boolean) | undefined
-    const owners = new Set<object>()
-    for (let depth = 0; owner && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (owners.has(owner)) break
-      owners.add(owner)
-      const getter = Object.getOwnPropertyDescriptor(owner, "locked")?.get
-      if (typeof getter === "function") intrinsic = getter
-      owner = Object.getPrototypeOf(owner)
-    }
-    return intrinsic
-  })()
-  if (!trustedLocked || Reflect.apply(trustedLocked, body, [])) return false
-  const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
-  if (ownLocked) return false
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  if (ownReader && ownReader.value !== getReader) return false
-  // Authenticate reader ownership: releasing the probed reader must unlock the
-  // same fresh stream. An override that returns a reader from another stream
-  // leaves the probed stream locked and fails closed.
-  try {
-    const constructorDescriptor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")
-    const constructor = constructorDescriptor?.value
-    if (typeof constructor !== "function") return false
-    // A subclass that replaces the stream implementation's reader method can
-    // return a reader owned by an unrelated stream. Preserve subclasses that
-    // inherit their realm's native method, but fail closed for overrides.
-    let delegatedReaderOverride = false
-    if (getReader !== trustedReadableStreamGetReader) {
-      // A subclass may wrap both accessors while delegating to the native
-      // implementation.  Keep that supported shape, but reject arbitrary
-      // constructor-owned overrides that can return a reader for another
-      // stream.
-      const readerSource = Function.prototype.toString.call(getReader)
-      if (!readerSource.includes("super.getReader")) return false
-      delegatedReaderOverride = true
-    }
-    const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value
-    if (!delegatedReaderOverride && intrinsicReader !== getReader) return false
-    let fresh: object
-    try {
-      fresh = new constructor()
-    }
-    catch {
-      // Without a fresh instance there is no trusted way to prove that an
-      // overridden reader belongs to this stream. Fail closed rather than
-      // caching an unverified method that could return another stream's reader.
-      return false
-    }
-    const probed = Reflect.apply(getReader, fresh, [])
-    if (!Reflect.apply(trustedLocked, fresh, [])) return false
-    const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
-    if (typeof release !== "function") return false
-    Reflect.apply(release, probed, [])
-    const valid = !Reflect.apply(trustedLocked, fresh, [])
-    if (valid && Object(body) === body) authorizationReaderMethods.set(body, getReader)
-    return valid
-  }
-  catch { return false }
+    const constructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value;
+    if (typeof constructor !== "function") return false;
+    if (!Function.prototype.toString.call(getReader).includes("super.getReader")) return false;
+    const fresh = new constructor();
+    const reader = Reflect.apply(getReader, fresh, []);
+    if (!Reflect.apply(locked, fresh, [])) return false;
+    const release = Object(reader) === reader ? Object.getPrototypeOf(reader)?.releaseLock : undefined;
+    if (typeof release !== "function") return false;
+    Reflect.apply(release, reader, []);
+    if (Reflect.apply(locked, fresh, [])) return false;
+    authorizationReaderMethods.set(stream, getReader);
+    return true;
+  } catch { return false; }
 }
 
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
