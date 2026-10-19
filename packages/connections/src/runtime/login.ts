@@ -41,7 +41,7 @@ const tokenResponseSchema = v.object({
 const resourceMetadataSchema = v.object({ authorization_servers: v.pipe(v.array(v.string()), v.minLength(1)) })
 const safeEndpoint = v.pipe(v.string(), v.check(isSafeEndpoint))
 const serverMetadataSchema = v.object({
-  issuer: v.optional(v.string()),
+  issuer: v.pipe(v.string(), v.minLength(1)),
   authorization_endpoint: safeEndpoint,
   token_endpoint: safeEndpoint,
   registration_endpoint: v.optional(safeEndpoint),
@@ -102,9 +102,9 @@ export function createLoginSessions(options: { now: () => number, request: typeo
   const tokens = new Map<string, Promise<LoginToken>>()
   const settled = new Map<string, LoginToken>()
 
-  /** The unsealed `credentials`: `""` without `credentials`, `undefined` while they resolve to nothing. */
+  /** The unsealed `credentials`, or `undefined` while they resolve to nothing. */
   async function credentials(provider: ConnectionLoginProvider): Promise<string | undefined> {
-    if (!provider.credentials) return ""
+    if (!provider.credentials) return undefined
     let value: unknown = await provider.credentials()
     if (v.is(sealedValueSchema, value)) value = value.unseal()
     return typeof value === "string" && value.trim() ? value : undefined
@@ -140,7 +140,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     for (const url of serverMetadataUrls(issuer)) {
       const metadata = v.safeParse(serverMetadataSchema, await readJson(url))
       // RFC 8414, section 3.3: the metadata must name the issuer that it was fetched for.
-      if (metadata.success && (metadata.output.issuer === undefined || withoutTrailingSlash(metadata.output.issuer) === withoutTrailingSlash(issuer))) {
+      if (metadata.success && metadata.output.issuer === issuer) {
         server = metadata.output
         break
       }

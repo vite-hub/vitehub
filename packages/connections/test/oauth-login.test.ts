@@ -33,6 +33,7 @@ function mockServer() {
     codes: new Map<string, { challenge: string, redirectUri: string }>(),
     expiresIn: 3600 as number | undefined,
     issueRefreshTokens: false,
+    issuerMetadata: ISSUER as string | undefined,
     log: [] as string[],
     password: "pa:ss",
     registrations: [] as unknown[],
@@ -49,7 +50,7 @@ function mockServer() {
         case "/.well-known/oauth-authorization-server/api/auth":
           return Response.json({
             authorization_endpoint: `${ISSUER}/oauth2/authorize`,
-            issuer: ISSUER,
+            ...(server.issuerMetadata === undefined ? {} : { issuer: server.issuerMetadata }),
             registration_endpoint: `${ISSUER}/oauth2/register`,
             token_endpoint: `${ISSUER}/oauth2/token`,
           })
@@ -199,6 +200,15 @@ describe("oauthLogin", () => {
     ])
     await expect(test.post("portal:beta")).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
     expect(test.server.log).toEqual([])
+  })
+
+  it("rejects authorization metadata with a missing or mismatched issuer", async () => {
+    for (const issuer of [undefined, `${ISSUER}/other`]) {
+      const test = setup()
+      test.server.issuerMetadata = issuer
+      await expect(test.post()).rejects.toMatchObject({ code: "CONNECTION_PROVIDER" })
+      expect(test.server.registrations).toEqual([])
+    }
   })
 
   it("shares a failed sign-in with every waiter and hides the login error", async () => {
