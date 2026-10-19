@@ -1094,7 +1094,7 @@ function persistedWebhookRequest(
   },
   scope: string,
   agentName: string,
-  invocation?: { input: unknown; run?: unknown },
+  invocation?: { input: unknown; run?: unknown; trigger?: string; order?: { key: string, version: number, previous?: number } },
   rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
@@ -1537,6 +1537,15 @@ async function notifyQueuedWebhookFailure(
   }
 }
 
+async function rollbackQueuedDispatchOrder(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<void> {
+  const queuedOrder = delivery.invocation?.order
+  if (!queuedOrder) return
+  const current = await state.get<unknown>(queuedOrder.key)
+  if (!isRuntimeNumber(current) || current !== queuedOrder.version) return
+  if (queuedOrder.previous === undefined) await state.delete(queuedOrder.key)
+  else await state.set(queuedOrder.key, queuedOrder.previous)
+}
+
 async function deliverQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
@@ -1547,6 +1556,7 @@ async function deliverQueuedWebhookFailure(
   invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
   invocationStarted = true,
 ): Promise<boolean> {
+  await rollbackQueuedDispatchOrder(state, delivery)
   const failure = {
     error: error instanceof Error ? error.message : String(error),
     attempts,
@@ -1606,6 +1616,7 @@ async function executeQueuedWebhookDelivery(
     return retryAt
   }
   if (await supersededWebhookDelivery(state, delivery)) {
+    await rollbackQueuedDispatchOrder(state, delivery)
     if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
       const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
       await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
@@ -1953,6 +1964,7 @@ async function executeQueuedWebhookDelivery(
     rejectActiveCompletion?.(error)
     // A user cancellation is final. A retry would run the cancelled Invocation again.
     if (!executionTimedOut && await queuedWebhookInvocationCancelled(agent, handlerOptions, invocationRunId, error)) {
+      await rollbackQueuedDispatchOrder(state, delivery)
       if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken) && channelDelivery) {
         await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "failed" : undefined, "failed", {
           attempt: delivery.attempts + 1,
@@ -8382,7 +8394,7 @@ function createQueuedChannelDispatch(
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`)
       }
       const { order } = item
-      if (order !== undefined && (!isRecord(order) || !isRuntimeString(order.key) || !order.key || !isRuntimeNumber(order.version) || !Number.isFinite(order.version))) {
+      if (order !== undefined && (!isRecord(order) || !isRuntimeString(order.key) || !order.key.trim() || !isRuntimeNumber(order.version) || !Number.isFinite(order.version))) {
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch item "${item.key}" needs order { key, version } with a non-empty key and a finite number version.`)
       }
       const commit = createAgentChannelStateCommit(webhookState.state)
@@ -8428,7 +8440,7 @@ function createQueuedChannelDispatch(
         ) {
           throw new TypeError(`[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`)
         }
-        const persistedInvocation = { ...persistedWebhookInvocation({ input: invocation.input, run: invocation.run }), trigger: triggerName }
+        const persistedInvocation = { ...persistedWebhookInvocation({ input: invocation.input, run: invocation.run }), trigger: triggerName, ...(order ? { order: { key: `${webhookState.keyPrefix}order:${triggerId}:${order.key}`, version: order.version, ...(isRuntimeNumber(admitted) ? { previous: admitted } : {}) } } : {}) }
         if (!isJsonSafe(persistedInvocation)) {
           throw new TypeError(`[vitehub] Queued dispatch through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`)
         }

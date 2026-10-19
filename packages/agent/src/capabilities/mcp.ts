@@ -95,6 +95,51 @@ function assertMcpIntegrityOptions(options: McpCapabilityOptions) {
   }
 }
 
+/** The options each mcp() Capability was created from, so a child Agent's mcp() can extend them. */
+const mcpCapabilityOptions = new WeakMap<object, McpCapabilityOptions>()
+
+/** Merge two maps keyed by server name. The child's entry for a server replaces the parent's. */
+function mergeByServer<T>(parent: Record<string, T> | undefined, child: Record<string, T> | undefined): Record<string, T> | undefined {
+  if (!parent || !child) return child ?? parent
+  return { ...parent, ...child }
+}
+
+/** Keep only the entries of servers that remain configured. */
+function pickServers<T>(map: Record<string, T> | undefined, servers: Record<string, unknown>): Record<string, T> | undefined {
+  if (!map) return
+  const picked = Object.fromEntries(Object.entries(map).filter(([name]) => Object.hasOwn(servers, name)))
+  return Object.keys(picked).length ? picked : undefined
+}
+
+/**
+ * Combine an inherited mcp() Capability with a child's. `servers`, `integrity`, and `toolOverrides`
+ * merge by server name and the child wins; `false` removes an inherited server. Other options are
+ * inherited unless the child sets them.
+ */
+function extendMcpOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(parent: McpCapabilityOptions<TRuntimeConfig, Name>, child: McpCapabilityOptions<TRuntimeConfig, Name>): McpCapabilityOptions<TRuntimeConfig, Name> {
+  const servers = Object.fromEntries(Object.entries({ ...parent.servers, ...child.servers }).filter(([, server]) => server !== false))
+  const merged: McpCapabilityOptions<TRuntimeConfig, Name> = { ...parent, servers }
+  for (const [key, value] of Object.entries(child)) {
+    if (value !== undefined && key !== "servers") Object.assign(merged, { [key]: value })
+  }
+  const integrity = pickServers(mergeByServer(parent.integrity, child.integrity), servers)
+  const toolOverrides = pickServers(mergeByServer(parent.toolOverrides, child.toolOverrides), servers)
+  delete merged.integrity
+  delete merged.toolOverrides
+  return {
+    ...merged,
+    ...(integrity ? { integrity } : {}),
+    ...(toolOverrides ? { toolOverrides } : {}),
+  }
+}
+
+/**
+ * Connect MCP servers and expose their tools to the Agent. In `defineAgent({ extends })`, a child's
+ * `mcp()` extends the parent's `mcp()` Capability by server name unless it sets `inherit: false`.
+ */
 export function mcp<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -102,6 +147,24 @@ export function mcp<
   if (!options || typeof options !== "object" || !options.servers || typeof options.servers !== "object") {
     throw agentDiagnostics.AGENT_R0117({ message: "[vitehub] mcp({ servers }) requires a server map." })
   }
+  const { inherit, ...layer } = options
+  const capability = createMcpCapability(layer)
+  // SAFETY: The map only returns options to mcp() Capabilities of the same Agent, which share these type parameters.
+  mcpCapabilityOptions.set(capability, layer as McpCapabilityOptions)
+  if (inherit === false) return capability
+  return Object.assign(capability, {
+    extend(inherited: AgentCapabilityDefinition<TRuntimeConfig, Name>) {
+      // SAFETY: Options were stored for an mcp() Capability with the same type parameters.
+      const parent = mcpCapabilityOptions.get(inherited) as McpCapabilityOptions<TRuntimeConfig, Name> | undefined
+      return parent ? mcp(extendMcpOptions(parent, layer)) : capability
+    },
+  })
+}
+
+function createMcpCapability<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: McpCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   assertMcpIntegrityOptions(options)
   const usesConnections = Object.values(options.servers).some(server => v.is(connectionConfigSchema, server))
   return defineMcpToolCapability({
@@ -118,10 +181,11 @@ export function mcp<
           server: {
             type: "Section",
             props: { title: { $item: "/name" } },
-            children: ["status", "connection", "tools"],
+            children: ["status", "connection", "skills", "tools"],
           },
           status: { type: "KeyValue", props: { label: "Discovery", value: { $item: "/status" } } },
           connection: { type: "KeyValue", props: { label: "Connection", value: { $item: "/connection" } } },
+          skills: { type: "KeyValue", props: { label: "Skills", value: { $item: "/skills" } } },
           tools: { type: "Tools", props: { mcpServer: { $item: "/name" } } },
         },
       },
@@ -155,6 +219,7 @@ export function mcp<
         return {
           connection: withMcpInitializationCompatibility(resolved),
           ...(bound ? { connectionBinding: bound.binding } : {}),
+          ...(isMcpClientConfig(connection) && connection.skills === false ? { skills: false } : {}),
           ...(tools ? { tools } : {}),
           integrity: options.integrity && Object.hasOwn(options.integrity, name)
             ? options.integrity[name]

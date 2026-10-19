@@ -19,6 +19,8 @@ export interface AgentWebhookQueueDelivery {
     run?: unknown
     /** The Channel trigger that admitted a queued dispatch item. Its `failed` callback runs for the item. */
     trigger?: string
+    /** Ordering marker owned by a queued Channel dispatch item. */
+    order?: { key: string, version: number, previous?: number }
   }
   leaseTtlMs: number
   rehydrate?: true
