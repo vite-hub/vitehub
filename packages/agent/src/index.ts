@@ -275,11 +275,11 @@ export type {
   AgentInvocationRecordStatus,
   AgentInvocationRerunInput,
   AgentInvocationRerunUnavailableReason,
-  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
   AgentInvocations,
   AgentInvocationStore,
 } from "./invocations.ts"
+export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
 
 export type {
   AgentInvocationControlOutcome,

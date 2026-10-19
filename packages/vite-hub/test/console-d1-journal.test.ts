@@ -11,7 +11,7 @@ import { createConsoleD1Invocations, getConsoleInvocations, getConsoleUsageIndex
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
-import type { AgentInvocationRetentionOptions } from "@vite-hub/agent/server"
+import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
@@ -69,18 +69,24 @@ describe("Console D1 journal", () => {
     expect(env).toHaveBeenCalled()
   })
 
-  it.each(["maxAgeMs", "maxRecords"] as const)("rejects null %s before accessing the D1 binding", (limit) => {
-    const retention: AgentInvocationRetentionOptions = {}
+  it.each(["maxAge", "maxRecords"] as const)("rejects null %s before accessing the D1 binding", (limit) => {
+    const retention: AgentRetentionPolicy = {}
     Reflect.set(retention, limit, null)
     const env = vi.fn(() => ({ DB: database }))
-    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, retention)).toThrow("retention limits must be positive safe integers or false")
+    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, retention)).toThrow(`D1 Agent Invocation ${limit} must be a positive`)
+    expect(env).not.toHaveBeenCalled()
+  })
+
+  it.each(["500MB", "30%"] as const)("rejects maxSize %s before accessing the D1 binding", (maxSize) => {
+    const env = vi.fn(() => ({ DB: database }))
+    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, { maxSize })).toThrow("not supported by the D1 Console journal")
     expect(env).not.toHaveBeenCalled()
   })
 
   it("applies configured retention and terminal deletion to the D1 fallback journal", async () => {
     const retentionDatabase = await miniflare.getD1Database("RETENTION")
     const journal = { binding: "RETENTION", env: () => ({ RETENTION: retentionDatabase }) }
-    const retention = { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: false as const }
+    const retention = { maxAge: 30 * 24 * 60 * 60 * 1000, maxRecords: false as const }
     const root = "/console-d1-retention"
     const invocations = installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)
     expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)).toBe(invocations)
@@ -102,7 +108,7 @@ describe("Console D1 journal", () => {
     await expect(invocations.delete("running")).resolves.toBe("not-terminal")
     await expect(invocations.delete("recent")).resolves.toBe("deleted")
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
-    const disabled = { maxAgeMs: false as const, maxRecords: false as const }
+    const disabled = { maxAge: false as const, maxRecords: false as const }
     expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, disabled)).not.toBe(invocations)
   })
 
