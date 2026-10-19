@@ -985,18 +985,30 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
   let metadataSource: unknown
   let accountedInputTokens = 0
   let accountedOutputTokens = 0
+  let modelCallObserved = false
+  const seenEvents = new WeakSet<object>()
 
-  const accountUsage = (usage: unknown) => {
+  const accountUsage = (usage: unknown, cumulative = false) => {
     const inputTokens = usageTokenCount(usage, "inputTokens")
     const outputTokens = usageTokenCount(usage, "outputTokens")
-    if (inputTokens !== undefined && inputTokens > accountedInputTokens) {
-      executionBudget?.recordInputBytes((inputTokens - accountedInputTokens) * MODEL_TOKEN_BYTES_ESTIMATE)
-      accountedInputTokens = inputTokens
+    if (inputTokens !== undefined) {
+      const delta = cumulative ? inputTokens - accountedInputTokens : inputTokens
+      if (delta > 0) executionBudget?.recordInputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
+      accountedInputTokens += cumulative ? Math.max(0, delta) : inputTokens
     }
-    if (outputTokens !== undefined && outputTokens > accountedOutputTokens) {
-      executionBudget?.recordOutputBytes((outputTokens - accountedOutputTokens) * MODEL_TOKEN_BYTES_ESTIMATE)
-      accountedOutputTokens = outputTokens
+    if (outputTokens !== undefined) {
+      const delta = cumulative ? outputTokens - accountedOutputTokens : outputTokens
+      if (delta > 0) executionBudget?.recordOutputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
+      accountedOutputTokens += cumulative ? Math.max(0, delta) : outputTokens
     }
+  }
+
+  const accountEvent = (event: unknown, usage: unknown, cumulative = false) => {
+    if (event && hasRuntimeType(event, "object")) {
+      if (seenEvents.has(event)) return
+      seenEvents.add(event)
+    }
+    accountUsage(usage, cumulative)
   }
 
   const capture = (event: unknown) => {
@@ -1013,14 +1025,17 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
     async onEnd(event: unknown) {
       capture(event)
       // Some AI SDK model adapters only report usage on the final callback.
-      accountUsage(capturedUsage)
+      const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+      if (record?.totalUsage !== undefined) accountEvent(event, record.totalUsage, true)
+      else if (!modelCallObserved) accountEvent(event, capturedUsage)
     },
     async onStepEnd(event: unknown) {
       capture(event)
     },
     async onLanguageModelCallEnd(event: unknown) {
       capture(event)
-      accountUsage(capturedUsage)
+      modelCallObserved = true
+      accountEvent(event, capturedUsage)
     },
     get captured() {
       return captured
