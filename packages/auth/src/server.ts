@@ -581,24 +581,13 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
           if (releaseResult !== undefined || releaseStream.locked) return
 
-          // Prove that the selected getReader method returns a reader for the
-          // exact stream it was called on. A forged method can lock the body
-          // and return a reader owned by another stream; releasing that reader
-          // leaves the supplied body locked, which provides an observable
-          // ownership check before the bridge accepts the method.
+          // Acquire the reader once and retain that exact instance for the
+          // bridge. Calling getReader again would let a stateful override
+          // return a different reader after validation.
           const ownershipReader = Reflect.apply(descriptor.value, body, []) as object
           if (typeof locked?.get !== "function" || Reflect.apply(locked.get, body, []) !== true) return
           if (!hasNativeAuthorizationReaderPrototype(ownershipReader)) return
-          // Prove that this exact reader owns the supplied stream. Releasing
-          // it must unlock the body; a reader returned for another stream
-          // cannot satisfy that check. Reacquire only after the proof so the
-          // reader retained for bridging is a fresh, locked reader.
-          Reflect.apply(probeMethods.releaseLock, ownershipReader, [])
-          if (Reflect.apply(locked.get, body, []) !== false) return
-          const bridgeReader = Reflect.apply(descriptor.value, body, []) as object
-          if (!hasNativeAuthorizationReaderPrototype(bridgeReader)
-            || Reflect.apply(locked.get, body, []) !== true) return
-          validatedAuthorizationReaders.set(body, bridgeReader)
+          validatedAuthorizationReaders.set(body, ownershipReader)
           foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
