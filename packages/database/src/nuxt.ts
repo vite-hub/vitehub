@@ -17,6 +17,7 @@ import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderContributionImport } from "./internal/generated.ts"
+import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -342,7 +343,16 @@ async function installNitroLocalDatabaseRuntime(
   }
 
   const contributionsByDatabase = runtime.tableContributionsByDatabase
-  const definitionContributions = (definition: (typeof runtime.definitions)[number]) => contributionsByDatabase[definition.name] ?? []
+  const loadedContributionsByDatabase = Object.fromEntries(await Promise.all(
+    Object.entries(contributionsByDatabase).map(async ([name, contributions]) => [
+      name,
+      (await Promise.all(contributions.map(async contribution => ({
+        contribution,
+        loaded: (await loadContributedDatabaseSchema(contribution, file, { alias, onFallback: () => {} })).loaded,
+      })))).filter(item => item.loaded).map(item => item.contribution),
+    ] as const),
+  )) as typeof contributionsByDatabase
+  const definitionContributions = (definition: (typeof runtime.definitions)[number]) => loadedContributionsByDatabase[definition.name] ?? []
   const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1 || definitionContributions(definition).length > 0
   const imports = runtime.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
