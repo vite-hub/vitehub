@@ -4,6 +4,7 @@ import { join } from "node:path"
 
 import { parseAst } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { files } from "../../src/files.ts"
 import { glob } from "../../src/glob.ts"
@@ -109,6 +110,17 @@ describe("glob() calls in a module", () => {
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
     const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ build: { ssr: true } }, { command: "build", mode: "production" })
+    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
+    expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("keeps legacy SSR build state when Nitro config runs afterward", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ build: { ssr: true } }, { command: "build", mode: "production" })
+    await config({ build: { ssr: false }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "serve", mode: "development" })
     const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)

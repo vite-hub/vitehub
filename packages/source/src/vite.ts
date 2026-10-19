@@ -606,10 +606,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       },
     },
     async config(config, env) {
-      legacyServerBuild = env.command === "build" && config.build?.ssr === true
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
+      legacyServerBuild = env.command === "build" && config.build?.ssr === true
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
