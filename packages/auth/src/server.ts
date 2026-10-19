@@ -326,7 +326,12 @@ async function runAccessAuthorize(
 
   // Pin foreign runtime accessors before untrusted authorization code can mutate them.
   await getUndiciResponse()
-  const result = await authorize(context)
+  const directResult = authorize(context)
+  // Normalize direct results before promise assimilation. A genuine Response
+  // may expose an own `then` property, and reading that property can throw.
+  const directResponse = await normalizeAuthorizationResponse(directResult)
+  if (directResponse) return directResponse
+  const result = await directResult
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
@@ -483,11 +488,15 @@ function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReade
     const methods: Partial<AuthorizationReaderMethods> = {}
     const owners = new Set<object>()
     let closed: ((this: object) => unknown) | undefined
+    let closedOwner: object | undefined
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return
       seen.add(prototype)
       const closedDescriptor = Object.getOwnPropertyDescriptor(prototype, "closed")
-      if (!closed && typeof closedDescriptor?.get === "function") closed = closedDescriptor.get as (this: object) => unknown
+      if (!closed && typeof closedDescriptor?.get === "function") {
+        closed = closedDescriptor.get as (this: object) => unknown
+        closedOwner = prototype
+      }
       for (const key of ["read", "cancel", "releaseLock"] as const) {
         if (methods[key]) continue
         const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
@@ -499,7 +508,7 @@ function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReade
       if (closed && methods.read && methods.cancel && methods.releaseLock) break
       prototype = Object.getPrototypeOf(prototype)
     }
-    if (!closed || !methods.read || !methods.cancel || !methods.releaseLock || owners.size !== 1) return
+    if (!closed || !closedOwner || !methods.read || !methods.cancel || !methods.releaseLock || owners.size !== 1 || !owners.has(closedOwner)) return
     // Applying the source runtime's closed getter is an unforgeable reader
     // brand check; callable method shape alone is insufficient.
     Reflect.apply(closed, reader, [])
