@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli";
 
 const serveUsage =
-  "vitehub sandbox serve --user <name> --host-key <file> --authorized-key <file> [--host <address>] [--port <port>] [--cwd <dir>]";
+  "vitehub sandbox serve --user <name> --host-key <file> --authorized-key <file> [--host <address>] [--port <port>] [--cwd <dir>] [--drain-timeout <ms>]";
 const checkUsage =
   "vitehub sandbox check --user <name> --identity-file <file> [--host-key-file <file> | --known-hosts-file <file>] [--host <address>] [--port <port>] [--driver <codex|claude-code>] [--timeout <ms>]";
 
@@ -44,6 +44,13 @@ function port(values: Values, env: NodeJS.ProcessEnv): number {
   return value;
 }
 
+function drainTimeout(values: Values, env: NodeJS.ProcessEnv): number {
+  const value = option(values, "drain-timeout", env, "VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS") ?? "0";
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))
+    throw new TypeError("[vitehub] --drain-timeout must be a non-negative number of milliseconds.");
+  return Number(value);
+}
+
 function parse(
   args: string[],
   options: Record<string, { type: "string" | "boolean"; short?: string }>,
@@ -61,6 +68,7 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
   const values = parse(args, {
     "authorized-key": { type: "string" },
     cwd: { type: "string" },
+    "drain-timeout": { type: "string" },
     host: { type: "string" },
     "host-key": { type: "string" },
     port: { type: "string" },
@@ -68,11 +76,12 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
   });
   if (!values) {
     context.stdout.write(
-      `Usage: ${serveUsage}\n\nServe authenticated SSH commands from this machine. It is not a sandbox.\n`,
+      `Usage: ${serveUsage}\n\nServe authenticated SSH commands from this machine. It is not a sandbox.\n\nOn SIGTERM or SIGINT, stop accepting connections and wait up to --drain-timeout milliseconds\n(VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS, default 0) for open connections to close. Then end their\ncommands and exit. A second signal ends the wait. A drain prints sandbox.draining and sandbox.closed events.\n`,
     );
     return 0;
   }
   const { env } = context;
+  const drainTimeoutMs = drainTimeout(values, env);
   const { serveSsh } = await import("@vite-hub/sandbox/ssh");
   const server = await serveSsh({
     authorizedKeyFile: required(values, "authorized-key", env, "SSH_AUTHORIZED_KEY"),
@@ -84,14 +93,33 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
   });
   context.stdout.write(`${JSON.stringify({ event: "sandbox.listening", port: server.port })}\n`);
   return await new Promise<number>((resolve) => {
+    const signals = ["SIGINT", "SIGTERM"] as const;
+    let closing = false;
     const close = () => {
-      for (const signal of ["SIGINT", "SIGTERM"] as const) process.off(signal, close);
-      server.close().then(
-        () => resolve(0),
-        () => resolve(1),
+      // A second signal ends the drain. The server returns the close that is already running.
+      if (closing) {
+        void server.close();
+        return;
+      }
+      closing = true;
+      const drain = server.connections ? drainTimeoutMs : 0;
+      if (drain)
+        context.stdout.write(
+          `${JSON.stringify({ event: "sandbox.draining", connections: server.connections, timeoutMs: drain })}\n`,
+        );
+      const done = (code: number) => {
+        for (const signal of signals) process.off(signal, close);
+        resolve(code);
+      };
+      server.close({ drainTimeoutMs: drain }).then(
+        () => {
+          if (drain) context.stdout.write(`${JSON.stringify({ event: "sandbox.closed" })}\n`);
+          done(0);
+        },
+        () => done(1),
       );
     };
-    for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, close);
+    for (const signal of signals) process.on(signal, close);
   });
 }
 

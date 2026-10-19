@@ -1,5 +1,7 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -149,6 +151,78 @@ describe("vitehub sandbox", () => {
 
     process.emit("SIGTERM");
     expect(await running).toBe(0);
+    expect(serve.stdout()).not.toContain("sandbox.draining");
+  });
+
+  it("drains open connections on SIGTERM with --drain-timeout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-cli-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const hostKey = join(root, "host");
+    const identity = join(root, "identity");
+    await Promise.all(
+      [hostKey, identity].map((path) =>
+        run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path]),
+      ),
+    );
+    const serveSsh = sandboxSsh.serveSsh;
+    vi.spyOn(sandboxSsh, "serveSsh").mockImplementation((options) =>
+      serveSsh({ ...options, port: 0 }),
+    );
+    const serve = context({
+      CRABBOX_STATIC_USER: "agent",
+      RUNNER_WORKSPACE: root,
+      SSH_AUTHORIZED_KEY: `${identity}.pub`,
+      SSH_HOST_KEY: hostKey,
+      VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS: "10000",
+    });
+    let exitCode: number | undefined;
+    const running = Promise.resolve(feature("serve").run([], serve.context)).then((code) => {
+      exitCode = code;
+      return code;
+    });
+    await vi.waitFor(() => expect(serve.stdout()).toContain('"event":"sandbox.listening"'), {
+      timeout: 10_000,
+    });
+    const { port } = JSON.parse(serve.stdout()) as { port: number };
+
+    // `cat` keeps the SSH connection open until its input ends.
+    const session = spawn(
+      "ssh",
+      ["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-i", identity, "-p", String(port), "agent@127.0.0.1", "cat"],
+      { stdio: "pipe" },
+    );
+    let output = "";
+    session.stdout.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    const sessionClosed = once(session, "close");
+    session.stdin.write("ready\n");
+    await vi.waitFor(() => expect(output).toBe("ready\n"), { timeout: 10_000 });
+
+    process.emit("SIGTERM");
+    await vi.waitFor(() => expect(serve.stdout()).toContain('"event":"sandbox.draining"'));
+    const events = serve.stdout().trim().split("\n").map((line) => JSON.parse(line) as unknown);
+    expect(events.at(-1)).toEqual({ event: "sandbox.draining", connections: 1, timeoutMs: 10_000 });
+    const refused = connect({ host: "127.0.0.1", port });
+    const [error] = (await once(refused, "error")) as [NodeJS.ErrnoException];
+    expect(error.code).toBe("ECONNREFUSED");
+    session.stdin.write("still running\n");
+    await vi.waitFor(() => expect(output).toBe("ready\nstill running\n"), { timeout: 10_000 });
+    expect(exitCode).toBeUndefined();
+
+    session.stdin.end();
+    expect(await sessionClosed).toEqual([0, null]);
+    expect(await running).toBe(0);
+    expect(serve.stdout().trim().split("\n").at(-1)).toBe('{"event":"sandbox.closed"}');
+  }, 30_000);
+
+  it("rejects a --drain-timeout that is not a number of milliseconds", async () => {
+    const env = { CRABBOX_STATIC_USER: "agent", SSH_AUTHORIZED_KEY: "/ssh/key.pub", SSH_HOST_KEY: "/ssh/host" };
+    for (const value of ["-1", "1.5", "soon"]) {
+      await expect(
+        Promise.resolve(feature("serve").run([`--drain-timeout=${value}`], context(env).context)),
+      ).rejects.toThrow("--drain-timeout must be a non-negative number of milliseconds");
+    }
   });
 
   it("reports Driver readiness and fails only when the provider cannot start", async () => {

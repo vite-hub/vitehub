@@ -106,8 +106,28 @@ export interface SshServerOptions {
   acceptEnvironment?: readonly string[]
 }
 
+export interface SshServerCloseOptions {
+  /**
+   * Wait up to this many milliseconds for open connections to close before the server ends them and their commands.
+   * Defaults to 0, which ends them at once.
+   */
+  drainTimeoutMs?: number
+}
+
+export interface SshServer {
+  port: number
+  /** Open client connections, including connections that have not finished authentication. */
+  readonly connections: number
+  /**
+   * Stops accepting connections at once, then ends open connections and stops their commands. Clients that are
+   * already connected can still run commands while `drainTimeoutMs` lasts. Another call without `drainTimeoutMs`
+   * ends the wait early. All calls return the same promise.
+   */
+  close(options?: SshServerCloseOptions): Promise<void>
+}
+
 /** An authenticated command server, not a filesystem or network sandbox. */
-export async function serveSsh(options: SshServerOptions): Promise<{ port: number; close(): Promise<void> }> {
+export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   if (process.platform === "win32") throw new Error("[vitehub] SSH command supervision requires a POSIX host.")
   const { default: ssh2 } = await import("ssh2")
   const [hostKey, authorizedKey] = await Promise.all([readFile(options.hostKeyFile), readFile(options.authorizedKeyFile)])
@@ -183,9 +203,13 @@ export async function serveSsh(options: SshServerOptions): Promise<{ port: numbe
     }))
   })
   // Track sockets before SSH identification, so incomplete handshakes cannot hold shutdown open.
+  let endDrain: (() => void) | undefined
   const listener = createServer(socket => {
     sockets.add(socket)
-    socket.once("close", () => sockets.delete(socket))
+    socket.once("close", () => {
+      sockets.delete(socket)
+      if (!sockets.size) endDrain?.()
+    })
     server.injectSocket(socket)
   })
   const listening = once(listener, "listening")
@@ -196,9 +220,27 @@ export async function serveSsh(options: SshServerOptions): Promise<{ port: numbe
   let closing: Promise<void> | undefined
   return {
     port: address.port,
-    close() {
-      return closing ??= (async () => {
+    get connections() {
+      return sockets.size
+    },
+    close({ drainTimeoutMs = 0 } = {}) {
+      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0) throw new TypeError("[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.")
+      if (closing) {
+        if (!drainTimeoutMs) endDrain?.()
+        return closing
+      }
+      return closing = (async () => {
         const closed = new Promise<void>((resolve, reject) => listener.close(error => error ? reject(error) : resolve()))
+        if (drainTimeoutMs && sockets.size) {
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => endDrain?.(), drainTimeoutMs)
+            endDrain = () => {
+              clearTimeout(timer)
+              endDrain = undefined
+              resolve()
+            }
+          })
+        }
         for (const client of clients) client.end()
         await Promise.all([...children].map(stop))
         for (const socket of sockets) socket.destroy()
