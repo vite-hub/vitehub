@@ -332,7 +332,7 @@ async function runAccessAuthorize(
   // invoking that override would let authorization results alter settlement.
   let adopted: PromiseLike<unknown> | undefined
   try {
-    adopted = Promise.prototype.then.call(authorization as PromiseLike<unknown>, value => value, error => { throw error })
+    adopted = intrinsicPromiseThen.call(authorization as PromiseLike<unknown>, value => value, error => { throw error })
   } catch {
     // Non-Promise thenables retain normal await semantics.
   }
@@ -354,6 +354,7 @@ const nativeStreamGetReader = Object.getOwnPropertyDescriptor(nativeStreamProtot
 const nativeReaderRead = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "read")?.value
 const nativeReaderCancel = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "cancel")?.value
 const nativeReaderReleaseLock = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "releaseLock")?.value
+const intrinsicPromiseThen = Promise.prototype.then
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -590,7 +591,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     if (readerPromise) return readerPromise
     readerPromise = (async () => {
       const reader = Reflect.apply(getReader, body, [])
-      let verifiedRelease: ((...args: never[]) => unknown) | undefined
+      let verifiedRelease: ((...args: never[]) => unknown) | undefined = readerPrototype === nativeReaderPrototype && typeof nativeReaderReleaseLock === "function" ? nativeReaderReleaseLock as (...args: never[]) => unknown : undefined
 
       try {
     const readerPrototype = Object.getPrototypeOf(reader)
