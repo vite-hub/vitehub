@@ -163,7 +163,7 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
   const normalized: NormalizedQuery = { empty: [], filters: Object.create(null) as Record<string, string[]>, search: "" }
-  for (const [key, value] of Object.entries(query)) {
+  for (const [key, value] of Object.entries(query).sort(([left], [right]) => left.localeCompare(right))) {
     if (value === undefined || value === null) continue
     if (key === "search") {
       normalized.search = String(value).trim().toLocaleLowerCase()
@@ -262,7 +262,7 @@ export function array<TItem, const TFilter extends string = never>(
   const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
 
   async function snapshot(signal: AbortSignal | undefined): Promise<{ digest: string, items: readonly TItem[] }> {
-    const result = load instanceof Function ? await load({ signal }) : load
+    const result = typeof load === "function" ? await load({ signal }) : load
     signal?.throwIfAborted()
     const items: unknown = Array.isArray(result) ? result : Reflect.get(Object(result), "items")
     if (!Array.isArray(items)) {
