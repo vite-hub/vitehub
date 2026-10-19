@@ -406,7 +406,7 @@ const id = useId();
   animation-play-state: paused;
 }
 
-/* Scale and rotate around the element's own box. */
+/* Scale and rotate around the element's own sandbox. */
 .wf-rail-1,
 .wf-rail-2,
 .sh-command,

@@ -2,7 +2,8 @@ import { expect, it } from "vitest";
 import { defineWorkspace, useWorkspace } from "@vite-hub/workspace";
 import { registerWorkspace } from "@vite-hub/workspace/test";
 import { readRealtimeWorkspaceDocument } from "../src/server.ts";
-import { markdownToYDoc as packagedMarkdownToYDoc, yDocToMarkdown as packagedYDocToMarkdown } from "../dist/server.js";
+import { realtimeMarkdownEditor as packagedEditor } from "../dist/index.js";
+import { createRealtimeYDoc as packagedCreateYDoc, readRealtimeYDoc as packagedReadYDoc } from "../dist/server.js";
 
 it("opens a new collaborative document through real memory Workspace facades", async () => {
   const name = "realtime-new-memory-document";
@@ -18,10 +19,10 @@ it("rejects an unregistered Workspace instead of opening an empty room", async (
     .rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND", details: { name } });
 });
 
-it("opens new documents through the packaged Realtime server without duplicate models", () => {
+it("opens new documents through the packaged Realtime server without duplicate models", async () => {
   for (const markdown of ["", "# Shared document\n\nA paragraph."]) {
-    const document = packagedMarkdownToYDoc(markdown);
-    try { expect(packagedYDocToMarkdown(document)).toBe(markdown); }
+    const document = await packagedCreateYDoc(packagedEditor, { body: markdown });
+    try { expect((await packagedReadYDoc(packagedEditor, document)).body).toBe(markdown); }
     finally { document.destroy(); }
   }
 });

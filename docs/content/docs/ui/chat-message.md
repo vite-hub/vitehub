@@ -1,12 +1,12 @@
 ---
 title: Chat Message
-description: Render one AI SDK UI message with Nuxt UI chrome and customizable part slots.
+description: Render one AI SDK UI message as a Message with a user Bubble and customizable part slots.
 navigation.order: 21
 navigation.group: Chat
 icon: i-ph-chat-text-light
 ---
 
-`AgentChatMessage` renders one `UIMessage`. It composes Nuxt UI's `UChatMessage` for the role layout and `AgentMessageParts` for the content. Use it alone for a single message, or let `AgentChat` render one for each message.
+`ChatMessage` renders one `UIMessage` with the [Message](/docs/ui/message) parts. The user speaks from the end in a secondary [Bubble](/docs/ui/bubble). The assistant replies at the start without a frame. `MessageParts` renders the content. Use it alone for a single message, or let `Chat` render one for each message.
 
 ::component-preview{name="ChatMessageExample"}
 ::
@@ -14,11 +14,11 @@ icon: i-ph-chat-text-light
 ## Usage
 
 ```vue
-<AgentChatMessage :message="message" :streaming="status === 'streaming'">
+<ChatMessage :message="message" :streaming="status === 'streaming'">
   <template #actions="{ message }">
     <UButton icon="i-lucide-copy" aria-label="Copy message" variant="ghost" @click="copy(message)" />
   </template>
-</AgentChatMessage>
+</ChatMessage>
 ```
 
 ## Examples
@@ -39,7 +39,7 @@ Set `streaming` while the response arrives. Text and reasoning parts render in t
 
 ## API reference
 
-### AgentChatMessage
+### ChatMessage
 
 #### Props
 
@@ -47,9 +47,8 @@ Set `streaming` while the response arrives. Text and reasoning parts render in t
 | ----------- | ------------------------- | -------- | --------------------------------------------------------- |
 | `message`   | `UIMessage`               | Required | The message to render.                                    |
 | `streaming` | `boolean`                 | `false`  | Renders text and reasoning parts in the streaming state.  |
-| `ui`        | `Record<string, unknown>` |          | Nuxt UI slot classes for the underlying `UChatMessage`.   |
 
-Other attributes go to `UChatMessage`.
+Other attributes, such as `class`, go to the `Message` root.
 
 #### Slots
 
@@ -59,7 +58,7 @@ Other attributes go to `UChatMessage`.
 | `header`   | `{ message }`     | Content above the body, for example files or metadata. |
 | `leading`  | `{ message }`     | Replaces the avatar or role marker.                 |
 | `actions`  | `{ message }`     | Copy, retry, feedback, or other application actions. |
-| Part slots | `{ part, index }` | Forwarded to `AgentMessageParts`, for example `text`, `tool`, or `fallback`. |
+| Part slots | `{ part, index }` | Forwarded to `MessageParts`, for example `text`, `tool`, or `fallback`. |
 
 ## Accessibility
 
