@@ -171,7 +171,10 @@ function validateContribution(value: unknown, contributor: string): CollectedDat
 }
 
 function sameContribution(left: DatabaseContribution, right: DatabaseContribution): boolean {
-  return left.database === right.database && left.module === right.module && (left.export ?? "default") === (right.export ?? "default")
+  return left.database === right.database
+    && left.module === right.module
+    && (left.export ?? "default") === (right.export ?? "default")
+    && left.dialect === right.dialect
 }
 
 /** Describes a contribution as `module#export (contributed by "plugin")` for errors and inspection. */
