@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { runViteHubCliEntrypoint } from "@vite-hub/cli"
-import { createBoxCliNamespace } from "./box-cli.ts"
+import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { isAgentCliEnabled } from "./internal/runtime-feature-guard.ts"
-import { secretCliFeatures } from "@vite-hub/env"
+import { secretCliFeatures } from "@vite-hub/env/cli"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
@@ -26,5 +26,5 @@ runViteHubCliEntrypoint({
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: (namespace, feature, cwd) => namespace !== "agent" || feature !== "invocations" || isAgentCliEnabled(cwd),
   runtimeFeatures: [agentRuntimeFeatures],
-  runtimeNamespaces: [createBoxCliNamespace(), secretRuntimeNamespace],
+  runtimeNamespaces: [createSandboxCliNamespace(), secretRuntimeNamespace],
 })
