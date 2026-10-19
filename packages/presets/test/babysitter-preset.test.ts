@@ -322,6 +322,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     event: events,
     ...(preset.postPushGraceMs === undefined ? {} : { postPushGraceMs: preset.postPushGraceMs }),
     ...(preset.providerRetryDelayMs === undefined ? {} : { providerRetryDelayMs: preset.providerRetryDelayMs }),
+    mergeabilityRetryDelayMs: 1,
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string }> = [];
   let operation: "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
@@ -552,7 +553,7 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("parks model work until the recorded provider quota cooldown ends", async () => {
+  it("leaves model work queued while the recorded provider quota cooldown runs", async () => {
     const f = await fixture(false);
     const until = Date.now() + 60 * 60_000;
     try {
@@ -560,7 +561,13 @@ describe("Babysitter preset runtime", () => {
       await f.runtime.inbox.setMeta("provider-quota-blocked-until", until);
       await f.reconcile();
       expect(createProviderRuntime).not.toHaveBeenCalled();
-      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.retryAt).toBe(until);
+      // A model cooldown closes model admission only. The PR stays queued, unchanged, for host work.
+      expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "ready", lease: null });
+      expect((await f.runtime.inbox.get("acme/app", 12))?.wait).toBeUndefined();
+      expect(f.events).toHaveBeenCalledWith("babysitter.provider.quota.host_only", expect.objectContaining({ blocked_until: new Date(until).toISOString() }));
+      const now = vi.spyOn(Date, "now").mockReturnValue(until + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(createProviderRuntime).toHaveBeenCalled();
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -586,7 +593,8 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(createProviderRuntime.mock.calls.length).toBe(0);
-      expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.retryAt).toBe(until);
+      // The cooldown started while the host read check runs, before the claim, so the PR stays queued.
+      expect(await f.runtime.inbox.get("acme/app", 12)).toMatchObject({ status: "ready", lease: null });
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1381,7 +1389,18 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { deferWhilePending: "yes" as unknown as boolean } })).toThrow(/deferWhilePending must be a boolean/);
-    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache \}/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required \}/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 0 } } })).toThrow(/install must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { required: "yes" as unknown as boolean } } })).toThrow(/install must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 4, required: true } } })).not.toThrow();
+    expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: "no" as unknown as boolean } })).toThrow(/ciRecovery must be a boolean/);
+    for (const modelConcurrency of [0, 1.5]) {
+      expect(() => defineAgent({ extends: babysitter, options: { modelConcurrency } })).toThrow(/modelConcurrency must be a positive integer/);
+    }
+    for (const providerCooldownMs of [0, 999, 60 * 60_000 + 1, 1.5]) {
+      expect(() => defineAgent({ extends: babysitter, options: { providerCooldownMs } })).toThrow(/providerCooldownMs must be an integer/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { ciRecovery: false, modelConcurrency: 2, providerCooldownMs: 60_000 } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { install: { args: ["install"] } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { cache: { entries: 0 } } } })).toThrow(/install must be/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { cache: { directory: "" } } } })).toThrow(/install must be/);
@@ -1420,8 +1439,28 @@ describe("Babysitter preset runtime", () => {
         });
       }
       await f.reconcile();
-      expect(f.passes).toHaveLength(2);
-      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true });
+      // Two passes exhaust the budget. The next bot review grants one more pass on the head, once.
+      expect(f.passes).toHaveLength(3);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true, grants: ["bot-feedback"] });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("updates a ready branch instead of merging when the base changed its files after its checks ran", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      // No Actions run identifies the tested base, so every changed file counts as overlap.
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify(["source.ts", null]), stderr: "" };
+      return await command(args, request);
+    });
+    try {
+      await f.reconcile();
+      const update = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/pulls/12/update-branch"));
+      expect(update?.[0]).toEqual(["api", "-X", "PUT", "repos/acme/app/pulls/12/update-branch", "-f", `expected_head_sha=${"a".repeat(40)}`]);
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
+      expect(f.passes).toHaveLength(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1522,13 +1561,13 @@ describe("Babysitter preset runtime", () => {
     roots.push(bin);
     await writeFile(join(bin, "corepack"), `#!/bin/sh\necho "$@" > "${join(bin, "args")}"\nexit 3\n`, { mode: 0o755 });
     vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
-    const h = await fixture(false, false, { gitWorkspace: true });
+    const h = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(h.checkout, "package.json"), "{}");
     await writeFile(join(h.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     try {
       await h.reconcile("babysitter.install.failed");
       expect((await readFile(join(bin, "args"), "utf8")).trim()).toBe("pnpm@10.34.6 install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --config.manage-package-manager-versions=false");
-      // Failed installs retain the guarded host wait and never dispatch a worker.
+      // A required install that fails retains the guarded host wait and never dispatches a worker.
       expect(h.passes).toHaveLength(0);
       expect((await h.runtime.inbox.get("acme/app", 12))?.wait).toMatchObject({ kind: "external" });
       expect(h.events).toHaveBeenCalledWith("babysitter.install.finished", expect.objectContaining({ ok: false, exitCode: 3 }));
@@ -1539,7 +1578,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("retries transient host installation failures without new PR evidence", async () => {
-    const f = await fixture(false, false, { gitWorkspace: true });
+    const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
       .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
@@ -1559,7 +1598,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {
-    const f = await fixture(false, false, { gitWorkspace: true });
+    const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
     await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n---\nimporters: {}\n");
     try {
@@ -1584,6 +1623,54 @@ describe("Babysitter preset runtime", () => {
       finally { install.mockRestore(); }
       expect(f.passes).toHaveLength(1);
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("continues a pass without dependencies when the optional install fails", async () => {
+    const bin = await mkdtemp(join(tmpdir(), "vitehub-babysitter-bin-"));
+    roots.push(bin);
+    await writeFile(join(bin, "corepack"), "#!/bin/sh\necho 'registry unreachable' >&2\nexit 3\n", { mode: 0o755 });
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+    const f = await fixture(false, false, { gitWorkspace: true });
+    await writeFile(join(f.checkout, "package.json"), "{}");
+    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    f.choose("commitRepair", { message: "repair value", paths: ["source.ts"] });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(JSON.parse(f.passes[0]!.install!)).toMatchObject({ status: "failed" });
+      expect(f.events).toHaveBeenCalledWith("babysitter.install.continued", expect.objectContaining({ pullRequest: 12, reason: expect.stringContaining("Frozen dependency installation failed") }));
+      // Hosted CI validates the dependency inputs; the commit gate has no install to compare against.
+      expect(f.commit).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ paths: ["source.ts"] }), { verifyDependencies: false });
+    } finally {
+      vi.unstubAllEnvs();
+      await f.runtime.inbox.close();
+    }
+  });
+
+  it("hands a lockfile the required install rejects to one local pass on the same head", async () => {
+    const bin = await mkdtemp(join(tmpdir(), "vitehub-babysitter-bin-"));
+    roots.push(bin);
+    await writeFile(join(bin, "corepack"), "#!/bin/sh\necho 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' >&2\nexit 1\n", { mode: 0o755 });
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+    const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
+    await writeFile(join(f.checkout, "package.json"), "{}");
+    await writeFile(join(f.checkout, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    try {
+      await f.reconcile("babysitter.install.failed");
+      expect(f.passes).toHaveLength(0);
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", retryAt: expect.any(Number) });
+      expect(await f.runtime.inbox.meta("install-defect:acme/app#12")).toMatchObject({ head: "a".repeat(40), error: expect.stringContaining("ERR_PNPM_OUTDATED_LOCKFILE") });
+      f.errors.mockClear();
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]!.prompt).toContain("<dependency-install-failure>");
+      expect(f.passes[0]!.prompt).toContain("ERR_PNPM_OUTDATED_LOCKFILE");
+    } finally {
+      vi.unstubAllEnvs();
+      await f.runtime.inbox.close();
+    }
   });
 
   it("preserves the Babysitter mention allowlist through Agent layer configuration", () => {
@@ -1672,9 +1759,19 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { providerRetryDelayMs: 1 });
     createProviderRuntime.mockImplementation(async () => { throw new Error("429 Too Many Requests") });
     try {
-      await f.reconcile().catch(() => {});
+      const startedAt = Date.now();
+      await f.reconcile();
       expect(createProviderRuntime).toHaveBeenCalledTimes(4);
-      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeGreaterThan(Date.now());
+      const blockedUntil = (await f.runtime.inbox.metaNumber("provider-quota-blocked-until"))!;
+      // The first cooldown lasts the five-minute default, not an hour.
+      expect(blockedUntil).toBeGreaterThanOrEqual(startedAt + 5 * 60_000);
+      expect(blockedUntil).toBeLessThan(Date.now() + 5 * 60_000 + 1000);
+      expect(await f.runtime.inbox.metaNumber("provider-quota-strikes")).toBe(1);
+      // The PR is parked until the cooldown ends. It is not a failed pass and spends no budget.
+      const parked = await f.runtime.inbox.get("acme/app", 12);
+      expect(parked).toMatchObject({ status: "waiting", wait: { retryAt: blockedUntil } });
+      expect(parked?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.events).toHaveBeenCalledWith("babysitter.owner.deferred", expect.objectContaining({ reason: "provider-rate-limit" }));
       await f.runtime.inbox.ingest("new-feedback", "issue_comment", { repository: { full_name: "acme/app" }, action: "created",
         issue: { number: 12, pull_request: {} }, comment: { id: 9, body: "Please fix", user: { login: "human", type: "User" } } });
       createProviderRuntime.mockClear();
@@ -2189,7 +2286,7 @@ describe("Babysitter preset runtime", () => {
 
   it("keeps a declared check wait when check progress arrives during the pass", async () => {
     const head = "a".repeat(40);
-    const f = await fixture(false, false, { result: { disposition: "park", text: "Waiting for the remaining job.",
+    const f = await fixture(false, false, { options: { deferWhilePending: false }, result: { disposition: "park", text: "Waiting for the remaining job.",
       wait: { kind: "checks", headSha: head } } });
     const check = { id: 99, name: "package tests", head_sha: head, status: "queued", conclusion: null,
       app: { slug: "github-actions" }, pull_requests: [{ number: 12 }] };

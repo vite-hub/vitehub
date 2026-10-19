@@ -908,8 +908,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // below from acquiring it again.
     if (body === null) {
       const emptyError = status === 0 && statusText === "" && [...normalizedHeaders].length === 0
-      const nativeForeignError = emptyError && brandedHeaderMethods && nativeCookieMethod
-      if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignError) return
+      const nativeForeignResponse = nativeProperties && brandedHeaderMethods && nativeCookieMethod
+      if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignResponse) return
       return emptyError ? Response.error() : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)

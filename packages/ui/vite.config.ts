@@ -36,6 +36,7 @@ export default defineConfig({
       "src/components/agent-session.ts",
       "src/components/agent-tool-list.ts",
       "src/components/agent-trace.ts",
+      "src/code-block.ts",
       "src/headless.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
