@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsManifest, getDocsPageByPath, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
@@ -14,6 +14,10 @@ const docsShellUi = {
   root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
   center: "lg:!flex-1 lg:!min-w-0",
+};
+const supportMatrixUi = {
+  ...docsShellUi,
+  left: "lg:!w-(--vh-rail-width) lg:shrink-0",
 };
 </script>
 
@@ -30,25 +34,43 @@ const docsShellUi = {
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:flex">
-          <DocsSidebars class="vh-docs-aside-sidebars" panel />
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars :panel="false" />
         </UPageAside>
       </template>
 
       <div :class="hasCodePanel ? 'vh-docs-split' : 'vh-docs-main'">
         <AnnouncementBanner />
         <slot />
+        <AppFooter class="vh-docs-footer" />
+      </div>
+    </UPage>
+
+    <div v-else-if="isLanding" class="vh-docs-landing">
+      <AnnouncementBanner />
+      <slot />
+      <AppFooter class="vh-docs-footer" />
+    </div>
+
+    <UPage v-else class="vh-docs-shell" :ui="docsShellUi">
+      <template #left>
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars panel />
+        </UPageAside>
+      </template>
+      <div class="vh-docs-main">
+        <AnnouncementBanner />
+        <slot />
+        <AppFooter class="vh-docs-footer" />
       </div>
     </UPage>
   </UMain>
 </template>
 
 <style scoped>
-.vh-docs-main,
-.vh-docs-landing,
-.vh-docs-split {
-  margin: 0 auto;
-  padding: 0 1rem;
+/* The header menu holds the navigation on narrow screens. The child selector outranks the DocsSidebars root rule. */
+.vh-docs-shell {
+  --ui-header-height: 0px;
 }
 
 .vh-docs-main {
@@ -56,7 +78,9 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
-  max-width: 84rem;
+  --vh-landing-width: 84rem;
+  max-width: var(--vh-landing-width);
+  margin-inline: auto;
 }
 
 .vh-docs-split {
@@ -76,11 +100,6 @@ const docsShellUi = {
 }
 
 @media (min-width: 64rem) {
-  /* AppHeader hides itself on wide docs pages. Sticky offsets and full-height columns read this variable. */
-  .vh-docs-shell:not(.has-header) {
-    --ui-header-height: 0px;
-  }
-
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
@@ -91,31 +110,6 @@ const docsShellUi = {
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
-  }
-
-  /* The aside container is a flex column. Without a flex basis the sidebars shrink to the rail header and the panel loses its page list. */
-  .vh-docs-aside-sidebars {
-    min-height: 0;
-    flex: 1 1 0;
-  }
-
-  /* A denser rail on desktop, so every product fits without scrolling on common laptop heights. The mobile menu keeps touch-size items. */
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail) {
-    --vh-primitive-rail-item: 2rem;
-  }
-
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__surface) {
-    padding-block: 0.25rem;
-  }
-
-  .vh-docs-aside-sidebars :deep(.vh-primitive-rail__group) {
-    gap: 0;
-    padding-block: 0.1875rem;
-  }
-
-  /* The aside draws the right border. */
-  .vh-docs-aside-sidebars :deep(.vh-docs-panel) {
-    border-right: 0;
   }
 }
 </style>

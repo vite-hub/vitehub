@@ -1,4 +1,4 @@
-import { ConnectionError } from "../errors.ts"
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { ConnectionActivityRetention } from "../types.ts"
 
@@ -17,7 +17,7 @@ export function resolveActivityRetention(value: ConnectionActivityRetention | fa
   }
   for (const [name, limit] of Object.entries(retention)) {
     if (!Number.isSafeInteger(limit) || limit < 1) {
-      throw new ConnectionError("invalid", `Connections activityRetention.${name} must be a positive integer, or set activityRetention to false to keep all activity.`)
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "type" })
     }
   }
   return retention

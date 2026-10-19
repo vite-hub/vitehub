@@ -10,5 +10,14 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     /** The GitHub App installation lookup failed or the App is not installed. */
     FORGE_R0001: dynamicError,
+    /** `forgeArchive()` was called for a Forge without archive support. */
+    FORGE_R0002: dynamicError,
+    /** `forgeGitCredentials()` received an invalid base URL or repository. */
+    FORGE_R0003: dynamicError,
+
+    /** `forgeBlob()` was called for a Forge without blob reads. */
+    FORGE_R0004: dynamicError,
+    /** `forgeCommitFiles()` received a file mode for a Forge without file mode writes. */
+    FORGE_R0005: dynamicError,
   },
 })

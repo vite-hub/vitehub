@@ -49,7 +49,9 @@ describe("built-in Channel discovery", () => {
 
   it.each(["-", "+", "*", "/", "%", "**", "<", "<=", ">", ">=", "==", "===", "!=", "!==", "<<", ">>", ">>>", "^", "in", "instanceof", "&&", "||", "??"])("rejects runtime %s after Channel option assertions", (operator) => {
     for (const assertion of ["as", "satisfies"]) {
-      for (const type of ["TelegramChannelOptions", "Options<Runtime>"]) {
+      // The parser reads `<` after a plain type name as the start of type arguments, so `{} as Type < value` does
+      // not parse. TypeScript also rejects `<` and `<<` there.
+      for (const type of operator.startsWith("<") ? ["Options<Runtime>"] : ["TelegramChannelOptions", "Options<Runtime>"]) {
         expect(uses(`
           import { telegram } from "vite-hub/agent/channels"
           telegram({} ${assertion} ${type} ${operator} dynamicOptions)

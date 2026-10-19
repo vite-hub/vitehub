@@ -31,6 +31,9 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Do not return it from a public API. |
 | `githubAppCredentials(input)` | GitHub App installation tokens, installation lookup and App metadata. Tokens are cached until one minute before they expire. |
 | `readGitHubAppPrivateKey(inline, path)` | Read a PEM key from a value or a file. |
+| `forgeArchive(provider, repo, { ref, signal })` | The repository tree at `ref` as a `tar.gz` stream. GitHub only. Anonymous github.com reads go to `codeload.github.com` and do not use the API limit. |
+| `forgeGitCredentials({ forge, baseUrl, token, repository })` | The Git smart HTTP remote and the basic auth pair for one repository. |
+| `forgeGitAuthHeader(credentials)` | The `http.<remote>.extraheader` entry for `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`. It keeps the token out of process arguments. |
 | `forgeErrorStatus(error)`, `ForgeResponseError` | Classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |
 
@@ -39,3 +42,14 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | Code | Cause |
 | --- | --- |
 | `FORGE_R0001` | The GitHub App installation lookup failed, or the App is not installed on the repository. |
+| `FORGE_R0002` | `forgeArchive()` was called for a Forge other than GitHub. |
+| `FORGE_R0003` | `forgeGitCredentials()` received a base URL that is not HTTP or a repository that is not `owner/name`. |
+
+## Gaps in `forges`
+
+`src/gaps/` holds small helpers for operations that `forges` does not have yet. Each one has the signature that we propose upstream.
+
+| Helper | Gap |
+| --- | --- |
+| `forgeArchive()` | No `contents.archive()`. |
+| `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |

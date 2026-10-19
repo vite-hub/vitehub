@@ -23,7 +23,8 @@ const componentPages = pages.filter(
   (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
-const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
+const previewNames = (source: string) =>
+  Array.from(source.matchAll(previewPattern), (match) => match[1]!);
 
 describe("UI documentation", () => {
   it("lists component pages in the overview through the generated gallery", () => {
@@ -31,7 +32,9 @@ describe("UI documentation", () => {
 
     expect(source).toContain("::ui-component-gallery");
     expect(source).not.toContain(":::u-page-card\n\n---");
-    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(true);
+    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(
+      true,
+    );
   });
 
   it("keeps the overview's text list in sync for raw Markdown readers", () => {
@@ -58,7 +61,10 @@ describe("UI documentation", () => {
       let previous = firstPreview;
       for (const section of sections) {
         const index = page.source.indexOf(`\n${section}\n`);
-        expect(index, `${page.name} should have ${section} after the previous section`).toBeGreaterThan(previous);
+        expect(
+          index,
+          `${page.name} should have ${section} after the previous section`,
+        ).toBeGreaterThan(previous);
         previous = index;
       }
     }
@@ -75,7 +81,9 @@ describe("UI documentation", () => {
   it("backs every preview with one example file and leaves no example unused", () => {
     const used = new Set(pages.flatMap((page) => previewNames(page.source)));
     for (const name of used) {
-      expect(existsSync(resolve(examplesRoot, `${name}.vue`)), `${name}.vue should exist`).toBe(true);
+      expect(existsSync(resolve(examplesRoot, `${name}.vue`)), `${name}.vue should exist`).toBe(
+        true,
+      );
     }
     const examples = readdirSync(examplesRoot)
       .filter((file) => file.endsWith(".vue"))
@@ -119,34 +127,28 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
-    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
-    expect(layout).toContain("vh-docs-main");
-    expect(layout).toContain("lg:!flex lg:!flex-row");
-    expect(layout).toContain("max-width: none;");
+  it("renders product pages through the docs layout", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+
+    expect(page).toContain('layout: "docs"');
+    expect(page).toContain("<DocsArticle");
+    expect(page).toContain("<DocsProductLanding");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
-    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
-    const inspector = readFileSync(
-      resolve(examplesRoot, "InvocationInspectorExample.vue"),
-      "utf8",
-    );
+    const inspector = readFileSync(resolve(examplesRoot, "InvocationInspectorExample.vue"), "utf8");
 
-    expect(invocation).toContain('<div class="h-[34rem]');
-    expect(invocation).toContain('class="h-full"');
-    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
+    expect(inspector).toContain('<div class="mx-auto h-[28rem]');
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("keeps only search in the panel head, without a product context link or disclosure control", () => {
+  it("keeps the docs search control in the sidebar", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("<UContentSearchButton");
-    expect(sidebarTop).not.toContain("vh-docs-context");
+    expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain("<NuxtLink");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -159,8 +161,6 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
-    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
-    expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
   });
@@ -169,6 +169,7 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
+
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
   });

@@ -31,7 +31,7 @@ instead of one root barrel.
 | `@vite-hub/sandbox` | Sandbox Definitions and provider-neutral execution sessions | `@vite-hub/sandbox` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
 | `@vite-hub/connections` | Connection Definitions, OAuth 2 grants, API keys, access rules, activity, typed Operations, and Agent access | `@vite-hub/connections`, `@vite-hub/connections/google`, `@vite-hub/connections/server`, `@vite-hub/connections/http`, `@vite-hub/connections/agent`, `@vite-hub/connections/vite` |
-| `@vite-hub/content` | Comark Content runtime, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client` |
+| `@vite-hub/content` | Comark Content runtime, document collections and the `cms` preset, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/presets/cms`, `@vite-hub/content/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
@@ -45,7 +45,7 @@ instead of one root barrel.
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |
-| `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, Agent inspection, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
+| `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, shadcn/ui parts, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/<name>`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, history contracts, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 

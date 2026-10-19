@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { defineComponent, h, type PropType, resolveComponent, type VNodeChild } from "vue";
 import { isSafeExternalUrl } from "../internal/url.ts";
-import { AgentMarkdown } from "./agent-markdown.ts";
+import { Markdown } from "./markdown.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 
 type Part = UIMessage["parts"][number];
@@ -92,7 +92,7 @@ export const AgentMessageParts = defineComponent({
           if (part.type === "text") {
             return (
               slots.text?.({ index, part }) ??
-              h(AgentMarkdown, {
+              h(Markdown, {
                 key: index,
                 streaming: props.streaming || part.state === "streaming",
                 value: part.text,

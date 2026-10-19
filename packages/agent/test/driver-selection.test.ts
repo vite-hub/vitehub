@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
+import { cliproxy } from "../src/gateways.ts";
 
 describe("built-in Agent Driver selection", () => {
   it("preserves and validates static provider exit callbacks", () => {
@@ -247,6 +248,37 @@ describe("built-in Agent Driver selection", () => {
       driver: { execution, kind: "codex" },
     } as never)).toMatchObject({ execution: { attachments: { maxBytes: 1024 } } });
   });
+
+  it("normalizes Codex home retention and rejects it where it cannot apply", () => {
+    expect(normalizeAgentDriver({ driver: { kind: "codex", retention: { maxAge: "14d", maxSize: "45%" } } })).toMatchObject({
+      retention: { maxAgeMs: 14 * 86_400_000, maxRecords: false, maxSize: { fraction: 0.45 } },
+    })
+    expect(normalizeAgentDriver({ driver: { kind: "codex" } })).toMatchObject({ retention: undefined })
+    expect(normalizeAgentDriver({
+      driver: { credentialProfile: "support", credentials: () => "{}", kind: "codex", retention: { maxRecords: 200 } },
+    })).toMatchObject({ retention: { maxRecords: 200 } })
+    // A gateway replaces credentials, so the Codex home is not temporary.
+    expect(normalizeAgentDriver({
+      driver: { credentials: () => "{}", gateway: cliproxy({ url: "https://proxy.example/v1" }), kind: "codex", retention: { maxSize: "2GB" } },
+    })).toMatchObject({ retention: { maxSize: { bytes: 2 * 1024 ** 3 } } })
+    expect(() => defineAgent({
+      driver: { credentials: () => "{}", kind: "codex", retention: { maxSize: "45%" } },
+    })).toThrow("driver.retention requires a persistent Codex home. Set driver.credentialProfile, or use a gateway or CODEX_HOME.")
+    expect(() => defineAgent({
+      // SAFETY: This fixture supplies an invalid limit to test runtime validation.
+      driver: { kind: "codex", retention: { maxSize: "lots" } } as never,
+    })).toThrow("defineAgent({ driver.retention }) maxSize must be a positive size")
+    expect(() => defineAgent({
+      // SAFETY: This fixture uses the old key to test the rename message.
+      driver: { kind: "codex", retention: { maxAgeMs: 1000 } } as never,
+    })).toThrow("Rename it to maxAge.")
+    expect(() => defineAgent({
+      // SAFETY: This fixture deliberately supplies a Codex-only option to Claude Code.
+      driver: { kind: "claude-code", retention: { maxSize: "45%" } } as never,
+    })).toThrow("does not support Codex option: retention")
+    const agent = defineAgent({ driver: { kind: "codex", retention: { maxAge: "14d", maxRecords: 500, maxSize: "45%" } } })
+    expect(createAgentInspectionMetadata(agent).config?.driver.provider?.retention).toEqual({ maxAge: 14 * 86_400_000, maxRecords: 500, maxSize: "45%" })
+  })
 
   it("normalizes Codex credentials, reasoning, and provider settings", () => {
     const credentials = { unseal: () => "{}" };

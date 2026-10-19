@@ -12,6 +12,8 @@ describe("Babysitter instructions", () => {
     expect(rendered).toContain('set wait.wake.kind to "pull-request", wait.wake.repository to its owner/name and wait.wake.number to the parent PR number')
     expect(rendered).toContain("omit wait.wake")
     expect(rendered).toContain("set reviewedHead to the current HEAD SHA")
+    expect(rendered).toContain("Dependency installation is optional")
+    expect(rendered).toContain("rely on hosted CI, and name the install failure in your result")
     expect(rendered).not.toContain("update_plan")
     expect(rendered).not.toContain('include wait: { kind: "checks"')
     expect(rendered).not.toContain("use wake:")

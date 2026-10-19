@@ -22,6 +22,29 @@ interface ExecuteScheduleOptions {
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
+interface ExecuteRuntimeScheduleOptions {
+  captureHandlerFailure?: boolean
+  id: string
+  intent?: "manual" | "provider"
+  requireDue?: boolean
+  runtimeScheduleStore?: RuntimeScheduleStore
+  scheduledAt?: Date
+  scheduleRunStore?: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+interface ExecuteRuntimeScheduleWakeOptions {
+  runtimeScheduleStore: RuntimeScheduleStore
+  scheduleRunStore: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", { details: invalidScheduleValueDetails("options", options) })
+  }
+}
+
 interface ExecuteStaticScheduleOptions {
   cron: string
   definition: ScheduleDefinition

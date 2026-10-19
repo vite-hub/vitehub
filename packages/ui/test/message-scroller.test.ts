@@ -3,14 +3,14 @@
 import { mount } from "@vue/test-utils";
 import { defineComponent, h, ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentChat } from "../src/components/agent-chat.ts";
+import { Chat } from "../src/components/chat.ts";
 import { createViteHubUI } from "../src/config.ts";
 import {
   calculatePrependScrollTop,
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerRoot,
+  MessageScroller,
   MessageScrollerViewport,
 } from "../src/headless/message-scroller.ts";
 
@@ -69,7 +69,7 @@ beforeEach(() => {
 
 describe("message scroller behavior", () => {
   it("labels the keyboard-scrollable transcript and announces added rows", () => {
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: {
         default: () =>
           h(MessageScrollerViewport, null, {
@@ -90,15 +90,26 @@ describe("message scroller behavior", () => {
   });
 
   it("marks the transcript busy until a streamed response settles", async () => {
-    const wrapper = mount(AgentChat, { props: { status: "streaming" } });
+    const wrapper = mount(Chat, { props: { status: "streaming" } });
 
     expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBe("true");
     await wrapper.setProps({ status: "ready" });
     expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBeUndefined();
   });
 
+  it("keeps following when a submitted user message is the live edge", () => {
+    const wrapper = mount(Chat, {
+      props: {
+        messages: [{ id: "user", parts: [{ text: "Question", type: "text" }], role: "user" }],
+        status: "submitted",
+      },
+    });
+
+    expect(wrapper.findComponent(MessageScrollerItem).props("scrollAnchor")).toBe(false);
+  });
+
   it("applies package-wide defaults to the styled chat", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         plugins: [
           createViteHubUI({
@@ -108,7 +119,7 @@ describe("message scroller behavior", () => {
       },
     });
 
-    expect(wrapper.findComponent(MessageScrollerRoot).props()).toMatchObject({
+    expect(wrapper.findComponent(MessageScroller).props()).toMatchObject({
       edgeThreshold: 12,
       previousItemPeek: 72,
     });
@@ -116,7 +127,7 @@ describe("message scroller behavior", () => {
 
   it("renders the styled jump control through Nuxt UI without component-slot warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: { components: { UButton: ChatButtonStub } },
     });
 
@@ -139,7 +150,7 @@ describe("message scroller behavior", () => {
   });
 
   it("preserves custom jump-control content", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: { components: { UButton: ChatButtonStub } },
       props: { scrollButtonLabel: "Jump to newest" },
       slots: { "scroll-button": () => "Newest message" },
@@ -151,7 +162,7 @@ describe("message scroller behavior", () => {
   });
 
   it("renders root default content once without replacing message bodies", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         components: {
           UChatMessage: defineComponent({
@@ -175,7 +186,7 @@ describe("message scroller behavior", () => {
   });
 
   it("renders a composer overlay once without forwarding it to message bodies", () => {
-    const wrapper = mount(AgentChat, {
+    const wrapper = mount(Chat, {
       global: {
         components: {
           UChatMessage: defineComponent({
@@ -205,7 +216,7 @@ describe("message scroller behavior", () => {
     const items = ref(["old"]);
     const Harness = defineComponent({
       setup() {
-        return () => h(MessageScrollerRoot, null, {
+        return () => h(MessageScroller, null, {
           default: () => h(MessageScrollerViewport, null, {
             default: () => h(MessageScrollerContent, { items: items.value }),
           }),
@@ -239,7 +250,7 @@ describe("message scroller behavior", () => {
     const Harness = defineComponent({
       setup() {
         return () =>
-          h(MessageScrollerRoot, null, {
+          h(MessageScroller, null, {
             default: () => [
               h(MessageScrollerViewport, null, {
                 default: () =>
@@ -309,7 +320,7 @@ describe("message scroller behavior", () => {
 
   it("preserves a consumer-hidden jump control while active", async () => {
     const Harness = defineComponent({
-      setup: () => () => h(MessageScrollerRoot, null, {
+      setup: () => () => h(MessageScroller, null, {
         default: () => [h(MessageScrollerViewport), h(MessageScrollerButton, { hidden: true })],
       }),
     });
@@ -340,7 +351,7 @@ describe("message scroller behavior", () => {
     const scrollTo = vi.fn();
     const Harness = defineComponent({
       setup() {
-        return () => h(MessageScrollerRoot, null, {
+        return () => h(MessageScroller, null, {
           default: () => [h(MessageScrollerViewport), h(MessageScrollerButton)],
         });
       },
@@ -366,7 +377,7 @@ describe("message scroller behavior", () => {
     const Harness = defineComponent({
       setup() {
         return () =>
-          h(MessageScrollerRoot, null, {
+          h(MessageScroller, null, {
             default: () =>
               h(MessageScrollerViewport, null, {
                 default: () =>
@@ -426,7 +437,7 @@ describe("message scroller behavior", () => {
 
   it("keeps following when a pointer interaction does not scroll", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -450,7 +461,7 @@ describe("message scroller behavior", () => {
 
   it("stops following when a cancelled touch gesture scrolls away", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -476,7 +487,7 @@ describe("message scroller behavior", () => {
 
   it("keeps following for downward wheel input at the live edge", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -500,7 +511,7 @@ describe("message scroller behavior", () => {
   it("stops following when keyboard input scrolls away from the live edge", async () => {
     const scrollTo = vi.fn();
     const onKeydown = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -527,7 +538,7 @@ describe("message scroller behavior", () => {
   it("keeps following for forward keyboard navigation at the live edge", async () => {
     const scrollTo = vi.fn();
     const onKeydown = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");

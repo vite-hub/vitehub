@@ -92,6 +92,8 @@ const docsLandingCategorySet = new Set<string>(docsLandingCategories);
 
 /** Sections whose Overview stays a regular docs page even though their category is a product category. */
 const docsPageOverviewSections = new Set(["ui"]);
+const primitiveCategories = new Set<DocsCategory>(["Data", "Compute", "Access", "Delivery", "Files"]);
+const primitiveSidebarGroupOrder: Array<string | null> = [null, "Learn", "Build", "Deploy and operate"];
 
 /** True for `/docs` and for the Overview of every product section. These pages have a hero and no sidebar. */
 export function isDocsLandingPath(sections: DocsSection[], path: string) {

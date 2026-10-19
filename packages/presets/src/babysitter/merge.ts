@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
-import type { GitHubEvidence } from "./inbox/types.ts";
+import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
@@ -53,17 +53,30 @@ export interface BabysitterMergeEvidence {
   pendingReviewChecks?: ReadonlySet<string>;
   /** Host-recorded evidence from an explicit assessment of this exact head and feedback. */
   reviewedEvidenceKey?: string;
+  /**
+   * The PR spent its review push budget. Bot feedback, bot-only review threads and failed
+   * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
+   */
+  automatedReviewSettled?: boolean;
 }
 
-type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews">;
+type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
 
 function feedbackAuthor(value: GitHubEvidence): string {
   return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
 }
 
-function botAuthor(value: GitHubEvidence): boolean {
+/** Feedback from a GitHub App or another bot account. GraphQL names an App by its login and a `Bot` typename. */
+export function isAutomatedFeedback(value: GitHubEvidence): boolean {
   const user = value.user ?? value.author;
   return String(user?.type ?? user?.__typename ?? "").toLowerCase() === "bot" || feedbackAuthor(value).endsWith("[bot]");
+}
+const botAuthor = isAutomatedFeedback;
+
+/** A review thread with a comment from a person. Comments from the worker and from bots do not count. */
+export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: ReadonlySet<string> = new Set()): boolean {
+  const comments = Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [];
+  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !workerAuthors.has(feedbackAuthor(comment)));
 }
 
 /**
@@ -72,6 +85,7 @@ function botAuthor(value: GitHubEvidence): boolean {
  */
 function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean {
   if (value.deleted) return true;
+  if (policy.automatedReviewSettled && botAuthor(value)) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
   if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
@@ -89,15 +103,21 @@ function feedback(values: Record<string, GitHubEvidence>, policy: FeedbackPolicy
       user: value.user ?? value.author, commit: value.commit_id ?? value.commit?.oid, path: value.path, line: value.line }));
 }
 
-function mergeTarget(snapshot: Snapshot) {
+/**
+ * The base branch an assessment applies to. Its commit is left out: the base advances with every
+ * merge, and conflicts and required checks already gate the merge, so a moving base must not reopen
+ * every review. `legacy` reproduces the identities stored before this change, which still match.
+ */
+function mergeTarget(snapshot: Snapshot, legacy = false) {
   const base = snapshot.pr?.base;
+  if (!base) return base;
   // Exclude transport metadata and repository counters from the target identity.
-  return base && { sha: base.sha, ref: base.ref,
-    repository: (base.repo?.full_name ?? snapshot.repository).toLowerCase() };
+  const repository = (base.repo?.full_name ?? snapshot.repository).toLowerCase();
+  return legacy ? { sha: base.sha, ref: base.ref, repository } : { ref: base.ref, repository };
 }
 
 /** Assessment is bound to full feedback bodies and failed check evidence, never prose heuristics. */
-export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}): string {
+export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string {
   const head = snapshot.pr?.head?.sha;
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
     .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
@@ -114,20 +134,25 @@ export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolic
     draft: snapshot.pr?.draft, title: snapshot.pr?.title, body: snapshot.pr?.body,
     // Repository counters and timestamps change on unrelated pushes. Only the
     // target ref, commit and repository identity define this merge input.
-    base: mergeTarget(snapshot),
+    base: mergeTarget(snapshot, legacy),
     comments: feedback(snapshot.comments, policy, false), reviews: feedback(snapshot.reviews, policy),
     reviewComments: feedback(snapshot.reviewComments, policy), threads, failures })).digest("hex");
 }
 
+/** Whether a stored evidence key covers this snapshot, including a key stored with the base commit. */
+export function matchesMergeReviewEvidence(key: unknown, snapshot: Snapshot, policy: FeedbackPolicy = {}): boolean {
+  return hasRuntimeType(key, "string") && (key === mergeReviewEvidenceKey(snapshot, policy) || key === mergeReviewEvidenceKey(snapshot, policy, true));
+}
+
 /**
  * Identities of the feedback items that need an assessment. An explicit assessment covers
- * the items it saw on the same merge target. A new base repository, ref or commit needs reassessment,
- * while a later head on the same target only needs a pass for feedback that arrived since.
+ * the items it saw on the same merge target. A new base repository or ref needs reassessment,
+ * while a later head or base commit on the same target only needs a pass for feedback that arrived since.
  */
-export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy = {}): string[] {
+export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string[] {
   const kinds: Array<[string, FeedbackItem[]]> = [["comment", feedback(snapshot.comments, policy, false)],
     ["review", feedback(snapshot.reviews, policy)], ["review-comment", feedback(snapshot.reviewComments, policy)]];
-  const target = mergeTarget(snapshot);
+  const target = mergeTarget(snapshot, legacy);
   return kinds.flatMap(([kind, values]) => values.map(value =>
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
@@ -189,20 +214,22 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
     return no("a current-head review is still running");
   }
-  const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()))
-    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()));
+  const settled = assessment.automatedReviewSettled === true;
+  const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase())))
+    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
-  const unassessed = feedbackFingerprints(snapshot, assessment).filter(id => !assessed.has(id)).length;
-  if ((failedChecks || unassessed) && assessment.reviewedEvidenceKey !== mergeReviewEvidenceKey(snapshot, assessment)) {
+  const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
+  const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
+  if ((failedChecks || unassessed) && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  if (snapshot.threads.some((thread) => thread.isResolved !== true)) return no("unresolved review threads");
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!settled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
   return { ready: true, head };
 }
 
 /** GitHub's live PR must agree immediately before the merge. */
-export function liveMergeReadiness(live: unknown, head: string): MergeDecision {
+export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { automatedReviewSettled?: boolean; reviews?: readonly GitHubEvidence[] } = {}): MergeDecision {
   if (!isRuntimeRecord(live)) return no("pull request unavailable");
   const liveHead = isRuntimeRecord(live.head) ? live.head.sha : undefined;
   const base = isRuntimeRecord(live.base) ? live.base : undefined;
@@ -211,7 +238,17 @@ export function liveMergeReadiness(live: unknown, head: string): MergeDecision {
   if (liveHead !== head) return no("head changed");
   if (live.draft === true) return no("draft");
   if (live.mergeable === false) return no("merge conflict");
-  if (live.reviewDecision === "CHANGES_REQUESTED" || live.reviewDecision === "REVIEW_REQUIRED") return no("required review not satisfied");
+  const reviewDecision = String(live.reviewDecision ?? "").toUpperCase();
+  if (reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED") {
+    // Once the review push budget is spent, a bot-only change request may be stale.
+    // REVIEW_REQUIRED is GitHub's aggregate branch-protection decision, however, and
+    // the REST review list cannot prove that its required human approval is stale.
+    const reviews = reviewPolicy.reviews ?? [];
+    const humanChangesRequested = reviews.some(review => !isAutomatedFeedback(review) && String(review.state ?? "").toUpperCase() === "CHANGES_REQUESTED");
+    if (reviewDecision === "REVIEW_REQUIRED" || !reviewPolicy.automatedReviewSettled || humanChangesRequested || reviews.length === 0) {
+      return no("required review not satisfied");
+    }
+  }
   // A stacked PR keeps its old base after the parent merges when merged branches are kept.
   // Merging it there would strand the change outside the default branch.
   const defaultBranch = repository?.default_branch;

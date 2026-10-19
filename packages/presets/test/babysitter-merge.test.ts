@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
@@ -43,6 +43,22 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", policy).ready).toBe(true);
     s.statuses.review = { context: "pullfrog", sha: head, state: "pending" };
     expect(directMergeReadiness(s, "passed", policy).ready).toBe(false);
+  });
+
+  it("merges on required checks without automated review findings once the review push budget is spent", () => {
+    const s = snapshot();
+    s.reviews.bot = { id: 5, state: "COMMENTED", commit_id: head, body: "Consider renaming this.", user: { login: "pullfrog[bot]", type: "Bot" } };
+    s.checks.review = { id: 6, name: "pullfrog-approval", head_sha: head, status: "completed", conclusion: "failure", app: { id: 9 } };
+    s.threads = [{ id: "T1", isResolved: false, comments: [{ id: 7, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] }];
+    const policy = { pendingReviewChecks: new Set(["pullfrog-approval"]) };
+    expect(directMergeReadiness(s, "passed", policy).ready).toBe(false);
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: true, head });
+    s.threads.push({ id: "T2", isResolved: false, comments: [{ id: 8, body: "Why?", author: { login: "maintainer", __typename: "User" } }] });
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: false, reason: "unresolved review threads" });
+    s.threads.pop();
+    s.comments.person = { id: 9, body: "Please also update the docs.", user: { login: "maintainer", type: "User" } };
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
+    expect(directMergeReadiness(s, "failed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
   });
 
   it("requires explicit assessment for findings in a review body without inline threads", () => {
@@ -133,7 +149,29 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", { ...feedbackPolicy, assessedFeedback })).toEqual({ ready: false, reason: "2 new feedback items need assessment" });
   });
 
-  it.each(["repository", "ref", "commit"])("requires renewed feedback assessment after the base %s changes", (target) => {
+  it("keeps an assessment valid when only the base commit advances", () => {
+    const s = snapshot();
+    s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
+    s.checks.lint = { id: 3, name: "lint", head_sha: head, status: "completed", conclusion: "failure", app: { id: 1 } };
+    const assessment = { ...feedbackPolicy, assessedFeedback: new Set(feedbackFingerprints(s, feedbackPolicy)), reviewedEvidenceKey: mergeReviewEvidenceKey(s, feedbackPolicy) };
+    s.pr!.base!.sha = "d".repeat(40);
+    expect(mergeReviewEvidenceKey(s, feedbackPolicy)).toBe(assessment.reviewedEvidenceKey);
+    expect(directMergeReadiness(s, "passed", assessment).ready).toBe(true);
+  });
+
+  it("accepts assessments stored with the base commit", () => {
+    const s = snapshot();
+    s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
+    const legacyKey = mergeReviewEvidenceKey(s, feedbackPolicy, true);
+    const legacyFeedback = new Set(feedbackFingerprints(s, feedbackPolicy, true));
+    expect(legacyKey).not.toBe(mergeReviewEvidenceKey(s, feedbackPolicy));
+    expect(matchesMergeReviewEvidence(legacyKey, s, feedbackPolicy)).toBe(true);
+    expect(directMergeReadiness(s, "passed", { ...feedbackPolicy, assessedFeedback: legacyFeedback }).ready).toBe(true);
+    s.pr!.base!.sha = "d".repeat(40);
+    expect(matchesMergeReviewEvidence(legacyKey, s, feedbackPolicy)).toBe(false);
+  });
+
+  it.each(["repository", "ref"])("requires renewed feedback assessment after the base %s changes", (target) => {
     const s = snapshot();
     s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
     const assessedFeedback = new Set(feedbackFingerprints(s, feedbackPolicy));
@@ -142,7 +180,6 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", assessment).ready).toBe(true);
     if (target === "repository") s.pr!.base!.repo!.full_name = "another/app";
     if (target === "ref") s.pr!.base!.ref = "release";
-    if (target === "commit") s.pr!.base!.sha = "d".repeat(40);
     expect(directMergeReadiness(s, "passed", assessment)).toEqual({ ready: false, reason: "1 new feedback item needs assessment" });
     expect(directMergeReadiness(s, "passed", {
       ...assessment, assessedFeedback: new Set(feedbackFingerprints(s, feedbackPolicy)),
@@ -178,6 +215,18 @@ describe("Babysitter merge evidence", () => {
     const live = { ...s.pr, mergeable: true, mergeable_state: "unstable" };
     expect(liveMergeReadiness(live, head)).toEqual({ ready: true, head });
     expect(liveMergeReadiness({ ...live, reviewDecision: "REVIEW_REQUIRED" }, head).ready).toBe(false);
+    expect(liveMergeReadiness({ ...live, reviewDecision: "REVIEW_REQUIRED" }, head, {
+      automatedReviewSettled: true,
+      reviews: [{ user: { login: "pullfrog[bot]", type: "Bot" }, state: "CHANGES_REQUESTED" }],
+    }).ready).toBe(false);
+    expect(liveMergeReadiness({ ...live, reviewDecision: "CHANGES_REQUESTED" }, head, {
+      automatedReviewSettled: true,
+      reviews: [{ user: { login: "pullfrog[bot]", type: "Bot" }, state: "CHANGES_REQUESTED" }],
+    }).ready).toBe(true);
+    expect(liveMergeReadiness({ ...live, reviewDecision: "CHANGES_REQUESTED" }, head, {
+      automatedReviewSettled: true,
+      reviews: [{ user: { login: "maintainer", type: "User" }, state: "CHANGES_REQUESTED" }],
+    }).ready).toBe(false);
     expect(liveMergeReadiness({ ...live, mergeable: false }, head).ready).toBe(false);
     expect(liveMergeReadiness({ ...live, base: { ...live.base, ref: "feature" } }, head).ready).toBe(false);
   });

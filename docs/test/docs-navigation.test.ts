@@ -48,6 +48,12 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(docsManifest.sections.filter(section => serverPrimitiveSections.includes(section.id))
+      .every(section => getDocsSectionKind(section) === "Server Primitive")).toBe(true);
+    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "agents")!)).toBe("Agent runtime");
+    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "ui")!)).toBe("UI components");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -63,7 +69,7 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages remain in template order.
+      // Concepts pages may sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
 
       const capability = pages.find(page => page.id === "agent-capability");
@@ -97,7 +103,6 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
-      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -112,15 +117,11 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0 && (!group.label || group.pages.length > 1)), sectionId).toBe(true);
+      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-
-    const kvGroups = getDocsSidebarGroups(kv!);
-    expect(kvGroups.some(group => group.label === "Build" && group.pages.length > 1)).toBe(true);
-    expect(kvGroups.some(group => group.label === null)).toBe(true);
-
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -154,7 +155,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
       .toBe("Runtime policy, approvals, and traces");
   });
 
@@ -171,16 +172,6 @@ describe("docs product navigation", () => {
       expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
-    }
-
-    for (const [from, to] of Object.entries({
-      "/databases": "/database",
-      "/rate-limits": "/rate-limit",
-      "/blog": "/tutorials",
-      "/guides": "/tutorials",
-    })) {
-      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
-      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
     }
   });
 });

@@ -82,6 +82,25 @@ and `exists()`. File readers also expose `read()` and `list()`. Built-in `file`,
 Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
 
+`github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
+callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
+`FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
+`auth: false` reads without a token.
+
+`glob()` takes a pattern or options. In a pattern, the folders before the first
+wildcard are `cwd`, so keys are the paths below them:
+
+```ts
+import { glob } from "@vite-hub/source/glob"
+
+export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
+```
+
+Under `vite dev` it reads the files from disk. A server build with `hubSource()`
+bundles the files of a call whose options are literals, through `files()`, so
+hosts without a runtime file system, such as Cloudflare Workers, serve them.
+`files(entries, { base, prefix })` serves files the server already holds.
+
 ## Reuse a definition
 
 Content accepts Source definitions directly. It opens a new reader on each
@@ -258,6 +277,9 @@ every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
 exports `table()` too.
+
+`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
+in a Workspace file.
 
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.
