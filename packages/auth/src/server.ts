@@ -33,9 +33,6 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
 const intrinsicUint8ArrayConstructor = Uint8Array
 const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
-const intrinsicReaderReleaseLock = typeof ReadableStreamDefaultReader === "function"
-  ? Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, "releaseLock")?.value as ((this: object) => void) | undefined
-  : undefined
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
@@ -447,6 +444,8 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
   try {
+  let fallbackReleaseLock: typeof releaseLock = undefined
+  try { fallbackReleaseLock = Reflect.get(reader, "releaseLock") as typeof releaseLock } catch {}
   // Prefer the reader's own prototype intrinsic. An instance-level override
   // is caller-controlled and may strand the underlying stream.
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
@@ -454,14 +453,10 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
     releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
     if (typeof releaseLock === "function") break
   }
-  // If prototype reflection fails or exposes no intrinsic, retain a guarded
-  // instance lookup as a last-resort cleanup path.
-  if (typeof releaseLock !== "function") {
-    try { releaseLock = Reflect.get(reader, "releaseLock") as typeof releaseLock } catch {}
-  }
-  if (typeof releaseLock !== "function") {
-    releaseLock = intrinsicReaderReleaseLock
-  }
+  if (typeof releaseLock !== "function") releaseLock = fallbackReleaseLock
+  // Never apply a current-realm intrinsic (or an instance override) to a
+  // foreign reader: either can fail its brand check or silently leave the
+  // source stream locked. Unsupported readers are rejected below.
   if (typeof releaseLock !== "function") {
     releaseAuthorizationReader(reader)
     return
