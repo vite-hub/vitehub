@@ -71,6 +71,11 @@ function isRequest(value: unknown): value is Request {
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof bodyGetter === "function") {
+          // A foreign-looking prototype layered directly on this realm's
+          // Request prototype is a copied-method spoof. The native fast path
+          // above already accepts genuine same-realm requests, so reject this
+          // mixed chain before trusting its caller-controlled accessors.
+          if (Object.getPrototypeOf(prototype) === Request.prototype) return false
           // Read the Web IDL tag only after the bounded prototype walk has
           // established a concrete candidate. A proxy can otherwise recurse
           // while resolving Symbol.toStringTag before cycle detection runs.
