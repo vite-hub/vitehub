@@ -69,7 +69,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/auth/vite", { "vite": "both" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],
   ["@vite-hub/browser/vite", { "vite": "declaration" }],
-  ["@vite-hub/channels/vite", { "vite": "runtime" }],
+  // The plugin executes Vite at runtime and its public declarations import
+  // Vite types, so both contract paths must be exercised with the peer.
+  ["@vite-hub/channels/vite", { "vite": "both" }],
   ["@vite-hub/connections/vite", { "vite": "declaration" }],
   ["@vite-hub/database/vite", { "vite": "declaration" }],
   ["@vite-hub/database/runtime/postgres", { "postgres": "runtime" }],
