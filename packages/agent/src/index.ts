@@ -2406,16 +2406,16 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const executionBudget = createExecutionBudget({
+    const executionBudget = executionBudgetHasConstraints(context.input) ? createExecutionBudget({
       ...(context.input.executionBudget || {}),
       ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined
         ? { deadlineAt: Date.now() + context.input.timeout }
         : {}),
       signal: context.input.abortSignal,
-    })
+    }) : undefined
     const budgetAbortSignal = context.input.abortSignal
-      ? AbortSignal.any([context.input.abortSignal, executionBudget.signal])
-      : executionBudget.signal
+      ? (executionBudget ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : context.input.abortSignal)
+      : executionBudget?.signal
     const callerAbortSignal = agentInvocationCallerAbortSignal(context.input)
     const budgetedInput = { ...context.input, abortSignal: budgetAbortSignal }
     transferParsedAgentWorkflowInput(context.input, budgetedInput)
@@ -2452,7 +2452,7 @@ function createSyntheticWorkspaceRun<
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
-        const response = await withResponseCleanup(output, async () => finish(), { abortSignal: context.input.abortSignal })
+        const response = await withResponseCleanup(output, async () => finish(), { abortSignal: budgetedInput.abortSignal })
         release = undefined
         return response
       }
@@ -2460,7 +2460,7 @@ function createSyntheticWorkspaceRun<
         const finish = release
         const source = cancellableAsyncIterableSource(output)
         const streamed = withCapabilityCleanup(source.stream, async () => finish(), {
-          abortSignal: context.input.abortSignal,
+          abortSignal: budgetedInput.abortSignal,
           cancelOnAbort: source.cancel,
         })
         release = undefined
@@ -2477,11 +2477,11 @@ function createSyntheticWorkspaceRun<
         const finish = async (reason?: unknown, completedSource?: ReturnType<typeof cancellableAsyncIterableSource>) => {
           if (finished) return
           finished = true
-          context.input.abortSignal?.removeEventListener("abort", onAbort)
+          budgetedInput.abortSignal?.removeEventListener("abort", onAbort)
           await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
           capacityRelease()
         }
-        const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
+        const onAbort = () => void finish(budgetedInput.abortSignal?.reason).catch(() => {})
         const wrapStream = (stream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(stream)
           if (existing) return existing
@@ -2489,7 +2489,7 @@ function createSyntheticWorkspaceRun<
           const source = cancellableAsyncIterableSource(stream)
           sources.add(source)
           const wrapped = withCapabilityCleanup(source.stream, outcome => finish(outcome.failed ? outcome.error : undefined, source), {
-            abortSignal: context.input.abortSignal,
+            abortSignal: budgetedInput.abortSignal,
             cancelOnAbort: source.cancel,
           })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2580,8 +2580,8 @@ function createSyntheticWorkspaceRun<
           throw error
         }
         if (hasStreamSurface) {
-          if (context.input.abortSignal?.aborted) onAbort()
-          else context.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
+          if (budgetedInput.abortSignal?.aborted) onAbort()
+          else budgetedInput.abortSignal?.addEventListener("abort", onAbort, { once: true })
           const preserved = resultWithPreservedProperties(output, descriptors)
           release = undefined
           return preserved
@@ -2591,6 +2591,7 @@ function createSyntheticWorkspaceRun<
     }
     finally {
       release?.()
+      executionBudget?.dispose()
     }
   }
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
@@ -3515,7 +3516,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  executionBudget: ReturnType<typeof createExecutionBudget>
+  executionBudget?: ReturnType<typeof createExecutionBudget>
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4469,11 +4470,7 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  }),
+  executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -7161,6 +7158,7 @@ async function executeAgentInvocationWithCapacityLease<
       try {
         await finishAgentInvocation(invocation, outcome)
         options.onFinish?.(outcome)
+        executionBudget?.dispose()
       }
       catch (error) {
         options.onFinish?.({ error, status: "error" })
@@ -8396,14 +8394,14 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = createExecutionBudget({
+  const executionBudget = executionBudgetHasConstraints(input) ? createExecutionBudget({
     ...(input.executionBudget || {}),
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
-  })
+  }) : undefined
   const budgetAbortSignal = input.abortSignal
-    ? AbortSignal.any([input.abortSignal, executionBudget.signal])
-    : executionBudget.signal
+    ? (executionBudget ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : input.abortSignal)
+    : executionBudget?.signal
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
   const budgetedInput = { ...input, abortSignal: budgetAbortSignal }
   transferParsedAgentWorkflowInput(input, budgetedInput)

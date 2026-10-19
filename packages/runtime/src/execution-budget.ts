@@ -55,6 +55,7 @@ export interface ExecutionBudget {
   recordRetry(): void
   recordToolCall(inputBytes?: number): void
   snapshot(): ExecutionBudgetSnapshot
+  dispose(): void
 }
 
 interface BudgetState {
@@ -105,6 +106,12 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, share
 }
 
 function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, externalSignal?: AbortSignal): ExecutionBudget {
+  let disposed = false
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    controller.abort()
+  }
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
@@ -208,6 +215,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         usage: { ...state.usage },
       }
     },
+    dispose,
   }
 }
 
