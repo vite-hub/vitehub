@@ -636,13 +636,19 @@ function normalizeFiles<Context>(
       const target = relativePath(path, `${label} target`);
       if (!value || typeof value !== "object")
         throw sandboxErrorDiagnostics.SANDBOX_R0044({ message: `[vitehub] Sandbox file ${path} requires from or contents.` });
-      if ("from" in value) {
+      const hasFrom = "from" in value;
+      const hasContents = "contents" in value;
+      const ownsFrom = Object.hasOwn(value, "from");
+      const ownsContents = Object.hasOwn(value, "contents");
+      if ((hasFrom !== ownsFrom) || (hasContents !== ownsContents))
+        throw sandboxErrorDiagnostics.SANDBOX_R0046({ message: `[vitehub] Sandbox file ${path} requires exactly one of from or contents.` });
+      if (hasFrom && ownsFrom) {
         if (Object.keys(value).length !== 1 || typeof value.from !== "string")
           throw sandboxErrorDiagnostics.SANDBOX_R0045({ message: `[vitehub] Sandbox file ${path} requires exactly one of from or contents.` });
         const source = relativePath(value.from, `${label} source`);
         return [target, { resolve: async () => await readProjectFile(source) }];
       }
-      if (!("contents" in value) || Object.keys(value).length !== 1)
+      if (!(hasContents && ownsContents) || Object.keys(value).length !== 1)
         throw sandboxErrorDiagnostics.SANDBOX_R0046({ message: `[vitehub] Sandbox file ${path} requires exactly one of from or contents.` });
       return [
         target,

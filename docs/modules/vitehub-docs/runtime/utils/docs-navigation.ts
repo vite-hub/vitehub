@@ -66,7 +66,19 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));
+  const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
+  if (!primitiveCategories.has(section.category || "")) {
+    return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+  }
+  return entries
+    .sort((left, right) => {
+      const leftOrder = primitiveSidebarGroupOrder.indexOf(left.label);
+      const rightOrder = primitiveSidebarGroupOrder.indexOf(right.label);
+      return (leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder)
+        - (rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder)
+        || left.index - right.index;
+    })
+    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
@@ -83,6 +95,7 @@ const docsLandingCategorySet = new Set<string>(docsLandingCategories);
 /** Sections whose Overview stays a regular docs page even though their category is a product category. */
 const docsPageOverviewSections = new Set(["ui"]);
 const primitiveCategories = new Set<DocsCategory>(["Data", "Compute", "Access", "Delivery", "Files"]);
+const primitiveSidebarGroupOrder: Array<string | null> = [null, "Learn", "Build", "Deploy and operate"];
 
 /** True for `/docs` and for the Overview of every product section. These pages have a hero and no sidebar. */
 export function isDocsLandingPath(sections: DocsSection[], path: string) {
