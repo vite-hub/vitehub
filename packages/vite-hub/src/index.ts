@@ -39,7 +39,7 @@ import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
-import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
+import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleConfig } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -71,7 +71,7 @@ import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
-export type { ConsoleOptions } from "./console/vite.ts"
+export type { ConsoleConfig, ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
@@ -322,7 +322,7 @@ export interface ViteHubOptions {
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
-  console?: false | ConsoleOptions
+  console?: false | ConsoleConfig
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions

@@ -63,11 +63,7 @@ type ConsoleNitroConfig = {
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
 export interface ConsoleOptions {
-  auth?: false | "app" | ConsoleAuthConfig
-  /** @deprecated Use `auth` instead. */
-  access?: "auth" | "local" | "open"
-  /** @deprecated Use `auth` instead. */
-  exposure?: "host-managed" | "open"
+  auth: false | "app" | ConsoleAuthConfig
   /**
    * Server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it after the `auth` check.
    * It returns `true`, `false`, a `Response`, or `{ sections }` to allow only some Console sections.
@@ -79,6 +75,15 @@ export interface ConsoleOptions {
   observations?: AgentInvocationsOptions["observations"]
   retention?: AgentInvocationRetentionOptions
 }
+
+/** Deprecated Console configuration accepted for source compatibility and normalized at the boundary. */
+export type LegacyConsoleOptions = Omit<ConsoleOptions, "auth"> & {
+  auth?: ConsoleOptions["auth"]
+  access?: "auth" | "local" | "open"
+  exposure?: "host-managed" | "open"
+} & ({ access: "auth" | "local" | "open" } | { exposure: "host-managed" | "open" })
+
+export type ConsoleConfig = ConsoleOptions | LegacyConsoleOptions
 
 /** Direct plugin use without Console options in development installs the development-only `local` policy. */
 interface LocalConsoleOptions extends ConsoleOptions {
@@ -128,7 +133,7 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
 
 export interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
-  console?: ConsoleOptions
+  console?: ConsoleConfig
   connections?: unknown
   runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
@@ -346,8 +351,8 @@ export function resolveConsoleAccessBuild(
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
-  if (configured.exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
-  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: "open" })
+  if ("exposure" in configured && configured.exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
+  if (configured.auth === false) return withAuthorize({ mode: "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
