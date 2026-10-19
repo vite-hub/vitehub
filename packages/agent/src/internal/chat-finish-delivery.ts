@@ -13,7 +13,7 @@ export interface ChatFinishDeliveryCapture {
 
 export type ChatFinishDeliveryCallback = (capture: ChatFinishDeliveryCapture) => Promise<void>
 
-export interface ChatFinishDeliveryOptions {
+interface ChatFinishDeliveryOptions {
   shouldSkip?: () => boolean
   continueOnError?: boolean
   onError?: () => void

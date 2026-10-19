@@ -26,13 +26,11 @@ const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const tempRoots: string[] = []
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
 function writableWorkspaceFixture(value: object): WritableWorkspaceFacade {
   // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
   return value as WritableWorkspaceFacade
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Tests deliberately provide partial Workspace facades with only the methods under exercise.
 function readonlyWorkspaceTestFixture(value: object): ReadonlyWorkspaceFacade {
   // SAFETY: Test fixtures deliberately implement only the contract exercised by each test.
   return value as ReadonlyWorkspaceFacade
@@ -64,6 +62,8 @@ vi.mock("ai", () => ({
   jsonSchema,
   isStepCount: vi.fn(count => ({ count })),
   Output: { object: vi.fn(({ schema }) => ({ schema })) },
+  // This SDK double executes fixture responses without invoking a language model.
+  wrapLanguageModel: ({ model }: { model: unknown }) => model,
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)

@@ -12,9 +12,9 @@ const message: UIMessage = {
 </script>
 
 <template>
-  <AgentChatMessage :message="message" streaming>
+  <ChatMessage :message="message" streaming>
     <template #leading>
       <UAvatar icon="i-lucide-bot" alt="Agent" size="sm" />
     </template>
-  </AgentChatMessage>
+  </ChatMessage>
 </template>

@@ -41,17 +41,72 @@
     }
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./actions": "./dist/actions.js",
-    "./controllers/cdp": "./dist/controllers/cdp.js",
-    "./controllers/playwright": "./dist/controllers/playwright.js",
-    "./internal/chromium": "./dist/internal/chromium.js",
-    "./internal/chromium.workerd": "./dist/internal/chromium.workerd.js",
-    "./internal/runtime/empty-registry": "./dist/internal/runtime/empty-registry.js",
-    "./internal/runtime/unconfigured": "./dist/internal/runtime/unconfigured.js",
-    "./providers/cloudflare": "./dist/providers/cloudflare.js",
-    "./providers/local": "./dist/providers/local.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./actions": {
+      "types": "./dist/actions.d.ts",
+      "import": "./dist/actions.js",
+      "require": "./dist/actions.js",
+      "default": "./dist/actions.js"
+    },
+    "./controllers/cdp": {
+      "types": "./dist/controllers/cdp.d.ts",
+      "import": "./dist/controllers/cdp.js",
+      "require": "./dist/controllers/cdp.js",
+      "default": "./dist/controllers/cdp.js"
+    },
+    "./controllers/playwright": {
+      "types": "./dist/controllers/playwright.d.ts",
+      "import": "./dist/controllers/playwright.js",
+      "require": "./dist/controllers/playwright.js",
+      "default": "./dist/controllers/playwright.js"
+    },
+    "./internal/chromium": {
+      "types": "./dist/internal/chromium.d.ts",
+      "import": "./dist/internal/chromium.js",
+      "require": "./dist/internal/chromium.js",
+      "default": "./dist/internal/chromium.js"
+    },
+    "./internal/chromium.workerd": {
+      "types": "./dist/internal/chromium.workerd.d.ts",
+      "import": "./dist/internal/chromium.workerd.js",
+      "require": "./dist/internal/chromium.workerd.js",
+      "default": "./dist/internal/chromium.workerd.js"
+    },
+    "./internal/runtime/empty-registry": {
+      "types": "./dist/internal/runtime/empty-registry.d.ts",
+      "import": "./dist/internal/runtime/empty-registry.js",
+      "require": "./dist/internal/runtime/empty-registry.js",
+      "default": "./dist/internal/runtime/empty-registry.js"
+    },
+    "./internal/runtime/unconfigured": {
+      "types": "./dist/internal/runtime/unconfigured.d.ts",
+      "import": "./dist/internal/runtime/unconfigured.js",
+      "require": "./dist/internal/runtime/unconfigured.js",
+      "default": "./dist/internal/runtime/unconfigured.js"
+    },
+    "./providers/cloudflare": {
+      "types": "./dist/providers/cloudflare.d.ts",
+      "import": "./dist/providers/cloudflare.js",
+      "require": "./dist/providers/cloudflare.js",
+      "default": "./dist/providers/cloudflare.js"
+    },
+    "./providers/local": {
+      "types": "./dist/providers/local.d.ts",
+      "import": "./dist/providers/local.js",
+      "require": "./dist/providers/local.js",
+      "default": "./dist/providers/local.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -62,7 +117,7 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime"
   },
   "devDependencies": {

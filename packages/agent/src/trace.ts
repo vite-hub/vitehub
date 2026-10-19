@@ -425,9 +425,11 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   replayInput: AgentRunInput,
   replayHasContext: boolean,
   replayHasAbortSignal: boolean | undefined,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   await traceAgentEvent(context, {
     attributes: invocationAttributes({ ...context, input: replayInput }, {
+      ...extra,
       "input.promptChanged": context.input.prompt !== replayInput.prompt,
       "input.hasContext": replayHasContext,
       "input.hasAbortSignal": replayHasAbortSignal,
@@ -514,6 +516,17 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
       ...attributes,
     }),
     name: "agent.channel.delivery.effect",
+    type: "run",
+  })
+}
+
+export async function traceAgentChannelDeliveryReminder<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+  attributes: Record<string, unknown>,
+): Promise<void> {
+  await traceAgentEvent(context, {
+    attributes: invocationAttributes(context, attributes),
+    name: "agent.channel.delivery.reminder",
     type: "run",
   })
 }

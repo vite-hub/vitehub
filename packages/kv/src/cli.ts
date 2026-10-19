@@ -66,9 +66,9 @@ const kvDevEndpoint = {
 }
 
 const kvDevTargetErrors = {
-  invalidInlineTimeout: (message: string) => kvErrorDiagnostics.KV_R0019({ message }),
-  invalidTimeout: (message: string) => kvErrorDiagnostics.KV_R0019({ message }),
-  missingValue: (message: string) => kvErrorDiagnostics.KV_R0019({ message }),
+  invalidInlineTimeout: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
+  invalidTimeout: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
+  missingValue: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
 }
 
 // Nuxt mounts Vite under `/_nuxt/`, so the KV dev endpoint is not reachable there.
@@ -127,14 +127,14 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
 function parsePositiveInteger(name: string, value: string | undefined): number {
   const number = Number(value)
   if (!value || !Number.isInteger(number) || number < 1) {
-    throw kvErrorDiagnostics.KV_R0019({ message: `--${name} must be a positive integer.` })
+    throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `--${name} must be a positive integer.` })
   }
   return number
 }
 
 function parseTTL(value: string): number {
   const ttl = Number(value)
-  if (!value || !Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_R0019({ message: "--ttl must be a positive number." })
+  if (!value || !Number.isFinite(ttl) || ttl <= 0) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--ttl must be a positive number." })
   return ttl
 }
 
@@ -142,7 +142,7 @@ function readOptionValue(args: readonly string[], index: number, name: string): 
   const arg = args[index]!
   if (arg === `--${name}`) {
     const value = args[index + 1]
-    if (value === undefined || value.startsWith("--")) throw kvErrorDiagnostics.KV_R0019({ message: `--${name} needs a value.` })
+    if (value === undefined || value.startsWith("--")) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `--${name} needs a value.` })
     return { consumed: 1, value }
   }
   if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
@@ -176,7 +176,7 @@ function parseArgs(command: KVCommand, args: readonly string[], env: NodeJS.Proc
     }
     const store = readOptionValue(args, index, "store")
     if (store) {
-      if (!store.value.trim()) throw kvErrorDiagnostics.KV_R0019({ message: "--store needs a nonempty name." })
+      if (!store.value.trim()) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--store needs a nonempty name." })
       parsed.store = store.value
       index += store.consumed
       continue
@@ -186,7 +186,7 @@ function parseArgs(command: KVCommand, args: readonly string[], env: NodeJS.Proc
       if (!command.options.includes(option)) continue
       const read = readOptionValue(args, index, option)
       if (!read) continue
-      if (option === "cursor" && !read.value.trim()) throw kvErrorDiagnostics.KV_R0019({ message: "--cursor needs a nonempty value." })
+      if (option === "cursor" && !read.value.trim()) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "--cursor needs a nonempty value." })
       if (option === "ttl") parsed.ttl = parseTTL(read.value)
       else if (option === "limit") parsed.limit = parsePositiveInteger(option, read.value)
       else parsed[option] = read.value
@@ -195,25 +195,25 @@ function parseArgs(command: KVCommand, args: readonly string[], env: NodeJS.Proc
       break
     }
     if (matched) continue
-    if (arg.startsWith("-")) throw kvErrorDiagnostics.KV_R0019({ message: `Unknown option: ${arg}.` })
+    if (arg.startsWith("-")) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `Unknown option: ${arg}.` })
     positionals.push(arg)
   }
   const expected = (command.key ? 1 : 0) + (command.value ? 1 : 0)
-  if (positionals.length > expected) throw kvErrorDiagnostics.KV_R0019({ message: `Unexpected argument: ${positionals[expected]}.` })
+  if (positionals.length > expected) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `Unexpected argument: ${positionals[expected]}.` })
   if (command.key) parsed.key = positionals[0]
   if (command.value) parsed.value = positionals[1]
-  if (!parsed.help && command.key && parsed.key === undefined) throw kvErrorDiagnostics.KV_R0019({ message: "Missing key." })
-  if (!parsed.help && command.value && parsed.value === undefined) throw kvErrorDiagnostics.KV_R0019({ message: "Missing value." })
+  if (!parsed.help && command.key && parsed.key === undefined) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "Missing key." })
+  if (!parsed.help && command.value && parsed.value === undefined) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "Missing value." })
   if (parsed.limit !== undefined && parsed.limit > kvDevMaximumListLimit) {
-    throw kvErrorDiagnostics.KV_R0019({ message: `--limit must be at most ${kvDevMaximumListLimit}.` })
+    throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `--limit must be at most ${kvDevMaximumListLimit}.` })
   }
   return parsed
 }
 
 function validateJSONNumbers(value: unknown): void {
   if (v.is(v.number(), value)) {
-    if (!Number.isFinite(value) || Object.is(value, -0)) throw kvErrorDiagnostics.KV_R0019({ message: "JSON numbers must be finite and cannot be negative zero." })
-    if (Number.isInteger(value) && !Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_R0019({ message: "JSON integers must be within the safe integer range. Use a string for larger integers." })
+    if (!Number.isFinite(value) || Object.is(value, -0)) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "JSON numbers must be finite and cannot be negative zero." })
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "JSON integers must be within the safe integer range. Use a string for larger integers." })
   }
   if (Array.isArray(value)) value.forEach(validateJSONNumbers)
   else if (v.is(v.record(v.string(), v.unknown()), value)) Object.values(value).forEach(validateJSONNumbers)
@@ -235,11 +235,11 @@ async function readValue(parsed: ParsedKVArgs, cwd: string): Promise<unknown> {
   if (!parsed.jsonValue) return text
   try {
     const value: unknown = JSON.parse(text, (_key, value: unknown, context?: { source?: string }) => {
-      if (value === 0 && context?.source && /[1-9]/.test(context.source.split(/[eE]/, 1)[0]!)) throw kvErrorDiagnostics.KV_R0019({ message: "JSON numbers cannot underflow to zero. Use a string to preserve the supplied value." })
+      if (value === 0 && context?.source && /[1-9]/.test(context.source.split(/[eE]/, 1)[0]!)) throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: "JSON numbers cannot underflow to zero. Use a string to preserve the supplied value." })
       if (v.is(v.number(), value)) validateJSONNumbers(value)
       if (context?.source && v.is(v.number(), value) && value !== 0
         && normalizedDecimal(context.source) !== normalizedDecimal(JSON.stringify(value))) {
-        throw kvErrorDiagnostics.KV_R0019({ message: `${Math.abs(value) <= 2 ** -1022 ? "JSON subnormal numbers" : "JSON numbers"} cannot change magnitude when parsed. Use a string to preserve the supplied value.` })
+        throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `${Math.abs(value) <= 2 ** -1022 ? "JSON subnormal numbers" : "JSON numbers"} cannot change magnitude when parsed. Use a string to preserve the supplied value.` })
       }
       return value
     })
@@ -247,7 +247,7 @@ async function readValue(parsed: ParsedKVArgs, cwd: string): Promise<unknown> {
     return value
   }
   catch (error) {
-    throw kvErrorDiagnostics.KV_R0019({ message: `The value is not valid JSON: ${error instanceof Error ? error.message : String(error)}` })
+    throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `The value is not valid JSON: ${error instanceof Error ? error.message : String(error)}` })
   }
 }
 

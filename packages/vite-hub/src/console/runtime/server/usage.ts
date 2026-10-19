@@ -118,6 +118,7 @@ export function usageSession(
     "id" | "agentName" | "annotations" | "title" | "createdAt" | "completedAt" | "updatedAt"
   > & { status: string },
   usage?: ConsoleInvocationUsage,
+  incomplete = false,
 ): ConsoleUsageSession {
   const totals = emptyTotals();
   if (usage) addUsage(totals, usage);
@@ -131,7 +132,7 @@ export function usageSession(
     at: usageTime(record),
     createdAt: record.createdAt,
     models: usage ? [...modelUsage(usage).keys()] : configuredModel ? [configuredModel] : [],
-    partial: usage?.totalTokens === undefined,
+    partial: incomplete || usage?.totalTokens === undefined,
     totals: publicTotals(totals),
   };
 }
@@ -675,7 +676,7 @@ export async function createUsageSummary(
       const projection = invocationUsageProjection(record);
       const usage = projection.usage;
       partial ||= projection.incomplete || usage?.totalTokens === undefined;
-      sessions.push(usageSession(record, usage));
+      sessions.push(usageSession(record, usage, projection.incomplete));
       runs.push({
         id: record.id,
         agent: record.agentName ?? "",

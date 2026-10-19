@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-ph-chat-circle-text-light
 ---
 
-`AgentChat` is the default Console conversation surface. It renders AI SDK `UIMessage[]` as a scrollable message log, follows a live reply while the reader is at the end, and leaves the reader in place when they scroll back through the run. Pair it with [`AgentChatPrompt`](/docs/ui/chat-prompt) when the view accepts input.
+`Chat` is the default Console conversation surface. It renders AI SDK `UIMessage[]` as a scrollable message log, follows a live reply while the reader is at the end, and leaves the reader in place when they scroll back through the run. Pair it with [`PromptInput`](/docs/ui/prompt-input) when the view accepts input.
 
 ::component-preview{name="ChatExample"}
 ::
@@ -18,23 +18,23 @@ Pass the reactive values from `useChat()`. The component does not call `sendMess
 ```vue [app/pages/chat.vue]
 <script setup lang="ts">
 import { useChat } from "@ai-sdk/vue";
-import type { AgentChatPromptSubmit } from "@vite-hub/ui";
+import type { PromptInputSubmit } from "@vite-hub/ui";
 
 const { messages, status, sendMessage, stop } = useChat();
 const input = ref("");
 
-function submit({ text, files }: AgentChatPromptSubmit) {
+function submit({ text, files }: PromptInputSubmit) {
   sendMessage({ text, files: [...files] });
   input.value = "";
 }
 </script>
 
 <template>
-  <AgentChat :messages :status class="h-dvh">
+  <Chat :messages :status class="h-dvh">
     <template #composer>
-      <AgentChatPrompt v-model="input" :status @submit="submit" @stop="stop" />
+      <PromptInput v-model="input" :status @submit="submit" @stop="stop" />
     </template>
-  </AgentChat>
+  </Chat>
 </template>
 ```
 
@@ -60,14 +60,14 @@ Use the `composer` slot to place a prompt under the messages. The scroll control
 
 ### Custom message layout
 
-Use the `message` slot to replace the default `AgentChatMessage`. The slot receives `{ message, index }`. Reuse `AgentMessageParts` inside it to keep the default part rendering.
+Use the `message` slot to replace the default `ChatMessage`. The slot receives `{ message, index }`. Reuse `MessageParts` inside it to keep the default part rendering.
 
 ::component-preview{name="ChatCustomMessageExample"}
 ::
 
 ## API reference
 
-### AgentChat
+### Chat
 
 #### Props
 
@@ -85,11 +85,11 @@ Other attributes go to the root element.
 
 | Slot            | Scope                | Description                                                         |
 | --------------- | -------------------- | ------------------------------------------------------------------- |
-| `message`       | `{ message, index }` | Replaces the default `AgentChatMessage` for each message.           |
-| `composer`      |                      | Content under the messages, for example `AgentChatPrompt`.          |
+| `message`       | `{ message, index }` | Replaces the default `ChatMessage` for each message.           |
+| `composer`      |                      | Content under the messages, for example `PromptInput`.          |
 | `scroll-button` |                      | Content of the scroll button.                                       |
 | `default`       |                      | Extra content inside the scroller root.                             |
-| Other slots     |                      | Forwarded to each `AgentChatMessage`, for example `actions` or `tool`. |
+| Other slots     |                      | Forwarded to each `ChatMessage`, for example `actions` or `tool`. |
 
 ## Accessibility
 
@@ -101,7 +101,7 @@ Other attributes go to the root element.
 ## Related
 
 - [Chat message](/docs/ui/chat-message) renders one message.
-- [Chat prompt](/docs/ui/chat-prompt) collects text and files.
-- [Session](/docs/ui/session) adds a title and session structure around the chat.
+- [Prompt input](/docs/ui/prompt-input) collects text and files.
+- [Chat session](/docs/ui/chat-session) adds a title and session structure around the chat.
 - [Message scroller](/docs/ui/message-scroller) gives the same scroll behavior without styles.
 - [Chat app block](/docs/ui/blocks/chat-app) combines sessions, chat, and attachments.

@@ -1,5 +1,4 @@
 export { defineSchedule, defineScheduleTarget } from "./definition.ts"
-export { schedules, validateRuntimeScheduleCron } from "./runtime/client.ts"
 
 export type {
   ScheduleErrorCode,
@@ -13,14 +12,10 @@ export type {
   KVScheduleStoreOptions,
 } from "./runtime/store.ts"
 export type { ScheduleKVStorage } from "./runtime/kv-storage.ts"
+export { schedules } from "./runtime/client.ts"
 
 export type {
   DiscoveredScheduleDefinition,
-  RuntimeScheduleCreateInput,
-  RuntimeScheduleMetadata,
-  RuntimeScheduleRecord,
-  RuntimeScheduleStore,
-  RuntimeScheduleUpdateInput,
   ScheduleRunAttemptRecord,
   ScheduleRunAttemptStatus,
   ScheduleDefinition,
@@ -35,10 +30,7 @@ export type {
   ScheduleRunStatus,
   ScheduleRunListOptions,
   ScheduleRunStore,
-  ScheduleTargetName,
-  RegisteredScheduleTargetName,
-  ScheduleTargetInput,
-  ScheduleTargetRegistry,
   ScheduleTargetDefinition,
   ScheduleTargetDefinitionInput,
+  ScheduleTargetName,
 } from "./types.ts"

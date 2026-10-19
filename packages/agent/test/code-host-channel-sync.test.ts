@@ -54,7 +54,7 @@ async function mockHost(host: typeof hosts[number], options: ForgeOptionsBase) {
   if (realRequests) return actual[host](options).create()
   const previous = stores.get(host)
   if (previous) return previous.create()
-  const factory = fake({ kind: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
+  const factory = fake({ forge: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
   const provider = factory.create()
   const create = provider.webhooks.create
   const update = provider.webhooks.update
@@ -106,8 +106,8 @@ function output() {
 beforeEach(() => {
   stores.clear(); calls.length = 0; connections.length = 0
   realRequests = false; failedRequest = undefined; unsupported = false
-  vi.stubEnv("GITLAB_TOKEN", ""); vi.stubEnv("FORGEJO_TOKEN", "")
-  vi.stubEnv("GITLAB_WEBHOOK_SECRET", ""); vi.stubEnv("FORGEJO_WEBHOOK_SECRET", "")
+  vi.stubEnv("VITEHUB_GITLAB_TOKEN", ""); vi.stubEnv("VITEHUB_FORGEJO_TOKEN", "")
+  vi.stubEnv("VITEHUB_GITLAB_WEBHOOK_SECRET", ""); vi.stubEnv("VITEHUB_FORGEJO_WEBHOOK_SECRET", "")
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks() })
 
@@ -189,8 +189,8 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
   })
 
   it.each([
-    ["token", { ...options, token: undefined }, `${host.toUpperCase()}_TOKEN`],
-    ["webhookSecret", { ...options, webhookSecret: undefined }, `${host.toUpperCase()}_WEBHOOK_SECRET`],
+    ["token", { ...options, token: undefined }, `VITEHUB_${host.toUpperCase()}_TOKEN`],
+    ["webhookSecret", { ...options, webhookSecret: undefined }, `VITEHUB_${host.toUpperCase()}_WEBHOOK_SECRET`],
   ])("names the missing %s option and env variable", async (field, input, env) => {
     await expect(sync(host, input)).rejects.toThrow(`${field} or ${env}`)
   })
@@ -200,9 +200,9 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
   })
 
   it("uses callbacks and Server Env, with explicit options first", async () => {
-    vi.stubEnv(`${host.toUpperCase()}_TOKEN`, "env-token")
-    vi.stubEnv(`${host.toUpperCase()}_WEBHOOK_SECRET`, "env-secret")
-    vi.stubEnv(`${host.toUpperCase()}_BASE_URL`, "https://custom.example.com")
+    vi.stubEnv(`FORGES_${host.toUpperCase()}_TOKEN`, "env-token")
+    vi.stubEnv(`FORGES_${host.toUpperCase()}_WEBHOOK_SECRET`, "env-secret")
+    vi.stubEnv(`FORGES_${host.toUpperCase()}_BASE_URL`, "https://custom.example.com")
     const provider = await sync(host, { ...options, token: () => ({ unseal: () => token }), webhookSecret: undefined })
     await provider.apply(await provider.plan(planInput()), fetcher)
     expect(connections[0]!.options).toMatchObject({ baseUrl: "https://custom.example.com", auth: { token } })

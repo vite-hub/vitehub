@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = join(repoRoot, "test", "package-examples.json");
-const generatedRoots = [".netlify", ".vercel", ".vitehub", "dist"];
+const generatedRoots = [".netlify", ".output", ".vercel", ".vitehub", "dist"];
 
 export function loadExampleContracts(path = manifestPath) {
   const manifest = JSON.parse(readFileSync(path, "utf8"));

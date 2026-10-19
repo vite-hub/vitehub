@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "isolatedDeclarations": false,
+    "isolatedDeclarations": true,
     "rootDir": "./src"
   },
   "include": [
@@ -10,8 +10,6 @@
   ],
   "exclude": [
     "dist",
-    "docs",
-    "examples",
     "node_modules",
     "test"
   ]

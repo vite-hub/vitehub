@@ -5,16 +5,17 @@ import { requestConsole } from "../client/request";
 import { isConsoleSectionId } from "../sections";
 import ConsoleConnections from "../components/console-connections.vue";
 import ConsoleProvider from "../components/console-provider.vue";
+import ConsoleState from "../components/console-state.vue";
 
 const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 const sectionsBase = `${appBaseURL}/api/_vitehub/console/sections`;
 const available = ref(false);
-const loadError = ref(false);
+const loadError = ref<unknown>();
 
 useHead({ title: "Connections · ViteHub Console" });
 
 async function loadSections() {
-  loadError.value = false;
+  loadError.value = undefined;
   try {
     const value = await requestConsole(sectionsBase);
     const sections =
@@ -26,8 +27,8 @@ async function loadSections() {
       return;
     }
     available.value = true;
-  } catch {
-    loadError.value = true;
+  } catch (cause) {
+    loadError.value = cause;
   }
 }
 
@@ -47,16 +48,7 @@ onMounted(loadSections);
         :sections-base="sectionsBase"
       />
       <div v-else-if="loadError" class="flex h-dvh min-h-[32rem] items-center justify-center px-4">
-        <UAlert
-          class="max-w-md"
-          color="error"
-          variant="subtle"
-          icon="i-ph-cloud-slash-light"
-          title="Could not load the ViteHub Console"
-          :actions="[
-            { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections },
-          ]"
-        />
+        <ConsoleState :error="loadError" title="Could not load the ViteHub Console" :retry="loadSections" />
       </div>
       <div v-else class="flex h-dvh min-h-[32rem] items-center justify-center text-sm text-muted">
         Loading ViteHub Console…

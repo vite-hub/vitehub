@@ -5,5 +5,5 @@ import { handleConsoleRpcRequest as handleCheckedConsoleRpcRequest } from "../..
 
 /** Send one Console RPC request through the Console access guard, as the generated RPC route does. */
 export function handleConsoleRpcRequest(request: Request, context: { env?: Record<string, unknown>, waitUntil?: (task: Promise<unknown>) => void } = {}): Promise<Response> {
-  return withConsoleAccess((_event, access) => handleCheckedConsoleRpcRequest(request, { ...context, access }))({ req: request })
+  return withConsoleAccess((_event, access) => handleCheckedConsoleRpcRequest(request, { ...context, access }), { anySection: true })({ req: request })
 }

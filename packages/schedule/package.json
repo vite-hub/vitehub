@@ -25,18 +25,66 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./cli": "./dist/cli.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./runtime": "./dist/runtime.js",
-    "./runtime/console": "./dist/runtime/console.js",
-    "./runtime/dev": "./dist/runtime/dev.js",
-    "./runtime/driver": "./dist/runtime/driver.js",
-    "./runtime/kv": "./dist/runtime/kv.js",
-    "./runtime/process": "./dist/runtime/process.js",
-    "./runtime/state": "./dist/runtime/state.js",
-    "./runtime/static": "./dist/runtime/static.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./runtime/dev": {
+      "types": "./dist/runtime/dev.d.ts",
+      "import": "./dist/runtime/dev.js",
+      "require": "./dist/runtime/dev.js",
+      "default": "./dist/runtime/dev.js"
+    },
+    "./runtime/kv": {
+      "types": "./dist/runtime/kv.d.ts",
+      "import": "./dist/runtime/kv.js",
+      "require": "./dist/runtime/kv.js",
+      "default": "./dist/runtime/kv.js"
+    },
+    "./runtime/process": {
+      "types": "./dist/runtime/process.d.ts",
+      "import": "./dist/runtime/process.js",
+      "require": "./dist/runtime/process.js",
+      "default": "./dist/runtime/process.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
+    },
+    "./runtime/static": {
+      "types": "./dist/runtime/static.d.ts",
+      "import": "./dist/runtime/static.js",
+      "require": "./dist/runtime/static.js",
+      "default": "./dist/runtime/static.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

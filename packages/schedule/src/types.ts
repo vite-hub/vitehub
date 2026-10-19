@@ -19,18 +19,21 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
+  timeZone?: string
 }
 
 export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
+  timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
   options?: ScheduleDefinitionOptions
+  timeZone?: string
 }
 
 export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {

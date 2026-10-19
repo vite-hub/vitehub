@@ -4,7 +4,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { defineComponent, h, Suspense } from "vue";
 
-import { AgentMarkdown } from "../src/components/agent-markdown.ts";
+import { Markdown } from "../src/components/markdown.ts";
 
 const katex = vi.hoisted(() => ({ loads: 0 }));
 
@@ -15,15 +15,15 @@ vi.mock("katex", async (importOriginal) => {
 
 function render(value: string) {
   return mount(defineComponent({
-    setup() { return () => h(Suspense, null, { default: () => h(AgentMarkdown, { value }) }); },
+    setup() { return () => h(Suspense, null, { default: () => h(Markdown, { value }) }); },
   }));
 }
 
 function renderDirect(value: string) {
-  return mount(AgentMarkdown, { props: { value } });
+  return mount(Markdown, { props: { value } });
 }
 
-describe("AgentMarkdown KaTeX loading", () => {
+describe("Markdown KaTeX loading", () => {
   it("loads KaTeX with the first formula", async () => {
     const plain = render("No formulas here.");
     await vi.waitFor(() => expect(plain.text()).toContain("No formulas here."));

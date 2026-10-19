@@ -31,11 +31,14 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 }
 
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
-  if (options.workspacePath) {
-    // SAFETY: Normalizing a caller-provided workspace path preserves its string key contract.
+  if (Object.hasOwn(options, "workspacePath") && options.workspacePath) {
+    // SAFETY: TKey is the caller's key type; safe path normalization preserves that string key contract.
     return normalizeSafeSourcePath(options.workspacePath) as TKey
   }
-  if ("path" in options && options.path) return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
+  if (Object.hasOwn(options, "path") && options.path) {
+    // SAFETY: TKey is the caller's key type; safe path normalization preserves that string key contract.
+    return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
+  }
   throw sourceErrorDiagnostics.SOURCE_R0017({ message: "[vitehub] file requires a path or workspacePath." })
 }
 
@@ -44,7 +47,7 @@ function resolveSourceRoot(ctx: SourceContext) {
 }
 
 async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext) {
-  if (!("path" in options) || !options.path) {
+  if (!Object.hasOwn(options, "path") || !options.path) {
     throw sourceErrorDiagnostics.SOURCE_R0018({ message: "[vitehub] file requires path when content is not provided." })
   }
   const { readFile } = await import("node:fs/promises")
@@ -68,7 +71,7 @@ async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): FileSource<TKey> {
   const options = normalizeFileSourceOptions(input)
   const key = sourceKey(options)
-  const mediaType = options.mediaType || lookup(key)
+  const mediaType = Object.hasOwn(options, "mediaType") && options.mediaType ? options.mediaType : lookup(key)
   return {
     name: "file",
     async getKeys() {
@@ -76,7 +79,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
     },
     async getMeta(requestedKey: TKey, ctx: SourceContext) {
       if (requestedKey !== key) return
-      if (!("path" in options) || !options.path) return
+      if (!Object.hasOwn(options, "path") || !options.path) return
       const { stat } = await import("node:fs/promises")
       const info = await stat(await resolveSafeSourceFilePath(options.path, ctx))
       return {
@@ -87,9 +90,9 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
       if (requestedKey !== key) {
         throw sourceError(`[vitehub] file could not find ${JSON.stringify(requestedKey)}.`)
       }
-      const content = typeof options.content === "undefined"
-        ? await readSourceFile(options, ctx)
-        : options.content
+      const content = Object.hasOwn(options, "content") && options.content !== undefined
+        ? options.content
+        : await readSourceFile(options, ctx)
       return {
         key,
         path: key,

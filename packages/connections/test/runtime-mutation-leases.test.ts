@@ -55,7 +55,7 @@ it("keeps an unresolved expired revoke lease after the token revision changes", 
   await test.store.secrets.replace({ expectedRevision: token.revision, key: "connection/mail", value: token.value })
   test.now.value += 11
   const before = test.provider.calls.length
-  await expect(connect(test, { access_token: "new-access" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect(test, { access_token: "new-access" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
   expect(await test.store.refreshLeases.claim({ expiresAt: test.now.value + 100, name: "mail", now: test.now.value, owner: "late-callback", revision: "another-revision" })).toBe("expired")
 })
@@ -102,14 +102,14 @@ it("retains an unconfirmed revoke lease instead of reconnecting while the provid
   await expect(runtime.revoke({ name: "mail" })).rejects.toBeDefined()
   const before = test.provider.calls.length
   test.now.value += 60_001
-  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
 })
 
 it("releases a settled rejected callback so a later authorization can succeed", async () => {
   const test = createTestRuntime()
   const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
-  await expect(test.runtime.complete({ code: "invalid-code", state })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(test.runtime.complete({ code: "invalid-code", state })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   await connect(test)
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
 })
@@ -124,9 +124,9 @@ it("quarantines the old grant when callback replacement cannot be persisted", as
   test.store.bridge.replace = replace
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
   const before = test.provider.calls.length
-  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   test.now.value += 60_001
-  await expect(connect(test)).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect(test)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
 })
 
@@ -137,10 +137,10 @@ it("retains the lease when callback exchange returns an unreadable issued grant"
     if (String(input) === "https://auth.example.com/token") return new Response("truncated token response", { status: 200 })
     return await test.provider.fetch(input, init)
   } })
-  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTION_PROVIDER" })
+  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
   expect(await runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
   test.now.value += 60_001
-  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
 })
 
 
@@ -148,7 +148,7 @@ it("rejects unsupported provider revocation without discarding the connected gra
   const test = createTestRuntime(async () => ({ default: defineConnection({ provider: { ...testProvider(), revocationEndpoint: undefined }, scopes: ["mail.modify"] }) }))
   await connect(test)
   const before = await test.store.secrets.read("connection/mail")
-  await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+  await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
   expect(await test.store.secrets.read("connection/mail")).toEqual(before)
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected", account: { id: "account-1" } })
   expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toEqual([])
@@ -188,9 +188,9 @@ it.each(["account", "secret read", "state read"] as const)("quarantines a replac
   expect(await test.store.secrets.read("connection/mail")).toEqual(original)
   expect(await callbackRuntime.inspect("mail")).toMatchObject({ status: "reauth_required", account: { id: "account-1" } })
   const before = test.provider.calls.length
-  await expect(callbackRuntime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(callbackRuntime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   test.now.value += 60_001
-  await expect(connect({ ...test, runtime: callbackRuntime })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect({ ...test, runtime: callbackRuntime })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
 })
 
@@ -211,15 +211,15 @@ it.each(["different", "unidentified"] as const)("quarantines a rotated provider 
     access_token: "rejected-replacement-access",
     id_token: account === "different" ? "account-2" : undefined,
     refresh_token: "rejected-replacement-refresh",
-  })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+  })).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
   expect(test.provider.valid.has(ACCESS_TOKEN)).toBe(false)
   expect(await test.store.secrets.read("connection/mail")).toEqual(original)
   expect(await runtime.inspect("mail")).toMatchObject({ status: "reauth_required", account: { id: "account-1" } })
   expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toEqual([])
   const before = test.provider.calls.length
-  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   test.now.value += 60_001
-  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(connect({ ...test, runtime })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
 })
 
@@ -258,7 +258,7 @@ it.each(["marker audit", "state write", "marker write", "response body"] as cons
   if (stage === "marker write" || stage === "response body") expect(current).toEqual(original)
   else expect(JSON.parse(current!.value)).toEqual({ revoked: true })
   const count = test.provider.calls.length
-  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(count)
 })
 

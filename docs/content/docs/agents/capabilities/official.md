@@ -15,6 +15,7 @@ import {
   access,
   blob,
   browser,
+  budget,
   chat,
   channelDelivery,
   chatSummary,
@@ -77,7 +78,6 @@ import {
 | Email | [`email()`](/docs/email/agent-capability) | Send authorized plain-text messages through the configured Email primitive. |
 | Channel delivery | [`channelDelivery()`](/docs/channels/agent-capability) | Send the Agent result through a Channel to a recipient that the application selects. |
 | Sandbox execution | [`sandbox()`](/docs/sandbox/agent-capability) | The Agent may run an allowlisted executable in an isolated runtime. |
-| Schedules | [`schedule()`](/docs/schedule/agent-capability) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
 | OTLP telemetry | [`otlp()`](/docs/agents/capabilities/otlp) | Live Agent Invocation events and completed traces should be exported to an OpenTelemetry receiver. |
 | Papercut reporting | [`papercuts()`](/docs/agents/capabilities/papercuts) | Let an Agent report small failures and wasted work to an application-owned sink. |
 | Operational diagnostics | [`diagnostics()`](/docs/agents/capabilities/diagnostics) | Invocation outcomes and scoped runtime resource observations should go to an application-owned reporter. |
@@ -101,6 +101,7 @@ import {
 | LLM routing | [`llmRoute()`](/docs/agents/capabilities/llm-route) | Choose one developer-defined route with a model before the invocation. |
 | LLM gate | [`llmGate()`](/docs/agents/capabilities/llm-gate) | Allow or reject a request with a model before the invocation. |
 | Rate limit | [`rateLimit()`](/docs/rate-limit/agent-capability) | Consume a trusted invocation budget before the Agent runs. |
+| Invocation budget | [`budget()`](/docs/agents/capabilities/budget) | Observe or enforce per-invocation token and USD limits. |
 | Title | [`title()`](/docs/agents/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
 | Chat summary | [`chatSummary()`](/docs/agents/capabilities/chat-summary) | Replace a summary command with a conversation summary. |
 | Progress summary | [`progressSummary()`](/docs/agents/capabilities/progress-summary) | Summarize current reasoning and tool activity while an Agent streams. |

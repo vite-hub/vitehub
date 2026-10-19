@@ -18,7 +18,7 @@ const devPluginFile = "dev-plugin.mjs"
  * Agent Workflows need the Agent registry transform of the provider build, so
  * the development registry does not contain them.
  */
-export function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): boolean {
+function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): boolean {
   return definition.source !== "agent-workflow" && definition.source !== "agent-workflow-recovery"
 }
 
@@ -26,7 +26,7 @@ export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: str
   return discoverWorkflowDefinitions({ rootDir, serverDirs }).filter(isWorkflowDevDefinition)
 }
 
-export function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {
+function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 

@@ -108,6 +108,21 @@ async function assertPathComponents(root, path, finalType) {
   }
 }
 
+// Installers read these sections. A URL, git, or file spec there makes npm installs depend on a host
+// that the registry does not control, and many installers and registries reject it.
+const installedDependencySections = ["dependencies", "optionalDependencies", "peerDependencies"]
+const unpublishableSpecifierPattern = /^(?:https?:|git|file:)/i
+
+function assertRegistryDependencies(manifest, name) {
+  for (const section of installedDependencySections) {
+    for (const [dependency, specifier] of Object.entries(manifest[section] || {})) {
+      if (isString(specifier) && unpublishableSpecifierPattern.test(specifier.trim())) {
+        fail(`Packed ${section} specifier for ${name} -> ${dependency} is ${specifier}. Publish it to npm or bundle it.`)
+      }
+    }
+  }
+}
+
 function workspaceDependencies(manifest, publicNames) {
   const dependencies = {
     ...manifest.dependencies,
@@ -400,6 +415,7 @@ export async function verifyReleaseArtifacts(options) {
     if (details.manifest.name !== pkg.name || details.manifest.version !== pkg.version) {
       fail(`Packed manifest identity mismatch for ${pkg.name}`)
     }
+    assertRegistryDependencies(details.manifest, pkg.name)
     const packedDependencies = workspaceDependencies(details.manifest, names)
     if (JSON.stringify(packedDependencies) !== JSON.stringify([...pkg.workspaceDependencies].toSorted())) {
       fail(`Packed dependency list mismatch for ${pkg.name}`)

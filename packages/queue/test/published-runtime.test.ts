@@ -21,7 +21,6 @@ describe("published Queue internal runtime", () => {
   const internalRuntimeSpecifiers = [
     "@vite-hub/queue/internal/runtime/cloudflare-vite",
     "@vite-hub/queue/internal/runtime/state",
-    "@vite-hub/queue/internal/runtime/vercel-vite",
   ]
 
   it.each(internalRuntimeSpecifiers)("resolves internal runtime path %s from the built package", (specifier) => {

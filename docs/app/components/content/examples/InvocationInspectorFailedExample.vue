@@ -1,52 +1,70 @@
 <script setup lang="ts">
+import { computed, onMounted } from "vue";
 import type { AgentInvocationView } from "@vite-hub/ui";
 
-const invocation: AgentInvocationView = {
-  agentName: "release-engineer",
-  annotations: {
-    "github.pullRequest": 1206,
-    "github.repository": "vite-hub/vitehub",
-  },
-  configuration: {
-    agent: { name: "release-engineer", version: "2.1.0" },
-    capabilities: [{ id: "workspace-shell", metadata: { access: "read" } }],
-    driver: { kind: "model", model: { id: "anthropic/claude-sonnet-4.5", provider: "openrouter" } },
-    runtime: { name: "node" },
-    tools: [{ name: "exec_command", label: "Ran command", icon: "i-lucide-terminal" }],
-    workspace: { mode: "read", name: "vitehub", sources: ["repository"] },
-  },
-  createdAt: "2026-08-30T15:16:00.000Z",
-  error: {
-    code: "ECONNRESET",
-    message: "The package registry closed the connection before upload completed.",
-    name: "Error",
-  },
-  failedAt: "2026-08-30T15:19:31.000Z",
-  id: "ainv_release_job",
+
+
+const now = useState("ui-running-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
+const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+
+
+
+const invocation = computed<AgentInvocationView>(() => ({
+  agentName: "interface-engineer",
+  createdAt: time(844),
+  id: "ainv_console_navigation",
   observations: [
     {
       attributes: {
-        "tool.id": "release-log",
-        "tool.name": "exec_command",
-        "tool.output": { item: { command: "gh run view 991842 --log-failed", exitCode: 1 } },
+        "message.content": "Tighten the Console navigation spacing at mobile widths.",
+        "message.id": "user-1",
+        "message.role": "user",
+      },
+      name: "agent.message.recorded",
+      sequence: 1,
+      timestamp: time(836),
+      trace: { id: "trace_console_navigation" },
+      type: "run",
+    },
+    {
+      attributes: {
+        "progress.label": "Comparing the primitive pages",
+        "progress.value": 0.62,
+        "vitehub.activity.body": "Checking the navigation rhythm at desktop and mobile widths.",
+      },
+      name: "agent.progress",
+      sequence: 2,
+      timestamp: time(444),
+      trace: { id: "trace_console_navigation" },
+      type: "run",
+    },
+    {
+      attributes: {
+        "tool.id": "browser-check",
+        "tool.name": "Check responsive layout",
+        "tool.output": { route: "/_vitehub/agents/interface-engineer", viewport: "390x844" },
       },
       name: "agent.tool.finish",
-      sequence: 1,
-      timestamp: "2026-08-30T15:18:50.000Z",
-      trace: { id: "trace_release_job" },
+      sequence: 3,
+      timestamp: time(20),
+      trace: { id: "trace_console_navigation" },
       type: "run",
     },
   ],
-  startedAt: "2026-08-30T15:16:04.000Z",
+  startedAt: time(842),
   status: "failed",
-  title: "Fix flaky release job",
-  traceId: "trace_release_job",
-  updatedAt: "2026-08-30T15:19:31.000Z",
-};
+  error: { name: "InvocationError", message: "The browser check failed." },
+  title: "Polish Console navigation",
+  traceId: "trace_console_navigation",
+  updatedAt: time(20),
+}));
 </script>
 
 <template>
-  <div class="mx-auto h-[36rem] max-w-md bg-default">
-    <AgentInvocationInspector :invocation="invocation" class="h-full border-x border-default" />
+  <div class="h-[28rem] min-w-0 bg-default">
+    <AgentInvocationInspector :invocation="invocation" class="h-full" />
   </div>
 </template>
