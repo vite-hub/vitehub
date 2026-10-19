@@ -1132,7 +1132,7 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
 function persistedWebhookInvocation(
   invocation: { agent?: AgentInput, input: AgentRunInput; run?: unknown, task?: string, requiresPrepare?: boolean },
   rehydrate = false,
-): { agentName?: string, input: Record<string, unknown>; run?: unknown, task?: string } {
+): { agentName?: string, input: Record<string, unknown>; run?: unknown, task?: string, requiresPrepare?: true } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
   if (rehydrate && invocation.input.context) {
     // Rehydration restores definition-owned finish callbacks. Persist the
