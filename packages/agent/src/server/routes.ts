@@ -1092,8 +1092,18 @@ function positiveWebhookConcurrencyLimit(value: number | undefined): number | un
  * The answer to an accepted or duplicate webhook delivery: the trigger's `webhook.response`, or the JSON receipt.
  * The queue never stores `webhook.response`, so a replayed delivery has no answer to send.
  */
+function cloneWebhookResponse(response: Response | undefined): Response | undefined {
+  if (!response) return
+  try {
+    return response.clone()
+  }
+  catch {
+    return
+  }
+}
+
 function webhookReceipt(ownership: { response?: Response } | undefined, receipt: Record<string, unknown>): Response {
-  return ownership?.response?.clone() ?? Response.json(receipt)
+  return cloneWebhookResponse(ownership?.response) ?? Response.json(receipt)
 }
 
 function persistedWebhookRequest(
@@ -8752,9 +8762,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   })
                 if (outcome.queued || outcome.settlement) detachAgentChannelDelivery(channelDelivery)
                 // A steered, queued or duplicate delivery gets `webhook.response`; busy and failed answers keep theirs.
-                return !outcome.invalidState && outcome.response.ok && invocation.webhook.response
-                  ? invocation.webhook.response.clone()
-                  : outcome.response
+                const webhookResponse = !outcome.invalidState && outcome.response.ok
+                  ? cloneWebhookResponse(invocation.webhook.response)
+                  : undefined
+                return webhookResponse ?? outcome.response
               }
             }
             const queued = await webhookQueue.admit({
