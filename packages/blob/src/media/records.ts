@@ -427,7 +427,9 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
         await driver.put(path, body, { contentType: crop.replacement.contentType })
         crops[name] = { ...crop, replacement: { ...crop.replacement, pathname: path } }
       } else {
-        crops[name] = crop
+        // Do not preserve metadata for bytes that could not be copied. The
+        // named crop must fall back to transforming the moved original.
+        crops[name] = { aspect: crop.aspect, ...(crop.focal ? { focal: crop.focal } : {}) }
       }
     }
     const next: MediaRecord = { ...record, pathname: moved.pathname, size: moved.size ?? record.size, updatedAt: new Date().toISOString() }

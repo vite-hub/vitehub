@@ -223,8 +223,10 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
 
 function bodyUsesPathname(body: string, pathname: string): boolean {
   const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const inline = new RegExp(`!??\\[[^\\]]*\\]\\(\\s*<?${escaped}(?:>|\\)|\\s+[\\\"'][^)]*[\\\"']\\s*\\))`)
-  const reference = new RegExp(`^\\s*\\[[^\\]]+\\]:\\s*<?${escaped}(?:>|\\s*(?:\\n|$))`, "m")
+  const destination = `(?:<${escaped}>|${escaped})`
+  const title = `(?:\\s+(?:[\\\"'][^\\\"']*[\\\"']|\\([^)]*\\)))?`
+  const inline = new RegExp(`!??\\[[^\\]]*\\]\\(\\s*${destination}${title}\\s*\\)`)
+  const reference = new RegExp(`^\\s*\\[[^\\]]+\\]:\\s*${destination}${title}\\s*$`, "m")
   return inline.test(body) || reference.test(body)
 }
 
