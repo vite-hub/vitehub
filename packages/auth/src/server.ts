@@ -402,12 +402,7 @@ const validatedAuthorizationReaders = new WeakMap<object, AuthorizationStreamInt
 
 function releaseAuthorizationReader(reader: object, releaseLock?: (this: object) => void) {
   try {
-    if (typeof releaseLock === "function") {
-      Reflect.apply(releaseLock, reader, [])
-      return
-    }
-    const candidate = Reflect.get(reader, "releaseLock")
-    if (typeof candidate === "function") Reflect.apply(candidate, reader, [])
+    if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, [])
   }
   catch {}
 }
@@ -443,7 +438,6 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let releaseLock: ((this: object) => void) | undefined
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
-  const fallbackReleaseLock = Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, "releaseLock")?.value as ((this: object) => void) | undefined
   try {
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
   for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
@@ -456,23 +450,23 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   // the instance lookup is a throwing accessor, cleanup can still release the
   // exact acquired reader without repeating that lookup.
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
-    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
+    releaseAuthorizationReader(reader, releaseLock)
     return
   }
   try {
     if (!Reflect.apply(locked, body, [])) {
-      releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
+      releaseAuthorizationReader(reader, releaseLock)
       return
     }
     // Keep this ownership-verified reader for the bridge. Acquiring again
     // later would allow a stateful getReader() to return another stream.
   }
   catch {
-    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
+    releaseAuthorizationReader(reader, releaseLock)
     return
   }
   } catch {
-    releaseAuthorizationReader(reader, releaseLock ?? fallbackReleaseLock)
+    releaseAuthorizationReader(reader, releaseLock)
     return
   }
   return { locked, getReader, read, cancel, releaseLock, reader }
