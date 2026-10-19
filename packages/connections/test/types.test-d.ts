@@ -9,7 +9,7 @@ import { useConnection } from "../src/runtime/state.ts"
 
 import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
 import type { ConnectionDefinitionName } from "../src/registry-types.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -181,12 +181,28 @@ describe("Connection types", () => {
     })
     expectTypeOf(oidc).toMatchTypeOf<ConnectionDefinition>()
   })
+  it("accepts the mcp access preset and returns the status", () => {
+    const mcp = defineConnection({
+      access: { "agent:support": "mcp", "server": { read: true } },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", mcp: "https://mcp.example.com/mcp", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(mcp).toMatchTypeOf<ConnectionDefinition>()
+    defineConnection({
+      // @ts-expect-error The only access preset is `"mcp"`.
+      access: { "agent:support": "all" },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(client.status).returns.toEqualTypeOf<Promise<ConnectionStatus>>()
+  })
+
   it("names each instance of a keyed Connection", () => {
     expectTypeOf(keyed).toMatchTypeOf<ConnectionInstancesDefinition<"acme" | "beta">>()
     expectTypeOf<Extract<ConnectionDefinitionName, `keyedTest${string}`>>().toEqualTypeOf<"keyedTest:acme" | "keyedTest:beta">()
     expectTypeOf(keyed.instances).toEqualTypeOf<readonly ("acme" | "beta")[]>()
     expectTypeOf<"keyedTest">().not.toMatchTypeOf<ConnectionDefinitionName>()
-    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Response>>()
+    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>>()
   })
 
   it("types the login context", () => {
