@@ -1,7 +1,13 @@
 import { defineDiagnostics } from "nostics"
 
 const dynamicError = {
-  why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+  why: (input: any) => {
+    if (input.message !== undefined) return String(input.message)
+    const details = Object.entries(input)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+    return details.join(", ")
+  },
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.

@@ -348,7 +348,7 @@ async function installNitroLocalDatabaseRuntime(
       name,
       (await Promise.all(contributions.map(async contribution => ({
         contribution,
-        loaded: (await loadContributedDatabaseSchema(contribution, file, { alias, onFallback: () => {} })).loaded,
+        loaded: (await loadContributedDatabaseSchema(contribution, file, { alias: alias as Record<string, string> | undefined, onFallback: message => console.warn(message) })).loaded,
       })))).filter(item => item.loaded).map(item => item.contribution),
     ] as const),
   )) as typeof contributionsByDatabase
