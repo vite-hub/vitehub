@@ -837,6 +837,12 @@
       "require": "./dist/source/file.js",
       "default": "./dist/source/file.js"
     },
+    "./source/files": {
+      "types": "./dist/source/files.d.ts",
+      "import": "./dist/source/files.js",
+      "require": "./dist/source/files.js",
+      "default": "./dist/source/files.js"
+    },
     "./source/github": {
       "types": "./dist/source/github.d.ts",
       "import": "./dist/source/github.js",

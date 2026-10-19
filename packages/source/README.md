@@ -87,6 +87,20 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
 `auth: false` reads without a token.
 
+`files()` serves files the server already holds, keyed by path. With Vite's
+`import.meta.glob()`, the files go in the server bundle at build time, so
+hosts without a runtime file system, such as Cloudflare Workers, can read
+them. `base` is removed from the start of each path.
+
+```ts
+import { files } from "@vite-hub/source/files"
+
+export const docs = files(
+  import.meta.glob<string>("../docs/**/*.md", { query: "?raw", import: "default", eager: true }),
+  { base: "../docs" },
+)
+```
+
 ## Reuse a definition
 
 Content accepts Source definitions directly. It opens a new reader on each

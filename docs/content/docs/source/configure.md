@@ -14,6 +14,7 @@ Configure the built-in loaders, or define a custom loader with `defineSource()`.
 | --- | --- | --- |
 | `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source Context root. `workspacePath` sets the Source key. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Uses the `file()` contract with `text/markdown` as the default media type. Unlike `file()`, it requires an options object. |
+| `files(entries, options?)` | A record of path to content, and `base`. | Serves files the server already holds, such as the result of `import.meta.glob()`. `base` is removed from the start of each path. Needs no file system. |
 | `glob(options)` | `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Expands local files with `tinyglobby`. Keys are relative to `cwd`. `prefix` prepends a path to each item. `keyCache: false` disables the cached key snapshot. Symbolic links are off by default. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Retrieves repository content through [`forges`](https://forges.link). `ref` defaults to the repository default branch. `auth` can be a token string or a trusted callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. `auth: false` reads without a token. |
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, a client config with an `http` or `sse` transport, or a resolver. |
@@ -35,6 +36,23 @@ fresh listing without replacing an existing reader's keys. File content and
 metadata still come from the current file system. With `keyCache: false`, each
 listing refreshes the keys; item and metadata reads reuse the latest listing and
 refresh it when the requested key is missing.
+
+### Bundle files with `files()`
+
+`glob()` reads the file system at runtime, so the files must exist where the server runs. Serverless and edge hosts, such as Cloudflare Workers, do not have them. Use `files()` with Vite's `import.meta.glob()` to put the files in the server bundle at build time:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { files } from 'vite-hub/source/files'
+
+export const content = defineContent({
+  sources: {
+    docs: files(import.meta.glob<string>('../docs/**/*.md', { query: '?raw', import: 'default', eager: true }), { base: '../docs' }),
+  },
+})
+```
+
+Keys are the paths below `base`, so `../docs/guide/setup.md` is `guide/setup.md`. A path outside `base`, an unsafe path, or two paths that normalize to the same key throws when `files()` is called. A file added after the build is not served until the next build.
 
 ### Cache options
 

@@ -55,6 +55,7 @@ try {
       "src/drizzle.ts",
       "src/index.ts",
       "src/file.ts",
+      "src/files.ts",
       "src/github.ts",
       "src/glob.ts",
       "src/markdown.ts",
