@@ -1,9 +1,11 @@
 import { hasAgentToolStandardSchema } from "../tool-schema.ts"
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { safeAgentTelemetryMetadata } from "./agent-telemetry.ts"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
+import { mcpSkillsInspectionValue, mcpSkillsRoot, mcpSkillsWorkspaceContribution, readMcpSkills } from "./mcp-skills.ts"
+import type { McpSkill } from "./mcp-skills.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -36,6 +38,8 @@ export interface ResolvedMcpToolServer {
   connectionBinding?: McpToolServerConnection
   integrity?: McpToolFingerprints
   owned?: boolean
+  /** Read the Agent Skills that the server serves as `skill://` resources. Default: `true`. */
+  skills?: boolean
   /** Expose only these server tools. */
   tools?: readonly string[]
 }
@@ -225,13 +229,14 @@ function withoutServerOptions(config: McpClientConfig | McpConnectionServerConfi
   const rest: Record<string, unknown> = { ...config }
   delete rest.connection
   delete rest.optional
+  delete rest.skills
   delete rest.tools
   delete rest.transport
   // SAFETY: Only the ViteHub server options and the transport were removed from an MCP client config.
   return rest as Omit<McpClientConfig, "connection" | "tools" | "transport">
 }
 
-/** Drop the ViteHub server options (`connection`, `optional`, `tools`) before the MCP client reads a config. */
+/** Drop the ViteHub server options (`connection`, `optional`, `skills`, `tools`) before the MCP client reads a config. */
 export function mcpClientConfig(config: McpClientConfig): McpClientConfig {
   return { ...withoutServerOptions(config), transport: config.transport }
 }
@@ -325,7 +330,9 @@ export function defineMcpToolCapability<
   Name extends WorkspaceName = WorkspaceName,
 >(options: McpToolCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, Array<McpClient | undefined>>()
-  return defineCapability({
+  // Discovered Skills stay in memory for the Invocation. They are never written to the Invocation context.
+  const skillsByInvocation = new WeakMap<object, Array<{ server: string, skills: McpSkill[] }>>()
+  const capability = defineCapability({
     id: options.id,
     ...(options.inspection ? { inspection: options.inspection } : {}),
     metadata: options.metadata,
@@ -378,12 +385,18 @@ export function defineMcpToolCapability<
           mcpRuntime ? config => mcpRuntime.createMCPClient(config) : undefined,
         )
         if (owned) clients[index] = client
-        const serverTools = allowedMcpTools(await client.tools(), serverDefinition.tools)
+        // A Skills failure never removes the server's tools.
+        const readSkills = serverDefinition.skills === false || !context.workspace
+          ? undefined
+          : readMcpSkills(client, context.abortSignal).catch((error: unknown) => ({ error }))
+        const [discoveredTools, skills] = await Promise.all([client.tools(), readSkills])
+        const serverTools = allowedMcpTools(discoveredTools, serverDefinition.tools)
         if (serverDefinition.integrity) {
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
         servers[index]!.connection = safeAgentTelemetryMetadata(metadata) ?? {}
-        return { binding: serverDefinition.connectionBinding, metadata, server, serverTools }
+        servers[index]!.skills = mcpSkillsInspectionValue(skills ?? (serverDefinition.skills === false ? "off" : "no-workspace"))
+        return { binding: serverDefinition.connectionBinding, metadata, server, serverTools, skills: Array.isArray(skills) ? skills : [] }
       }))
       for (const [index, result] of results.entries()) {
         if (result.status === "rejected") {
@@ -474,7 +487,15 @@ export function defineMcpToolCapability<
           }
         }
       }
+      skillsByInvocation.set(context.context, results.flatMap(result => result.status === "fulfilled" && result.value?.skills.length
+        ? [{ server: result.value.server.name, skills: result.value.skills }]
+        : []))
       context.tools.add(tools)
+    },
+    async workspace(context) {
+      const servers = skillsByInvocation.get(context.context)
+      if (!servers?.length) return
+      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition)
     },
     async close(context) {
       const clients = clientsByContext.get(context) || []
@@ -488,6 +509,7 @@ export function defineMcpToolCapability<
       if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple MCP clients failed to close.")
     },
   })
+  return Object.assign(capability, { [workspaceMaterializationPathsSymbol]: [mcpSkillsRoot] })
 }
 
 function mcpToolOverride(override: McpToolOverride): Pick<AgentToolDefinition, "description" | "inputSchema" | "title"> {
