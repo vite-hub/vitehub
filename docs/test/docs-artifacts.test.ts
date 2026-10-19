@@ -103,14 +103,14 @@ describe("writeDocsArtifacts", () => {
       "| --- | --- |",
       "| Local | Available |",
       "::",
-    ].join("\\n"))).toBe([
+    ].join("\n"))).toBe([
       "## Server primitives",
       "",
       "| Host | Status |",
       "| --- | --- |",
       "| Local | Available |",
       "",
-    ].join("\\n"));
+    ].join("\n"));
   });
 
   it("unwraps agent-only nodes in the content tree used by llms-full.txt and MCP", () => {

@@ -29,6 +29,7 @@ export type SupportMatrixRow = {
 );
 
 export type SupportMatrixGroup = {
+  anchor?: string;
   label: string;
   rows: SupportMatrixRow[];
 };
@@ -153,6 +154,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
     ],
   },
   {
+    anchor: "server-primitives",
     label: "Server primitives",
     rows: [
       {
@@ -542,6 +544,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
     ],
   },
   {
+    anchor: "deployment-and-proof",
     label: "Output",
     rows: [
       {
