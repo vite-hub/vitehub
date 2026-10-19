@@ -15,8 +15,12 @@ export interface AgentWebhookQueueDelivery {
   deliveryId: string
   enqueuedAt: number
   invocation?: {
+    /** The name of the Agent that the selected task runs. Unset when the Agent that owns the trigger runs it. */
+    agentName?: string
     input: unknown
     run?: unknown
+    /** The key of the trigger task that `invoke` selected. */
+    task?: string
   }
   leaseTtlMs: number
   rehydrate?: true

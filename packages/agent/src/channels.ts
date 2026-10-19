@@ -196,7 +196,10 @@ export type {
   AgentDeliveryArtifactPlacement,
   AgentGitHubMessageCalls,
   AgentMessageChannelSettings,
+  AgentTriggerAcceptedInvocation,
   AgentTriggerFailedEvent,
+  AgentTriggerPrepareResult,
+  AgentTriggerTask,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 export interface AgentChannelOptions<
