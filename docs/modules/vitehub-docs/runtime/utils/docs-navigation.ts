@@ -76,7 +76,11 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
   const ordered = [...groups].map(([label, pages]) => ({ label, pages }));
   if (section.id === "ui") {
     const order = ["Start", "Console", "Chat", "Agent work", "Utilities"];
-    return ordered.sort((left, right) => (order.indexOf(left.label || "") + order.length) - (order.indexOf(right.label || "") + order.length));
+    return ordered.sort((left, right) => {
+      const leftIndex = order.indexOf(left.label || "");
+      const rightIndex = order.indexOf(right.label || "");
+      return (leftIndex === -1 ? order.length : leftIndex) - (rightIndex === -1 ? order.length : rightIndex);
+    });
   }
   return ordered;
 }
