@@ -1236,7 +1236,7 @@ function renderConfiguration(
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
-    showSources && configuration.workspace?.sources?.length
+    configuration.workspace?.sources?.length
       ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
@@ -1619,7 +1619,7 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
-    showCapabilities: { default: true, type: Boolean },
+    showCapabilities: { default: false, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showSources: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
