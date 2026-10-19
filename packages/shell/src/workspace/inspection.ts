@@ -31,9 +31,6 @@ export async function runWorkspaceInspectionCommand(
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
   throwIfAborted(options.signal)
-  // Charge every attempted workspace shell call before syntax, path, and
-  // command-policy preflight can reject it.
-  options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   const maxOutputLength = options.maxOutputLength === undefined
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
@@ -67,7 +64,6 @@ export async function runWorkspaceInspectionCommand(
     cwd,
     timeout,
     signal: options.signal,
-    recordInputBytes: false,
     workspacePaths: workspaceSessionPaths(command, cwd),
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
