@@ -15,7 +15,7 @@ it.each(["index", "custom"] as const)(
     try {
       const store = createLibsqlAgentInvocationStore({
         client,
-        maxAgeMs: false,
+        maxAge: false,
         maxRecords: false,
       });
       const invocations = defineAgentInvocations({ store });

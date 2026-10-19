@@ -1946,11 +1946,11 @@ describe("ViteHub Nuxt integration", () => {
     const application = createNuxt(dev)
     await viteHubNuxtModule({
       agent: true,
-      console: { auth: false, authorize: hostManagedAuthorize, retention: { maxAgeMs: false, maxRecords: 10 } },
+      console: { auth: false, authorize: hostManagedAuthorize, retention: { maxAge: false, maxRecords: 10 } },
       preset: "node",
     }, application.nuxt)
     const plugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
-    const retention = "retention: { maxAgeMs: false, maxRecords: 10 }"
+    const retention = "retention: { maxAge: false, maxRecords: 10, maxSize: undefined }"
     expect(await readFile(plugin, "utf8")).toContain(retention)
 
     await application.runNitroConfigHook(nitroOptions(application.nuxt))
@@ -1967,7 +1967,7 @@ describe("ViteHub Nuxt integration", () => {
       agent: true,
       console: { auth: false, authorize: hostManagedAuthorize, retention: { maxRecords: 0 } },
       preset: "node",
-    }, development.nuxt)).rejects.toThrow("must be a positive safe integer or false")
+    }, development.nuxt)).rejects.toThrow("console.retention maxRecords must be a positive safe integer or false")
   })
 
   it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("rejects bare Console enablement with dataDir %s", async (dataDir) => {
