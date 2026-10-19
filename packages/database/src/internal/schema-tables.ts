@@ -36,12 +36,12 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
   for (const part of parts) {
     for (const key of part.schema.keys) {
       const existing = keys.get(key)
-      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two schema entries with the key ${JSON.stringify(key)}:\n  - ${existing}\n  - ${part.owner}\nRename one key, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "schema key", name: key, second: part.owner })
       keys.set(key, part.owner)
     }
     for (const sqlName of part.schema.sqlNames.values()) {
       const existing = sqlNames.get(sqlName)
-      if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two tables named ${JSON.stringify(sqlName)}:\n  - ${existing}\n  - ${part.owner}\nRename one table, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
+      if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "table", name: sqlName, second: part.owner })
       sqlNames.set(sqlName, part.owner)
     }
   }
@@ -100,18 +100,20 @@ async function createLoader(parent: string, alias: Record<string, string> | unde
  * namespace schemas list every table.
  */
 export async function loadDatabaseSchema(handler: string, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
-  let failure: { code: "DATABASE_B0007" | "DATABASE_B0008", error?: unknown, message: string }
+  let failure: { code: "DATABASE_SCHEMA_LOAD_FAILED" | "DATABASE_INVALID_SCHEMA_EXPORT", error?: unknown, message: string }
   try {
     const module = await (await createLoader(import.meta.url, options.alias)).import<{ default?: unknown }>(handler)
     const schema = isRecord(module.default) ? module.default.schema : undefined
     if (isRecord(schema)) return await describeSchema(schema)
-    failure = { code: "DATABASE_B0008", message: `[vitehub] Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.` }
+    failure = { code: "DATABASE_INVALID_SCHEMA_EXPORT", message: `[vitehub] Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.` }
   }
   catch (error) {
-    failure = { code: "DATABASE_B0007", error, message: `[vitehub] Database Definition "${handler}" could not load to list its tables: ${errorMessage(error)}` }
+    failure = { code: "DATABASE_SCHEMA_LOAD_FAILED", error, message: `[vitehub] Database Definition "${handler}" could not load to list its tables: ${errorMessage(error)}` }
   }
 
-  if (!options.onFallback) throw databaseErrorDiagnostics[failure.code]({ cause: failure.error, message: failure.message })
+  if (!options.onFallback) throw failure.code === "DATABASE_SCHEMA_LOAD_FAILED"
+    ? databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ problem: errorMessage(failure.error), source: handler })
+    : databaseErrorDiagnostics.DATABASE_INVALID_SCHEMA_EXPORT({ handler })
   options.onFallback(`${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
@@ -163,7 +165,7 @@ export async function loadContributedDatabaseSchema(
   }
   catch (error) {
     const message = `[vitehub] Contributed Database tables ${source} could not load: ${errorMessage(error)}`
-    if (!options.onFallback) throw databaseErrorDiagnostics.DATABASE_B0007({ cause: error, message })
+    if (!options.onFallback) throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source })
     options.onFallback(`${message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
@@ -171,7 +173,7 @@ export async function loadContributedDatabaseSchema(
   const schema = module[exportName]
   const { isTableOrView } = await loadDrizzleSchemaTools()
   if (!isRecord(schema) || Array.isArray(schema) || isTableOrView(schema)) {
-    throw databaseErrorDiagnostics.DATABASE_B0012({ message: `[vitehub] Contributed Database tables ${source} need ${exportName === "default" ? "a default export" : `the export ${JSON.stringify(exportName)}`} that holds an object of Drizzle tables.` })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Contributed Database tables ${source} need ${exportName === "default" ? "a default export" : `the export ${JSON.stringify(exportName)}`} that holds an object of Drizzle tables.` })
   }
   return await describeSchema(schema)
 }
