@@ -64,7 +64,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
   ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
-  ["@vite-hub/agent/vite", { "vite": "declaration" }],
+  ["@vite-hub/agent/vite", { "vite": "both" }],
   ["@vite-hub/auth/vite", { "vite": "declaration" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],
   ["@vite-hub/browser/vite", { "vite": "declaration" }],

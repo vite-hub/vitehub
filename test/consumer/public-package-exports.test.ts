@@ -19,7 +19,7 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -524,6 +524,7 @@ async function addOptionalPeers(appDir: string) {
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
+    postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     "vite-doctor": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/vite-doctor/package.json")),
