@@ -151,7 +151,10 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    if (status === undefined && response && isForgeResponseError(error)) {
+    // Forge's GitHub mappers may reject malformed successful payloads with a
+    // plain TypeError. Transport failures are wrapped by requestGitHub, so
+    // only classify an unwrapped mapper TypeError at response boundaries.
+    if (status === undefined && response && (isForgeResponseError(error) || error instanceof TypeError)) {
       throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
