@@ -107,6 +107,17 @@ describe("webhook.response", () => {
     expect(await response.json()).toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
   })
 
+  it("keeps the JSON receipt when the response body is locked", async () => {
+    const response = new Response("ok")
+    response.body?.getReader()
+    const { enqueue, send } = await setup(deliveryId => ({ concurrencyLimit: 1, deliveryId, response }))
+
+    const result = await send("delivery-1")
+    expect(result.status).toBe(200)
+    expect(await result.json()).toEqual({ accepted: true, duplicate: false, ok: true, queued: true })
+    expect(enqueue).toHaveBeenCalledOnce()
+  })
+
   it("rejects a response that is not a Response", async () => {
     const { enqueue, run, send } = await setup(deliveryId => ({
       concurrencyLimit: 1,

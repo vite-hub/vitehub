@@ -12,7 +12,7 @@ async function withStore(run: (store: ReturnType<typeof createLibsqlAgentInvocat
   const url = `file:${join(directory, "invocations.sqlite")}`
   const client = createClient({ url })
   try {
-    await run(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }), url)
+    await run(createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false }), url)
   }
   finally {
     client.close()
@@ -31,7 +31,7 @@ it("applies concurrent updates to one invocation in order and persists all of th
     await store.update("run", { status: "completed", timestamp })
     const reopened = createClient({ url })
     try {
-      const restarted = createLibsqlAgentInvocationStore({ client: reopened, maxAgeMs: false, maxRecords: false })
+      const restarted = createLibsqlAgentInvocationStore({ client: reopened, maxAge: false, maxRecords: false })
       const saved = await restarted.get("run")
       expect(saved?.status).toBe("completed")
       expect(saved?.observations.map(observation => observation.name)).toEqual(Array.from({ length: 50 }, (_, index) => `step.${index}`))

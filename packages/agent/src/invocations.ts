@@ -230,14 +230,6 @@ export interface AgentInvocationStore {
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
 }
 
-/** Retention limits for terminal records. Pending and running records are never removed by retention. */
-export interface AgentInvocationRetentionOptions {
-  /** Maximum age of terminal records, measured from their last update. Set to false to disable age-based retention. */
-  maxAgeMs?: false | number
-  /** Maximum number of terminal records. Set to false to disable count-based retention. Stores may apply it periodically, so the count can briefly exceed it. */
-  maxRecords?: false | number
-}
-
 /** `not-terminal` means the record is pending or running and was kept. */
 export type AgentInvocationDeleteOutcome = "deleted" | "not-found" | "not-terminal"
 
@@ -260,6 +252,11 @@ export interface AgentInvocationPruneResult {
   dryRun: boolean
   /** Deleted record IDs, or the IDs a dry run selected. */
   ids: readonly string[]
+  /**
+   * Set when the store applies a maxSize limit. Bytes are the live data of the database, without free pages.
+   * `afterBytes` above `budgetBytes` means that only pending or running records remain to delete.
+   */
+  size?: { beforeBytes: number, afterBytes: number, budgetBytes: number }
 }
 
 export interface AgentInvocationObservationOptions {
