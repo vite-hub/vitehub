@@ -1468,8 +1468,8 @@ async function createAgent(
         }
         catch (error) {
           if (error instanceof ExecutionBudgetExceededError) {
-            // AI SDK may turn repair exceptions into tool errors; abort the run too.
-            context.executionBudget?.cancel(error)
+            // The budget aborts its shared signal when the limit is exceeded. Re-throw
+            // so AI SDK cannot turn the repair into a successful tool call.
             throw error
           }
           context.input.abortSignal?.throwIfAborted()
