@@ -2,7 +2,8 @@ import * as v from "valibot"
 
 import { accountFromIdToken } from "../account.ts"
 import { isSafeEndpoint } from "../api-key.ts"
-import { ConnectionError, isConnectionError } from "../errors.ts"
+import { isConnectionError } from "../errors.ts"
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { ConnectionAccount, ConnectionLoginDefinition, ConnectionLoginProvider, ConnectionValue } from "../types.ts"
 
@@ -134,7 +135,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     if (!issuer || !isSafeEndpoint(issuer)) {
-      throw new ConnectionError("provider", `Connection "${name}" found no authorization server for ${provider.mcp}.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
     }
     let server: v.InferOutput<typeof serverMetadataSchema> | undefined
     for (const url of serverMetadataUrls(issuer)) {
@@ -146,13 +147,13 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     if (!server) {
-      throw new ConnectionError("provider", `Connection "${name}" found no authorization server metadata for ${issuer}.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
     }
     let clientId = await resolveValue(provider.clientId)
     let clientSecret: string | undefined
     if (!clientId) {
       if (!server.registration_endpoint) {
-        throw new ConnectionError("invalid", `The authorization server of Connection "${name}" does not register clients. Set the provider \`clientId\`.`, { details: { connection: name } })
+        throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
       }
       const loopback = new URL(provider.redirectUri).protocol === "http:"
       const registration = v.safeParse(registrationSchema, await readJson(server.registration_endpoint, {
@@ -168,7 +169,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
         method: "POST",
       }))
       if (!registration.success) {
-        throw new ConnectionError("provider", `Connection "${name}" could not register a client at its authorization server.`, { details: { connection: name } })
+        throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
       }
       clientId = registration.output.client_id
       clientSecret = registration.output.client_secret
@@ -208,7 +209,10 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       if (!headers.has("cookie")) {
         const cookies = jar.filter(cookie => (!cookie.hostOnly ? (url.hostname === cookie.domain || url.hostname.endsWith(`.${cookie.domain}`)) : url.hostname === cookie.domain)
           && pathMatches(url.pathname || "/", cookie.path) && (!cookie.secure || url.protocol === "https:"))
-        if (cookies.length) headers.set("cookie", cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; "))
+        if (cookies.length) {
+          cookies.sort((left, right) => right.path.length - left.path.length)
+          headers.set("cookie", cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; "))
+        }
       }
       if (!headers.has("origin")) headers.set("origin", url.origin)
       const response = await request(url.toString(), { ...init, headers, redirect: init.redirect ?? "manual", signal: init.signal ?? signal })
@@ -223,16 +227,24 @@ export function createLoginSessions(options: { now: () => number, request: typeo
         let path = url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1) || "/"
         let secure = false
         let expiresAt: number | undefined
+        let maxAge: number | undefined
+        let invalidDomain = false
         for (const attribute of attributes) {
           const [rawName, ...rawValue] = attribute.trim().split("=")
           const name = rawName.toLowerCase()
           const attrValue = rawValue.join("=").trim()
-          if (name === "domain" && attrValue) { domain = attrValue.replace(/^\./, "").toLowerCase(); hostOnly = false }
+          if (name === "domain" && attrValue) {
+            const candidate = attrValue.replace(/^\./, "").toLowerCase()
+            if (url.hostname === candidate || url.hostname.endsWith(`.${candidate}`)) { domain = candidate; hostOnly = false }
+            else invalidDomain = true
+          }
           else if (name === "path" && attrValue.startsWith("/")) path = attrValue
           else if (name === "secure") secure = true
-          else if (name === "max-age" && /^-?\d+$/.test(attrValue)) expiresAt = nowMs + Number(attrValue) * 1000
-          else if (name === "expires") { const parsed = Date.parse(attrValue); if (!Number.isNaN(parsed)) expiresAt = parsed }
+          else if (name === "max-age" && /^-?\d+$/.test(attrValue)) maxAge = Number(attrValue)
+          else if (name === "expires" && maxAge === undefined) { const parsed = Date.parse(attrValue); if (!Number.isNaN(parsed)) expiresAt = parsed }
         }
+        if (maxAge !== undefined) expiresAt = nowMs + maxAge * 1000
+        if (invalidDomain) continue
         const existing = jar.findIndex(item => item.name === key && item.domain === domain && item.path === path)
         if (!value || expiresAt !== undefined && expiresAt <= nowMs) { if (existing >= 0) jar.splice(existing, 1) }
         else { const next = { name: key, value, domain, hostOnly, path, secure, ...(expiresAt === undefined ? {} : { expiresAt }) }; if (existing >= 0) jar[existing] = next; else jar.push(next) }
@@ -257,7 +269,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     const token = v.safeParse(tokenResponseSchema, body)
     if (!response.ok || !token.success) {
       const error = v.safeParse(v.object({ error: v.string() }), body)
-      throw new ConnectionError("provider", `Connection "${name}" could not get a token${error.success ? ` (${error.output.error.slice(0, 100)})` : ""}.`, { details: { connection: name, status: response.status } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: current.clientId, problem: "token-request", status: response.status })
     }
     return token.output
   }
@@ -290,7 +302,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     const secret = await credentials(provider)
-    if (secret === undefined) throw new ConnectionError("reauth_required", `Connection "${name}" has no login credentials.`, { details: { connection: name } })
+    if (secret === undefined) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name })
     const verifier = randomToken()
     const state = randomToken()
     const url = new URL(current.authorizationEndpoint)
@@ -312,7 +324,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     catch (error) {
       // A login failure message could contain the credentials, so only Connection errors pass through.
       if (isConnectionError(error)) throw error
-      throw new ConnectionError("provider", `The login of Connection "${name}" failed.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
     }
     let callback: URL | undefined
     try {
@@ -321,13 +333,13 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     catch {}
     const redirect = new URL(provider.redirectUri)
     if (!callback || callback.origin !== redirect.origin || callback.pathname !== redirect.pathname) {
-      throw new ConnectionError("provider", `The login of Connection "${name}" must return the URL that the provider redirects to ${provider.redirectUri}.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
     }
     const error = callback.searchParams.get("error")
-    if (error) throw new ConnectionError("provider", `Provider "${provider.id}" rejected the login of Connection "${name}" (${error.slice(0, 100)}).`, { details: { connection: name } })
+    if (error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request", message: error.slice(0, 100) })
     const code = callback.searchParams.get("code")
     if (!code || callback.searchParams.get("state") !== state) {
-      throw new ConnectionError("provider", `The login of Connection "${name}" returned no authorization code for this request.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
     }
     return toToken(definition, await tokenRequest(name, current, { code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: provider.redirectUri }, signal))
   }

@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { readColocatedAgentSkills } from "@vite-hub/agent/vite"
+import { normalizeRetention, readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleJournal } from "../storage-config.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -14,14 +14,26 @@ import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
+import { consoleD1MaxSizeError } from "./retention.ts"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-function renderRetentionLimit(value: number | false | undefined): string {
-  if (value === undefined) return "undefined"
-  if (Number.isNaN(value)) return "NaN"
-  if (value === Number.POSITIVE_INFINITY) return "Infinity"
-  if (value === Number.NEGATIVE_INFINITY) return "-Infinity"
-  // Keep invalid non-serializable limits subject to runtime validation.
-  return JSON.stringify(value) ?? "null"
+function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPolicy]): string {
+  return value === undefined ? "undefined" : JSON.stringify(value)
+}
+
+/**
+ * Validates `console.retention` before code generation. The libSQL journal accepts every limit.
+ * The D1 journal rejects maxSize, because D1 reports the size of the whole app database.
+ */
+export function assertConsoleRetention(retention: AgentRetentionPolicy | undefined, journal: ConsoleJournal | undefined): void {
+  if (retention === undefined) return
+  const { maxSize } = normalizeRetention(retention, {
+    label: "console.retention",
+    defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
+    size: "any",
+    error: message => viteHubErrorDiagnostics.VITE_HUB_B0015({ message: `[vitehub] ${message}` }),
+  })
+  if (maxSize !== false && journal && "d1Binding" in journal) throw consoleD1MaxSizeError()
 }
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
@@ -89,9 +101,10 @@ function renderConsoleNitroPlugin(
   observations?: AgentInvocationsOptions["observations"],
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
 ): string {
+  assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
@@ -196,7 +209,7 @@ export async function writeConsoleNitroPlugin(
   active: () => boolean = () => true,
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
