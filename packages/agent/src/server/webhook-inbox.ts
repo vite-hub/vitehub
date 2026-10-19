@@ -143,12 +143,14 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   try {
     const previous = await state.get(key)
     const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
-    await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
     if (!previous) {
-      await state.appendToList(webhookInboxIndexKey(keyPrefix), { id: entry.id, receivedAt: entry.receivedAt }, {
+      // Keep a complete copy in the replay index. If the process stops between the
+      // row and index writes, replay can still recover the stored request.
+      await state.appendToList(webhookInboxIndexKey(keyPrefix), { ...entry, attempts } satisfies StoredWebhookInboxEntry, {
         ttlMs: webhookInboxRetentionMs,
       })
     }
+    await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
     return {
       attempts,
       id: entry.id,
@@ -268,7 +270,8 @@ export async function replayWebhookInbox(
       if (!isRecord(indexed) || !isRuntimeString(indexed.id) || seen.has(indexed.id)) continue
       seen.add(indexed.id)
       const key = webhookInboxKey(keyPrefix, indexed.id)
-      const stored = await state.get(key)
+      const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
+      const stored = await state.get(key) || indexedEntry
       if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
       const fields = { attempts: stored.attempts, deliveryScope: keyPrefix, inboxId: stored.id }
       if (stored.attempts >= webhookInboxMaxAttempts) {
@@ -278,9 +281,6 @@ export async function replayWebhookInbox(
       }
       logWebhookInbox("inbox.replaying", { ...fields, receivedAt: stored.receivedAt })
       try {
-        // A previous process may have crashed while holding the admission lock. Startup replay
-        // owns recovery, so take over that lock before sending the request through the route.
-        await state.forceReleaseLock(`${key}:admission`)
         const response = await route(new Request(stored.request.url, {
           body: stored.request.body || undefined,
           headers: stored.request.headers,
