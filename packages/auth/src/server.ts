@@ -34,6 +34,8 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
 const intrinsicUint8ArrayConstructor = Uint8Array
 const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+const intrinsicPromiseThen = Promise.prototype.then
+const intrinsicPromiseConstructor = Promise
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
@@ -316,17 +318,127 @@ function isRuntimeResponse(value: unknown): value is Response {
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
-): Promise<Response | undefined> {
-  // Inspect direct values before awaiting so a Response carrying an own `then`
-  // property is not assimilated as a thenable before normalization.
-  const returned: unknown = authorize(context)
-  const direct = await normalizeAuthorizationResponse(returned)
-  if (direct) return direct
-  const result: unknown = await returned
-  if (result === true) return
-  const normalized = await normalizeAuthorizationResponse(result)
-  if (normalized) return normalized
-  return createForbiddenResponse(context.request)
+
+): Promise<{ response?: Response }> {
+  const result = authorize(context)
+  const directResponse = await normalizeAuthorizationResponse(result)
+  if (directResponse) return { response: directResponse }
+
+  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+    const settle = async (resolved: unknown): Promise<{ response?: Response }> => {
+      const response = await normalizeAuthorizationResponse(resolved)
+      if (response) return { response }
+      if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+      return {}
+    }
+    let branded = false
+    const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+      const attach = () => Reflect.apply(intrinsicPromiseThen, result, [
+        (resolved: unknown) => { void settle(resolved).then(resolve, reject) }, reject,
+      ])
+      try {
+        attach()
+        branded = true
+      }
+      catch (error) {
+        // A throwing species can prevent reaction installation. Retry with a
+        // native constructor where the instance permits temporary replacement.
+        let owner: object | undefined
+        let descriptor: PropertyDescriptor | undefined
+        let current: object | null = result
+        while (current) {
+          const candidate = Object.getOwnPropertyDescriptor(current, "constructor")
+          if (candidate) { owner = current; descriptor = candidate; break }
+          current = Object.getPrototypeOf(current)
+        }
+        try {
+          if (!descriptor || descriptor.configurable) {
+            Object.defineProperty(owner ?? result, "constructor", { configurable: true, value: Promise })
+            try { attach(); branded = true }
+            finally {
+              if (descriptor) Object.defineProperty(owner!, "constructor", descriptor)
+              else Reflect.deleteProperty(owner ?? result, "constructor")
+            }
+          }
+          else {
+            const constructor = Reflect.get(result, "constructor")
+            const species = constructor !== null && (typeof constructor === "object" || typeof constructor === "function")
+              ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
+              : undefined
+            if (!species?.configurable) throw error
+            Object.defineProperty(constructor, Symbol.species, { configurable: true, value: Promise })
+            try { attach(); branded = true }
+            finally { Object.defineProperty(constructor, Symbol.species, species) }
+          }
+        }
+        catch {
+          // A native promise resolver performs adoption and observes the source;
+          // keep this branded value out of the reflective thenable path without
+          // dispatching through the mutable Promise.resolve static method.
+          branded = true
+          // Promise resolution performs another observable `then` lookup. If
+          // the value has an own override, mask it while creating the native
+          // adoption promise so the fallback cannot dispatch that override.
+          const ownThen = Object.getOwnPropertyDescriptor(result, "then")
+          let masked = false
+          let maskDescriptor: PropertyDescriptor | undefined
+          if (!ownThen || ownThen.configurable || ("value" in ownThen && ownThen.writable)) {
+            try {
+              Object.defineProperty(result, "then", {
+                configurable: ownThen?.configurable ?? true,
+                enumerable: ownThen?.enumerable ?? false,
+                value: intrinsicPromiseThen,
+                writable: ownThen?.writable ?? true,
+              })
+              masked = true
+              maskDescriptor = ownThen
+            }
+            catch {
+              // Frozen instances cannot be masked; leave the native resolver
+              // to report the source settlement or its unavoidable override.
+            }
+          }
+          let nativeAdopted: Promise<unknown>
+          try {
+            nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
+          }
+          finally {
+            if (masked) {
+              if (maskDescriptor) Object.defineProperty(result, "then", maskDescriptor)
+              else Reflect.deleteProperty(result, "then")
+            }
+          }
+          void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
+            (value: unknown) => { void settle(value).then(resolve, reject) }, reject,
+          ])
+        }
+      }
+    })
+    if (branded) return adopted
+  }
+
+  let thenMethod: unknown
+  try {
+    thenMethod = result !== null && (typeof result === "object" || typeof result === "function")
+      ? Reflect.get(result, "then")
+      : undefined
+  }
+  catch (error) {
+    return Promise.reject(error)
+  }
+  if (typeof thenMethod !== "function") return { response: result !== true ? createForbiddenResponse(context.request) : undefined }
+  const assimilated = new Promise<unknown>((resolve, reject) => {
+    queueMicrotask(() => {
+      try { Reflect.apply(thenMethod, result, [resolve, reject]) }
+      catch (error) { reject(error) }
+    })
+  })
+  return assimilated.then(async resolved => {
+    const response = await normalizeAuthorizationResponse(resolved)
+    if (response) return { response }
+    if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+    return {}
+  })
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -1013,7 +1125,7 @@ async function checkAuthRequest(
       }
       if (!authorize) continue
       const rejection = await runAccessAuthorize(authorize, authorization)
-      if (rejection) return reject(rejection)
+      if (rejection.response) return reject(rejection.response)
     }
     return { authorization }
   }
@@ -1049,7 +1161,7 @@ async function checkAuthorizeRequest(
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
-  return rejection ? reject(rejection) : { authorization }
+  return rejection.response ? reject(rejection.response) : { authorization }
 }
 
 /**
