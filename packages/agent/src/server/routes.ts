@@ -753,8 +753,9 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
+  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
+  if (registration.secretToken !== undefined) return secret !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
@@ -8927,10 +8928,26 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       routeAgentIdentity(handlerOptions),
     )
     await runWithRuntimeCloudflareEnv(context, async () => {
+      const connectedStates = new Set<StateAdapter>()
       for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
         await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")
         const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
-        if (webhookState && hasAgentWebhookQueue(webhookState.state)) await resolveWebhookStateBackendId(webhookState.state)
+        if (webhookState) {
+          await webhookState.state.connect()
+          connectedStates.add(webhookState.state)
+          if (hasAgentWebhookQueue(webhookState.state)) await resolveWebhookStateBackendId(webhookState.state)
+        }
+        const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
+        const chatState = await resolveChatState(chatOptions, context, registration, handlerOptions)
+        if (!connectedStates.has(chatState.state)) {
+          await chatState.state.connect()
+          connectedStates.add(chatState.state)
+        }
+        const workflowChatState = await resolveChatState(chatOptions, context, registration, {})
+        if (!connectedStates.has(workflowChatState.state)) {
+          await workflowChatState.state.connect()
+          connectedStates.add(workflowChatState.state)
+        }
       }
     })
   }
