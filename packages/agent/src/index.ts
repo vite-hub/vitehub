@@ -4472,11 +4472,7 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  }),
+  executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -8414,6 +8410,7 @@ async function executeAgentInvocation<
     ...input,
     ...(executionBudget ? { abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal } : {}),
   }
+  copyAgentInvocationCallerAbortSignal(inputBeforeBudgetSignal, input)
   transferParsedAgentWorkflowInput(inputBeforeBudgetSignal, input)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
