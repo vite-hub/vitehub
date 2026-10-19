@@ -454,7 +454,6 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         devDependencies: Object.fromEntries([
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
-          ...(specs["@vite-hub/forge"] ? ["@vite-hub/forge"] : []),
           ...workspaceDependencies,
         ].map(name => {
           // SAFETY: requiredPeerVersions covers every required peer not packed by this contract.

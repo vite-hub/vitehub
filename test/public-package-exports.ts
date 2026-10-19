@@ -27,6 +27,7 @@ type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
+  ["@vite-hub/agent/cli", { "vite": "both" }],
   ["@vite-hub/agent/observability", { "evlog": "both" }],
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
