@@ -15,7 +15,7 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
-import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderContributionImport } from "./internal/generated.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
@@ -335,6 +335,7 @@ async function installNitroLocalDatabaseRuntime(
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
+    await removeGeneratedDatabaseTypes(root)
     if (alias && existingAlias === file) {
       delete alias[databaseDrizzleImport]
       if (!Object.keys(alias).length) delete config.alias
