@@ -427,6 +427,17 @@ State, instructions, and criteria accept JSON values. Root numbers and booleans 
 
 `driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
 
+Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
+
+| Observation | Attributes |
+| --- | --- |
+| `agent.tool.start` | `tool.input`: the question sent to Jev |
+| `agent.tool.finish` | `tool.output`: the answer. `ask.answer`: the label, score, chance, or boolean. `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs` |
+| `agent.tool.error` | `tool.error`, `error.status`, `error.requestId` for each question of a failed request |
+| `agent.usage.recorded` | One per Jev request: `usage.model`, `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`, `ask.durationMs` |
+
+The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`, `ask.batch.index`, `ask.batch.count`, and `ask.batch.size`. The shared state is `input.data` (or the prompt) on `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`. A metadata-only journal keeps `tool.input`, `tool.output`, `input.data`, and `result.output` only when `metadataContent` lists them; the Console journal lists them. No credentials or request headers are recorded.
+
 ### Provider exit evidence
 
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the temporary working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.

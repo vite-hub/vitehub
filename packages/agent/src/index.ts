@@ -130,10 +130,13 @@ import {
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentChannelDeliveryReminder,
+  traceAgentEvent,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
+import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope } from "./internal/invocation-scope.ts"
+import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
   resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
@@ -5062,8 +5065,9 @@ async function createAgentInvocationContext<
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
     capabilityPreparationPending = false
     await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
+    const parentAttributes = await linkAgentInvocationParent(invocation)
     await traceAgentInvocationStart(toTraceContext(invocation), replayInput, replayHasContext,
-      capabilities.input.abortSignal !== input.abortSignal ? true : replayCallerAbortSignal)
+      capabilities.input.abortSignal !== input.abortSignal ? true : replayCallerAbortSignal, parentAttributes)
     try {
       await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     }
@@ -5186,6 +5190,89 @@ function toTraceContext<
     run: context.run,
     runtime: context.runtimeContext,
   }
+}
+
+/** The scope in which an Invocation runs its Driver and outcome hooks. An Invocation started in it becomes a child. */
+function agentInvocationScope<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AgentInvocationScope {
+  const journal = invocation.invocationJournal
+  return {
+    ...(invocation.telemetryAgent.name ? { agentName: invocation.telemetryAgent.name } : {}),
+    ...(journal
+      ? {
+          journal: {
+            id: journal.id,
+            // The trace ID before the journal derives the stored ID from it, so a child derives the same stored ID.
+            get traceId() { return journal.context.trace?.id },
+          },
+        }
+      : {}),
+    ...(invocation.run?.runId ? { runId: invocation.run.runId } : {}),
+    trace: async event => await traceAgentEvent(toTraceContext(invocation), event),
+  }
+}
+
+const agentInvocationParents = new WeakMap<object, AgentInvocationScope>()
+
+/**
+ * Links an Invocation to the one whose Driver or outcome hook started it. The parent records
+ * `agent.invocation.child.start`, and the returned `agent.invocation.parent.*` attributes go on the child's
+ * `agent.invocation.start`.
+ */
+async function linkAgentInvocationParent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<Record<string, string>> {
+  const parent = activeAgentInvocationScope()
+  if (!parent) return {}
+  agentInvocationParents.set(invocation, parent)
+  await parent.trace({
+    attributes: {
+      ...agentInvocationLinkAttributes(agentInvocationScope(invocation), "agent.invocation.child"),
+      "gen_ai.operation.name": "invoke_agent",
+      ...(invocation.telemetryAgent.name ? { "gen_ai.agent.name": invocation.telemetryAgent.name } : {}),
+    },
+    name: "agent.invocation.child.start",
+    type: "run",
+  })
+  return agentInvocationLinkAttributes(parent, "agent.invocation.parent")
+}
+
+/** Records the outcome of a child Invocation on its parent as `agent.invocation.child.finish`. */
+async function traceAgentInvocationChildFinish<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  status: "cancelled" | "completed" | "failed",
+  durationMs: number,
+  error?: unknown,
+): Promise<void> {
+  const parent = agentInvocationParents.get(invocation)
+  if (!parent) return
+  await parent.trace({
+    attributes: {
+      ...agentInvocationLinkAttributes(agentInvocationScope(invocation), "agent.invocation.child"),
+      "agent.invocation.child.durationMs": durationMs,
+      "agent.invocation.child.status": status,
+      ...(error !== undefined ? { "error.message": agentErrorMessage(error) } : {}),
+      "gen_ai.operation.name": "invoke_agent",
+      ...(invocation.telemetryAgent.name ? { "gen_ai.agent.name": invocation.telemetryAgent.name } : {}),
+    },
+    name: "agent.invocation.child.finish",
+    type: status === "failed" ? "error" : "run",
+  })
+}
+
+/** A structured result that `result.text` cannot carry, such as `driver.ask` answers: a plain object or an array. */
+function agentStructuredResult(result: unknown, text: string | undefined): unknown {
+  if (text !== undefined || result === undefined) return undefined
+  if (Array.isArray(result)) return result
+  if (!isRuntimeRecord(result)) return undefined
+  const prototype: unknown = Object.getPrototypeOf(result)
+  return prototype === Object.prototype || prototype === null ? result : undefined
 }
 
 
@@ -6791,11 +6878,12 @@ async function finishAgentInvocation<
             owner: "agent",
             phase: failed ? "error" : "finish",
           }, async () => {
-            outcomeHookResult = failed
+            // An Invocation that the hook starts, such as `runAgent()` in `agent:finish`, becomes a child of this one.
+            outcomeHookResult = await runInAgentInvocationScope(agentInvocationScope(context), async () => failed
               // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
               ? await outcomeHook?.(await createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
               // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-              : await outcomeHook?.(await createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
+              : await outcomeHook?.(await createAgentFinishHookEvent(hookFinishEvent, hookContext) as never))
           })
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
@@ -6827,6 +6915,7 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         ...(context.intercepted ? { "agent.intercepted": true, "result.output": context.intercepted.value } : {}),
+        ...(!context.intercepted && agentStructuredResult(result, text) !== undefined ? { "result.output": result } : {}),
         "result.hasValue": result !== undefined,
         "result.text": text,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
@@ -6837,6 +6926,7 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
+    await traceAgentInvocationChildFinish(context, status, durationMs, failed ? error : undefined)
     await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
@@ -6856,6 +6946,7 @@ async function finishAgentInvocation<
     if (status === "cancelled") {
       await traceAgentInvocationCancelled(toTraceContext(context))
     }
+    await traceAgentInvocationChildFinish(context, status, durationMs, failed ? error : finishError)
     await context.activity?.update(status, failed ? error : finishError)
     await context.invocationJournal?.finish(status, failed ? error : finishError)
     if (closeError !== undefined && !throwingCloseError) {
@@ -7227,8 +7318,10 @@ async function executeAgentInvocationWithCapacityLease<
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
       throw new Error("Could not persist the Invocation running state.")
     }
+    // An Invocation that the Driver starts with `runAgent()` becomes a child of this one.
+    const scope = agentInvocationScope(invocation)
     if (customRun) {
-      result = await agent.run(invocation)
+      result = await runInAgentInvocationScope(scope, () => agent.run(invocation))
     }
     else if (options.kind === "stream"
       && adapter?.stream
@@ -7236,12 +7329,14 @@ async function executeAgentInvocationWithCapacityLease<
         invocation.context.get(finalChannelOutputContextKey) !== true
         || invocation.context.get(progressSummaryOutputContextKey) === true
       )) {
+      const stream = adapter.stream.bind(adapter)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      result = await adapter.stream(adapterContext as never)
+      result = await runInAgentInvocationScope(scope, () => stream(adapterContext as never))
     }
     else {
+      const generate = adapter!.generate.bind(adapter)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      result = await adapter!.generate(adapterContext as never)
+      result = await runInAgentInvocationScope(scope, () => generate(adapterContext as never))
     }
   }
   catch (error) {
@@ -7273,7 +7368,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.messages = reminderTranscript
             invocation.prompt = undefined
             try {
-              result = await agent.run(invocation)
+              result = await runInAgentInvocationScope(agentInvocationScope(invocation), () => agent.run(invocation))
             }
             finally {
               invocation.input = original.input
@@ -7287,7 +7382,7 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.messages = reminderTranscript
             reminderContext.prompt = undefined
             if (options.kind === "run" && !options.renderOutput) reminderContext.nativeStructuredOutput = false
-            result = await adapter!.generate(reminderContext as never)
+            result = await runInAgentInvocationScope(agentInvocationScope(invocation), () => adapter!.generate(reminderContext as never))
           }
         }
       }
@@ -7328,7 +7423,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.input = reminderInput
             invocation.messages = reminderTranscript
             invocation.prompt = undefined
-            try { nextResult = await agent.run(invocation) }
+            try { nextResult = await runInAgentInvocationScope(agentInvocationScope(invocation), () => agent.run(invocation)) }
             finally { invocation.input = original.input; invocation.messages = original.messages; invocation.prompt = original.prompt }
           }
           else {
@@ -7336,7 +7431,7 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.input = reminderInput
             reminderContext.messages = reminderTranscript
             reminderContext.prompt = undefined
-            nextResult = await adapter!.generate(reminderContext as never)
+            nextResult = await runInAgentInvocationScope(agentInvocationScope(invocation), () => adapter!.generate(reminderContext as never))
           }
           const settled = await settleDeliveryReminderResult(nextResult, customRun, invocation)
           if (settled) {
