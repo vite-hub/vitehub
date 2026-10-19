@@ -130,18 +130,19 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
   }
-  const requestHeaders = event.req?.headers ?? event.headers
-  const iterableHeaders = requestHeaders as (ConsoleHeaders & { [Symbol.iterator]?: () => IterableIterator<[string, string]> }) | undefined
-  const iterate = iterableHeaders?.[Symbol.iterator]
-  if (iterate instanceof Function) {
-    for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
-  }
-  else if (requestHeaders) {
-    // ConsoleHeaders intentionally guarantees get() without requiring iteration.
-    // Preserve the request headers used by Auth and Console routing for that shape.
-    for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
-      const value = requestHeaders.get(name)
-      if (value !== null) headers.set(name, value)
+  // `req.headers` takes precedence over the event-level headers, which in turn
+  // take precedence over Node's request headers (the latter were copied first).
+  for (const requestHeaders of [event.headers, event.req?.headers]) {
+    const iterableHeaders = requestHeaders as (ConsoleHeaders & { [Symbol.iterator]?: () => IterableIterator<[string, string]> }) | undefined
+    const iterate = iterableHeaders?.[Symbol.iterator]
+    if (iterate instanceof Function) {
+      for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
+    }
+    else if (requestHeaders) {
+      for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
+        const value = requestHeaders.get(name)
+        if (value !== null) headers.set(name, value)
+      }
     }
   }
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })

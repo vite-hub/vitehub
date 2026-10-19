@@ -116,6 +116,7 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
 }
 
 function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
+  const callbackReceiver = options
   // Runtime options are part of the public Source configuration contract and
   // must not be inherited from an options object's prototype.
   options = normalizeFetchSourceOptions(options)
@@ -156,7 +157,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
       if (sourcePath !== key) {
         throw workspaceErrorDiagnostics.WORKSPACE_R0047({ message: `[vitehub] Fetch source item does not exist: ${sourcePath}.` })
       }
-      const request = await defaultFetchSourceRequest(options, method, ctx)
+      const request = await defaultFetchSourceRequest(options, method, ctx, undefined, callbackReceiver)
       const result = await executeHttpRequest({
         ...request,
         method,
@@ -166,7 +167,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
         signal: ctx.abortSignal,
       })
       const transformed = options.transform
-        ? await Reflect.apply(options.transform, options, [result.data as TResponse])
+        ? await Reflect.apply(options.transform, callbackReceiver, [result.data as TResponse])
         : result.data
       return {
         key,
@@ -191,8 +192,8 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
         },
       }
     },
-  }, descriptor, { requestOnly: !workspacePath }), async (input, ctx) => {
-    return await executeFetchSourceRequest(options, method, responseType, input, ctx)
+    }, descriptor, { requestOnly: !workspacePath }), async (input, ctx) => {
+    return await executeFetchSourceRequest(options, method, responseType, input, ctx, callbackReceiver)
   })
 
   return workspacePath ? markLiveWorkspaceSource(source, { [workspacePath]: key }) : source
@@ -350,6 +351,7 @@ async function defaultFetchSourceRequest(
   method: FetchSourceMethod,
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
+  callbackReceiver: FetchSourceOptions<any, any> = options,
 ) {
   const defaultQuery = overrides.query !== undefined
     ? undefined
@@ -365,7 +367,7 @@ async function defaultFetchSourceRequest(
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
   const additions = typeof options.request === "function"
-    ? await Reflect.apply(options.request, options, [context])
+    ? await Reflect.apply(options.request, callbackReceiver, [context])
     : options.request
   return {
     body,
@@ -415,6 +417,7 @@ async function executeFetchSourceRequest(
   responseType: FetchSourceResponseType,
   input: WorkspaceSourceRequestExecutionInput,
   ctx: SourceContext,
+  callbackReceiver: FetchSourceOptions<any, any> = options,
 ): Promise<WorkspaceSourceRequestExecutionResult> {
   if (input.method !== method) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0055({ message: `[vitehub] Source request method ${input.method} does not match declared method ${method}.` })
@@ -422,7 +425,7 @@ async function executeFetchSourceRequest(
 
   const query = await validateFetchRequestQuery(options, input.url)
   const body = await validateFetchRequestBody(options, input.body)
-  const request = await defaultFetchSourceRequest(options, method, ctx, { body, query })
+  const request = await defaultFetchSourceRequest(options, method, ctx, { body, query }, callbackReceiver)
   const result = await executeHttpRequest({
     ...request,
     method,
@@ -432,7 +435,7 @@ async function executeFetchSourceRequest(
     signal: ctx.abortSignal,
   })
   const transformed = options.transform
-    ? await Reflect.apply(options.transform, options, [result.data])
+    ? await Reflect.apply(options.transform, callbackReceiver, [result.data])
     : result.data
 
   return {
