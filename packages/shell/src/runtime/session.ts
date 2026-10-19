@@ -13,7 +13,7 @@ import type {
 } from "./types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
-function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
+export function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
   if (maxLength === undefined) return result
   maxLength = Math.max(0, maxLength)
   const next = { ...result, maxOutputLength: maxLength }

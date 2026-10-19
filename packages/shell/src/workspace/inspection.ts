@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 
 import { createJustBashProvider } from "../providers/just-bash.ts"
-import { createShellRuntime } from "../runtime/session.ts"
+import { applyOutputLimit, createShellRuntime } from "../runtime/session.ts"
 import { analyzeWorkspaceInspectionCommand } from "./command-analysis.ts"
 import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
@@ -39,9 +39,9 @@ export async function runWorkspaceInspectionCommand(
     if (broad) return broad
     return await preflightMissingWorkspacePath(command, options.fs, options.cwd, signal)
   }, command, options.cwd)
-  if (preflight) return preflight
+  if (preflight) return applyOutputLimit(preflight, maxOutputLength)
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
-  if (pipedBroadSearch) return pipedBroadSearch
+  if (pipedBroadSearch) return applyOutputLimit(pipedBroadSearch, maxOutputLength)
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
   if (unsupported) return unsupported
   const runtime = createShellRuntime({
@@ -60,7 +60,9 @@ export async function runWorkspaceInspectionCommand(
   const result = await runtime.exec(command, { budget: options.budget, cwd, timeout, workspacePaths: workspaceSessionPaths(command, cwd) })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+  return noMatchFeedback
+    ? applyOutputLimit({ ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } }, maxOutputLength)
+    : result
 }
 
 async function withInspectionTimeout(timeout: number, run: (signal: AbortSignal) => Promise<ShellObservation | undefined>, command: string, cwd?: string) {
