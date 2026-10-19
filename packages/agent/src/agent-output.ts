@@ -1185,7 +1185,18 @@ function isResponseLike(value: unknown): value is Response {
       // accepted; the host realm's intrinsic rejects those streams.
       const reader = streamReader.call(body)
       if (!isRuntimeObject(reader)) return false
-      const releaseLock = (reader as { releaseLock?: unknown }).releaseLock
+      let releaseLock: unknown
+      let readerPrototype: object | null = reader
+      const visitedReaderPrototypes = new Set<object>()
+      for (let hop = 0; readerPrototype && hop < maxResponsePrototypeHops && !visitedReaderPrototypes.has(readerPrototype); hop++) {
+        visitedReaderPrototypes.add(readerPrototype)
+        const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+        if (descriptor) {
+          releaseLock = descriptor.value
+          break
+        }
+        readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
+      }
       if (!hasRuntimeType(releaseLock, "function")) return false
       ;(releaseLock as (this: object) => void).call(reader)
     }
