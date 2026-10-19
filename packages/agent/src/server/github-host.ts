@@ -188,6 +188,86 @@ function owner(repository: string): string {
   return repository.split("/", 1)[0]!.toLowerCase()
 }
 
+function rateLimitMessage(error: unknown): boolean {
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
+  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
+  return /(?:rate limit[^\n]*exceeded|exceeded[^\n]*rate limit)/i.test(message)
+}
+
+function secondaryRateLimitMessage(error: unknown): boolean {
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
+  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
+  return /secondary rate limit/i.test(message)
+}
+
+function isGraphQLCommand(args: string[]): boolean {
+  if (args[0] !== "api") return false
+  const optionsWithValues = new Set([
+    "--cache", "--field", "--header", "--hostname", "--input", "--jq", "--method", "--preview", "--raw-field", "--template",
+    "-F", "-H", "-X", "-f", "-p", "-q", "-t",
+  ])
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (optionsWithValues.has(argument)) {
+      index += 1
+      continue
+    }
+    if (argument.startsWith("-")) continue
+    return argument === "graphql"
+  }
+  return false
+}
+
+/** A failure that the same request can fix on retry: an HTML gateway page instead of JSON, an HTTP 5xx or a dropped connection. */
+function transientGitHubFailure(error: unknown): boolean {
+  if (rateLimitMessage(error)) return false
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
+  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
+  return /invalid character '<'|HTTP 5\d\d|\b50[234]\b|bad gateway|service unavailable|gateway time-?out|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|connection reset|TLS connection|i\/o timeout|unexpected EOF/i.test(message)
+}
+
+/** `gh api <path>` without a method, fields or input is a REST read, so a retry cannot repeat a write. */
+function isRestRead(args: string[]): boolean {
+  if (args[0] !== "api" || isGraphQLCommand(args)) return false
+  let method: string | undefined
+  let hasWriteArguments = false
+  let hasInput = false
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (argument === "-X" || argument === "--method") {
+      method = args[++index]?.toUpperCase()
+      if (method !== "GET") return false
+      continue
+    }
+    if (/^(?:-X|--method)=/i.test(argument)) {
+      method = argument.slice(argument.indexOf("=") + 1).toUpperCase()
+      if (method !== "GET") return false
+      continue
+    }
+    if (/^(?:--input)(?:=|$)/.test(argument)) hasInput = true
+    if (/^(?:-f|-F|--field|--raw-field)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
+      hasWriteArguments = true
+    }
+  }
+  return method === "GET" ? !hasInput : !hasInput && !hasWriteArguments
+}
+
+const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
+
+async function retryTransient<T>(run: () => Promise<T>, signal: AbortSignal, retry: boolean): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run()
+    }
+    catch (error) {
+      const delay = TRANSIENT_RETRY_DELAYS_MS[attempt]
+      if (!retry || delay === undefined || signal.aborted || !transientGitHubFailure(error)) throw error
+      await sleep(delay, undefined, { signal })
+    }
+  }
+}
+
+
 function abortError(reason?: unknown): Error {
   if (reason instanceof Error) return reason
   return new DOMException("The operation was aborted.", "AbortError")

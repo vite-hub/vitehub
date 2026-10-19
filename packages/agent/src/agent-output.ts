@@ -424,11 +424,11 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   const timestamp = response ? readableRecordValue(response, "timestamp") : undefined
   const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
-  return {
-    ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(id !== undefined ? { id } : {}),
-    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
-  }
+  const output: NonNullable<AgentUsageRecord["response"]> = {}
+  if (finishReason !== undefined) output.finishReason = finishReason
+  if (id !== undefined) output.id = id
+  if (isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) output.timestamp = timestamp
+  return output
 }
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
@@ -556,7 +556,6 @@ function withFallbackUsageMetadata(
   if (calls !== undefined) result.calls = calls
   if (raw !== undefined) result.raw = raw
   return result
-
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
