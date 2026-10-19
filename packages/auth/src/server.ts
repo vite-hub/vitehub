@@ -190,12 +190,9 @@ function toRequest(request: AuthRequest): Request {
   const init: RequestInitWithDuplex = {
     method: request.method,
   }
-  try {
-    init.headers = new Headers(request.headers as HeadersInit)
-  }
-  catch {
-    init.headers = new Headers()
-  }
+  // Preserve conversion failures instead of silently dropping authentication
+  // headers such as cookies, authorization, or content type.
+  init.headers = new Headers(request.headers as HeadersInit)
   if (request.signal instanceof AbortSignal) init.signal = request.signal
   if (request.body) {
     init.body = request.body
