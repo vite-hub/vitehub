@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition";
 import { betterAuth } from "better-auth";
+import { Request as UndiciRequest } from "undici";
 import { resolveAuthMountPath } from "./application-path.ts";
 import { normalizeAuthBasePath } from "./shared.ts";
 import { unwrapAuthRequest } from "./request.ts";
@@ -139,6 +140,10 @@ function isRequestLike(value: AuthRequest): value is Request {
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
+            // Undici keeps its request state in private fields. Its exported
+            // constructor provides the non-forgeable brand that structural
+            // symbol checks cannot establish.
+            if (value instanceof UndiciRequest) return true
             // A caller can manufacture an accessor that throws a convincing
             // cross-realm TypeError for both probe receivers. Do not treat
             // that exception alone as a Request brand. Undici exposes a
