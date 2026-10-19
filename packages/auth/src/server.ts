@@ -291,6 +291,11 @@ function reject(response: Response): AuthCheck {
 }
 
 const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+// Capture promise intrinsics before invoking authorization code. The callback
+// may mutate the global Promise prototype or constructor while it runs.
+const nativePromiseConstructor = Promise
+const nativePromiseThen = Promise.prototype.then
+const nativePromiseResolve = Promise.resolve
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -338,14 +343,15 @@ async function runAccessAuthorize(
   if (directResult !== null && (typeof directResult === "object" || typeof directResult === "function")) {
     let adopted: Promise<unknown> | undefined
     try {
-      adopted = new Promise((resolve, reject) => {
-        Reflect.apply(Promise.prototype.then, directResult, [resolve, reject])
+      adopted = new nativePromiseConstructor((resolve, reject) => {
+        Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
       })
     }
     catch {
       adopted = undefined
     }
-    result = adopted ? await adopted : await directResult
+    if (adopted) result = await adopted
+    else result = Reflect.apply(nativePromiseResolve, nativePromiseConstructor, [directResult])
   }
   else result = await directResult
   const response = await normalizeAuthorizationResponse(result)
@@ -610,8 +616,26 @@ function getTrustedAuthorizationReaderRelease(
               const freshCancel = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "cancel")?.value
               const freshRelease = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "releaseLock")?.value
               if (freshClosed === closed && freshRead === read && freshCancel === cancel && freshRelease === releaseLock) {
-                if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
-                return releaseLock
+                if (typeof freshRelease === "function") {
+                  Reflect.apply(freshRelease, freshReader, [])
+                  // A fabricated reader can copy the method identities while
+                  // making releaseLock a no-op. Prove the operation changed
+                  // the source stream's own lock state before retaining it.
+                  let lockedGetter: Function | undefined
+                  let lockedPrototype: object | null = Object.getPrototypeOf(freshBody)
+                  const seenLocked = new Set<object>()
+                  for (let lockedDepth = 0; lockedPrototype && lockedDepth < authorizationResponsePrototypeLimit; lockedDepth++) {
+                    if (seenLocked.has(lockedPrototype)) break
+                    seenLocked.add(lockedPrototype)
+                    const candidate = Object.getOwnPropertyDescriptor(lockedPrototype, "locked")?.get
+                    if (typeof candidate === "function") {
+                      lockedGetter = candidate
+                      break
+                    }
+                    lockedPrototype = Object.getPrototypeOf(lockedPrototype)
+                  }
+                  if (lockedGetter && Reflect.apply(lockedGetter, freshBody, []) === false) return releaseLock
+                }
               }
               if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
             }
