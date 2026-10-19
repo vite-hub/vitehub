@@ -24,7 +24,7 @@ it.each(["oauth2", "api-key"] as const)("confines %s catalog requests to credent
   const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "worker" }) })
   for (const resource of ["https://foreign.example.com/items", "//foreign.example.com/items"]) {
     for (const action of ["resources.get", "resources.update"]) {
-      await expect(client.call(action, { resource })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+      await expect(client.call(action, { resource })).rejects.toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
     }
   }
   expect(test.provider.calls).toHaveLength(before)

@@ -144,6 +144,15 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
   let snapshot: Awaited<ReturnType<typeof createGitHubInstallSnapshot>> | undefined;
   let retryable = false;
   let kind: GitHubWorkspaceInstallError["kind"] = "input";
+  const cleanup = async () => {
+    try {
+      try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
+      finally { await snapshot?.close(); }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new GitHubWorkspaceInstallError(error);
+    }
+  };
   try {
     snapshot = await createGitHubInstallSnapshot(target);
     const source = snapshot.directory;
@@ -230,13 +239,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     const lockfileDefect = isGitHubLockfileDefect(error);
     throw new GitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
   } finally {
-    try {
-      try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
-      finally { await snapshot?.close(); }
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      throw new GitHubWorkspaceInstallError(error);
-    }
+    await cleanup();
   }
 }
 
