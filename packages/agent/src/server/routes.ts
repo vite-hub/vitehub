@@ -8496,6 +8496,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         }
         // `channelState.transaction()` writes in `invoke` commit with this delivery's admission, or when it is accepted without one.
         const stateCommit = registration.channelId ? createAgentChannelStateCommit(channelState.state) : undefined
+        let stateCommitDeferred = false
         try {
           const input = createAgentWebhookTriggerInput(request, registration, rawBody)
           const invocation = await resolveAgentTriggerInvocationWithResolvedContext(
@@ -8603,6 +8604,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 // completes successfully. If it fails, release the staged decision
                 // so the retry can re-evaluate it.
                 if (outcome.settlement) {
+                  // The settlement owns the staged commit after this route returns.
+                  stateCommitDeferred = true
                   context.waitUntil(
                     outcome.settlement.then(async completed => {
                       if (completed) await settleAgentChannelStateCommit(stateCommit)
@@ -8813,7 +8816,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           if (response) return response
           throw error
         } finally {
-          await releaseAgentChannelStateCommit(stateCommit)
+          if (!stateCommitDeferred) await releaseAgentChannelStateCommit(stateCommit)
         }
       }
 
