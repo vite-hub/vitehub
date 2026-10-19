@@ -72,6 +72,12 @@ async function expectStopped(pid: number) {
   }, { timeout: 5000 })
 }
 
+async function expectRefused(port: number) {
+  const socket = connect({ host: "127.0.0.1", port })
+  const [error] = await once(socket, "error") as [NodeJS.ErrnoException]
+  expect(error.code).toBe("ECONNREFUSED")
+}
+
 describe.skipIf(process.platform === "win32")("SSH command runner", () => {
   it("preserves argv, working directory, duplex data, EOF and nonzero exits", async () => {
     const { cwd, launch } = await fixture()
@@ -160,6 +166,59 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     const child = launch(["-e", 'console.log("verified")'], { hostKeyFile: undefined, knownHostsFile })
     child.child.stdin.end()
     expect(await child.done).toEqual({ code: 0, stdout: "verified\n", stderr: "" })
+  }, 15000)
+
+  it("drains open connections on close and refuses new ones", async () => {
+    const { launch, server } = await fixture()
+    const child = launch(["-e", 'process.stdin.on("data", chunk => process.stdout.write(chunk)); process.stdin.on("end", () => { process.exitCode = 5 })'])
+    child.child.stdin.write("ready\n")
+    await vi.waitFor(() => expect(child.stdout()).toBe("ready\n"), { timeout: 5000 })
+    expect(server.connections).toBe(1)
+
+    let closed = false
+    const closing = server.close({ drainTimeoutMs: 10_000 }).then(() => { closed = true })
+    expect(server.close({ drainTimeoutMs: 10_000 })).toBe(server.close({ drainTimeoutMs: 10_000 }))
+    await expectRefused(server.port)
+    child.child.stdin.write("still running\n")
+    await vi.waitFor(() => expect(child.stdout()).toBe("ready\nstill running\n"), { timeout: 5000 })
+    expect(closed).toBe(false)
+
+    child.child.stdin.end()
+    expect((await child.done).code).toBe(5)
+    await closing
+    expect(server.connections).toBe(0)
+  }, 15000)
+
+  it("ends open connections and their commands when the drain timeout passes", async () => {
+    const { launch, server } = await fixture()
+    const child = launch(["-e", "console.log(process.pid); setInterval(() => {}, 1000)"])
+    await vi.waitFor(() => expect(child.stdout()).toContain("\n"), { timeout: 5000 })
+    const started = Date.now()
+    await server.close({ drainTimeoutMs: 500 })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(450)
+    await child.done
+    await expectStopped(Number(child.stdout().trim()))
+  }, 15000)
+
+  it("ends the drain early when close is called again without a timeout", async () => {
+    const { launch, server } = await fixture()
+    const child = launch(["-e", "console.log(process.pid); setInterval(() => {}, 1000)"])
+    await vi.waitFor(() => expect(child.stdout()).toContain("\n"), { timeout: 5000 })
+    let closed = false
+    const closing = server.close({ drainTimeoutMs: 60_000 }).then(() => { closed = true })
+    await expectRefused(server.port)
+    expect(closed).toBe(false)
+    await server.close()
+    await closing
+    await child.done
+    await expectStopped(Number(child.stdout().trim()))
+  }, 15000)
+
+  it("rejects a drain timeout that is not a non-negative integer", async () => {
+    const { server } = await fixture()
+    for (const drainTimeoutMs of [-1, 1.5, Number.NaN, 2_147_483_648]) {
+      expect(() => server.close({ drainTimeoutMs })).toThrow("drainTimeoutMs must be a non-negative integer")
+    }
   }, 15000)
 
   it("closes TCP clients that have not sent SSH identification", async () => {

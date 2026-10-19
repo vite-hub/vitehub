@@ -131,10 +131,16 @@ export interface DatabaseSchemaSource {
 }
 
 export interface DiscoveredDatabaseDefinition {
+  /** Plugin that contributed this Definition, when it was not found in the app. */
+  contributor?: string
   /** The Definition that supplies the database options. */
   handler: string
+  /** Absolute migrations directory, when it is not `migrations/` beside the Definition. */
+  migrationsDir?: string
   mode: "default" | "named"
   name: string
+  /** Explanation supplied by the contributing plugin. */
+  reason?: string
   /** Schema modules merged into this database, lowest precedence first. A later table key replaces an earlier one. */
   schemaSources: DatabaseSchemaSource[]
   source: string

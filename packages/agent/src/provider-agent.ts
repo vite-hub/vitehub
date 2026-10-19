@@ -1,7 +1,7 @@
 import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
-import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -29,6 +29,7 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerLaunchRetryDelaysMs, retryProviderLaunch } from "./internal/provider-launch-retry.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.ts"
@@ -40,7 +41,7 @@ import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachmen
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -396,16 +397,32 @@ const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
 
 interface ProviderSessionCursorRecord {
   [providerSessionCursorRecordKey]: "invalidated" | "ready"
+  /** Digest of the Codex developer instructions that started the provider session. */
+  instructions?: string
   value?: unknown
 }
 
-function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecord {
-  return { [providerSessionCursorRecordKey]: "ready", value }
+/** A provider session cursor and the developer instructions its session started with. */
+interface ProviderResumeState {
+  cursor: unknown
+  instructions?: string
+}
+
+function providerSessionCursorRecord(state: ProviderResumeState): ProviderSessionCursorRecord {
+  return { [providerSessionCursorRecordKey]: "ready", ...(state.instructions === undefined ? {} : { instructions: state.instructions }), value: state.cursor }
 }
 
 function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
   return isRuntimeRecord(value)
     && (value[providerSessionCursorRecordKey] === "invalidated" || value[providerSessionCursorRecordKey] === "ready")
+}
+
+/** Returns the native thread ID in a provider runtime resume cursor, or undefined for an opaque cursor. */
+export function providerNativeThreadId(cursor: unknown): string | undefined {
+  const value = isProviderSessionCursorRecord(cursor) ? cursor.value : cursor
+  if (!isRuntimeRecord(value) || !isRuntimeRecord(value.providerThread)) return undefined
+  const ref = value.providerThread.nativeThreadRef
+  return isRuntimeRecord(ref) && hasRuntimeType(ref.nativeId, "string") ? ref.nativeId : undefined
 }
 
 function providerSessionStore(
@@ -425,8 +442,8 @@ function providerSessionStore(
 }
 
 interface PartitionedProviderSessionStore {
-  commit: (resumeCursor: unknown) => Promise<void>
-  consume: () => Promise<unknown | undefined>
+  commit: (state: ProviderResumeState) => Promise<void>
+  consume: () => Promise<ProviderResumeState | undefined>
   invalidate: () => Promise<void>
   runtime: ProviderRuntimeSessionStore
 }
@@ -448,7 +465,7 @@ function partitionProviderSessionStore(
     await store.delete(persistedThreadId)
     invalidatedSessions.delete(persistedThreadId)
   }
-  const consume = async () => {
+  const consume = async (): Promise<ProviderResumeState | undefined> => {
     if (invalidatedSessions.has(persistedThreadId)) {
       await invalidate()
       return undefined
@@ -459,19 +476,21 @@ function partitionProviderSessionStore(
       return undefined
     }
     const resumeCursor = isProviderSessionCursorRecord(storedCursor) ? storedCursor.value : storedCursor
-    if (resumeCursor !== undefined) await invalidate()
-    return resumeCursor
+    if (resumeCursor === undefined) return undefined
+    await invalidate()
+    const instructions = isProviderSessionCursorRecord(storedCursor) && hasRuntimeType(storedCursor.instructions, "string") ? storedCursor.instructions : undefined
+    return { cursor: resumeCursor, ...(instructions === undefined ? {} : { instructions }) }
   }
   return {
-    async commit(resumeCursor) {
-      await store.set(persistedThreadId, providerSessionCursorRecord(resumeCursor))
+    async commit(state) {
+      await store.set(persistedThreadId, providerSessionCursorRecord(state))
       invalidatedSessions.delete(persistedThreadId)
     },
     consume,
     invalidate,
     runtime: {
       async delete() {},
-      get: consume,
+      get: async () => (await consume())?.cursor,
       async set() {},
     },
   }
@@ -2769,7 +2788,7 @@ async function* runProvider<
   TRuntimeConfig extends AgentRuntimeConfig,
 >(
   options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
-  resumeCursors: Map<string, unknown>,
+  resumeCursors: Map<string, ProviderResumeState>,
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
@@ -2871,6 +2890,7 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
@@ -2894,7 +2914,9 @@ async function* runProvider<
     const generatedProviderFiles: GeneratedProviderFile[] = []
   let restoreGeneratedGitMetadata: (() => Promise<void>) | undefined
     let claudePromptFile: string | undefined
-  let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
+  const memoryResumeState = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
+  let pendingResumeCursor = memoryResumeState?.cursor
+  let resumeInstructions = memoryResumeState?.instructions
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
@@ -3127,7 +3149,7 @@ async function* runProvider<
           sessionKey,
         )
       : undefined
-    const durableResumeCursor = sessionStore
+    const durableResumeState = sessionStore
       ? await waitForProviderOperation(
           sessionStore.consume(),
           effectiveSignal,
@@ -3135,9 +3157,10 @@ async function* runProvider<
           deferSessionConsume,
         )
       : undefined
-    const resumeCursor = pendingResumeCursor ?? durableResumeCursor
-    if (pendingResumeCursor === undefined && durableResumeCursor !== undefined) {
-      pendingResumeCursor = durableResumeCursor
+    let resumeCursor = pendingResumeCursor ?? durableResumeState?.cursor
+    if (pendingResumeCursor === undefined && durableResumeState !== undefined) {
+      pendingResumeCursor = durableResumeState.cursor
+      resumeInstructions = durableResumeState.instructions
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
@@ -3243,6 +3266,49 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
+    // Codex renders AGENTS.md under a header that contains the absolute cwd, and
+    // an owned root is new for each invocation. Driver instructions go to Codex
+    // developer instructions instead, which come before every cwd-dependent
+    // message, so the provider can reuse the cached prompt prefix across
+    // invocations. A launch-argument override would drop them, so it keeps AGENTS.md.
+    const generatedCodexInstructionsArg = instructions === undefined
+      ? undefined
+      : codexDeveloperInstructionsArg(instructions)
+    const hasCallerDeveloperInstructions = [options.providerSettings?.launchArgs, providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS]
+      .some(args => hasRuntimeType(args, "string") && args.includes("developer_instructions")
+        && !(auxiliary && args.includes(generatedCodexInstructionsArg ?? "\u0000")))
+    const codexDeveloperInstructions = options.provider === "codex"
+      && !options.sandbox
+      && instructions
+      && materializeInstructions
+      && !preserveNativeInstructions
+      && Buffer.byteLength(instructions) <= codexDeveloperInstructionsMaxBytes
+      && (auxiliary || providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS === undefined)
+      && !hasCallerDeveloperInstructions
+      ? instructions
+      : undefined
+    const effectiveCodexInstructions = options.provider === "codex" ? (codexDeveloperInstructions ?? instructions) : undefined
+    if (options.provider === "codex") {
+      // Even when ViteHub has no driver instructions, Codex may read a native
+      // AGENTS.md. Fingerprint that source and the launch configuration so a
+      // resumed thread never silently keeps stale instruction state.
+      const fallbackInstructions = effectiveCodexInstructions ?? await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => "")
+      const digestInput = codexDeveloperInstructions === undefined
+        ? JSON.stringify([fallbackInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
+        : effectiveCodexInstructions
+      developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
+    }
+    // Codex renders developer instructions only when a thread starts. Resume a
+    // thread only with the instructions it started with; otherwise start a new
+    // thread, which receives the transcript and the current instructions.
+    // A one-sided or changed digest means the thread started with different
+    // effective instructions. Two matching digests are safe to resume.
+    if (resumeCursor !== undefined && ((developerInstructionsDigest === undefined) !== (resumeInstructions === undefined)
+      || (developerInstructionsDigest !== undefined
+        && resumeInstructions !== developerInstructionsDigest))) {
+      resumeCursor = undefined
+      pendingResumeCursor = undefined
+    }
     const inspectedTools = inspectAgentTools(context.tools)
     if (!isAuxiliaryAgentAdapterContext(context)) {
       await updateAgentTelemetryConfiguration(context.context, {
@@ -3275,7 +3341,8 @@ async function* runProvider<
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
       } else {
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), instructions)
+        // With developer instructions, an empty AGENTS.md still hides the native file, as before.
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
         if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
@@ -3359,6 +3426,7 @@ async function* runProvider<
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
+      ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot
@@ -3432,7 +3500,6 @@ async function* runProvider<
     }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    const resumed = resumeCursor !== undefined
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
@@ -3448,6 +3515,30 @@ async function* runProvider<
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
+    // The provider runtime starts a new native thread when it cannot resume the
+    // requested one. Opaque cursors do not identify a thread, so they count as resumed.
+    const requestedNativeThreadId = providerNativeThreadId(resumeCursor)
+    const startedNativeThreadId = providerNativeThreadId(session.resumeCursor)
+    const resumeFailed = requestedNativeThreadId !== undefined && requestedNativeThreadId !== startedNativeThreadId
+    const resumed = resumeCursor !== undefined && !resumeFailed
+    if (resumeFailed) {
+      await traceAgentEvent({
+        context: context.context,
+        driverContributions: context.driverContributions,
+        input: context.input,
+        invoker: context.invoker,
+        run: context.runtime.run,
+        runtime: context.runtime,
+      }, {
+        attributes: {
+          "gen_ai.provider.name": options.provider,
+          "vitehub.provider.requested_thread.id": requestedNativeThreadId,
+          "vitehub.provider.started_thread.id": startedNativeThreadId,
+        },
+        name: "agent.provider.session.resume-failed",
+        type: "run",
+      })
+    }
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
       effectiveSignal,
@@ -3455,7 +3546,8 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    const replayAttachments = !preservesProviderSession && context.messages.length > 1
+    // The lost native thread had the earlier attachments, so replay them like an unpreserved session.
+    const replayAttachments = (!preservesProviderSession || resumeFailed) && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
     if (!prompt) throw agentDiagnostics.AGENT_R0718({ message: "[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment." })
     effectiveSignal?.throwIfAborted()
@@ -3854,8 +3946,9 @@ async function* runProvider<
     if (preservesProviderSession && sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
         try {
-          await sessionStore?.commit(pendingResumeCursor)
-          resumeCursors.set(sessionKey, pendingResumeCursor)
+          const resumeState = { cursor: pendingResumeCursor, ...(developerInstructionsDigest === undefined ? {} : { instructions: developerInstructionsDigest }) }
+          await sessionStore?.commit(resumeState)
+          resumeCursors.set(sessionKey, resumeState)
         }
         catch (error) {
           cleanupErrors.push(error)
@@ -3955,11 +4048,30 @@ export function createProviderAgentAdapter<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(configuredOptions: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const options = withoutReplacedCredentials(configuredOptions)
-  const resumeCursors = new Map<string, unknown>()
+  const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
+  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
+    // Keep the invocation deadline active across launch retries and their backoff. Each
+    // runProvider attempt still gets its own timeout for normal provider work.
+    const timeout = context.input.timeout
+    const invocationTimeoutSignal = timeout !== undefined && timeout >= 0 && timeout <= 2_147_483_647
+      ? AbortSignal.timeout(timeout)
+      : undefined
+    const retrySignal = context.input.abortSignal && invocationTimeoutSignal
+      ? AbortSignal.any([context.input.abortSignal, invocationTimeoutSignal])
+      : context.input.abortSignal || invocationTimeoutSignal
+    const retryContext = retrySignal && retrySignal !== context.input.abortSignal
+      ? { ...context, input: { ...context.input, abortSignal: retrySignal } }
+      : context
+    return retryProviderLaunch(
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext),
+      retrySignal,
+      providerLaunchRetryDelaysMs,
+    )
+  }
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context), context),
+    generate: context => generateProvider(launch(context), context),
     async metadata(context) {
       const instructions = await resolveAgentInstructions(options.instructions, context)
       return {
@@ -3968,7 +4080,7 @@ export function createProviderAgentAdapter<
     },
     name: options.provider,
     stream: async function* (context) {
-      for await (const event of streamAgentOutputToEvents(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context))) {
+      for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
         if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
       }

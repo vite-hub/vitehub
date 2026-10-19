@@ -314,6 +314,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: unknown): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined

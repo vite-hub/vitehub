@@ -21,6 +21,9 @@ interface BlobMethods {
   readonly type: string
 }
 
+const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
+const blobStreamMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "stream")?.value
+
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const cleanup = async (reason?: unknown, cancel = false) => {
@@ -57,23 +60,33 @@ function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   })
 }
 
-const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
-
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    const readStream: (value: object) => ReadableStream = candidate => Reflect.apply(Blob.prototype.stream, candidate, []) as ReadableStream
-    if (typeof blobType !== "function") return undefined
-    try {
-      return {
-        type: String(Reflect.apply(blobType, value, [])),
-        body: () => streamBody(() => readStream(value)),
-      }
-    }
-    catch { return undefined }
+    if (typeof blobTypeGetter !== "function" || typeof blobStreamMethod !== "function") return undefined
+    // The intrinsic accessor establishes the Blob internal-slot brand before
+    // consulting the value's realm-specific stream method.
+    const type = String(Reflect.apply(blobTypeGetter, value, []))
+    const body = () => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream
+    return { type, body }
   }
   catch {
     return undefined
+  }
+}
+
+
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!isRuntimeObject(value)) return false
+  try {
+    if (typeof arrayBufferByteLengthGetter !== "function") return false
+    arrayBufferByteLengthGetter.call(value)
+    return true
+  }
+  catch {
+    return false
   }
 }
 
@@ -81,7 +94,7 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+  if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
   }
