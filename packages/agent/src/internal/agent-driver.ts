@@ -2,6 +2,7 @@ import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
 import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
+import { activeAgentInvocationScope } from "./invocation-scope.ts"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
@@ -397,11 +398,15 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
     return {
       capacity,
       kind: "ask",
-      run: async context => await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
-        { abortSignal: context.input.abortSignal, event: { context } },
-        askState(context.input, context.prompt, context.messages),
-        isRuntimeFunction(ask) ? await ask(context) : ask,
-      )),
+      run: async (context) => {
+        // The Driver runs inside its own Invocation scope, so each question is recorded in that Invocation.
+        const scope = activeAgentInvocationScope()
+        return await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
+          { abortSignal: context.input.abortSignal, event: { context }, ...(scope ? { observe: event => scope.trace(event) } : {}) },
+          askState(context.input, context.prompt, context.messages),
+          isRuntimeFunction(ask) ? await ask(context) : ask,
+        ))
+      },
     }
   }
   if (hasModel) {

@@ -44,7 +44,7 @@ export async function* retryProviderLaunch<T>(
       if (started || delayMs === undefined || signal?.aborted || !isProviderLaunchFailure(error)) throw error
       console.warn(`[vitehub] Provider launch failed; launching again in ${delayMs} ms (attempt ${attempt + 2} of ${delaysMs.length + 1}).`, getViteHubErrorShape(error)?.details?.stderr ?? error)
       await waitForRetry(delayMs, signal)
-      if (signal?.aborted) throw error
+      if (signal?.aborted) throw signal.reason ?? new DOMException("[vitehub] Provider launch retry aborted.", "AbortError")
     }
   }
 }

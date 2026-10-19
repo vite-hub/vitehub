@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { isDocsSiteArea } from "../composables/useDocsSection";
 
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
+const isDocsSiteAreaRoute = computed(() => isDocsSiteArea(route.path));
 
 // On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
@@ -16,29 +18,36 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain>
-    <UContainer v-if="isSupportMatrix">
-      <AnnouncementBanner />
-      <slot />
-    </UContainer>
+  <UMain class="vh-docs-shell" :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
+    <div v-if="isSupportMatrix" class="vh-docs-landing-shell vh-docs-support-matrix">
+      <UContainer class="vh-docs-support-matrix-content">
+        <AnnouncementBanner />
+        <slot />
+      </UContainer>
+      <AppFooter class="vh-docs-footer" />
+    </div>
 
-    <div v-else-if="isLanding" class="vh-docs-landing">
-      <slot />
+    <div v-else-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing-shell">
+      <div class="vh-docs-landing">
+        <slot />
+      </div>
+      <AppFooter class="vh-docs-footer" />
     </div>
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside">
-          <DocsAsideLeftTop />
-          <DocsAsideLeftBody />
+          <UPageAside class="vh-docs-aside hidden lg:flex">
+          <DocsSidebars panel />
         </UPageAside>
       </template>
 
       <div class="vh-docs-main">
         <AnnouncementBanner />
         <slot />
+        <AppFooter class="vh-docs-footer" />
       </div>
     </UPage>
+
   </UMain>
 </template>
 
@@ -49,12 +58,51 @@ const docsShellUi = {
   padding: 0 1rem;
 }
 
+.vh-docs-landing-shell {
+  width: 100%;
+}
+
+/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
+   The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
+.vh-docs-content {
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  flex: 1;
+  min-height: calc(100dvh - var(--ui-header-height));
+  flex-direction: column;
+}
+
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
 }
 
+.vh-docs-support-matrix {
+  max-width: none;
+  width: 100%;
+}
+
+.vh-docs-support-matrix-content {
+  max-width: none !important;
+  width: 100%;
+}
+
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: var(--vh-landing-width, 84rem);
+}
+
+.vh-docs-footer {
+  margin-top: 3rem;
+}
+
+/* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
+@media (min-width: 64rem) {
+  .vh-docs-shell {
+    display: flex;
+    align-items: flex-start;
+    /* Keep the expanded rail surface visible outside its collapsed width. */
+    overflow: visible;
+  }
 }
 
 @media (min-width: 40rem) {
@@ -65,6 +113,14 @@ const docsShellUi = {
 }
 
 @media (min-width: 64rem) {
+  .vh-docs-no-header {
+    --ui-header-height: 0px;
+  }
+
+  :deep(.vh-docs-main:has(.vh-docs-article.has-code-panel)) {
+    max-width: none;
+  }
+
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
@@ -72,9 +128,14 @@ const docsShellUi = {
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
     border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1;
   }
 
   :deep(.vh-docs-sidebars) {
