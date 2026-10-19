@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { findDefaultExportCall, findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -34,7 +34,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -49,10 +49,23 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 function readDefinitionObjectBody(file: string, exact = false) {
   const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-    || calls[0]
-  const argument = call?.arguments[0]?.trim()
+  let exported = findDefaultExportCall(source, ["defineDatabase"])
+  // Support an indirect default export: `const database = defineDatabase(...); export default database`.
+  if (!exported) {
+    const defaultName = /\bexport\s+default\s+([A-Za-z_$][\w$]*)/.exec(source)?.[1]
+    if (defaultName) {
+      const call = findIdentifierCalls(source, "defineDatabase").find(candidate =>
+        new RegExp(`\\b(?:const|let|var)\\s+${defaultName}\\s*=\\s*$`).test(source.slice(0, candidate.start)),
+      )
+      if (call) exported = { ...call, argument: call.arguments[0] || "" }
+    }
+  }
+  let argument = exported?.argument?.trim()
+  while (argument?.startsWith("(")) {
+    const end = findMatching(argument, 0, "(", ")")
+    if (end === undefined || argument.slice(end + 1).trim()) break
+    argument = argument.slice(1, end).trim()
+  }
   if (!argument?.startsWith("{")) return
   const closeIndex = findMatching(argument, 0, "{", "}")
   return closeIndex === undefined || (exact && argument.slice(closeIndex + 1).trim()) ? undefined : argument.slice(1, closeIndex)
@@ -69,13 +82,45 @@ function stripLeadingEntryComments(entry: string) {
   return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
 }
 
+function stripEntryComments(entry: string): string {
+  let result = ""
+  let quote: string | undefined
+  let escaped = false
+  for (let index = 0; index < entry.length; index++) {
+    const char = entry[index]!
+    const next = entry[index + 1]
+    if (quote) {
+      result += char
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      while (index < entry.length && entry[index] !== "\n") index++
+      result += "\n"
+    }
+    else if (char === "/" && next === "*") {
+      index += 2
+      while (index < entry.length && !(entry[index] === "*" && entry[index + 1] === "/")) index++
+      index++
+    }
+    else result += char
+  }
+  return result
+}
+
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
   return match?.[1] || match?.[2] || match?.[3]
 }
 
 function readEntryValue(entry: string): string | undefined {
-  const normalized = stripLeadingEntryComments(entry)
+  const normalized = stripLeadingEntryComments(stripEntryComments(entry))
   const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
   return match ? normalized.slice(match[0].length).trim() : undefined
 }
@@ -117,7 +162,7 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
+  const fallbackParts = splitLogicalExpression(expression)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
     if (envName) return createRuntimeEnvConfigValue([envName])
@@ -133,6 +178,70 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   }
 }
 
+function splitLogicalExpression(expression: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let quote: string | undefined
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < expression.length - 1; index++) {
+    const char = expression[index]!
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(") {
+      depth++
+      continue
+    }
+    if (char === ")") {
+      if (depth > 0) depth--
+      continue
+    }
+    const next = expression[index + 1]!
+    if (depth === 0 && ((char === "|" && next === "|") || (char === "?" && next === "?"))) {
+      parts.push(stripBoundaryParentheses(expression.slice(start, index).trim()))
+      start = index + 2
+      index++
+    }
+  }
+  parts.push(stripBoundaryParentheses(expression.slice(start).trim()))
+  return parts
+}
+
+function stripBoundaryParentheses(value: string): string {
+  let result = value.trim()
+  while (result.startsWith("(")) {
+    const end = findMatching(result, 0, "(", ")")
+    if (end === undefined || result.slice(end + 1).trim()) break
+    result = result.slice(1, end).trim()
+  }
+  return stripLeadingComments(result).trim()
+}
+
+function stripLeadingComments(value: string): string {
+  let result = value.trim()
+  while (true) {
+    const block = /^\/\*[\s\S]*?\*\//.exec(result)
+    if (block) {
+      result = result.slice(block[0].length).trim()
+      continue
+    }
+    const line = /^\/\/[^\r\n]*(?:\r?\n|$)/.exec(result)
+    if (line) {
+      result = result.slice(line[0].length).trim()
+      continue
+    }
+    return result
+  }
+}
+
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
   const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
   const body = objectLiteralBody(match?.[1])
@@ -145,8 +254,11 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const names = typeof singleName !== "undefined"
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ?.split(",")
-        .map(value => readStaticStringLiteral(value.trim()))
+        ? splitTopLevel(/^\[(.*)\]$/s.exec(sourceValue)![1]!)
+            .map(value => stripEntryComments(value).trim())
+            .filter(value => value)
+            .map(value => readStaticStringLiteral(value))
+        : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
   return createRuntimeEnvConfigValue(names as string[], defaultValue)
@@ -479,6 +591,7 @@ export interface DatabaseDiscoveryOptions {
    * database always has a default Database.
    */
   implicitDefault?: boolean
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
   serverDirs?: string[]
 }
 
@@ -493,6 +606,25 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
+        source: "vite-plugin-contribution",
+        tableNames: [],
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
@@ -591,7 +723,7 @@ export function resolveDBViteConfig(
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    contributions?: CollectedDatabaseContributions
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
     provisionRoot?: string
@@ -600,12 +732,12 @@ export function resolveDBViteConfig(
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
-  if (!definitions.length) {
-    // Contributed tables need a Database, so this fails when a plugin contributes tables.
-    resolveDatabaseContributionTargets([], context.contributions ?? [])
-    return
-  }
+  const definitions = discoverDatabaseDefinitions(rootDir, {
+    definitions: context.contributions?.definitions,
+    implicitDefault: context.implicitDefault,
+    serverDirs: context.serverDirs,
+  })
+  if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
@@ -663,7 +795,7 @@ export function resolveDBViteConfig(
 
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(
     definitions.map(definition => definition.name),
-    context.contributions ?? [],
+    context.contributions?.tables ?? [],
     Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
   )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }

@@ -4,64 +4,19 @@ import type { ChatStatus } from "ai";
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
 import { describe, expect, it, vi } from "vitest";
-import { AgentChatPrompt } from "../src/components/agent-chat-prompt.ts";
-import { AgentSession } from "../src/components/agent-session.ts";
+import { PromptInput } from "../src/components/prompt-input.ts";
+import { ChatSession } from "../src/components/chat-session.ts";
 import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
 
-const TrimGuardPrompt = defineComponent({
-  inheritAttrs: false,
-  props: { modelValue: { default: "", type: String } },
-  emits: ["submit", "update:modelValue"],
-  setup(props, { attrs, emit, slots }) {
-    const submit = (event: Event) => {
-      event.preventDefault();
-      if (props.modelValue.trim()) emit("submit", event);
-    };
-    return () =>
-      h("form", { onSubmit: submit }, [
-        h("textarea", {
-          "aria-label": attrs["aria-label"],
-          onInput: (event: Event) =>
-            emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
-          onKeydown: (event: KeyboardEvent) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.ctrlKey &&
-              !event.metaKey &&
-              !event.altKey &&
-              !event.isComposing
-            ) {
-              submit(event);
-            }
-          },
-          onPaste: attrs.onPaste,
-          value: props.modelValue,
-        }),
-        slots.header?.(),
-        h("div", { "data-slot": "footer" }, slots.footer?.()),
-      ]);
-  },
-});
-
-describe("AgentSession", () => {
+describe("ChatSession", () => {
   it("keeps session header and footer slots out of message rendering", () => {
     const session = {
       id: "session-1",
       messages: [{ id: "message-1", parts: [{ text: "Hello", type: "text" as const }], role: "assistant" as const }],
       title: "Session",
     };
-    const wrapper = mount(AgentSession, {
-      global: {
-        components: {
-          UChatMessage: defineComponent({
-            setup(_props, { slots }) {
-              return () => h("article", [slots.header?.(), slots.body?.() ?? slots.content?.()]);
-            },
-          }),
-        },
-      },
+    const wrapper = mount(ChatSession, {
       props: { session },
       slots: {
         header: ({ session: value }: { session: typeof session }) => h("div", { class: "session-header" }, value.title),
@@ -79,36 +34,18 @@ const ButtonStub = defineComponent({
   },
 });
 
-const ChatPromptSubmitStub = defineComponent({
-  inheritAttrs: false,
-  props: { status: { default: "ready", type: String } },
-  emits: ["reload", "stop"],
-  setup(props, { attrs, emit }) {
-    return () => h("button", {
-      ...attrs,
-      "data-submit": "",
-      onClick: props.status === "error"
-        ? () => emit("reload")
-        : props.status === "ready"
-          ? undefined
-          : () => emit("stop"),
-      type: "button",
-    });
-  },
-});
-
 const global = {
   components: {
     UButton: ButtonStub,
-    UChatPrompt: TrimGuardPrompt,
-    UChatPromptSubmit: ChatPromptSubmitStub,
+    UIcon: defineComponent({ setup: () => () => h("span") }),
     UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }),
   },
 };
+const submitButton = '[data-slot="prompt-input-toolbar"] > button:last-child';
 
-describe("AgentChatPrompt", () => {
+describe("PromptInput", () => {
   it("renders the leading footer slot before the prompt actions", () => {
-    const wrapper = mount(AgentChatPrompt, {
+    const wrapper = mount(PromptInput, {
       global,
       slots: {
         "footer-leading": () => h("span", { class: "footer-leading" }, "Profile"),
@@ -120,22 +57,19 @@ describe("AgentChatPrompt", () => {
   });
 
   it("names the composer and keeps the programmatic picker out of the tab order", () => {
-    const wrapper = mount(AgentChatPrompt, { global });
+    const wrapper = mount(PromptInput, { global });
 
     expect(wrapper.get("textarea").attributes("aria-label")).toBe("Message");
     expect(wrapper.get('input[type="file"]').attributes()).toMatchObject({
       "aria-label": "Add attachment",
       tabindex: "-1",
     });
-    expect(
-      wrapper.get(
-        '[data-slot="footer"] button[aria-label="Add attachment"] + button[aria-label="Send prompt"]',
-      ),
-    ).toBeDefined();
+    expect(wrapper.get('[data-slot="prompt-input-toolbar"] > button:first-of-type').attributes("aria-label")).toBe("Add attachment");
+    expect(wrapper.get(submitButton).attributes("aria-label")).toBe("Send prompt");
   });
 
   it("adds pasted images to the controlled files", async () => {
-    const wrapper = mount(AgentChatPrompt, { global });
+    const wrapper = mount(PromptInput, { global });
     const image = new File(["image"], "clipboard.png", { type: "image/png" });
 
     const event = new Event("paste", { bubbles: true, cancelable: true });
@@ -157,7 +91,7 @@ describe("AgentChatPrompt", () => {
   });
 
   it("leaves generic clipboard files alone when text is present", async () => {
-    const wrapper = mount(AgentChatPrompt, { global });
+    const wrapper = mount(PromptInput, { global });
     const document = new File(["notes"], "notes.txt", { type: "text/plain" });
 
     const event = new Event("paste", { bubbles: true, cancelable: true });
@@ -173,7 +107,7 @@ describe("AgentChatPrompt", () => {
 
   it("filters picker and pasted files before conversion", async () => {
     const filterFiles = vi.fn((): File[] => []);
-    const wrapper = mount(AgentChatPrompt, { global, props: { filterFiles } });
+    const wrapper = mount(PromptInput, { global, props: { filterFiles } });
     const picked = new File(["picked"], "picked.png", { type: "image/png" });
     const pasted = new File(["pasted"], "pasted.png", { type: "image/png" });
     const input = wrapper.get('input[type="file"]');
@@ -194,7 +128,7 @@ describe("AgentChatPrompt", () => {
 
   it("reports attachment preparation errors", async () => {
     const error = new Error("could not prepare attachment");
-    const wrapper = mount(AgentChatPrompt, {
+    const wrapper = mount(PromptInput, {
       global,
       props: {
         filterFiles: () => {
@@ -215,7 +149,7 @@ describe("AgentChatPrompt", () => {
   });
 
   it("previews image attachments above the editor with a separate remove control", async () => {
-    const wrapper = mount(AgentChatPrompt, {
+    const wrapper = mount(PromptInput, {
       global,
       props: {
         files: [
@@ -229,7 +163,7 @@ describe("AgentChatPrompt", () => {
       },
     });
 
-    expect(wrapper.get(".vh-prompt__attachment--image img").attributes()).toMatchObject({
+    expect(wrapper.get('[data-slot="attachment-media"][data-variant="image"] img').attributes()).toMatchObject({
       alt: "preview.png",
       src: "data:image/png;base64,aW1hZ2U=",
     });
@@ -248,8 +182,8 @@ describe("AgentChatPrompt", () => {
   ] satisfies readonly [ChatStatus, string, "reload" | "stop" | undefined][])(
     "names and handles the %s submit state",
     async (status, label, emitted) => {
-      const wrapper = mount(AgentChatPrompt, { global, props: { status } });
-      const submit = wrapper.get("[data-submit]");
+      const wrapper = mount(PromptInput, { global, props: { status } });
+      const submit = wrapper.get(submitButton);
 
       expect(submit.attributes("aria-label")).toBe(label);
       await submit.trigger("click");
@@ -280,7 +214,7 @@ describe("AgentChatPrompt", () => {
   });
 
   it("keeps empty prompts without attachments inert", async () => {
-    const wrapper = mount(AgentChatPrompt, { global });
+    const wrapper = mount(PromptInput, { global });
 
     await wrapper.find("form").trigger("submit");
     await wrapper.find("textarea").trigger("keydown", { key: "Enter" });

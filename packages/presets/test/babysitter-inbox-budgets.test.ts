@@ -25,7 +25,28 @@ test('persisted progress budgets are validated by both snapshot readers', async 
   db.prepare('UPDATE vitehub_babysitter_pull_requests SET value=? WHERE repository=? AND number=?')
     .run(JSON.stringify({ ...snapshot, progressBudget: { head: 'a', limit: -1 } }), repository, 7)
   await assert.rejects(async () => inbox.get(repository, 7))
-  await assert.rejects(async () => inbox.all())
+  assert.deepEqual(await inbox.all(), [])
+})
+
+test('one invalid row does not stop claims, wait evaluation or the summary', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbox-budgets-'))
+  const path = join(directory, 'inbox.sqlite')
+  const invalid: Array<{ repository: string; number: number }> = []
+  const inbox = new PullRequestInbox({ path, repositories: [repository], budgets: { noProgress: 3 }, invalidRow: ({ repository, number }) => { invalid.push({ repository, number }) } })
+  const db = new DatabaseSync(path)
+  t.onTestFinished(async () => { db.close(); await inbox.close(); rmSync(directory, { recursive: true, force: true }) })
+  await inbox.seed(repository, pr())
+  await inbox.seed(repository, { number: 8, state: 'open', head: { sha: 'b', ref: 'other' }, base: { ref: 'main' } })
+  const snapshot = (await inbox.get(repository, 7))!
+  const bad = { ...snapshot, progressBudget: { head: 'a', limit: 3, count: 0, exhausted: false, creditedEvidence: [], grants: ['unknown'] } }
+  db.prepare('UPDATE vitehub_babysitter_pull_requests SET value=?, summary=? WHERE repository=? AND number=?')
+    .run(JSON.stringify(bad), JSON.stringify({ repository, number: 7, generation: 1, handled: 0, status: 'ready', reasons: [], dirty: true, attempts: 0, nextAt: 0, progressBudget: bad.progressBudget }), repository, 7)
+  assert.deepEqual((await inbox.summary()).map(item => item.number), [8])
+  assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [8])
+  assert.deepEqual(await inbox.waitsToEvaluate(true, true), [])
+  await inbox.recoverLeases()
+  // Each invalid row is reported once per process, not on every reconcile.
+  assert.deepEqual(invalid, [{ repository, number: 7 }])
 })
 
 test('initial provider attempt plus three retries stop across restart and two store handles', async t => {
@@ -358,7 +379,7 @@ test('a pass whose wait loses to a new event on the same head still uses the no-
     // A check finishes while the pass runs, so its wait no longer matches the stored generation.
     await inbox.ingest(`check-${index}`, 'check_run', { repository: { full_name: repository }, action: 'completed',
       check_run: { id: 100 + index, name: 'lint', head_sha: 'a', status: 'completed', conclusion: 'success', app: { id: 1 }, pull_requests: [{ number: 7 }] } })
-    assert.equal(await inbox.finish(claim, { text: 'Needs a maintainer', progress: { kind: 'no-progress' }, wait: { kind: 'external', reason: 'Needs a maintainer' } }), false)
+    assert.equal(await inbox.finish(claim, { text: 'Needs a maintainer', progress: { kind: 'no-progress' }, wait: { kind: 'external', reason: 'Needs a maintainer', evidenceKey: 'maintainer' } }), false)
   }
   assert.deepEqual((await inbox.get(repository, 7))?.progressBudget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
   assert.equal((await inbox.claim(1)).length, 0)

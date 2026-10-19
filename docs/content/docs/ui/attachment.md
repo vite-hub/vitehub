@@ -51,37 +51,27 @@ Use `AttachmentMedia variant="image"` with an `img` for a thumbnail. Put several
 
 | Prop          | Type                                                         | Default        | Description                                       |
 | ------------- | ------------------------------------------------------------ | -------------- | ------------------------------------------------- |
-| `state`       | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `'done'`       | The upload state. Sets the border and the colors. |
-| `size`        | `"default" \| "sm" \| "xs"`                                  | `'default'`    | The size of the attachment.                       |
-| `orientation` | `"horizontal" \| "vertical"`                                 | `'horizontal'` | Puts the media beside or above the content.       |
+| `state`       | `"idle" \| "uploading" \| "processing" \| "error" \| "done"` | `"done"`       | The upload state. Sets the border and the colors. |
+| `size`        | `"default" \| "sm" \| "xs"`                                  | `"default"`    | The size of the attachment.                       |
+| `orientation` | `"horizontal" \| "vertical"`                                 | `"horizontal"` | Puts the media beside or above the content.       |
 
 ### AttachmentMedia
 
 | Prop      | Type                | Default  | Description                                    |
 | --------- | ------------------- | -------- | ---------------------------------------------- |
-| `variant` | `"icon" \| "image"` | `'icon'` | Whether the media holds an icon or an `img`.   |
+| `variant` | `"icon" \| "image"` | `"icon"` | Whether the media holds an icon or an `img`.   |
 
 ### AttachmentTrigger
 
 | Prop | Type                  | Default    | Description                                             |
 | ---- | --------------------- | ---------- | ------------------------------------------------------- |
-| `as` | `string \| Component` | `'button'` | Renders the trigger as another element, such as a link. |
+| `as` | `string \| Component` | `"button"` | Renders the trigger as another element, such as a link. |
 
 ### AttachmentAction
 
 A Nuxt UI `UButton` with `color="neutral"`, `variant="ghost"`, `size="xs"`, and `square`. Other attributes, such as `icon` and `aria-label`, go to the button.
 
-### AttachmentGroup
-
-### AttachmentContent
-
-### AttachmentTitle
-
-### AttachmentDescription
-
-### AttachmentActions
-
-These parts have no props.
+`AttachmentGroup`, `AttachmentContent`, `AttachmentTitle`, `AttachmentDescription`, and `AttachmentActions` have no props.
 
 ## Accessibility
 
@@ -92,4 +82,4 @@ These parts have no props.
 ## Related
 
 - [Attachments](/docs/ui/attachments) validates files and converts them to AI SDK file parts.
-- [Chat prompt](/docs/ui/chat-prompt) attaches files to a message.
+- [Prompt input](/docs/ui/prompt-input) attaches files to a message.

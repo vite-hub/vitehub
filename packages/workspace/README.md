@@ -326,17 +326,13 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry gives the Workspace `name`, a `module` (absolute path or package specifier), and an optional `export`:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    workspaces: () => [{
-      name: "content",
-      definition: { module: "my-package/workspace", export: "contentWorkspace" },
-      reason: "Stores CMS documents.",
-    }],
+    workspaces: ({ projectRoot }) => [{ name: "content", module: "my-package/workspace", export: "contentWorkspace" }],
   },
 }
 ```
@@ -395,6 +391,13 @@ export default defineConfig({
 The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
+
+## Vercel Blob persistence
+
+The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
+`_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
+letters, numbers, underscores, dashes, and single slashes.
 
 ## GitHub-backed persistence
 

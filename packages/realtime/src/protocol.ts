@@ -14,6 +14,7 @@ export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
 export const maxAwarenessClients = 1024
 export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
+export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"
 export const realtimeSourceChangedCode = "REALTIME_SOURCE_CHANGED"
 /** A save or checkpoint asked a room whose codec cannot edit the stored document without loss. */
 export const realtimeReadOnlyCode = "REALTIME_READ_ONLY"
@@ -24,6 +25,10 @@ export const realtimeForbiddenWriteCloseCode = 4403
 
 export function isRetryableRealtimeRequestCode(value: unknown): boolean {
   return value === realtimeSyncPendingCode
+}
+
+export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
+  return value === realtimeSyncPendingCode || value === realtimeCheckpointRejectedCode
 }
 
 export type RealtimeControlMessage =
@@ -97,7 +102,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS({ message: "Awareness update contains too many clients." })
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))

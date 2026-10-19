@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
-import { H3 } from "h3"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"

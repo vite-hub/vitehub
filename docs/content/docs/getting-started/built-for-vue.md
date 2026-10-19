@@ -9,9 +9,11 @@ icon: i-simple-icons-vuedotjs
 
 I am Maxi, and I built ViteHub's Vue component package for Vue and Nuxt applications.
 
-`@vite-hub/ui` is ViteHub's Vue component package. It contains the chat,
-session, invocation, trace, diff, and file components used by the ViteHub
-Console. Use them in a Vue or Nuxt application when you need those interfaces.
+`@vite-hub/ui` is ViteHub's Vue component package. It contains the composable
+chat, trace, diff, and file parts used to build interfaces such as the ViteHub
+Console. The Console owns its Agent Invocation views; see the
+[Console documentation](/docs/development/console) when working with those
+views.
 
 The server packages work independently of Vue. A React application, a server
 route, or a CLI can call the same Server Primitives and run the same Agents.
@@ -20,7 +22,7 @@ Choose your frontend separately from your server features.
 ## Start with a complete block
 
 The [Chat App](/docs/ui/blocks/chat-app) combines a session list and chat view.
-The [Invocation Dashboard](/docs/ui/blocks/invocation-dashboard) shows Agent
+The Console shows Agent
 runs and their recorded steps. Start with one of these blocks, then replace
 its slots when your app needs different controls.
 

@@ -167,12 +167,17 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 `install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
-service directory. Stack parents are claimed first, and a restart
-releases the claims of the previous process. A stacked PR whose parent merged into the default
-branch is retargeted to the default branch. A provider rate limit is retried
-three times; after that, model dispatch waits for an hour. Each owner rechecks
-the durable deadline before dispatch, including after workspace setup. Host
-merges and stack retargets continue during the cooldown.
+service directory. Claims take reviewed heads first, then heads whose checks all
+passed, then stack parents. A restart releases the claims of the previous process.
+A stacked PR whose parent merged into the default branch is retargeted to the
+default branch. A provider rate limit is retried three times; after that, model
+dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
+consecutive cooldown up to an hour. The pass waits for the cooldown instead of
+failing and spends no no-progress budget. `modelConcurrency` caps model passes.
+Each owner rechecks the durable deadline before dispatch, including after
+workspace setup. Host merges and stack retargets continue during the cooldown.
+A failed dependency install continues the pass without dependencies unless
+`install.required` is set; `install.concurrency` sets the install slots.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

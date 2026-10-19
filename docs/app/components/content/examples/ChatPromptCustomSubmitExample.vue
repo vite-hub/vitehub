@@ -7,7 +7,7 @@ const sent = ref<string[]>([]);
 
 <template>
   <div class="space-y-3">
-    <AgentChatPrompt
+    <PromptInput
       v-model="input"
       placeholder="Write a release note…"
       status="ready"
@@ -24,7 +24,7 @@ const sent = ref<string[]>([]);
           :disabled="!canSubmit"
         />
       </template>
-    </AgentChatPrompt>
+    </PromptInput>
     <ul v-if="sent.length" class="space-y-1 text-xs text-muted">
       <li v-for="(text, index) in sent" :key="index">Published: {{ text }}</li>
     </ul>

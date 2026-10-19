@@ -12,6 +12,9 @@ import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/interna
 import type { ServerEnvInspection, ServerEnvInspectionEntry } from "./types.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import { isBlockingServerEnvEntry } from "./server.ts"
+import { secretCliFeatures } from "./secret-cli.ts"
+
+export { secretCliFeatures } from "./secret-cli.ts"
 
 type EnvCliCommand = "check" | "inspect"
 
@@ -225,6 +228,10 @@ export function createEnvCliContributor(options: EnvCliOptions): ViteHubCliContr
         },
       ],
       name: "env",
+    }, {
+      description: "Generate the root app secret and print derived secrets.",
+      features: secretCliFeatures,
+      name: "secret",
     }],
   }
 }

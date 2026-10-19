@@ -51,6 +51,10 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
 export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/database/limits-and-errors",
   codes: {
+    DATABASE_C0007: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+      fix: "Provide a string name for the Database Definition.",
+    },
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
     DATABASE_D1_INVALID_RESPONSE: {
       why: "Cloudflare D1 returned a different number of results than the number of queries.",

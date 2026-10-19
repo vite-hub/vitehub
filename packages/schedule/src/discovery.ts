@@ -10,7 +10,7 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vite-hub/internal/definition-catalog"
-import { createSourceScanner } from "@vite-hub/internal/source-scanner"
+import { findCalls, findDefaultExportCall, objectProperties, scanModule } from "@vite-hub/internal/build/scan-module"
 
 import { describeScheduleContribution, duplicateScheduleError } from "./contributions.ts"
 
@@ -33,35 +33,36 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
 function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pick<DiscoveredScheduleDefinition, "manual"> {
   const source = readFileSync(file, "utf8")
-  const { findDefaultExportCall, findIdentifierCalls, readObjectProperty, readObjectPropertyNames, splitTopLevel, stripBoundaryComments } = createSourceScanner(file)
-  const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const module = scanModule(source, file)
+  const definition = findDefaultExportCall(module, ["defineSchedule"], { positionalOptionsIndex: 2 })
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
     throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
   }
   if (!definition) {
-    const call = findIdentifierCalls(source, "defineSchedule")[0]
-    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() with literal options.")
+    const call = findCalls(module, ["defineSchedule"])[0]
+    const message = "Schedule discovery requires a direct default export of defineSchedule() with literal options."
+    if (call) unsupported(call.start, message)
+    // A syntax error can hide the definition call, so the file cannot prove that it has no Schedule.
+    if (module.errors[0]) unsupported(0, `${message} The file has a syntax error: ${module.errors[0].message}`)
     if (contribution) {
       throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${contribution} has no default export of defineSchedule(). The build reads contributed Schedules from source, so the module must contain \`export default defineSchedule({ cron: "...", handler })\`.` })
     }
     return {}
   }
 
-  const options = definition.argument
-  if (!options.startsWith("{") || !options.endsWith("}")) {
-    unsupported(definition.start, "Schedule discovery requires an options object literal.")
-  }
+  const start = definition.call.start
   let manual = false
-  for (const entry of splitTopLevel(options.slice(1, -1))) {
-    const property = stripBoundaryComments(entry)
-    const names = readObjectPropertyNames(`{${property}}`)
-    if (names.includes(undefined)) {
-      unsupported(definition.start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual with an unescaped literal key and a literal true or false value.")
+  for (const property of definition.options ? objectProperties(definition.options) : []) {
+    if (property.key === undefined || property.computed) {
+      unsupported(start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual with an unescaped literal key and a literal true or false value.")
     }
-    const manualValue = readObjectProperty(`{${property}}`, "manual")
-    if (manualValue === "true" || manualValue === "false") manual = manualValue === "true"
-    else if (names.includes("manual")) unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
+    if (property.key !== "manual") continue
+    const value = property.node.type === "Property" && property.node.kind === "init" && !property.node.method && property.value?.type === "Literal" && typeof property.value.value === "boolean"
+      ? property.value.value
+      : undefined
+    if (value === undefined) unsupported(start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
+    manual = value === true
   }
   return { manual }
 }

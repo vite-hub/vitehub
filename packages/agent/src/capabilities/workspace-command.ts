@@ -7,7 +7,7 @@ import type {
   AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
+import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 

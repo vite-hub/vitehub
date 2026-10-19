@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
@@ -133,7 +133,29 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", { ...feedbackPolicy, assessedFeedback })).toEqual({ ready: false, reason: "2 new feedback items need assessment" });
   });
 
-  it.each(["repository", "ref", "commit"])("requires renewed feedback assessment after the base %s changes", (target) => {
+  it("keeps an assessment valid when only the base commit advances", () => {
+    const s = snapshot();
+    s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
+    s.checks.lint = { id: 3, name: "lint", head_sha: head, status: "completed", conclusion: "failure", app: { id: 1 } };
+    const assessment = { ...feedbackPolicy, assessedFeedback: new Set(feedbackFingerprints(s, feedbackPolicy)), reviewedEvidenceKey: mergeReviewEvidenceKey(s, feedbackPolicy) };
+    s.pr!.base!.sha = "d".repeat(40);
+    expect(mergeReviewEvidenceKey(s, feedbackPolicy)).toBe(assessment.reviewedEvidenceKey);
+    expect(directMergeReadiness(s, "passed", assessment).ready).toBe(true);
+  });
+
+  it("accepts assessments stored with the base commit", () => {
+    const s = snapshot();
+    s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
+    const legacyKey = mergeReviewEvidenceKey(s, feedbackPolicy, true);
+    const legacyFeedback = new Set(feedbackFingerprints(s, feedbackPolicy, true));
+    expect(legacyKey).not.toBe(mergeReviewEvidenceKey(s, feedbackPolicy));
+    expect(matchesMergeReviewEvidence(legacyKey, s, feedbackPolicy)).toBe(true);
+    expect(directMergeReadiness(s, "passed", { ...feedbackPolicy, assessedFeedback: legacyFeedback }).ready).toBe(true);
+    s.pr!.base!.sha = "d".repeat(40);
+    expect(matchesMergeReviewEvidence(legacyKey, s, feedbackPolicy)).toBe(false);
+  });
+
+  it.each(["repository", "ref"])("requires renewed feedback assessment after the base %s changes", (target) => {
     const s = snapshot();
     s.reviews.finding = { id: 7, state: "COMMENTED", body: "Handle the empty cursor", user: { login: "review[bot]", type: "Bot" } };
     const assessedFeedback = new Set(feedbackFingerprints(s, feedbackPolicy));
@@ -142,7 +164,6 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", assessment).ready).toBe(true);
     if (target === "repository") s.pr!.base!.repo!.full_name = "another/app";
     if (target === "ref") s.pr!.base!.ref = "release";
-    if (target === "commit") s.pr!.base!.sha = "d".repeat(40);
     expect(directMergeReadiness(s, "passed", assessment)).toEqual({ ready: false, reason: "1 new feedback item needs assessment" });
     expect(directMergeReadiness(s, "passed", {
       ...assessment, assessedFeedback: new Set(feedbackFingerprints(s, feedbackPolicy)),

@@ -566,6 +566,7 @@ export interface WorkspaceSourceRequestExecutionInput {
   /** Abort a controlled request when its owning Shell invocation ends. */
   signal?: AbortSignal
   method: WorkspaceSourceRequestMethod
+  signal?: AbortSignal
   url: string
 }
 
@@ -725,6 +726,10 @@ export interface CloudflareArtifactsWorkspaceStoreOptions {
 export interface VercelBlobWorkspaceStoreOptions {
   provider: "vercel-blob"
   token?: string
+  /**
+   * A namespace under `_vitehub/workspaces/`. For example, `handbook`
+   * stores Workspace files under `_vitehub/workspaces/handbook/`.
+   */
   prefix?: string
   access?: "private" | "public"
 }

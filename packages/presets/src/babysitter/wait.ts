@@ -8,6 +8,10 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
 const failed = new Set(["failure", "error", "timed_out", "action_required", "startup_failure"]);
+/** Check conclusions that need repair. */
+export const failedConclusions: ReadonlySet<string> = failed;
+/** A check that runs this long is treated as stuck. */
+const stuckCheckMs = 30 * 60_000;
 
 export interface BabysitterWaitPolicy {
   /** Logins whose comments and reviews come from this host's repairs. They never wake a wait. */
@@ -108,6 +112,20 @@ export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolic
     && pending.has(String(signal.status ?? signal.state)));
 }
 
+/**
+ * A current-head check is still queued or running. A required check that has not reported yet counts
+ * only through the workflow jobs that run before it. A check that runs for half an hour is stuck.
+ */
+export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
+  return latestCheckSignals(s).some(signal => {
+    if (!pending.has(String(signal.status ?? signal.state))) return false;
+    const timestamp = Date.parse(String(signal.started_at ?? signal.created_at ?? ""));
+    // External commit statuses often have no timestamp. They cannot prove a
+    // currently running check, so they must not defer a pass forever.
+    return Number.isFinite(timestamp) && timestamp >= now - stuckCheckMs;
+  });
+}
+
 export function failureKeys(s: Snapshot): string[] {
   return latestCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state)))
     .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
@@ -135,12 +153,13 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   if (wait.headSha !== s.pr.head?.sha) return [];
   const known = new Set(wait.knownFailures ?? []);
   if (wait.defer === "checks") {
-    // A deferred pass waits for running gates, so one pass handles CI and review results together.
-    // A conflict or a new failure needs repair now. The deferral recorded no assessment, so the PR
-    // wakes when its gates stop running.
+    // A deferred pass waits for running checks, so one pass handles CI and review results together.
+    // A conflict needs repair now. A fast failure waits for the checks that still run: a pass that
+    // started on it missed their findings and needed another pass. The deferral recorded no
+    // assessment, so the PR wakes when its checks stop running.
     const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
+    if (!conflict && checksStillRunning(s)) return [];
     const failure = failureKeys(s).some(key => !known.has(key));
-    if (!conflict && !failure && (reviewCheckRunning(s, policy) || requiredChecks === "pending")) return [];
     return [...conflict ? ["merge-conflict"] : [], ...failure ? ["new-failure"] : [], ...conflict || failure ? [] : ["gates-settled"]];
   }
   const reasons: string[] = [];

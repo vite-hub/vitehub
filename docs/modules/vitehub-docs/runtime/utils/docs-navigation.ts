@@ -21,6 +21,14 @@ export type DocsCatalogGroup = {
 
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
+/** Stable display order for task lanes in primitive sidebars. */
+const primitiveSidebarGroupOrder: Array<string | null> = [
+  null,
+  "Learn",
+  "Build",
+  "Deploy and operate",
+];
+
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -73,7 +81,13 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
   }
   return entries
-    .sort((left, right) => left.index - right.index)
+    .sort((left, right) => {
+      const leftOrder = primitiveSidebarGroupOrder.indexOf(left.label);
+      const rightOrder = primitiveSidebarGroupOrder.indexOf(right.label);
+      const normalizedLeft = leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder;
+      const normalizedRight = rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder;
+      return normalizedLeft - normalizedRight || left.index - right.index;
+    })
     .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
 
