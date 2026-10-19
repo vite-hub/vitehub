@@ -60,7 +60,7 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
-| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
+| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
 | `vitehub blob get` | Available | Blob Package | Download one blob to a file or to stdout, byte for byte. |

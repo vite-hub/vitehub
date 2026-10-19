@@ -493,6 +493,14 @@ vitehub agent invocations tail INVOCATION_ID
 
 The CLI defaults to `http://localhost:5173/api/invocations`. Use `--url` or `VITEHUB_AGENT_INVOCATIONS_URL` for another local endpoint, and `--json` for automation-safe output. `vitehub agent invocations cancel INVOCATION_ID` sends a cancel request into the Nitro runtime of a Vite + Nitro Development Server. A deployed URL, such as `--url https://app.example.com`, uses that deployment's Console for `list`, `show`, `tail`, and `cancel`. See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
 
+Before a rollout, wait until no Invocation is pending or running, so the restart does not interrupt work:
+
+```sh
+vitehub agent invocations wait-idle --url https://app.example.com --timeout 30m
+```
+
+`wait-idle` reads the same target as `list`. It prints the Invocations that it waits on and exits with status 0 when none is pending or running, or 1 when `--timeout` (default `30m`) passes first. A record that was not updated for `--stale-after` (default `2h`) is reported and does not block, because a crashed process can leave a record running. `--interval` sets the polling interval (default `5s`), `--agent` waits only on one Agent's Invocations, and `--json` prints one `invocations.waiting`, `invocations.idle`, or `invocations.timeout` event per line.
+
 Delete and prune open a SQLite or libSQL journal directly:
 
 ```sh
