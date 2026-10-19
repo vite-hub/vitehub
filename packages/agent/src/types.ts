@@ -640,6 +640,11 @@ interface AgentWebhookInvocationOwnershipBase {
   debounce?: { delayMs: number, key: string }
   /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
+  /**
+   * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
+   * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
+   */
+  response?: Response
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
@@ -821,29 +826,21 @@ export interface AgentChannelTriggerContext<
   }
 }
 
+/** The context of a Channel trigger with `durableState: true`. `channelState` is always present. */
+export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> { channelState: AgentChannelState }
+
+export type AgentChannelTriggerDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown> =
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
+
 /** The accepted input and run metadata that `prepare` and a task's `run` receive. */
 export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
 
-/**
- * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
- * In the webhook queue, a 2xx or 4xx `Response` such as `ignored()` settles the delivery without an Invocation,
- * and a 5xx `Response` retries it.
- */
 export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
 
-/** One task that a trigger's `invoke` selects with `task: name`. Declare exactly one of `agent` or `run`. */
-export interface AgentTriggerTask<
-  TContext = unknown,
-  CALL_OPTIONS = unknown,
-> {
-  /** The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery. */
+export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
   agent?: AgentInput
-  /** Replaces the trigger's `prepare` for this task. A task never runs the trigger's `prepare`. */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
-  /**
-   * Runs the accepted input without an Agent Invocation. A returned `Response` is the handled answer;
-   * any other value completes the delivery. Do not set `agent` with `run`.
-   */
   run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
 
@@ -1896,7 +1893,9 @@ export type AgentAskQuestionsResolver<
  * `error.status`, `error.requestId`). All three carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`,
  * `ask.batch.index`, `ask.batch.count`, `ask.batch.size`, `gen_ai.operation.name: "ask"` and
  * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
- * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`. The shared state is `input.data` (or the prompt) on
+ * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`, and adds one call (`model`, `provider`, `usage`) to the
+ * Invocation usage record. `usage.record` on `agent.invocation.finish` and `event.invocation.usage` sum these calls, so
+ * usage indexes count ask runs, and `usage({ pricing })` prices them. The shared state is `input.data` (or the prompt) on
  * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
  * No credentials or request headers are recorded.
  */
@@ -2696,7 +2695,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
-  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
+  triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
@@ -3050,7 +3049,6 @@ export interface AgentAdapterRunContext<
   executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

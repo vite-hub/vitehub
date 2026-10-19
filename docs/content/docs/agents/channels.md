@@ -287,7 +287,21 @@ An inline Agent runs each item before it reads the next one and reports it as `c
 
 Some providers send one webhook for several messages. A Channel trigger can answer the webhook itself and call `context.dispatch(items, { trigger })` to start one Invocation per item through another trigger of the same Channel. Each item has an `input` for that trigger and a `key`. Dispatched items get the same Invocation IDs as a replay, so an item that already has an Invocation is skipped.
 
-On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`.
+On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`. The webhook queue gives a replayed delivery the same State.
+
+A trigger that always needs the State declares `durableState: true`. Its `invoke` gets `context.channelState` typed as present, and ViteHub throws `AGENT_R1005` before `invoke` runs when the State is not bound, for example when code calls the trigger outside the Channel's webhook route. Pair it with the Channel's `webhooks.durableState`, which answers `503` when the configured State is not durable.
+
+```ts
+triggers: {
+  changed: defineChannelTrigger({
+    durableState: true,
+    async invoke(context, input: { cursor: string }) {
+      await context.channelState.state.set(`${context.channelState.keyPrefix}cursor`, input.cursor)
+      return new Response(null, { status: 204 })
+    },
+  }),
+}
+```
 
 ```ts
 triggers: {

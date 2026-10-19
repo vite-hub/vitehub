@@ -1498,6 +1498,10 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R1002: dynamicError,
     AGENT_R1003: dynamicError,
     AGENT_R1004: dynamicError,
+    AGENT_R1005: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
+      fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
+    },
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",

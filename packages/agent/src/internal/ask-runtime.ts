@@ -5,7 +5,7 @@ import { importServerEnvModule } from "./server-env.ts"
 
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "../ask.ts"
 import type { Message } from "../messages.ts"
-import type { AgentRunInput } from "../types.ts"
+import type { AgentRunInput, AgentUsageRecord } from "../types.ts"
 import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
 import type { TraceEvent } from "@vite-hub/runtime"
 
@@ -24,6 +24,8 @@ export interface AskRequestContext {
   event?: unknown
   /** Receives one `agent.tool.*` event per question and one `agent.usage.recorded` event per Jev request. */
   observe?: (event: TraceEvent) => Promise<void>
+  /** Receives the usage of each Jev request: its model, provider, and token counts. */
+  recordUsage?: (usage: AgentUsageRecord) => void
 }
 
 type AskStateInput = Pick<AgentRunInput, "data" | "prompt">
@@ -169,6 +171,22 @@ async function requestJev(
     ...(isRuntimeRecord(usage)
       ? { usage: { inputTokens: finiteNumber(usage.input_tokens), outputTokens: finiteNumber(usage.output_tokens) } }
       : {}),
+  }
+}
+
+/** The usage record of one Jev request, or undefined when the response has no token counts. */
+function jevUsageRecord(provider: string, response: JevResponse): AgentUsageRecord | undefined {
+  const inputTokens = response.usage?.inputTokens
+  const outputTokens = response.usage?.outputTokens
+  if (inputTokens === undefined && outputTokens === undefined) return undefined
+  return {
+    ...(response.model ? { model: response.model } : {}),
+    provider,
+    usage: {
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(inputTokens !== undefined && outputTokens !== undefined ? { totalTokens: inputTokens + outputTokens } : {}),
+    },
   }
 }
 
@@ -376,6 +394,8 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
     try {
       const response = await requestJev(advocaat, entry, batch, { ...options, signal: context.abortSignal })
       await observed.usage(response)
+      const usage = jevUsageRecord(options.provider, response)
+      if (usage) context.recordUsage?.(usage)
       context.abortSignal?.throwIfAborted()
       for (const name of Object.keys(batch)) {
         if (!Object.hasOwn(response.answers, name)) throw new Error(`[vitehub] Jev response is missing answer "${name}".`)

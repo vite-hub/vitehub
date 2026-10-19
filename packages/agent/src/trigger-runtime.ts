@@ -328,6 +328,7 @@ export async function resolveAgentTriggers<
         id,
         input: trigger.input,
         invoke: (input) => {
+          if (trigger.durableState === true && !channelState) throw agentDiagnostics.AGENT_R1005({ trigger: id })
           const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
             dispatchAgentChannelItems(agent, context, channelId, items, options)
           // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
