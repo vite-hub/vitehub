@@ -202,6 +202,22 @@ defineChannelTrigger({
 
 `serialize: key` is the same as `concurrencyKey: key` with `concurrencyLimit: 1`, so it needs a state provider. The limit counts the deliveries of one `concurrencyGroup`, so deliveries with other keys in the same group also wait. Set `serialize` or `concurrencyKey` and `concurrencyLimit`, not both: ViteHub throws a `TypeError` when the result has `serialize` and either of the others.
 
+### Identify a webhook delivery
+
+`webhook.deliveryId` identifies the delivery. ViteHub uses it to drop a retried delivery that it already accepted, and on a Channel Trigger the Invocation runs under it. When you omit it, the delivery ID is the SHA-256 (hex) of the raw request body, so a provider retry with an identical body is the same delivery.
+
+```ts
+defineChannelTrigger({
+  input: ticketOpened,
+  invoke: (context, event) => ({
+    input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
+    webhook: { serialize: event.ticketId },
+  }),
+})
+```
+
+Set `deliveryId` when the provider sends an event ID, or when two different events can have the same body. A body with a timestamp or a nonce that changes on each retry gives each retry a new delivery ID. The default applies only when a webhook route runs the Trigger. A Trigger that you call from code without a request gets no default.
+
 ### Debounce webhook deliveries
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
@@ -295,6 +311,25 @@ defineChannelTrigger({
 ```
 
 ViteHub dispatches `failed` at most once per delivery: after the last failed attempt, after an execution timeout, or when the delivery used all its execution leases because the process stopped during each attempt. It does not call `failed` for an attempt that the queue retries, or for a cancelled Invocation. The event has `attempts`, `deliveryId`, `error`, `publicError`, and, when they are known, `input`, `run`, and `invocation: { id, consoleUrl? }`. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
+
+A task can declare its own `failed`. It replaces the trigger's `failed` for that task's deliveries and gets the same event. The trigger's `failed` stays the fallback for tasks without one. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
+
+```ts
+defineChannelTrigger({
+  input: ticketChanged,
+  tasks: {
+    triage: {
+      agent: triage,
+      failed: event => commentOnTicket(event.run?.runId, 'Triage failed. Edit the ticket to retry.'),
+    },
+  },
+  invoke: (context, event) => ({
+    task: 'triage',
+    input: { prompt: `Triage ticket ${event.ticketId}.` },
+    webhook: { deliveryId: event.changeId, serialize: event.ticketId },
+  }),
+})
+```
 
 The delivery is already marked as failed when `failed` runs. ViteHub logs an error from `failed` and does not retry the delivery or change its outcome. Keep the callback short, because the queue worker waits for it.
 

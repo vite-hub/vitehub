@@ -638,8 +638,15 @@ interface AgentWebhookInvocationOwnershipBase {
    * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
    */
   debounce?: { delayMs: number, key: string }
-  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
-  deliveryId: string
+  /**
+   * Provider delivery ID. It deduplicates retried deliveries. On a Channel trigger, an unset `run.runId` defaults to it
+   * and an unset `run.channelId` to the Channel.
+   *
+   * When a webhook route runs the trigger, it defaults to the SHA-256 (hex) of the raw request body, so a retried
+   * identical body is the same delivery. Set it when the provider sends an event ID, or when two different events can
+   * have the same body.
+   */
+  deliveryId?: string
   /**
    * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
    * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
@@ -673,10 +680,10 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
  * A static secret, a callback, or an object with its own `resolve` method.
  * Inherited `resolve` methods, including class prototype methods, are rejected.
  * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, `false` to disable verification, or `undefined`.
+ * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
  */
 export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<string | false | undefined, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: string
@@ -686,7 +693,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
+   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
+   */
+  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
      * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
@@ -838,8 +849,22 @@ export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentT
 
 export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
 
-export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
+/** One task that a trigger's `invoke` selects with `task: name`. Declare exactly one of `agent` or `run`. */
+export interface AgentTriggerTask<
+  TContext = unknown,
+  CALL_OPTIONS = unknown,
+> {
+  /**
+   * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
+   * An unset `run.origin` of the Invocation defaults to the task key.
+   */
   agent?: AgentInput
+  /**
+   * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
+   * The trigger's `failed` stays the fallback for tasks without one.
+   */
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
+  /** Replaces the trigger's `prepare` for this task. A task never runs the trigger's `prepare`. */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
@@ -880,6 +905,7 @@ export interface AgentTriggerDefinition<
 /** A trigger task with its context bound. */
 export interface ResolvedAgentTriggerTask<CALL_OPTIONS = unknown> {
   agent?: AgentInput
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
   prepare?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   run?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }

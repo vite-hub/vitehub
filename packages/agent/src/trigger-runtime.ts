@@ -207,6 +207,10 @@ interface AgentTriggerResolutionOptions {
   /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
   channelStateCommit?: AgentChannelStateCommit
   queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+  /** Raw body of the webhook request that runs the trigger. An unset `webhook.deliveryId` defaults to its SHA-256. */
+  rawBody?: string | Uint8Array
+  /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
+  deliveryId?: string
 }
 /** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
 function bindAgentTriggerCallbacks<TContext>(
@@ -235,14 +239,17 @@ function bindAgentTriggerCallbacks<TContext>(
     }
     if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
     if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
+    if (task.failed !== undefined && !isRuntimeFunction(task.failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
     // SAFETY: The checks above validated the task shape that the trigger definition declares for its context type.
-    const { agent, prepare: taskPrepare, run } = task as {
+    const { agent, failed, prepare: taskPrepare, run } = task as {
       agent?: AgentInput
+      failed?: ResolvedAgentTriggerTask["failed"]
       prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>
       run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown>
     }
     tasks[name] = {
       ...(agent ? { agent } : {}),
+      ...(failed ? { failed } : {}),
       ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}),
       ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}),
     }
@@ -415,16 +422,37 @@ async function resolveWebhookSecret(
 ): Promise<unknown> {
   if (value === undefined) return undefined
   if (isRuntimeFunction(value)) {
-    return await value(context)
+    return unsealWebhookSecret(await value(context))
   }
   if (isRecord(value) && Object.hasOwn(value, "resolve") && isRuntimeFunction(value.resolve)) {
-    return await value.resolve(context)
+    return unsealWebhookSecret(await value.resolve(context))
   }
-  return value
+  return unsealWebhookSecret(value)
 }
 
-async function sha256(value: string): Promise<Uint8Array> {
-  const bytes = new TextEncoder().encode(value)
+/** A sealed Server Env secret (`{ unseal() }`) resolves to its value. */
+function unsealWebhookSecret(value: unknown): unknown {
+  return isRecord(value) && isRuntimeFunction(value.unseal) ? value.unseal() : value
+}
+
+/** `signature: "bearer"` reads `Authorization` unless `secretHeader` names another header. */
+export function webhookSecretHeader(registration: AgentWebhookRegistrationDefinition): string | undefined {
+  return registration.secretHeader ?? (registration.signature === "bearer" ? "authorization" : undefined)
+}
+
+/** `Bearer <secret>`, with the scheme compared case-insensitively and the token in constant time. */
+async function verifyBearerSignature(secret: string, header: string): Promise<boolean> {
+  const match = /^bearer[ \t]+(.+)$/i.exec(header.trim())
+  // Without the scheme, still run the comparison so a malformed header takes the same time.
+  return await constantTimeEqual(secret, match?.[1] ?? `\0${header}`)
+}
+
+function missingBearerSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
+  return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
+}
+
+async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
@@ -539,7 +567,9 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
     if (secretToken !== undefined && secretToken !== false && !isRuntimeString(secretToken)) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
     }
-    if (!registration.secretHeader) {
+    if (!secretToken && secretToken !== false && registration.signature === "bearer") throw missingBearerSecretError(registration)
+    const secretHeader = webhookSecretHeader(registration)
+    if (!secretHeader) {
       if (secretToken === false) return { registration, verified: true }
       if (secretToken) {
         throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.`)
@@ -550,9 +580,9 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
       return { registration, verified: true }
     }
     if (!secretToken) {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
-    throw webhookVerificationError(`[vitehub] Webhook secret header "${registration.secretHeader}" is required.`)
+    throw webhookVerificationError(`[vitehub] Webhook secret header "${secretHeader}" is required.`)
   }
   return { verified: true }
 }
@@ -574,10 +604,10 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
   }
   const targeted = registrations
-    .map(registration => ({
-      headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
-      registration,
-    }))
+    .map((registration) => {
+      const secretHeader = webhookSecretHeader(registration)
+      return { headerValue: secretHeader ? request.headers.get(secretHeader) : null, registration }
+    })
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
@@ -613,9 +643,16 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       continue
     }
     if (!secretToken) {
+      if (registration.signature === "bearer") throw missingBearerSecretError(registration)
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (headerValue === null) continue
+    if (registration.signature === "bearer") {
+      if (await verifyBearerSignature(secretToken, headerValue)) {
+        return { registration, verified: true }
+      }
+      continue
+    }
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
@@ -640,7 +677,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
 }
 
 function requiresWebhookSecretHeader(registrations: AgentWebhookRegistrationDefinition[]) {
-  return registrations.some(registration => registration.secretToken !== undefined && registration.secretToken !== false)
+  return registrations.some(registration => registration.signature === "bearer" || (registration.secretToken !== undefined && registration.secretToken !== false))
 }
 
 function withAgentTriggerContext<CALL_OPTIONS>(
@@ -729,19 +766,52 @@ export async function resolveAgentTriggerInvocation<
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
+  const webhook = options?.deliveryId && result.webhook && result.webhook.deliveryId === undefined
+    ? { ...result.webhook, deliveryId: options.deliveryId }
+    : await withBodyDeliveryId(result.webhook, options?.rawBody)
   const invoked = withWebhookDeliveryRun({
     ...result,
     ...(invokedRun ? { run: invokedRun } : {}),
+    ...(webhook ? { webhook } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
     ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
     : inheritedRun
-  return resolveAgentTriggerInvocationResult({
+  return resolveAgentTriggerInvocationResult(withTaskOrigin({
     ...invoked,
     ...(run ? { run } : {}),
-  }, trigger)
+  }, trigger), trigger)
+}
+
+/**
+ * A webhook delivery without `deliveryId` is identified by the SHA-256 (hex) of its raw body, so an identical retried
+ * body is the same delivery. The queue stores the body as text, so a replay hashes the same value.
+ */
+async function withBodyDeliveryId<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  rawBody: string | Uint8Array | undefined,
+): Promise<AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined> {
+  if (!webhook || webhook.deliveryId !== undefined || rawBody === undefined) return webhook
+  return { ...webhook, deliveryId: hexBytes(await sha256(rawBody)) }
+}
+
+/** Applies the body `deliveryId` default to the result of `webhook.rehydrate()` during a queued replay. */
+export async function withRehydratedBodyDeliveryId<CALL_OPTIONS>(
+  result: AgentTriggerInvokeResult<CALL_OPTIONS>,
+  rawBody: string | Uint8Array,
+  fallbackDeliveryId?: string,
+): Promise<AgentTriggerInvokeResult<CALL_OPTIONS>> {
+  if (isResponse(result) || !result.webhook) return result
+  const webhook = result.webhook.deliveryId === undefined && fallbackDeliveryId
+    ? { ...result.webhook, deliveryId: fallbackDeliveryId }
+    : await withBodyDeliveryId(result.webhook, typeof rawBody === "string" ? new TextEncoder().encode(rawBody) : rawBody)
+  return { ...result, webhook }
+}
+
+function hexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /**
@@ -755,6 +825,16 @@ function withWebhookDeliveryRun<CALL_OPTIONS>(
   const deliveryId = invoked.webhook?.deliveryId
   if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
   return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
+}
+
+/** The Invocation of an Agent task defaults its unset `run.origin` to the task key, so the Console shows which task ran. */
+function withTaskOrigin<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  if (invoked.task === undefined || !invoked.run || invoked.run.origin !== undefined) return invoked
+  if (!agentTriggerTask(trigger, invoked.task).agent) return invoked
+  return { ...invoked, run: { ...invoked.run, origin: invoked.task } }
 }
 
 export function resolveAgentTriggerInvocationResult<
@@ -771,15 +851,16 @@ export function resolveAgentTriggerInvocationResult<
       trigger: trigger as never,
     }
   }
-  const task = invocation.task === undefined ? undefined : agentTriggerTask(trigger, invocation.task)
+  const normalized = withWebhookDeliveryRun(invocation, trigger)
+  const task = normalized.task === undefined ? undefined : agentTriggerTask(trigger, normalized.task)
   return {
     ...(task?.agent ? { agent: task.agent } : {}),
-    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
-    metadata: invocation.metadata,
-    run: invocation.run,
-    ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+    input: withAgentTriggerContext(normalized.input, trigger, normalized.delivery, normalized.message),
+    metadata: normalized.metadata,
+    run: normalized.run,
+    ...(normalized.task !== undefined ? { task: normalized.task } : {}),
     trigger: trigger as never,
-    webhook: withSerializedWebhook(invocation.webhook, trigger),
+    webhook: withSerializedWebhook(normalized.webhook, trigger),
   }
 }
 
