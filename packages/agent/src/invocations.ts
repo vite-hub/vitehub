@@ -354,6 +354,8 @@ interface AgentInvocationBindOptions {
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
   requireNew?: boolean
+  /** Binds only an existing record; queue cleanup must not recreate deleted records. */
+  existingOnly?: boolean
   replaceClaimToken?: string
   recoverPending?: boolean
 }
@@ -2224,7 +2226,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
         if (!creationTask) {
-          const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
+          const task = Promise.resolve().then(async () => {
+            if (!bindOptions.existingOnly) return await store.create(createInput)
+            const record = await store.get(recordId)
+            return record ? { created: false, record } : undefined
+          }).then((result) => {
             if (result) {
               traceId = result.record.traceId
               limits = observationLimits(result.record.observationLimits)

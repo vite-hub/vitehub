@@ -1542,13 +1542,8 @@ async function failOpenQueuedWebhookInvocation(
     const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
     if (summary?.status !== "pending" && summary?.status !== "running") return
     const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
-    const journal = await bindAgentInvocations(invocations, context, { agentName })
-    // A concurrent terminal-record deletion can make the bind create a new record.
-    // Never turn that replacement into a failed Invocation for work that did not run.
-    if (journal?.createdNew) {
-      await journal.releaseClaim()
-      return
-    }
+    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true })
+    if (!journal) return
     await journal?.finish("failed", error)
   }
   catch (journalError) {
