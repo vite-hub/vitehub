@@ -468,23 +468,23 @@ async function runAccessAuthorize(
   // the response snapshot before any await boundary so an own `then` method
   // cannot assimilate an otherwise valid response.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
-    const thenDescriptor = Object.getOwnPropertyDescriptor(result, "then")
+    let thenDescriptor: PropertyDescriptor | undefined
     let thenShadowed = false
     try {
+      thenDescriptor = Object.getOwnPropertyDescriptor(result, "then")
       if (thenDescriptor?.configurable) {
         Object.defineProperty(result, "then", { configurable: true, writable: true, value: undefined })
         thenShadowed = true
       }
+      const normalized = await normalizeAuthorizationResponse(result)
+      if (normalized) return { response: normalized }
+    } catch {
+      // Reflection or normalization failures must fail closed.
+    } finally {
+      if (thenShadowed && thenDescriptor) {
+        try { Object.defineProperty(result, "then", thenDescriptor) } catch { /* ignore restoration failures */ }
+      }
     }
-    catch { /* normalization will fail closed */ }
-    let normalized: Response | undefined
-    try {
-      normalized = await normalizeAuthorizationResponse(result)
-    }
-    finally {
-      if (thenShadowed && thenDescriptor) Object.defineProperty(result, "then", thenDescriptor)
-    }
-    if (normalized) return { response: normalized }
   }
 
   let resolved: unknown
