@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { budgetParks, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
+import { dailyPassResumeAt } from '../src/babysitter/inbox/budgets.ts'
 
 const repository = 'vite-hub/vitehub'
 const pr = (head = 'a') => ({ number: 7, state: 'open', head: { sha: head, ref: 'fix' }, base: { ref: 'main' } })
@@ -461,4 +462,40 @@ test('lists budget parks with their reason for the health route', async t => {
   assert.ok(await inbox.finish(first!, { text: 'Review push budget spent.', wait: { reason: 'review-push-budget', evidenceKey: 'k' } }))
   assert.ok(await inbox.finish(second!, { text: 'Waiting for checks.', wait: { reason: 'checks', evidenceKey: 'k' } }))
   assert.deepEqual(budgetParks(await inbox.summary()), [{ repository, number: 7, budget: 'review-push-budget', reason: 'Review push budget spent.' }])
+})
+
+test('records model passes in a rolling 24-hour window with the exemptions they used', async t => {
+  let now = Date.parse('2026-10-19T00:00:00Z')
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { dailyPasses: 2 }, clock: () => now })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1)
+  assert.ok(await inbox.recordModelPass(claim!))
+  now += 60 * 60_000
+  assert.ok(await inbox.recordModelPass(claim!, 'required-failure:a'))
+  const first = Date.parse('2026-10-19T00:00:00Z')
+  assert.deepEqual((await inbox.get(repository, 7))?.dailyPassBudget, { passes: [first, now], exemptions: ['required-failure:a'] })
+  assert.deepEqual((await inbox.summary())[0]?.dailyPassBudget?.passes, [first, now])
+  // The budget is spent until the oldest pass leaves the window.
+  assert.equal(dailyPassResumeAt((await inbox.get(repository, 7))?.dailyPassBudget, 2, now), first + 24 * 60 * 60_000)
+  assert.equal(dailyPassResumeAt((await inbox.get(repository, 7))?.dailyPassBudget, 3, now), undefined)
+  now = first + 24 * 60 * 60_000 + 1
+  assert.equal(dailyPassResumeAt((await inbox.get(repository, 7))?.dailyPassBudget, 2, now), undefined)
+  // The first claim's lease expired meanwhile, so a new claim records the pass.
+  assert.equal(await inbox.recordModelPass(claim!), false)
+  await inbox.recoverLeases()
+  const [next] = await inbox.claim(1)
+  assert.ok(await inbox.recordModelPass(next!))
+  assert.deepEqual((await inbox.get(repository, 7))?.dailyPassBudget?.passes, [first + 60 * 60_000, now])
+  // Another claim's lease cannot record a pass.
+  assert.equal(await inbox.recordModelPass({ ...next!, token: 'other' }), false)
+})
+
+test('lists a daily budget park with the time it resumes', async t => {
+  const inbox = memory(t)
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1)
+  const resumeAt = Date.parse('2026-10-20T00:00:00Z')
+  assert.ok(await inbox.finish(claim!, { text: 'Daily pass budget spent.', wait: { reason: 'daily-pass-budget', evidenceKey: 'k', retryAt: resumeAt } }))
+  assert.deepEqual(budgetParks(await inbox.summary()), [{ repository, number: 7, budget: 'daily-pass-budget', reason: 'Daily pass budget spent.', resumeAt: '2026-10-20T00:00:00.000Z' }])
 })

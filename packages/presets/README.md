@@ -158,7 +158,12 @@ merge conflict and without a failing check outside `reviewChecks`. After that
 many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
 person's feedback, another failing check, a conflict or a head that someone else
 pushed still do. The PR then merges on its required checks or parks with the
-reason, which health lists under `queue.parked`. `install` (default `true`) installs
+reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+`16`, `false` disables it) limits the model passes per PR in a rolling 24
+hours. A PR that reached it parks until its oldest pass is 24 hours old, and
+health lists it with `resumeAt`. A person's new feedback, the first failing
+required check on a head and a conflict on an otherwise ready PR still start a
+pass. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in

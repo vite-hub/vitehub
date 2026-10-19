@@ -41,8 +41,8 @@ import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
-import { checksDependencyEvidence, checksStillRunning, createCheckWait, failedConclusions, failureKeys, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
-import { nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
+import { checksDependencyEvidence, checksStillRunning, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { dailyPassResumeAt, nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety } from "./stack.ts";
@@ -123,12 +123,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const activityAuthors = verifiedHostIdentity ? [verifiedHostIdentity] : [];
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
   const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
+  const dailyPassBudget = baseAgent.dailyPassBudget ?? presetOptions.dailyPassBudget ?? 16;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: options.repositories,
     filter,
     activityAuthors,
-    budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget } },
+    budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
+      ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
   });
@@ -1000,7 +1002,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const providerBlockedUntil = (await pullRequestInbox.metaNumber("provider-quota-blocked-until")) ?? 0;
           const providerBlocked = providerBlockedUntil > Date.now();
           const admitted = (currentAdmission?.accepting ?? modelAdmission) && !providerBlocked;
-          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget();
+          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget() || await parkSpentDailyPassBudget();
           modelWorkParked = true;
           outcome = "waiting";
           await pullRequestInbox.finish(inboxClaim, {
@@ -1041,6 +1043,34 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "review-push-budget" },
           });
           schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
+          return true;
+        };
+        // The exemption that let this pass run past its daily pass budget. Dispatch records it once.
+        let dailyPassExemptionUsed: string | undefined;
+        /**
+         * Parks the claim before its first model dispatch when `dailyPassBudget` passes started in the
+         * last 24 hours, until the oldest leaves the window. Exempt work still gets a pass.
+         */
+        const parkSpentDailyPassBudget = async () => {
+          if (modelDispatched || pushedHead || dailyPassBudget === false) return false;
+          const now = Date.now();
+          const budget = (await pullRequestInbox.get(repository, number))?.dailyPassBudget;
+          const resumeAt = dailyPassResumeAt(budget, dailyPassBudget, now);
+          if (resumeAt === undefined) return false;
+          const exemption = dailyPassExemption(inboxClaim.snapshot, await requiredCheckState(inboxClaim.snapshot), budget);
+          if (exemption) {
+            dailyPassExemptionUsed = exemption;
+            schedulerEvent("babysitter.daily_pass_budget.exempt", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, exemption });
+            return false;
+          }
+          modelWorkParked = true;
+          outcome = "waiting";
+          const passes = budget?.passes.filter(at => at > now - 24 * 60 * 60_000).length ?? 0;
+          await pullRequestInbox.finish(inboxClaim, {
+            text: `Daily pass budget spent: ${passes} model pass${passes === 1 ? "" : "es"} in the last 24 hours (dailyPassBudget ${dailyPassBudget}). The next pass can start at ${new Date(resumeAt).toISOString()}. A person's comment or review, the first failing required check on a head, or a merge conflict on an otherwise ready PR still starts a pass.`,
+            wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "daily-pass-budget", retryAt: resumeAt },
+          });
+          schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "daily-pass-budget", resume_at: new Date(resumeAt).toISOString() });
           return true;
         };
         const preparedDirectories = new Set<string>();
@@ -1661,6 +1691,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (workerSettings.sandbox && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
                 await acquireModelSlot(abortSignal, `${repository}#${number}`);
                 try {
+                  // Each pass that starts the model counts once against the daily pass budget.
+                  if (!modelDispatched && dailyPassBudget !== false) await pullRequestInbox.recordModelPass(inboxClaim, dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed);
                   modelDispatched = true;
                   return await runAgent(
                     agent,
