@@ -540,6 +540,8 @@ function withFallbackUsageMetadata(
   const runMetadata = mergedRunMetadata(run, readableRecordValue(record, "run"))
   const provider = readableRecordValue(record, "provider") ?? (compound ? undefined : modelMetadata?.provider)
   const usage = readableRecordValue(record, "usage")
+  const calls = readableRecordValue(record, "calls")
+  const raw = readableRecordValue(record, "raw")
   if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
   const result = { ...record }
   if (cost) result.cost = cost
@@ -551,6 +553,8 @@ function withFallbackUsageMetadata(
   if (runMetadata) result.run = runMetadata
   if (transport) result.transport = transport
   if (usage) result.usage = usage
+  if (calls !== undefined) result.calls = calls
+  if (raw !== undefined) result.raw = raw
   return result
 
 }
