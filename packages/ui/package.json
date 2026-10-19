@@ -109,6 +109,66 @@
       "types": "./dist/components/agent-trace.d.ts",
       "import": "./dist/components/agent-trace.js",
       "default": "./dist/components/agent-trace.js"
+    },
+    "./attachment": {
+      "types": "./dist/attachment.d.ts",
+      "import": "./dist/attachment.js",
+      "default": "./dist/attachment.js"
+    },
+    "./bubble": {
+      "types": "./dist/bubble.d.ts",
+      "import": "./dist/bubble.js",
+      "default": "./dist/bubble.js"
+    },
+    "./code-block": {
+      "types": "./dist/code-block.d.ts",
+      "import": "./dist/code-block.js",
+      "default": "./dist/code-block.js"
+    },
+    "./marker": {
+      "types": "./dist/marker.d.ts",
+      "import": "./dist/marker.js",
+      "default": "./dist/marker.js"
+    },
+    "./message": {
+      "types": "./dist/message.d.ts",
+      "import": "./dist/message.js",
+      "default": "./dist/message.js"
+    },
+    "./trace": {
+      "types": "./dist/trace.d.ts",
+      "import": "./dist/trace.js",
+      "default": "./dist/trace.js"
+    },
+    "./chat": {
+      "types": "./dist/chat.d.ts",
+      "import": "./dist/chat.js",
+      "default": "./dist/chat.js"
+    },
+    "./chat-message": {
+      "types": "./dist/chat-message.d.ts",
+      "import": "./dist/chat-message.js",
+      "default": "./dist/chat-message.js"
+    },
+    "./chat-session": {
+      "types": "./dist/chat-session.d.ts",
+      "import": "./dist/chat-session.js",
+      "default": "./dist/chat-session.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js",
+      "default": "./dist/markdown.js"
+    },
+    "./message-parts": {
+      "types": "./dist/message-parts.d.ts",
+      "import": "./dist/message-parts.js",
+      "default": "./dist/message-parts.js"
+    },
+    "./prompt-input": {
+      "types": "./dist/prompt-input.d.ts",
+      "import": "./dist/prompt-input.js",
+      "default": "./dist/prompt-input.js"
     }
   },
   "scripts": {

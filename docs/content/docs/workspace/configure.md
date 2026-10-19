@@ -36,7 +36,7 @@ The Vite config key is `workspace`.
 | Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Defaults: prefix `.vitehub/workspaces`, access `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
