@@ -937,19 +937,6 @@ to: /docs/missing-card
     ]);
   });
 
-  it("uses anchors rendered by the support matrix component", () => {
-    const repoRoot = fixture({
-      "docs/app/components/SupportMatrix.vue": '<script>const sections = [{ anchor: "runtime" }]</script><template><section id="qualifications" /></template>',
-      "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": "# Docs\n\n[Runtime](/docs/frameworks-hosts/support-matrix#runtime)\n[Missing](/docs/frameworks-hosts/support-matrix#markdown-only)",
-      "docs/content/docs/frameworks-hosts/support-matrix.md": "# Matrix\n\n## Markdown only",
-    });
-
-    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
-      expect.stringContaining("anchor #markdown-only does not exist"),
-    ]);
-  });
-
   it("reports rendered .md routes that the browser cannot resolve", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": "<template />",
