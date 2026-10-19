@@ -1,12 +1,12 @@
 ---
-title: Chat Prompt
+title: Prompt Input
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 24
 navigation.group: Chat
 icon: i-ph-paper-plane-tilt-light
 ---
 
-`AgentChatPrompt` is a chat input with attachments. It keeps Nuxt UI's `UChatPrompt` behavior: autoresize, IME handling, Enter to send, Escape to blur, and the status-aware submit button. ViteHub adds an attachment row, clipboard paste for files, and one `submit` payload with text and AI SDK file parts.
+`PromptInput` is a chat input with attachments, built like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input): a framed textarea that grows with its content, attachments above it as [Attachment](/docs/ui/attachment) parts, and round attach and send buttons below it. Enter sends and Shift+Enter adds a line; text composed with an input method never sends. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds clipboard paste for files and one `submit` payload with text and AI SDK file parts.
 
 ::component-preview{name="ChatPromptExample"}
 ::
@@ -14,7 +14,7 @@ icon: i-ph-paper-plane-tilt-light
 ## Usage
 
 ```vue
-<AgentChatPrompt
+<PromptInput
   v-model="input"
   v-model:files="files"
   accept="image/*,.pdf"
@@ -61,7 +61,7 @@ The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your
 
 ## API reference
 
-### AgentChatPrompt
+### PromptInput
 
 #### Props
 
@@ -75,13 +75,13 @@ The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your
 | `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
 | `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
 
-Other attributes go to `UChatPrompt`.
+Other attributes go to the root `<form>`.
 
 #### Events
 
 | Event               | Payload                 | Description                                                    |
 | ------------------- | ----------------------- | -------------------------------------------------------------- |
-| `submit`            | `AgentChatPromptSubmit` | `{ text, files }`. The text is trimmed. Empty text is allowed when files exist. |
+| `submit`            | `PromptInputSubmit` | `{ text, files }`. The text is trimmed. Empty text is allowed when files exist. |
 | `update:modelValue` | `string`                | The draft text changed.                                        |
 | `update:files`      | `readonly FileUIPart[]` | Files were added or removed.                                   |
 | `stop`              |                         | The viewer selected Stop. Connect it to the AI SDK `stop()`.   |
@@ -100,7 +100,7 @@ Other attributes go to `UChatPrompt`.
 #### Types
 
 ```ts
-interface AgentChatPromptSubmit {
+interface PromptInputSubmit {
   files: readonly FileUIPart[];
   text: string;
 }
