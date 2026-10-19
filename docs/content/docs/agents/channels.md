@@ -165,12 +165,32 @@ Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. Vi
 | `signature` | The header carries |
 | --- | --- |
 | Not set | The `secretToken` value itself. |
+| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
 | `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
 | `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
 | `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
 | `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
 
 `github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
+
+ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is case-insensitive. A missing header or a wrong token answers `401`. When `secretToken` resolves to no secret, a `bearer` webhook answers `500` with an error that names the Channel, so a missing secret does not leave the route open. Return `false` from `secretToken` to turn verification off.
+
+`secretToken` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
+
+```ts [server/agents/ops.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+import { useServerEnv } from '#vitehub/env/server'
+
+export const prefect = defineChannel('prefect', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/prefect/webhook',
+    secretToken: () => useServerEnv().prefect.webhookSecret,
+    signature: 'bearer',
+  },
+})
+```
 
 ```ts [server/agents/support.ts]
 import { defineChannel } from 'vite-hub/agent/channels'
