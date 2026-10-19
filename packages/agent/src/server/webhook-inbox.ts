@@ -9,9 +9,12 @@ export const defaultWebhookAckTimeoutMs = 5_000
 const webhookInboxRetentionMs = 86_400_000
 /** The route admits a stored request at most this many times, the first delivery included. */
 const webhookInboxMaxAttempts = 3
+const webhookInboxOwnerTtlMs = 30_000
 
 /** Admissions that got a 202 answer and still run. `drainDeferredWebhookAdmissions()` waits for them. */
 const deferredWebhookAdmissions = new Set<Promise<void>>()
+// Locks held by this process must never be taken over by startup replay.
+const activeWebhookInboxLocks = new Set<string>()
 
 export interface WebhookInboxState {
   keyPrefix: string
@@ -140,6 +143,19 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   if (!lock) {
     return { attempts: 0, duplicate: true, id: entry.id, settle: async () => {}, release: async () => {} }
   }
+  activeWebhookInboxLocks.add(key)
+  const ownerKey = `${key}:owner`
+  try {
+    await state.set(ownerKey, true, webhookInboxOwnerTtlMs)
+  }
+  catch (error) {
+    activeWebhookInboxLocks.delete(key)
+    await state.releaseLock(lock).catch(() => undefined)
+    throw error
+  }
+  const ownerHeartbeat = setInterval(() => {
+    void state.set(ownerKey, true, webhookInboxOwnerTtlMs).catch(() => undefined)
+  }, Math.max(1_000, webhookInboxOwnerTtlMs / 3))
   try {
     const previous = await state.get(key)
     const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
@@ -155,20 +171,29 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
       attempts,
       id: entry.id,
       async release() {
+        clearInterval(ownerHeartbeat)
+        activeWebhookInboxLocks.delete(key)
+        await state.delete(ownerKey).catch(() => undefined)
         await state.releaseLock(lock).catch(() => undefined)
       },
       async settle() {
+        clearInterval(ownerHeartbeat)
         try {
           await state.delete(key)
         }
         catch (error) {
           logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
         }
+        await state.delete(ownerKey).catch(() => undefined)
         await state.releaseLock(lock).catch(() => undefined)
+        activeWebhookInboxLocks.delete(key)
       },
     }
   }
   catch (error) {
+    clearInterval(ownerHeartbeat)
+    activeWebhookInboxLocks.delete(key)
+    await state.delete(ownerKey).catch(() => undefined)
     await state.releaseLock(lock).catch(() => undefined)
     throw error
   }
@@ -281,11 +306,21 @@ export async function replayWebhookInbox(
       }
       logWebhookInbox("inbox.replaying", { ...fields, receivedAt: stored.receivedAt })
       try {
-        const response = await route(new Request(stored.request.url, {
+        const makeRequest = () => new Request(stored.request.url, {
           body: stored.request.body || undefined,
           headers: stored.request.headers,
           method: stored.request.method,
-        }), stored.webhookId)
+        })
+        let response = await route(makeRequest(), stored.webhookId)
+        // A lock left by a crashed process is indistinguishable from a duplicate request
+        // at the route boundary. If this process does not own it, take over once and retry.
+        if (response.headers.get("x-vitehub-webhook-duplicate") === "1" && !activeWebhookInboxLocks.has(key) && !(await state.get(`${key}:owner`))) {
+          const forceReleaseLock = (state as StateAdapter & { forceReleaseLock?: (threadId: string) => Promise<void> }).forceReleaseLock
+          if (forceReleaseLock) {
+            await forceReleaseLock(`${key}:admission`).catch(() => undefined)
+            response = await route(makeRequest(), stored.webhookId)
+          }
+        }
         await response.arrayBuffer().catch(() => undefined)
         logWebhookInbox("inbox.replayed", { ...fields, status: response.status })
       }
