@@ -1130,7 +1130,7 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
 }
 
 function persistedWebhookInvocation(
-  invocation: { agent?: AgentInput, input: AgentRunInput; run?: unknown, task?: string },
+  invocation: { agent?: AgentInput, input: AgentRunInput; run?: unknown, task?: string, requiresPrepare?: boolean },
   rehydrate = false,
 ): { agentName?: string, input: Record<string, unknown>; run?: unknown, task?: string } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
@@ -1144,6 +1144,7 @@ function persistedWebhookInvocation(
     input,
     ...(invocation.run ? { run: invocation.run } : {}),
     ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+    ...(invocation.requiresPrepare ? { requiresPrepare: true as const } : {}),
   }
 }
 
@@ -1831,8 +1832,8 @@ async function executeQueuedWebhookDelivery(
     else if (delivery.invocation) {
       const saved = delivery.invocation
       const trigger = await Promise.race([runWithRuntimeCloudflareEnv(context, () => queuedWebhookTrigger(agent, context, request, delivery, state)), executionTimeout])
-      // A row stored without a task keeps running when its registration is gone, as before tasks existed.
-      if (!trigger && saved.task !== undefined) {
+      // Persisted tasks and prepared deliveries require their current trigger definition.
+      if (!trigger && (saved.task !== undefined || saved.requiresPrepare)) {
         throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       }
       const task = trigger ? queuedWebhookTask(trigger, saved) : undefined
@@ -1847,6 +1848,10 @@ async function executeQueuedWebhookDelivery(
       }
     }
     if (accepted && invocation) {
+      // A task may run another Agent. Apply that Agent's deadline before its
+      // preparation, while retaining the delivery-wide elapsed-time budget.
+      executionAgent = accepted.agent ?? agent
+      armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
       const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
       const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
@@ -8643,6 +8648,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               input: invocation.input,
               run: invocation.run,
               ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+              ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
             }, Boolean(invocation.webhook.rehydrate))
             const persistable = isJsonSafe(persistedInvocation)
             // A task or `prepare` runs from the stored input, so the queue never calls `invoke` again.
