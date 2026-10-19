@@ -213,6 +213,8 @@ export interface AgentInvocationStore {
     replaceClaimToken?: string
     /** Requires the claimed record to have this stable identity. */
     expectedTraceId?: string
+    /** Requires the claimed record to be the observed store generation. */
+    expectedCursor?: string
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
@@ -374,6 +376,8 @@ interface AgentInvocationBindOptions {
   replaceClaimToken?: string
   /** Requires the claimed record to have this stable identity. */
   expectedTraceId?: string
+  /** Requires the existing-only bind to use this observed store generation. */
+  expectedCursor?: string
   recoverPending?: boolean
 }
 
@@ -1854,6 +1858,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const now = Date.now()
       const record = records.get(id)
       if (options?.expectedTraceId && record?.traceId !== options.expectedTraceId) return false
+      if (options?.expectedCursor !== undefined && record?.cursor !== options.expectedCursor) return false
       if (supersededClaims.get(id)?.has(claimId)) return false
       const expected = options?.expectedClaimIds
       const expectedMismatch = expected !== undefined && claim !== undefined
@@ -2156,6 +2161,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const cancellationOwnerId = createInvocationId()
       let traceId = await boundedIdentity(context.trace?.id || runId)
       let existingTraceId: string | undefined
+      let existingCursor: string | undefined
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
@@ -2254,11 +2260,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const task = Promise.resolve().then(async () => {
             if (!bindOptions.existingOnly) return await store.create(createInput)
             const record = await store.get(recordId)
-            return record ? { created: false, record } : undefined
+            return record && (bindOptions.expectedCursor === undefined || record.cursor === bindOptions.expectedCursor)
+              ? { created: false, record }
+              : undefined
           }).then((result) => {
             if (result) {
               traceId = result.record.traceId
               if (bindOptions.existingOnly) existingTraceId = result.record.traceId
+              if (bindOptions.existingOnly) existingCursor = result.record.cursor
               limits = observationLimits(result.record.observationLimits)
               observationCount = result.record.observations.length
               observationsTruncated = result.record.observationsTruncated === true
@@ -2313,6 +2322,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           : expectedClaimIds.length ? { expectedClaimIds }
             : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : {}
         if (existingTraceId) claimOptions.expectedTraceId = existingTraceId
+        if (existingCursor) claimOptions.expectedCursor = existingCursor
         const claimTask = Promise.resolve().then(() => store.claim(recordId, attemptId, CLAIM_LEASE_MS, claimOptions))
         const claim = await boundedStore(() => claimTask)
         if (claim !== true && claim !== false) {

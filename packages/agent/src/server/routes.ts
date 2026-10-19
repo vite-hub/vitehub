@@ -1616,7 +1616,7 @@ async function failOpenQueuedWebhookInvocation(
     const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
     if (summary?.status !== "pending" && summary?.status !== "running") return
     const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
-    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true })
+    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true, expectedCursor: summary.cursor })
     if (!journal) return
     await journal?.finish("failed", error)
   }

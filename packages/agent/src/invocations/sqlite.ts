@@ -970,10 +970,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         const claimToken = globalThis.crypto.randomUUID()
         const expectedClaimIds = options?.expectedClaimIds === undefined ? null : JSON.stringify(options.expectedClaimIds)
         const expectedTraceId = options?.expectedTraceId ?? null
+        const expectedCursor = options?.expectedCursor === undefined ? null : Number(options.expectedCursor)
         const result = await client.execute({
-          args: [id, claimId, claimToken, leaseMs, id, expectedTraceId, expectedTraceId, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
+          args: [id, claimId, claimToken, leaseMs, id, expectedCursor, expectedCursor, expectedTraceId, expectedTraceId, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
           sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
-            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND (? IS NULL OR json_extract(record, '$.traceId') = ?))
+            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND (? IS NULL OR sequence = ?) AND (? IS NULL OR json_extract(record, '$.traceId') = ?))
             ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
             WHERE (? IS NOT NULL AND ${table}_claims.claim_id IN (SELECT value FROM json_each(?)))
               OR (? IS NULL AND (? = 1 OR (? IS NOT NULL AND ${table}_claims.claim_token = ?) OR ${table}_claims.claim_id = excluded.claim_id
