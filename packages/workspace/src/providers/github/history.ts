@@ -265,7 +265,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, ref), "commit")
     }
     catch (error) {
-      if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
+      if (isNoHistoryError(error)) return null
       throw error
     }
   }

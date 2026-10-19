@@ -151,10 +151,10 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    // Forge's GitHub mappers may reject malformed successful payloads with a
-    // plain TypeError. Transport failures are wrapped by requestGitHub, so
-    // only classify an unwrapped mapper TypeError at response boundaries.
-    if (status === undefined && response && (isForgeResponseError(error) || error instanceof TypeError)) {
+    // Only the Forge response marker denotes a successful response that could
+    // not be decoded. Other errors (including request validation and abort
+    // failures) must retain their original request/transport classification.
+    if (status === undefined && response && isForgeResponseError(error)) {
       throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
@@ -368,7 +368,7 @@ export async function readGitHubTree(
 
 function isMissingRef(error: unknown): boolean {
   const status = githubRequestStatus(error);
-  return status === 404 || status === 422;
+  return status === 404;
 }
 
 /** The head of `branch`, or of the default branch when `branch` does not exist yet, and the files under `root`. */
