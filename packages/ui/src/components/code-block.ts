@@ -11,9 +11,9 @@ export const CodeBlock = defineComponent({
     size: { default: "default", type: String as PropType<CodeBlockSize> },
     variant: { default: "default", type: String as PropType<CodeBlockVariant> },
   },
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
+      h("div", { ...attrs, "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
   },
 });
 

@@ -74,6 +74,7 @@ function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toA
       return 1
     },
   }
+  SqlStorage.prototype = prototype
   Object.setPrototypeOf(sql, prototype)
   Object.defineProperty(prototype, "databaseSize", {
     configurable: true,
