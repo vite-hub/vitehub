@@ -1599,7 +1599,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 baseWorkspace = { ...await resolveRegisteredWorkspaceDefinition(configuredWorkspace) };
               }
               else if (isRuntimeRecord(configuredWorkspace)) {
-                const workspaceName = hasRuntimeType(configuredWorkspace.name, "string") ? configuredWorkspace.name : undefined;
+                const workspaceName = Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string")
+                  ? configuredWorkspace.name
+                  : undefined;
                 const registeredWorkspace = workspaceName
                   ? await resolveRegisteredWorkspaceDefinition(workspaceName)
                   : undefined;
