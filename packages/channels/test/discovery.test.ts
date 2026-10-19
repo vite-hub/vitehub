@@ -102,6 +102,12 @@ describe("discoverChannelDefinitions", () => {
       "export { github as default }",
       "",
     ].join("\n"))
+    await touch(root, "server/channels/discord/index.ts", [
+      "import * as channels from 'vite-hub/agent/channels'",
+      `const discord = channels["defineChannel"]('discord', {})`,
+      "export { discord as default }",
+      "",
+    ].join("\n"))
 
     const expected = [
       { handler: join(root, "server/channels/teams/index.ts"), name: "teams", source: "server-channels" },
@@ -124,6 +130,9 @@ describe("discoverChannelDefinitions", () => {
     await touch(root, "server/channels/empty.ts", "export default null\n")
     await touch(root, "server/channels/list.ts", "export default []\n")
     await touch(root, "server/channels/label.ts", "export default `label`\n")
+    await touch(root, "server/channels/undefined.ts", "export default undefined\n")
+    await touch(root, "server/channels/void.ts", "export default void 0\n")
+    await touch(root, "server/channels/negative.ts", "export default -1\n")
 
     expect(discoverChannelDefinitions({ rootDir: root })).toEqual([])
   })

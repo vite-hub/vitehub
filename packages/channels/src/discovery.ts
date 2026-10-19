@@ -45,6 +45,7 @@ const nonDefinitionTypes = new Set<string>([
   "FunctionExpression",
   "Literal",
   "TemplateLiteral",
+  "UnaryExpression",
 ])
 
 function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
@@ -129,14 +130,16 @@ function isOutboundChannelModule(file: string): boolean {
     value = binding
   }
   if (!value) return true
+  if (value.type === "Identifier" && (value.name === "undefined" || value.name === "NaN" || value.name === "Infinity")) return false
   if (value.type !== "CallExpression") return !nonDefinitionTypes.has(value.type)
   const callee = unwrapExpression(value.callee)
   if (callee.type === "Identifier") return !agentChannelFactories.has(callee.name)
   return !(callee.type === "MemberExpression"
     && callee.object.type === "Identifier"
     && agentChannelNamespaces.has(callee.object.name)
-    && !callee.computed
-    && callee.property.name === "defineChannel")
+    && (!callee.computed
+      ? callee.property.type === "Identifier" && callee.property.name === "defineChannel"
+      : callee.property.type === "Literal" && callee.property.value === "defineChannel"))
 }
 
 // A folder below `server/channels` with an `index` module is one Channel. Its other files are helpers.
