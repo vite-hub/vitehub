@@ -3,5 +3,5 @@ import InvocationRunningExample from "./InvocationRunningExample.vue";
 </script>
 
 <template>
-  <InvocationRunningExample />
+  <InvocationRunningExample :show-timeline="false" />
 </template>

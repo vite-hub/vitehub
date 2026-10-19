@@ -3,6 +3,8 @@ import { computed, onMounted, onUnmounted } from "vue";
 
 import type { AgentInvocationView } from "@vite-hub/ui";
 
+const props = defineProps<{ showTimeline?: boolean }>();
+
 const now = useState("ui-running-clock", () => Date.now());
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 let clock: ReturnType<typeof setInterval> | undefined;
@@ -69,6 +71,6 @@ const invocation = computed<AgentInvocationView>(() => ({
 
 <template>
   <div class="h-[28rem] min-w-0 bg-default">
-    <AgentInvocation :invocation="invocation" class="h-full" />
+    <AgentInvocation :invocation="invocation" :show-timeline="props.showTimeline" class="h-full" />
   </div>
 </template>

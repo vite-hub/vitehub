@@ -343,7 +343,31 @@ async function runAccessAuthorize(
       if (resolved !== true) return { response: createForbiddenResponse(context.request) }
       return {}
     }
+    // Only native Promise instances use the intrinsic adoption path. Ordinary
+    // thenables must call their own `then` method with the original receiver.
     let branded = false
+    let promiseBrand = false
+    try {
+      promiseBrand = Object.prototype.toString.call(result) === "[object Promise]"
+    }
+    catch {
+      promiseBrand = false
+    }
+    if (!promiseBrand) {
+      const thenMethod = resultThen
+      const assimilated = new Promise<unknown>((resolve, reject) => {
+        queueMicrotask(() => {
+          try { Reflect.apply(thenMethod, result, [resolve, reject]) }
+          catch (error) { reject(error) }
+        })
+      })
+      return assimilated.then(async resolved => {
+        const response = await normalizeAuthorizationResponse(resolved)
+        if (response) return { response }
+        if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+        return {}
+      })
+    }
     const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
       const attach = () => Reflect.apply(intrinsicPromiseThen, result, [
         (resolved: unknown) => { void settle(resolved).then(resolve, reject) }, reject,
