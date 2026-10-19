@@ -309,7 +309,21 @@ function isRuntimeResponse(value: unknown): value is Response {
     let prototype: object | null = Object.getPrototypeOf(value)
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (prototype === Response.prototype) return true
+      if (prototype === Response.prototype) {
+        // A genuine response can still be wrapped in a subclass that shadows
+        // response accessors. Do not let those ordinary getters bypass the
+        // descriptor checks used by normalization below.
+        if (authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(value, key))) return false
+        let intermediate = Object.getPrototypeOf(value)
+        while (intermediate && intermediate !== Response.prototype) {
+          if (authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(intermediate, key))) return false
+          intermediate = Object.getPrototypeOf(intermediate)
+        }
+        return authorizationResponseProperties.every(key => {
+          const expected = nativeResponseDescriptors[key]?.get
+          return expected && responsePropertyDescriptor(value, key)?.get === expected
+        })
+      }
       if (seen.has(prototype)) return false
       seen.add(prototype)
       prototype = Object.getPrototypeOf(prototype)
