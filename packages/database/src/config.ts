@@ -71,7 +71,12 @@ function readDefinitionObjectBody(file: string) {
     const exportMatch = new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*export\\s+default\\s+${escapedName}\\b`).exec(afterCall)
     if (!exportMatch) return false
     const beforeExport = afterCall.slice(0, exportMatch.index)
-    return !new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*${escapedName}\\s*=`).test(beforeExport)
+    // A later declaration can shadow the binding initialized by this call.
+    // In that case the indirect export refers to the later binding, so this
+    // candidate must not win merely because it appears first in the file.
+    return !new RegExp(
+      `(?:^|[;\\n\\r\\u2028\\u2029])\\s*(?:(?:const|let|var)\\s+)?${escapedName}\\s*(?::[^=;\\n\\r\\u2028\\u2029]+)?\\s*=`,
+    ).test(beforeExport)
   })
   const argument = call?.arguments[0] ? stripExpressionComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)
