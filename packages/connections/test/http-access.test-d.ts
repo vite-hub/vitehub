@@ -21,7 +21,7 @@ describe("Connections route access types", () => {
     createConnectionsHandler({ actor: "production" })
     // @ts-expect-error A policy returns the actor id, not a boolean.
     createConnectionsHandler({ actor: () => true })
-    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request, event?: unknown) => string | undefined | Promise<string | undefined>)>()
+    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request, event?: unknown) => string | Response | undefined | Promise<string | Response | undefined>)>()
   })
 
   it("accepts only an access from the check in a route body", async () => {

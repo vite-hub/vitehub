@@ -3,7 +3,7 @@
 title: Read your first Source
 description: Read a known Markdown file through a local glob Source.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
@@ -26,11 +26,10 @@ Register ViteHub and Nitro in the app. You will import the Source directly in th
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro() as never],
+  plugins: [vitehub({ preset: 'node' })],
 })
 ```
 

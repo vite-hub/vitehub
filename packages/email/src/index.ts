@@ -9,7 +9,7 @@ export type {
   EmailDriver,
   EmailDriverFactory,
   EmailDriverSource,
+  EmailErrorCode,
   EmailMessage,
   EmailSendResult,
 } from "./types.ts"
-export type { EmailErrorCode } from "./errors.ts"

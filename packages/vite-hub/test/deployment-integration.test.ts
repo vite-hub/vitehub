@@ -58,16 +58,18 @@ describe("built-in deployment preset integration", () => {
         rateLimit: false,
       })],
     }, "build")
-    expect(config.plugins.map(plugin => plugin.name)).not.toContain("@vite-hub/sandbox/vite")
+    expect(config.plugins.map(plugin => plugin.name)).not.toContain("@vite-hub/sandbox-task/vite")
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-command-"))
     try {
+      // `vitehub()` includes Nitro, so the dev config resolves this module.
+      const localModule = { name: "local-module", setup() {} }
       const developmentConfig = {
         nitro: {
-          modules: ["local-module"],
+          modules: [localModule],
           preset: "node-server",
         },
         root,
@@ -82,14 +84,14 @@ describe("built-in deployment preset integration", () => {
           marker: "preserved",
         },
       } as Parameters<typeof resolveConfig>[0] & {
-        nitro: { modules: string[], preset: string }
+        nitro: { modules: unknown[], preset: string }
         vitehub: { marker: string }
       }
       const development = await resolveConfig(developmentConfig, "serve")
       expect((development as typeof development & {
         nitro?: { modules?: unknown[], preset?: string }
       }).nitro).toMatchObject({
-        modules: ["local-module"],
+        modules: [localModule],
         preset: "node-server",
       })
       expect(development.vitehub).toEqual({
@@ -303,7 +305,7 @@ describe("built-in deployment preset integration", () => {
       const token = execFileSync(process.execPath, ["--input-type=module", "-e", `
         const { useServerEnv } = await import(${JSON.stringify(moduleUrl)})
         const serverEnv = useServerEnv({
-          env: { VITEHUB_GITHUB_TOKEN: "", GH_TOKEN: "fallback-token", GITHUB_TOKEN: "last-token", TELEGRAM_BOT_TOKEN: "telegram-token" },
+          env: { VITEHUB_GITHUB_TOKEN: "", FORGES_GITHUB_TOKEN: "fallback-token", GH_TOKEN: "ignored-token", GITHUB_TOKEN: "ignored-token", TELEGRAM_BOT_TOKEN: "telegram-token" },
         })
         console.log(serverEnv.github.token.unseal())
       `], { encoding: "utf8" })
@@ -312,7 +314,7 @@ describe("built-in deployment preset integration", () => {
       expect(types).toContain("\"telegram\": {")
       expect(types).toContain("\"botToken\": import(\"vite-hub/env/secret\").SecretEnv<string>")
       expect(types).toContain("\"webhookSecret\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
-      expect(types).toContain("\"appPrivateKey\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
+      expect(types).toContain("\"privateKey\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
       const description = await readFile(join(root, ".vitehub", "env", "description.mjs"), "utf8")
       expect(description).toContain("env.server.telegram.botToken")
 

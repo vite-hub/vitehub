@@ -1,3 +1,5 @@
+import { ownSourceOption } from "./runtime-options.ts"
+
 import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
@@ -9,7 +11,6 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { registerWorkspaceStoreAlias } from "../storage/identity.ts"
-import { setWorkspaceRawWriteTarget } from "../storage/raw-write-target.ts"
 import { forwardWorkspaceStoreTarget, resolveWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataMutationTarget, resolveWorkspaceMetadataTarget, setWorkspaceMetadata, attachWorkspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
@@ -84,7 +85,6 @@ const sourceBindingLineage = new WeakMap<object, WorkspaceSourceInput>()
 function sameWorkspaceSourceBinding(key: string, left: WorkspaceSourceInput | undefined, right: WorkspaceSourceInput | undefined): boolean {
   if (left === right) return true
   if (!left || !right) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only object Source definitions participate in binding lineage.
   if (typeof left !== "object" || typeof right !== "object") return false
   if ((sourceBindingLineage.get(left) ?? left) !== (sourceBindingLineage.get(right) ?? right)) return false
   const leftBinding = normalizeWorkspaceSource(key, left)
@@ -686,11 +686,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       list: writeFs.list,
       materializeSources,
       mkdir: writeFs.mkdir,
-      publish: async (options) => {
-        const { publishWorkspace } = await import("../lifecycle.ts")
-        const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
-        await publishWorkspace(resolvedDefinition, resolvedStore, options)
-      },
       rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
@@ -699,11 +694,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
-        const startBoxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-box-session"))
+        const startSandboxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-sandbox-session"))
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
-          : typeof startBoxSession === "function"
-          ? await (startBoxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
+          : typeof startSandboxSession === "function"
+          ? await (startSandboxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
           : await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
         return withSessionSourceGuards(session)
       },
@@ -751,13 +746,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       fs: writeFs,
       history: writableHistory,
       materializeSources,
-      publish: writeWorkspace.publish,
       snapshot: writeWorkspace.snapshot,
       startSession: writeWorkspace.startSession,
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
-    setWorkspaceRawWriteTarget(writableWorkspace, writes)
     sourceSyncStores.set(writableWorkspace.fs, (childDefinition) => {
       // Only the same Source binding retains its sync authority through a
       // parent view. Renamed or replaced bindings must pass the parent's guard.
@@ -872,7 +865,6 @@ async function resolveWorkspaceSource(
       },
     },
   })
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String and callable Sources have no object-definition lineage to look up.
   sourceBindingLineage.set(result, typeof input === "object" ? sourceBindingLineage.get(input) ?? input : input)
   return result
 }
@@ -897,16 +889,17 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
   input: Record<string, unknown>,
   key: TKey,
 ) {
-  if (input[key] !== undefined) {
+  if (Object.hasOwn(input, key) && input[key] !== undefined) {
     target[key] = input[key] as never
   }
 }
 
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
-  if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
+  const mount = ownSourceOption(source, "mount")
+  if (ownSourceOption(source, "materialize") || mount && typeof mount === "object" && ownSourceOption(mount, "materialize")) {
     return source
   }
-  if (source.sync) return source
+  if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
 }
 

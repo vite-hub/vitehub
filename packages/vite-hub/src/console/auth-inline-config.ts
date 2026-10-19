@@ -13,6 +13,8 @@ export interface InlineConsoleAuth {
   secretEnv?: string
   /** Better Auth session options. `expiresIn` is in seconds. */
   session?: { expiresIn?: number }
+  /** Environment key containing the selected project root secret. */
+  developmentSecretEnvKey?: string
 }
 
 export interface InlineConsoleAuthGates {
@@ -26,7 +28,6 @@ const githubLogin = /^(?=.{1,39}$)[a-z\d](?:[a-z\d]|-(?=[a-z\d]))*$/i
 /** Validate inline Console Auth at build time and at runtime with the same rules. */
 export function resolveInlineConsoleAuthGates(config: InlineConsoleAuth): InlineConsoleAuthGates {
   const orgs = config.org === undefined ? [] : [config.org].flat()
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inline config crosses the JSON-serialized Vite config boundary, so verify each organization login.
   if ((config.org !== undefined && orgs.length === 0) || orgs.some(org => typeof org !== "string" || !githubLogin.test(org))) {
     throw new TypeError("[vitehub] Inline Console Auth org must be a GitHub organization login.")
   }

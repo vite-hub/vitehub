@@ -84,6 +84,16 @@ describe("workspace config", () => {
     })).toEqual({ provider: "memory" })
   })
 
+  it("does not treat a non-callable own readFile as a complete workspace store", () => {
+    const store = { readFile: "not-a-function" }
+
+    expect(normalizeWorkspaceStoreOptions(store as never, {
+      env: {},
+      hosting: "cloudflare_module",
+    })).toEqual({ provider: "memory" })
+    expect(typeof createWorkspaceStoreFromProvider({ name: "malformed", store: store as never }).readFile).toBe("function")
+  })
+
   it("preserves class-based workspace stores", () => {
     const store = createMemoryWorkspaceStore()
 
@@ -158,6 +168,32 @@ describe("workspace config", () => {
       provider: "vercel-blob",
       token: "********",
     })
+  })
+
+  it("keeps the default Vercel Blob prefix unset", () => {
+    const config = normalizeWorkspaceOptions({}, {
+      env: { BLOB_READ_WRITE_TOKEN: "runtime-token" },
+      hosting: "vercel",
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toStrictEqual({
+      access: "private",
+      provider: "vercel-blob",
+      token: "********",
+    })
+  })
+
+  it.each([
+    ["env", {}, { VITEHUB_WORKSPACE_BLOB_PREFIX: ".vitehub/workspaces" }],
+    ["option", { store: { prefix: "../handbook", provider: "vercel-blob" as const } }, {}],
+    ["empty option", { store: { prefix: "", provider: "vercel-blob" as const } }, {}],
+  ])("rejects an invalid Vercel Blob prefix from the %s", (_source, options, env) => {
+    expect(() => normalizeWorkspaceOptions(options, {
+      env: { BLOB_READ_WRITE_TOKEN: "runtime-token", ...env },
+      hosting: "vercel",
+      rootDir: "/repo",
+    })).toThrow("Workspace Blob prefix")
   })
 
   it("defaults to local storage without a hosting signal", () => {

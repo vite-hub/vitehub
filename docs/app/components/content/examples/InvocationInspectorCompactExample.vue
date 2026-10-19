@@ -1,53 +1,69 @@
 <script setup lang="ts">
+import { computed, onMounted } from "vue";
 import type { AgentInvocationView } from "@vite-hub/ui";
-import { ref } from "vue";
 
-const open = ref(true);
-const invocation: AgentInvocationView = {
-  agentName: "support",
-  configuration: {
-    agent: { name: "support" },
-    capabilities: [{ id: "orders" }],
-    driver: { kind: "model", model: { id: "gpt-5.6", provider: "openai" } },
-    runtime: { name: "cloudflare" },
-  },
-  completedAt: "2026-08-23T10:00:18.000Z",
-  createdAt: "2026-08-23T10:00:00.000Z",
-  id: "ainv_refund_question",
-  observations: [],
-  startedAt: "2026-08-23T10:00:01.000Z",
-  status: "completed",
-  title: "Answer refund question",
-  traceId: "trace_refund_question",
-  updatedAt: "2026-08-23T10:00:18.000Z",
-  usage: { totalTokens: 3_210, cost: { display: "$0.004", estimated: true } },
-};
+
+
+const now = useState("ui-running-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
+const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+
+
+
+const invocation = computed<AgentInvocationView>(() => ({
+  agentName: "interface-engineer",
+  createdAt: time(844),
+  id: "ainv_console_navigation",
+  observations: [
+    {
+      attributes: {
+        "message.content": "Tighten the Console navigation spacing at mobile widths.",
+        "message.id": "user-1",
+        "message.role": "user",
+      },
+      name: "agent.message.recorded",
+      sequence: 1,
+      timestamp: time(836),
+      trace: { id: "trace_console_navigation" },
+      type: "run",
+    },
+    {
+      attributes: {
+        "progress.label": "Comparing the primitive pages",
+        "progress.value": 0.62,
+        "vitehub.activity.body": "Checking the navigation rhythm at desktop and mobile widths.",
+      },
+      name: "agent.progress",
+      sequence: 2,
+      timestamp: time(444),
+      trace: { id: "trace_console_navigation" },
+      type: "run",
+    },
+    {
+      attributes: {
+        "tool.id": "browser-check",
+        "tool.name": "Check responsive layout",
+        "tool.output": { route: "/_vitehub/agents/interface-engineer", viewport: "390x844" },
+      },
+      name: "agent.tool.finish",
+      sequence: 3,
+      timestamp: time(20),
+      trace: { id: "trace_console_navigation" },
+      type: "run",
+    },
+  ],
+  startedAt: time(842),
+  status: "running",
+  title: "Polish Console navigation",
+  traceId: "trace_console_navigation",
+  updatedAt: time(20),
+}));
 </script>
 
 <template>
-  <div class="mx-auto h-[30rem] max-w-md bg-default">
-    <AgentInvocationInspector
-      v-if="open"
-      :invocation="invocation"
-      :show-timeline="false"
-      class="h-full border-x border-default"
-    >
-      <template #actions>
-        <UButton
-          icon="i-lucide-x"
-          aria-label="Close details"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          @click="open = false"
-        />
-      </template>
-      <template #metadata>
-        <section class="px-4 py-3 text-xs text-muted">Region: eu-west-1</section>
-      </template>
-    </AgentInvocationInspector>
-    <div v-else class="grid h-full place-items-center border-x border-default">
-      <UButton label="Show details" color="neutral" variant="outline" size="sm" @click="open = true" />
-    </div>
+  <div class="h-[28rem] min-w-0 bg-default">
+    <AgentInvocationInspector :invocation="invocation" :show-timeline="false" class="h-full" />
   </div>
 </template>

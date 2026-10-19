@@ -136,6 +136,29 @@ describe("mcpResources", () => {
     await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["empty/first.txt", "empty/second.txt"])
   })
 
+  it("rejects duplicate paths even when the first resource URI is empty", async () => {
+    const source = mcpResources({
+      path: () => "duplicate.txt",
+      server: {
+        async listResources() {
+          return {
+            resources: [
+              { name: "first", uri: "" },
+              { name: "second", uri: "resource://second" },
+            ],
+          }
+        },
+        async readResource({ uri }) {
+          return { contents: [{ text: uri, uri }] }
+        },
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toThrow(
+      'mcpResources produced duplicate path "duplicate.txt"',
+    )
+  })
+
   it("reads MCP resource contents and metadata", async () => {
     const source = mcpResources({ server: createClient() })
 
@@ -280,6 +303,54 @@ describe("mcpResources", () => {
     await expect(pending).rejects.toBe(reason)
     expect(requestSignal?.aborted).toBe(true)
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it("closes an owned MCP client before it reports Source cancellation", async () => {
+    const reason = new Error("source canceled")
+    const controller = new AbortController()
+    const order: string[] = []
+    let requestStarted!: () => void
+    const started = new Promise<void>(resolve => requestStarted = resolve)
+    const transport = { close: vi.fn(), send: vi.fn(), start: vi.fn() }
+    vi.doMock("@modelcontextprotocol/sdk/client/index.js", () => ({
+      Client: vi.fn(function () {
+        return {
+          async close() {
+            await Promise.resolve()
+            order.push("close")
+          },
+          connect: vi.fn(),
+          listResources() {
+            requestStarted()
+            return new Promise(() => {})
+          },
+          async readResource() {
+            return { contents: [] }
+          },
+        }
+      }),
+    }))
+    vi.doMock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+      StreamableHTTPClientTransport: vi.fn(function () {
+        return transport
+      }),
+    }))
+    vi.resetModules()
+    const { mcpResources } = await import("../../src/sources/mcp-resources.ts")
+    const source = mcpResources({ server: { transport: { url: "https://example.com/mcp" } } })
+
+    const pending = source.getKeys({ abortSignal: controller.signal, rootDir: "/tmp" }).catch((error) => {
+      order.push("rejected")
+      return error
+    })
+    await started
+    controller.abort(reason)
+
+    await expect(pending).resolves.toBe(reason)
+    expect(order).toEqual(["close", "rejected"])
+    vi.doUnmock("@modelcontextprotocol/sdk/client/index.js")
+    vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js")
+    vi.resetModules()
   })
 
   it("rejects malformed base64 resource content", async () => {

@@ -81,13 +81,13 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.e2e) {
-    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
+    const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandboxTask }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
       import("@vite-hub/blob/vite"),
       import("@vite-hub/database/vite"),
       import("@vite-hub/kv/vite"),
       import("@vite-hub/queue/vite"),
       import("@vite-hub/schedule/vite"),
-      import("@vite-hub/sandbox/vite"),
+      import("@vite-hub/sandbox-task/vite"),
       import("@vite-hub/workspace/vite"),
       import("@vite-hub/workflow/vite"),
     ])
@@ -125,7 +125,7 @@ export default defineConfig(async () => {
         hubWorkflow(),
         hubBlob(),
         hubDb(),
-        hubSandbox(),
+        hubSandboxTask(),
         hubWorkspace(),
         createViteE2EComposer({
           ...composerOptions,
@@ -136,7 +136,7 @@ export default defineConfig(async () => {
         }),
       ],
       queue: {},
-      sandbox: composerOptions.sandbox,
+      sandboxTask: composerOptions.sandbox,
       workspace: { store: { provider: "memory" } },
       workflow: {},
     }
@@ -215,6 +215,15 @@ export default defineConfig(async () => {
     return {
       ...baseConfig,
       plugins: [hubDb()],
+    }
+  }
+
+  if (buildMode === VITEHUB_MODES.sandbox) {
+    const { hubSandboxTask } = await import("@vite-hub/sandbox-task/vite")
+    return {
+      ...baseConfig,
+      plugins: [hubSandboxTask()],
+      sandboxTask: {},
     }
   }
 

@@ -24,5 +24,5 @@ const agentsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentsResult
   return result
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentsHandler> = withConsoleAccess(agentsHandler)
+const guardedHandler: ConsoleAccessRoute<typeof agentsHandler> = withConsoleAccess(agentsHandler, { section: "agents" })
 export default guardedHandler

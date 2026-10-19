@@ -16,7 +16,7 @@ describe("createTestEmail", () => {
     const client = createTestEmail()
     const first = structuredClone(message)
 
-    await expect(client.send(first)).resolves.toEqual({ driver: "memory", id: "memory-1" })
+    await expect(client.send(first)).resolves.toEqual([undefined, { driver: "memory", id: "memory-1" }])
     first.subject = "Changed later"
     await client.send({ ...message, subject: "Second" })
 

@@ -9,7 +9,7 @@ import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { resolveViteHubBundleDefines, bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 
@@ -125,10 +125,10 @@ function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret
 function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
   if (isRuntimeEnvEntry(value)) {
     if (value.source.kind === "provider") {
-      throw emailErrorDiagnostics.EMAIL_B0001({ message: `[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.` })
+      throw emailErrorDiagnostics.EMAIL_SYNC_OPTION_REQUIRED({ path })
     }
     if (value.secret && value.default !== undefined) {
-      throw emailErrorDiagnostics.EMAIL_B0002({ message: `[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.` })
+      throw emailErrorDiagnostics.EMAIL_SECRET_DEFAULT({ path })
     }
     return
   }
@@ -148,7 +148,7 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 
 function resolveDriverImport(driver: string): string {
   if (driver !== "resend" && driver !== "cloudflare-email") {
-    throw emailErrorDiagnostics.EMAIL_B0003({ message: '[vitehub] Email driver must be "resend" or "cloudflare-email".' })
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -168,15 +168,15 @@ interface ResolvedEmailOutboxOptions {
 function resolveOutboxOptions(value: unknown): ResolvedEmailOutboxOptions | undefined {
   if (value === false) return
   if (value !== undefined && !isRecord(value)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox must be false or an object." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "type" })
   }
   const deliver = value?.deliver ?? true
   const limit = value?.limit ?? 50
   if (!v.is(v.boolean(), deliver)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox.deliver must be a boolean." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "deliver" })
   }
   if (!v.is(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), limit)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox.limit must be an integer from 1 to 1000." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "limit" })
   }
   return { deliver, limit }
 }
@@ -261,12 +261,6 @@ function renderConfiguredEmailDefinitionModule(
   ].join("\n")
 }
 
-function resolveHosting(options: InternalEmailVitePluginOptions, config: Record<string, unknown>): string | undefined {
-  const nitro = isRecord(config.nitro) ? config.nitro : {}
-  const preset = typeof nitro.preset === "string" ? nitro.preset : undefined
-  return preset ?? options.hosting ?? process.env.NITRO_PRESET ?? process.env.SERVER_PRESET ?? process.env.VITEHUB_HOSTING
-}
-
 function mergeNitroExternal(value: unknown, addition: string): unknown {
   if (typeof value === "undefined") return [addition]
   if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
@@ -310,7 +304,7 @@ function emailTemplateName(id: string): string | undefined {
   const name = id.slice(emailTemplatePrefix.length)
   const segments = name.split("/")
   if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
-    throw emailErrorDiagnostics.EMAIL_B0004({ message: `[vitehub] Invalid Email template ${JSON.stringify(id)}.` })
+    throw emailErrorDiagnostics.EMAIL_INVALID_TEMPLATE({ id })
   }
   return name
 }
@@ -375,7 +369,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw emailErrorDiagnostics.EMAIL_B0006({ message: '[vitehub] Email requires driver: "resend" or driver: "cloudflare-email".' })
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
   const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -459,10 +453,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       command = env?.command
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const configRecord = config as Record<string, unknown>
-      const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
+      const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw emailErrorDiagnostics.EMAIL_B0007({ message: '[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.' })
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
       vercel = hosting === "vercel"
         || internalOptions.workflowProvider === "vercel"

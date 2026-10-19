@@ -73,7 +73,6 @@ function escapeRegExp(value: string): string {
 }
 
 function collectPackageExportCandidates(packageName: string, exportsValue: unknown, packageRelativePath: string): string[] {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package exports are untrusted JSON and string targets are the domain values consumed here.
   if (typeof exportsValue === "string") {
     return normalizePathSeparators(exportsValue).replace(/^\.\//, "") === packageRelativePath ? [packageName] : []
   }
@@ -86,7 +85,6 @@ function collectPackageExportCandidates(packageName: string, exportsValue: unkno
     const targets: unknown[] = [target]
     while (targets.length) {
       const value = targets.shift()
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package exports are untrusted JSON and string targets are the domain values consumed here.
       if (typeof value === "string") {
         const normalizedTarget = normalizePathSeparators(value).replace(/^\.\//, "")
         const targetParts = normalizedTarget.split("*")
@@ -327,7 +325,6 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[resolvingAlias]) return
         const alias = aliases.find(({ find }) => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
           if (typeof find === "string") return args.path === find || args.path.startsWith(`${find}/`)
           find.lastIndex = 0
           return find.test(args.path)
@@ -339,7 +336,6 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           }
         }
         if (alias.find instanceof RegExp) alias.find.lastIndex = 0
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
         const replacement = typeof alias.find === "string"
           ? `${alias.replacement}${args.path.slice(alias.find.length)}`
           : args.path.replace(alias.find, alias.replacement)
@@ -349,7 +345,6 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
           namespace: args.namespace,
           pluginData: Object.assign(
             {},
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- esbuild exposes pluginData as unknown, and this boundary preserves only object-shaped metadata.
             args.pluginData && typeof args.pluginData === "object" ? args.pluginData : {},
             { [resolvingAlias]: true },
           ),
@@ -487,7 +482,6 @@ export function resolveViteHubBundleDefines(config: { define?: Record<string, un
   const defines: Record<string, string> = {}
   for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
     const value = config.define?.[name]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite accepts untagged define values; esbuild requires source strings.
     if (typeof value === "string") defines[name] = value
   }
   return defines
@@ -512,7 +506,6 @@ export async function bundleEsmEntry(
   const platform = options.platform || "neutral"
   const viteAliasPlugin = createViteAliasPlugin(options.alias)
   const aliasSpecifiers = Array.isArray(options.alias)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
     ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
     : Object.keys(options.alias || {})
   const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))

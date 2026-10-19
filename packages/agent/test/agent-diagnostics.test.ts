@@ -41,7 +41,7 @@ describe("Agent diagnostics", () => {
   })
 
   it("keeps stable codes in generated Agent runtime errors", () => {
-    for (const code of ["AGENT_R0892", "AGENT_R0893", "AGENT_R0894", "AGENT_R0895", "AGENT_R0896", "AGENT_R0897"] as const) {
+    for (const code of ["AGENT_R0893", "AGENT_R0894", "AGENT_R0895", "AGENT_R0896", "AGENT_R0897"] as const) {
       expect(agentGeneratedRuntimeError(code, "Generated runtime failed.")).toMatchObject({
         code,
         message: "Generated runtime failed.",

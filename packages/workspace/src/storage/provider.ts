@@ -1,6 +1,7 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
+import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"
@@ -9,6 +10,7 @@ import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
 import { createMemoryWorkspaceStore } from "./memory.ts"
+import { ownedBlobPrefix } from "./owned-blob-prefix.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -37,11 +39,16 @@ function workspaceRepoName(name: string | undefined) {
 }
 
 export function isWorkspaceStore(value: WorkspaceStoreOptions | undefined): value is WorkspaceStore {
-  if (!value || Object.hasOwn(value, "readFile")) return Boolean(value)
+  if (!value) return false
+  if (Object.hasOwn(value, "readFile")) {
+    return "readFile" in value && typeof value.readFile === "function"
+  }
   let prototype = Object.getPrototypeOf(value)
   while (prototype && prototype !== Object.prototype) {
     if (Object.hasOwn(prototype, "readFile")) {
-      return Object.hasOwn(prototype, "constructor") && prototype.constructor !== Object
+      return Object.hasOwn(prototype, "constructor")
+        && prototype.constructor !== Object
+        && "readFile" in value && typeof value.readFile === "function"
     }
     prototype = Object.getPrototypeOf(prototype)
   }
@@ -82,9 +89,11 @@ export function resolveVercelBlobWorkspaceStore(
   config: Partial<VercelBlobWorkspaceStoreOptions> = {},
   env: Record<string, string | undefined> = process.env,
 ): VercelBlobWorkspaceStoreOptions {
+  const prefix = config.prefix ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX")
+  ownedBlobPrefix("workspaces", prefix, "Workspace")
   return {
     access: config.access ?? "private",
-    prefix: trimmed(config.prefix) ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX") ?? ".vitehub/workspaces",
+    ...(prefix === undefined ? {} : { prefix }),
     provider: "vercel-blob",
     token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }
@@ -96,19 +105,19 @@ export function resolveGitHubWorkspaceStore(
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
   const branch = gitHubWorkspaceOption(config.branch)
-    ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH")
+    ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
   const root = gitHubWorkspaceOption(config.root)
-    ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT")
+    ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_ROOT")
   return {
     branch: branch ?? (input.runtime ? undefined : "main"),
     provider: "github",
     repository: gitHubWorkspaceOption(config.repository)
       ?? gitHubWorkspaceOption(config.repo)
-      ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
+      ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),
     root: root ?? (input.runtime ? undefined : ".vitehub/workspaces/<workspace>"),
     token: input.runtime
       ? gitHubWorkspaceOption(config.token)
-        ?? readEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+        ?? readForgeEnv(forgeEnv.github.token, env)
         ?? MASKED_WORKSPACE_RUNTIME_VALUE
       : MASKED_WORKSPACE_RUNTIME_VALUE,
   }

@@ -42,7 +42,7 @@ const docsPageUi = {
       </template>
     </UPageHeader>
 
-    <UPageBody prose class="docs-content docs-catalog-content pb-0">
+    <UPageBody prose class="docs-content docs-catalog-content pb-16">
       <ContentRenderer :value="page" />
     </UPageBody>
   </UPage>

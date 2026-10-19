@@ -1,7 +1,7 @@
 import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 import type { ViteHubErrorOptions } from "@vite-hub/runtime"
 
-export type WorkspaceErrorCode = "WORKSPACE_COLLECTION_CURSOR_INVALID" | "WORKSPACE_CONFLICT" | "WORKSPACE_FAILED" | "WORKSPACE_NOT_FOUND" | "WORKSPACE_PATH_INVALID"
+export type WorkspaceErrorCode = "WORKSPACE_CONFLICT" | "WORKSPACE_FAILED" | "WORKSPACE_NOT_FOUND" | "WORKSPACE_PATH_INVALID"
 
 export function workspaceError(message: string, options?: ErrorOptions): ViteHubError {
   const code = message.startsWith("[vitehub] Workspace file does not exist:")
@@ -39,7 +39,7 @@ export function workspacePathError(path: string): ViteHubError {
 
 export function isWorkspaceError(value: unknown): boolean {
   const code = getViteHubErrorShape(value)?.code
-  return code === "WORKSPACE_COLLECTION_CURSOR_INVALID" || code === "WORKSPACE_CONFLICT" || code === "WORKSPACE_FAILED" || code === "WORKSPACE_NOT_FOUND" || code === "WORKSPACE_PATH_INVALID"
+  return code === "WORKSPACE_CONFLICT" || code === "WORKSPACE_FAILED" || code === "WORKSPACE_NOT_FOUND" || code === "WORKSPACE_PATH_INVALID"
 }
 
 export function isWorkspaceConflict(value: unknown): boolean {

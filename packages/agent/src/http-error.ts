@@ -20,7 +20,7 @@ export class AgentHttpError extends Diagnostic {
   }
 }
 
-export function getHttpErrorStatusCode(error: unknown): number | undefined {
+function getHttpErrorStatusCode(error: unknown): number | undefined {
   const statusCode = readAgentErrorProperty(error, "statusCode")
   if (typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599) return statusCode
   const code = getViteHubErrorShape(error)?.code
@@ -40,7 +40,7 @@ function isAgentHttpError(error: unknown): error is AgentHttpError {
   }
 }
 
-export function getHttpErrorMessage(error: unknown): string {
+function getHttpErrorMessage(error: unknown): string {
   if (isAgentHttpError(error)) {
     const message = readAgentErrorProperty(error, "message")
     if (typeof message === "string") return message

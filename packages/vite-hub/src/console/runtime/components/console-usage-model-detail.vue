@@ -6,8 +6,7 @@ import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
 import {
   consoleUsageCacheHitRate,
   consoleUsageCostPerMillionTokens,
-  consoleUsageMetricValue,
-  consoleUsageModelPeriods,
+  consoleUsageModelChartPoints,
   consoleUsageModelShare,
   consoleUsageTokenSegments,
   formatConsoleUsageCost,
@@ -16,14 +15,14 @@ import {
   formatConsoleUsageShare,
   formatConsoleUsageTokenEvidence,
   formatConsoleUsageTokens,
-  formatConsoleUsageValue,
   type ConsoleUsageEvidence,
   type ConsoleUsageMetric,
   type ConsoleUsageModelTotals,
 } from "./console-usage-model";
 
 const props = defineProps<{
-  buckets: Array<{ models: ConsoleUsageModelTotals[]; start: string }>;
+  /** Period totals decide whether a period without this model is zero or unavailable. */
+  buckets: Array<ConsoleUsageEvidence & { models: ConsoleUsageModelTotals[]; start: string }>;
   costSupported: boolean;
   from: string;
   metric: ConsoleUsageMetric;
@@ -58,12 +57,12 @@ const stats = computed(() =>
       value: formatConsoleUsageTokenEvidence(props.model.totalTokens, props.model.totalTokensAvailable),
     },
     {
-      label: "Runs",
+      label: "Sessions",
       value: formatConsoleUsageTokenEvidence(props.model.invocations, props.model.invocationsAvailable),
     },
     props.costSupported && props.model.averageCostUsd !== undefined
       ? {
-          label: "Average per priced run",
+          label: "Average per priced session",
           value: formatConsoleUsageCost(props.model.averageCostUsd, props.model.costEstimated),
         }
       : undefined,
@@ -88,16 +87,10 @@ const stats = computed(() =>
   ].filter(stat => stat !== undefined),
 );
 const points = computed(() =>
-  consoleUsageModelPeriods(props.buckets, props.model.model).map(({ start, totals }) => {
-    const label = formatConsoleUsagePeriod(start, props.resolution);
-    if (!totals) return { label: `${label}: no recorded usage`, partial: false, start, value: 0 };
-    return {
-      label: `${label}: ${formatConsoleUsageValue(totals, chartMetric.value)}`,
-      partial: chartMetric.value === "cost" ? !totals.costAvailable : !totals.totalTokensAvailable,
-      start,
-      value: consoleUsageMetricValue(totals, chartMetric.value),
-    };
-  }),
+  consoleUsageModelChartPoints(props.buckets, props.model.model, chartMetric.value, props.resolution),
+);
+const chartTitle = computed(() =>
+  `${props.resolution === "hour" ? "Hourly" : "Daily"} ${chartMetric.value === "cost" ? "cost" : "tokens"}`,
 );
 
 function formatChartNumber(value: number): string {
@@ -112,7 +105,7 @@ function formatChartNumber(value: number): string {
     <p class="text-xs text-muted">
       <template v-if="share !== null">{{ formatConsoleUsageShare(share) }} of recorded {{ chartMetric === "cost" ? "cost" : "tokens" }}</template>
       <template v-else>{{ chartMetric === "cost" ? "Cost" : "Token" }} share unavailable</template>
-      · {{ formatConsoleUsagePeriod(from, resolution) }} to {{ formatConsoleUsagePeriod(to, resolution) }}
+      · {{ formatConsoleUsagePeriod(from, resolution) }} to {{ formatConsoleUsagePeriod(to, resolution) }} UTC
     </p>
     <dl class="grid grid-cols-2 gap-x-6 gap-y-4">
       <div v-for="stat in stats" :key="stat.label" class="min-w-0">
@@ -121,14 +114,18 @@ function formatChartNumber(value: number): string {
       </div>
     </dl>
     <section class="flex flex-col gap-2">
-      <h3 class="text-sm font-semibold">
-        {{ resolution === "hour" ? "Hourly" : "Daily" }} {{ chartMetric === "cost" ? "cost" : "tokens" }}
-      </h3>
+      <div class="flex items-baseline justify-between gap-3">
+        <h3 class="text-sm font-semibold">{{ chartTitle }}</h3>
+        <span class="text-xs text-muted">{{ resolution === "hour" ? "UTC hours" : "UTC days" }}</span>
+      </div>
       <ConsoleUsageChart
         class="mt-2"
         :points="points"
         :format="formatChartNumber"
+        :title="`${model.model} ${chartTitle.toLowerCase()}`"
+        :value-label="chartMetric === 'cost' ? 'Cost' : 'Tokens'"
         :empty="`No recorded ${chartMetric} for this model`"
+        :unavailable="chartMetric === 'cost' ? 'Cost is unavailable for this model' : 'Token usage is unavailable for this model'"
         :from="formatConsoleUsagePeriod(from, resolution)"
         :to="formatConsoleUsagePeriod(to, resolution)"
       />
@@ -137,11 +134,11 @@ function formatChartNumber(value: number): string {
       label="Tokens by type"
       :segments="segments.segments"
       :format="formatConsoleUsageTokens"
-      :note="segments.complete ? undefined : 'Recorded evidence only. Some runs did not report every token type. Input can include their cache tokens.'"
+      :note="segments.complete ? undefined : 'Recorded evidence only. Some sessions did not report every token type. Input can include their cache tokens.'"
     />
     <p v-if="costSupported && !priced" class="flex items-start gap-2 text-xs text-muted">
-      <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" />
-      No run recorded a cost for this model. Its cost is unavailable, not zero.
+      <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      No session recorded a cost for this model. Its cost is unavailable, not zero.
     </p>
   </div>
 </template>

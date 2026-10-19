@@ -4,15 +4,23 @@ import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, i
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
+  /** Earliest time the delivery may run. Defaults to `enqueuedAt`. */
+  availableAt?: number
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
   channelDeliveryId?: string
+  /** A later queued delivery with the same key in the same scope supersedes this one. */
+  debounceKey?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {
     input: unknown
     run?: unknown
+    /** The Channel trigger that admitted a queued dispatch item. Its `failed` callback runs for the item. */
+    trigger?: string
+    /** Ordering marker owned by a queued Channel dispatch item. */
+    order?: { key: string, version: number, previous?: number }
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -46,6 +54,8 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   /** Lists the deliveries in one scope that are not complete, in queue order. */
   webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
+  /** Lists only queued deliveries in one scope, in queue order. */
+  queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   webhookDeliveryScopes(): Promise<string[]>
 }
 
@@ -67,6 +77,8 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.deliveryId) ||
     !("enqueuedAt" in value) ||
     !isRuntimeNumber(value.enqueuedAt) ||
+    ("availableAt" in value && !isRuntimeUndefined(value.availableAt) && !isRuntimeNumber(value.availableAt)) ||
+    ("debounceKey" in value && !isRuntimeUndefined(value.debounceKey) && !isRuntimeString(value.debounceKey)) ||
     !("leaseTtlMs" in value) ||
     !isRuntimeNumber(value.leaseTtlMs) ||
     !("scope" in value) ||
@@ -103,6 +115,7 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
     isRuntimeFunction(candidate.retryWebhookDelivery) &&
     isRuntimeFunction(candidate.webhookDeliveries) &&
+    isRuntimeFunction(candidate.queuedWebhookDeliveries) &&
     isRuntimeFunction(candidate.webhookDeliveryScopes)
   )
 }
@@ -114,18 +127,26 @@ export interface AgentWebhookQueueRegistration<Options> {
   state: AgentWebhookQueueStateAdapter
 }
 
-export interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
+interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
   delivery: AgentWebhookQueueLease
   lifecycleSignal: AbortSignal
 }
 
-export interface AgentWebhookQueueRegistrar<Options> {
+interface AgentWebhookQueueRegistrar<Options> {
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   track: (state: StateAdapter, options: Options, scopePrefix?: string) => void
 }
 
 export interface AgentWebhookQueue<Options> {
-  admit: (registration: AgentWebhookQueueRegistration<Options>, delivery: AgentWebhookQueueDelivery) => Promise<boolean>
+  /**
+   * Queues `delivery` and registers its scope. `enqueue` replaces `state.enqueueWebhookDelivery()`, such as to commit
+   * Channel State writes in the same transaction. It returns whether the delivery was newly queued.
+   */
+  admit: (
+    registration: AgentWebhookQueueRegistration<Options>,
+    delivery: AgentWebhookQueueDelivery,
+    enqueue?: (delivery: AgentWebhookQueueDelivery) => Promise<boolean>,
+  ) => Promise<boolean>
   idle: () => Promise<void>
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   resume: (
@@ -149,6 +170,19 @@ interface TrackedQueueState<Options> {
 }
 
 const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent execution."
+
+/**
+ * True when a webhook queue stop caused this error. The queue keeps the delivery and runs it
+ * again under the same run ID, so the stop is an interruption and not an outcome.
+ */
+export function isWebhookQueueStop(error: unknown): boolean {
+  const seen = new Set<object>()
+  for (let current = error; isRuntimeObject(current) && !seen.has(current); current = Reflect.get(current, "cause")) {
+    seen.add(current)
+    if (Reflect.get(current, "code") === "AGENT_R0594") return true
+  }
+  return false
+}
 
 const stoppingWebhookQueues = new Set<Promise<void>>()
 
@@ -337,8 +371,8 @@ export function createAgentWebhookQueue<Options>(
   }
 
   return {
-    async admit(registration, delivery) {
-      const admitted = await registration.state.enqueueWebhookDelivery(delivery)
+    async admit(registration, delivery, enqueue) {
+      const admitted = enqueue ? await enqueue(delivery) : await registration.state.enqueueWebhookDelivery(delivery)
       await register(registration)
       return admitted
     },

@@ -16,6 +16,36 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
+function isResponseLike(value: unknown): value is Response {
+  try {
+    if (!hasRuntimeType(value, "object")) return false
+    const prototype = Response.prototype
+    const get = (name: string) => {
+      const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+      if (!getter) throw new TypeError(`Missing Response accessor: ${name}`)
+      getter.call(value)
+    }
+    get("headers")
+    get("status")
+    get("statusText")
+    get("body")
+    get("bodyUsed")
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isResponse(value: unknown): value is Response {
+  try {
+    return value instanceof Response || isResponseLike(value)
+  }
+  catch {
+    return false
+  }
+}
+
 const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
 const workflowRunStatuses = new Set(["completed", "failed", "queued", "running", "unknown"])
 
@@ -117,7 +147,7 @@ export function toJsonSafeAgentResult(value: unknown) {
 }
 
 export function toAgentHttpResult(value: unknown, stream: boolean): Response | unknown {
-  if (value instanceof Response) {
+  if (isResponse(value)) {
     return value
   }
   if (stream && isAgentStreamResult(value)) {
@@ -135,5 +165,5 @@ export function toAgentHttpResult(value: unknown, stream: boolean): Response | u
 
 export function toAgentFetchResponse(value: unknown, stream: boolean): Response {
   const result = toAgentHttpResult(value, stream)
-  return result instanceof Response ? result : Response.json(result)
+  return isResponse(result) ? result : Response.json(result)
 }

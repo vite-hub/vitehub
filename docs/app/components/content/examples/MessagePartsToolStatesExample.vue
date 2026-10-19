@@ -33,5 +33,5 @@ const parts = [
 </script>
 
 <template>
-  <AgentMessageParts :parts="parts" />
+  <MessageParts :parts="parts" />
 </template>
