@@ -691,6 +691,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
+    const foreignResponsePrototype = await getUndiciResponse()
+    const isForeignResponse = Boolean(foreignResponsePrototype && (() => {
+      let prototype: object | null = Object.getPrototypeOf(candidate)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (prototype === foreignResponsePrototype.prototype) return true
+        if (seen.has(prototype)) return false
+        seen.add(prototype)
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
+    })())
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -739,6 +751,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    let foreignResponseProperties = false
+    if (isForeignResponse && foreignResponsePrototype) {
+      try {
+        foreignResponseProperties = authorizationResponseProperties.every(key => {
+          const getter = Object.getOwnPropertyDescriptor(foreignResponsePrototype.prototype, key)?.get
+          return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
+        })
+      }
+      catch {
+        foreignResponseProperties = false
+      }
+    }
     if (value instanceof Response && status === 0 && statusText === "" && body === null
       && headers instanceof Headers
       && authorizationResponseProperties.every(key =>
@@ -775,6 +799,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // status-zero error response across realms, while rejecting other foreign
     // null-body response-shaped values.
     if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)
+      && !(isForeignResponse && foreignResponseProperties)
       && !(status === 0 && statusText === "" && [...new Headers(headers)].length === 0)) return
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })

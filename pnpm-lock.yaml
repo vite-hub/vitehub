@@ -1779,7 +1779,7 @@ importers:
         version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
       vitest:
         specifier: catalog:tooling
-        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(happy-dom@21.0.3)
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/queue:
     dependencies:
@@ -2359,34 +2359,31 @@ importers:
     dependencies:
       '@comark/vue':
         specifier: 0.7.0
-        version: 0.7.0(katex@0.19.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
+        version: 0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
-      '@json-render/core':
-        specifier: 0.21.1
-        version: 0.21.1(zod@4.6.7)
-      '@json-render/vue':
-        specifier: 0.21.1
-        version: 0.21.1(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@nuxt/kit':
         specifier: 4.6.2
         version: 4.6.2(@nuxt/schema@4.6.2)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.8))
+      '@shikijs/langs':
+        specifier: 4.5.0
+        version: 4.5.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
-      '@vueuse/core':
-        specifier: catalog:ui
-        version: 15.0.0(vue@3.5.44(typescript@6.0.3))
       katex:
-        specifier: ^0.19.0
-        version: 0.19.0
+        specifier: ^0.17.0
+        version: 0.17.0
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
       reka-ui:
         specifier: catalog:ui
         version: 2.11.0(vue@3.5.44(typescript@6.0.3))
+      shiki:
+        specifier: ^4.5.0
+        version: 4.5.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@1.3.0
         version: '@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)'
@@ -2452,8 +2449,20 @@ importers:
         specifier: catalog:sandbox
         version: 0.12.10
       '@cloudflare/workers-types':
-        specifier: ^5.20261016.1
+        specifier: ^5.20261003.1
         version: 5.20261016.1
+      '@google-cloud/storage':
+        specifier: catalog:storage
+        version: 7.22.0
+      '@googleapis/drive':
+        specifier: catalog:storage
+        version: 20.2.0
+      '@json-render/core':
+        specifier: 0.21.0
+        version: 0.21.0(zod@4.6.7)
+      '@json-render/vue':
+        specifier: 0.21.0
+        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -2544,6 +2553,9 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      '@vueuse/core':
+        specifier: catalog:ui
+        version: 15.0.0(vue@3.5.44(typescript@6.0.3))
       '@workflow/builders':
         specifier: catalog:workflow
         version: 5.0.5(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
@@ -2629,12 +2641,6 @@ importers:
       '@azure/storage-blob':
         specifier: catalog:storage
         version: 12.34.0
-      '@google-cloud/storage':
-        specifier: catalog:storage
-        version: 7.22.0
-      '@googleapis/drive':
-        specifier: catalog:storage
-        version: 20.2.0
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.145
@@ -2657,8 +2663,11 @@ importers:
         specifier: workspace:*
         version: link:../internal
       '@vitejs/plugin-vue':
-        specifier: ^6.0.10
+        specifier: ^6.0.9
         version: 6.0.10(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
+      '@vue/test-utils':
+        specifier: 2.5.1
+        version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
       box-typescript-sdk-gen:
         specifier: catalog:storage
         version: 1.19.1
@@ -5194,13 +5203,13 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@json-render/core@0.21.1':
-    resolution: {integrity: sha512-5hUxJTOnNlBhLuSzS/Vs46jjAqQ2TnkGz9n/0RW2djYwxANZKhOTc1QOuL1Cgu+HxtfTPdJjzUs5dOei/Y+aag==}
+  '@json-render/core@0.21.0':
+    resolution: {integrity: sha512-vysEbTjO1y8mEgAsp0tztRyaWCkNsBrG8MhAqbndGK3qmMXjMRdCNtk21+AQRNKdRelFGVAwBgtUNW8tfjQlsw==}
     peerDependencies:
       zod: ^4.0.0
 
-  '@json-render/vue@0.21.1':
-    resolution: {integrity: sha512-tNpnlHjS0ruVq3oacFXHaPgXlslEFh3mjBEqLuzKAkIcH4yuvdCUCK1eMsx+QgOFkRi0OuelmM26boRsOtRpkw==}
+  '@json-render/vue@0.21.0':
+    resolution: {integrity: sha512-6tG6A5mYX4QP2lvh51R/Y83dTUWVHK0RTxK0YN5bRNpj2QrN3Qy/yDD/XNtjlAGdWeHjhLsuEILJVEM1VMWcQw==}
     peerDependencies:
       vue: 3.5.44
       zod: ^4.0.0
@@ -13696,6 +13705,7 @@ packages:
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
+    deprecated: Use your platform's native DOMException instead
 
   node-emoji@2.2.0:
     resolution: {integrity: sha512-Z3lTE9pLaJF47NyMhd4ww1yFTAP8YhYI8SleJiHzM46Fgpm5cnNzSl9XfzFNqbaz+VlJrIj3fXQ4DeN1Rjm6cw==}
@@ -17879,16 +17889,6 @@ snapshots:
     transitivePeerDependencies:
       - rangi
 
-  '@comark/vue@0.7.0(katex@0.19.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))':
-    dependencies:
-      comark: 0.7.0(katex@0.19.0)(shiki@4.5.0)
-      vue: 3.5.44(typescript@6.0.3)
-    optionalDependencies:
-      katex: 0.19.0
-      shiki: 4.5.0
-    transitivePeerDependencies:
-      - rangi
-
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -19043,13 +19043,13 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@json-render/core@0.21.1(zod@4.6.7)':
+  '@json-render/core@0.21.0(zod@4.6.7)':
     dependencies:
       zod: 4.6.7
 
-  '@json-render/vue@0.21.1(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
+  '@json-render/vue@0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
     dependencies:
-      '@json-render/core': 0.21.1(zod@4.6.7)
+      '@json-render/core': 0.21.0(zod@4.6.7)
       vue: 3.5.44(typescript@6.0.3)
       zod: 4.6.7
 
@@ -26475,7 +26475,7 @@ snapshots:
       '@vue/compiler-dom': 3.5.44
       js-beautify: 2.0.3
       vue: 3.5.44(typescript@6.0.3)
-      vue-component-type-helpers: 3.3.12
+      vue-component-type-helpers: 3.3.13
     optionalDependencies:
       '@vue/server-renderer': 3.5.44
 
@@ -29733,7 +29733,7 @@ snapshots:
     dependencies:
       base64-js: 1.5.1
       ecdsa-sig-formatter: 1.0.11
-      gaxios: 7.1.3
+      gaxios: 7.3.1
       gcp-metadata: 8.1.4
       google-logging-utils: 1.1.3
       gtoken: 8.0.0
@@ -29808,7 +29808,7 @@ snapshots:
 
   gtoken@8.0.0:
     dependencies:
-      gaxios: 7.1.3
+      gaxios: 7.3.1
       jws: 4.0.1
     transitivePeerDependencies:
       - supports-color
@@ -30513,7 +30513,6 @@ snapshots:
   katex@0.17.0:
     dependencies:
       commander: 8.3.0
-    optional: true
 
   katex@0.19.0:
     dependencies:

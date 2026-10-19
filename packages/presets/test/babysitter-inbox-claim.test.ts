@@ -333,3 +333,32 @@ test('source push overflow fences only the current claim without fabricating a h
     assert.equal(await inbox.registerProspectivePush(next, 'f'.repeat(40)), true, 'a new claim can publish normally')
   } finally { await inbox.close() }
 })
+
+test('claims reviewed heads, then green heads, before PRs that need a model pass', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository] })
+  try {
+    const seed = (number: number, head: string, extra: Record<string, unknown> = {}) => inbox.seed(repository, { number, state: 'open', user: { login: 'dev' },
+      head: { sha: head, ref: `fix-${number}` }, base: { ref: 'main' }, updated_at: '2026-10-01T00:00:00Z', ...extra })
+    // Oldest first: #1 needs a model pass, #2 is green, #3 has a stored review for its head.
+    await seed(1, 'h1')
+    await seed(2, 'h2')
+    await seed(3, 'h3')
+    await inbox.ingest('green', 'check_run', { repository: { full_name: repository }, action: 'completed',
+      check_run: { id: 20, name: 'ci', head_sha: 'h2', status: 'completed', conclusion: 'success', app: { id: 5 }, pull_requests: [{ number: 2 }] } })
+    await inbox.setMeta(`review-assessment:${repository}#3`, { version: 2, head: 'h3', evidenceKey: 'key', feedback: [] })
+    assert.equal((await inbox.summary()).find(item => item.number === 2)?.mergeReady, true)
+    assert.equal((await inbox.summary()).find(item => item.number === 1)?.mergeReady, false)
+    assert.deepEqual((await inbox.claim(3)).map(claim => claim.snapshot.number), [3, 2, 1])
+  } finally { await inbox.close() }
+})
+
+test('a review stored for an older head does not move a PR forward', async () => {
+  const repository = 'vite-hub/vitehub'
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository] })
+  try {
+    for (const number of [1, 2]) await inbox.seed(repository, { number, state: 'open', head: { sha: `h${number}`, ref: `fix-${number}` }, base: { ref: 'main' } })
+    await inbox.setMeta(`review-assessment:${repository}#2`, { version: 2, head: 'old', evidenceKey: 'key', feedback: [] })
+    assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [1, 2])
+  } finally { await inbox.close() }
+})

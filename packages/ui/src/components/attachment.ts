@@ -51,7 +51,7 @@ export const AttachmentAction = defineComponent({
   setup(_props, { attrs, slots }) {
     const UButton = resolveComponent("UButton");
     return () =>
-      h(UButton, { color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost", ...attrs }, slots);
+      h(UButton, { ...attrs, color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost" }, slots);
   },
 });
 
@@ -62,6 +62,14 @@ export const AttachmentTrigger = defineComponent({
   setup(props, { attrs, slots }) {
     // A `type` attribute from the caller still overrides this default.
     return () =>
-      h(props.as, { "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined, ...attrs }, slots.default?.());
+      h(
+        props.as,
+        {
+          ...attrs,
+          "data-slot": "attachment-trigger",
+          type: props.as === "button" ? (attrs.type ?? "button") : attrs.type,
+        },
+        slots.default?.(),
+      );
   },
 });
