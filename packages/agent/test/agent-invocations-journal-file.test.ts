@@ -93,6 +93,13 @@ describe("vitehub agent invocations --database", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
   })
 
+  it("exports records from the requested local journal", async () => {
+    const path = await storeJournal()
+    const result = await run(["export", "--database", path])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim().split("\n").map(line => JSON.parse(line).id)).toEqual(["first", "second"])
+  })
+
   it("reads an older read-only journal without migrating it", async () => {
     const path = join(await temporaryDirectory(), "journal.sqlite")
     const db = new DatabaseSync(path)
