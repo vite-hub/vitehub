@@ -179,11 +179,21 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // in a comment, string, or method body is caller-controlled text and does
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
+        // happy-dom's standalone Response carries its implementation-owned
+        // Window binding on the prototype. This preserves that supported
+        // foreign implementation without accepting an arbitrary constructor
+        // name as provenance.
+        const hasWindowBinding = Object.getOwnPropertySymbols(responsePrototype).some(symbol => {
+          if (symbol.description !== "window") return false
+          const window = Reflect.get(responsePrototype, symbol) as { Response?: unknown, Headers?: unknown } | undefined
+          return !!window && window.Response === constructor && typeof window.Headers === "function"
+        })
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
           // base. A callback-created standalone class can otherwise reproduce
           // the entire public Response surface and bypass this boundary.
           || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function)
+          || (isClassConstructor && hasWindowBinding)
           )
           && typeof parentConstructor === "function"
           // `extends Function` can be aliased by the authorization callback.
