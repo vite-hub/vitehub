@@ -458,6 +458,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
+  let legacyServerBuild = false
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
     listener: GeneratedSourceHandlersListener
@@ -570,7 +571,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       filter: { id: { exclude: /\/node_modules\// }, code: "source/glob" },
       handler(code, _id, options) {
         const environment = this.environment?.config
-        const server = environment ? environment.consumer === "server" : options?.ssr === true
+        const server = environment
+          ? environment.consumer === "server"
+          : options?.ssr === true && legacyServerBuild
         if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
@@ -602,7 +605,8 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         generatedRouteGuard(nitroHandlers).setup(nitro)
       },
     },
-    async config(config) {
+    async config(config, env) {
+      legacyServerBuild = env.command === "build" && config.build?.ssr === true
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return

@@ -104,12 +104,23 @@ describe("glob() bundled by the build", () => {
 })
 
 describe("glob() calls in a module", () => {
-  it("rewrites literal calls in a legacy SSR build hook without an environment", () => {
+  it("rewrites literal calls in a legacy SSR build hook without an environment", async () => {
     const plugin = hubSource()
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ build: { ssr: true } }, { command: "build", mode: "production" })
     const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("leaves legacy SSR development transforms unchanged", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ build: { ssr: false } }, { command: "serve", mode: "development" })
+    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    expect(transform.call({ parse }, code, "/project/server/content.ts", { ssr: true })).toBeUndefined()
   })
 
   it("finds calls by the names glob was imported under, with literal options", () => {
