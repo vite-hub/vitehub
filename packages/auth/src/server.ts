@@ -284,7 +284,7 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
@@ -307,6 +307,18 @@ function hasTrustedResponseDescriptors(prototype: object): boolean {
 }
 
 const trustedReadableStreamGetReader = ReadableStream.prototype.getReader
+const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "subarray")?.value
+
+function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value) || typeof authorizationUint8ArraySubarray !== "function") return false
+  try {
+    Reflect.apply(authorizationUint8ArraySubarray, value, [0, 0])
+    return true
+  }
+  catch {
+    return false
+  }
+}
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -517,13 +529,6 @@ function bridgeAuthorizationBody(
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
-  const cleanupReader = async (reason?: unknown, shouldCancel = true) => {
-    try {
-      if (shouldCancel && reader && cancel) await Reflect.apply(cancel, reader, [reason])
-    } finally {
-      release()
-    }
-  }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -552,23 +557,6 @@ function bridgeAuthorizationBody(
   }, { highWaterMark: 0 });
   return stream;
 }
-
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
-  if (value === null || Object(value) !== value) return
-  try {
-    const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
-    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
-    const status: unknown = Reflect.get(candidate, "status")
-    const statusText: unknown = Reflect.get(candidate, "statusText")
-    const headers: unknown = Reflect.get(candidate, "headers")
-    const body: unknown = Reflect.get(candidate, "body")
-    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
-    if (typeof statusText !== "string") return
-    if (headers === null || Object(headers) !== headers) return
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return;
@@ -733,39 +721,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   } catch {
     return;
   }
-  catch {
-    return
-  }
-}
-
-function splitSetCookieHeader(value: string): string[] {
-  const cookies: string[] = []
-  let start = 0
-  let quoted = false
-  let escaped = false
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index]
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (quoted && character === "\\") {
-      escaped = true
-      continue
-    }
-    if (character === '"') {
-      quoted = !quoted
-      continue
-    }
-    if (quoted || character !== ",") continue
-    const remainder = value.slice(index + 1)
-    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
-      cookies.push(value.slice(start, index).trim())
-      start = index + 1
-    }
-  }
-  cookies.push(value.slice(start).trim())
-  return cookies.filter(Boolean)
 }
 
 async function checkAuthRequest(
