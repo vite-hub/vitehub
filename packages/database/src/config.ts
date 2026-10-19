@@ -57,15 +57,22 @@ function readDefinitionObjectBody(file: string) {
   const source = readFileSync(file, "utf8")
   const maskedSource = maskCommentsAndStrings(source)
   const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*$/.test(maskedSource.slice(Math.max(0, item.start - 100), item.start)))
+  // Search from the statement boundary rather than a fixed-size prefix. Long
+  // comments or whitespace between `export default` and the call must not
+  // cause the selector to fall back to an earlier decoy call.
+  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*$/.test(maskedSource.slice(0, item.start)))
     || calls[0]
-  const argument = call?.arguments[0] ? stripLeadingEntryComments(call.arguments[0]).trim() : undefined
+  const argument = call?.arguments[0] ? stripExpressionComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)
 }
 
 function objectLiteralBody(value: string | undefined) {
   let trimmed = value?.trim()
   for (;;) {
+    if (trimmed) {
+      trimmed = stripStaticTypeAssertions(trimmed)
+      while (trimmed.endsWith("!")) trimmed = trimmed.slice(0, -1).trim()
+    }
     if (trimmed?.startsWith("<")) {
       const closeIndex = findAngleAssertionClose(trimmed)
       if (closeIndex !== undefined) {
