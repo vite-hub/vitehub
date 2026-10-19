@@ -104,8 +104,8 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
 
 function accepts(patterns: string[], contentType: string): boolean {
   const type = contentType.split(";")[0]!.trim().toLowerCase()
-  const major = type.split("/")[0]
-  return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
+  const [major, subtype] = type.split("/")
+  return Boolean(subtype) && patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }
 
 function caseInsensitivePattern(value: string): string {
@@ -126,7 +126,7 @@ function contentTypeSchema(accept: string[] | undefined): Record<string, unknown
   }
   if (!accept) return schema
   const patterns = accept.map(pattern => {
-    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]*(?:\\s*;.*)?\\s*$`
+    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]+(?:\\s*;.*)?\\s*$`
     return `^${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
   })
   if (patterns.length === 1) schema.pattern = patterns[0]
