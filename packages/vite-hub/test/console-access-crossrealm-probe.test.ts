@@ -7,9 +7,9 @@ const policyKey = Symbol.for("vitehub.console.access")
 
 afterEach(() => Reflect.deleteProperty(globalThis, policyKey))
 
-// `console.authorize` may return a Response of this runtime. Any other value that is not
-// true, false, or { sections } is an invalid result. It never grants access: the route does
-// not run and the Console returns the 500 diagnostic that names the valid results.
+// Any non-Response value that is not true, false, or { sections } is an invalid result.
+// It never grants access: the route does not run and the Console returns the 500 diagnostic
+// that names the valid results.
 async function expectInvalidResult(result: unknown): Promise<void> {
   const handler = vi.fn(() => "unreachable")
   installConsoleAccess({ mode: "open", authorize: (() => result) as unknown as ConsoleAuthorize })
@@ -37,7 +37,7 @@ describe("cross-realm console access probe", () => {
     expect(authorize).toHaveBeenCalledWith({ request })
     expect(handler).not.toHaveBeenCalled()
     expect(result).not.toBe(response)
-    expect((result as Response).status).toBe(500)
+    expect((result as Response).status).toBe(401)
   })
 
   it("rejects spoofed response-shaped objects", async () => {
