@@ -278,8 +278,11 @@ function reject(response: Response): AuthCheck {
 }
 
 const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+const nativeResponseStatusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
 const nativeResponseBodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
 const nativeResponseHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+const nativeResponseBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+const nativeResponseClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
 const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
 const intrinsicToString = Object.prototype.toString
 
@@ -300,16 +303,21 @@ function isRuntimeResponse(value: unknown): value is Response {
 }
 
 function getDirectRuntimeResponse(value: Response): Response | undefined {
-  if (nativeResponseBodyUsed && Reflect.apply(nativeResponseBodyUsed, value, [])) return
-  const body = value.body
+  if (!nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
+  if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
+  const body = Reflect.apply(nativeResponseBody, value, [])
   const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
   if (locked && Reflect.apply(locked, body, [])) return
-  const headers = nativeResponseHeaders && Reflect.apply(nativeResponseHeaders, value, [])
+  const headers = Reflect.apply(nativeResponseHeaders, value, [])
   if (!headers || !nativeHeadersForEach || Reflect.get(headers, "forEach") !== nativeHeadersForEach) return
-  if (Object.prototype.hasOwnProperty.call(value, "then")) {
-    try { return value.clone() }
+  const shadowed = ["status", "statusText", "headers", "body"].some(key => Object.prototype.hasOwnProperty.call(value, key))
+  if (shadowed || Object.prototype.hasOwnProperty.call(value, "then")) {
+    const clone = nativeResponseClone
+    try { return clone ? Reflect.apply(clone, value, []) : undefined }
     catch { return }
   }
+  Reflect.apply(nativeResponseStatus, value, [])
+  Reflect.apply(nativeResponseStatusText, value, [])
   return value
 }
 
@@ -352,6 +360,13 @@ async function runAccessAuthorize(
         if (!speciesDescriptor || speciesDescriptor.configurable) {
           Object.defineProperty(constructorDescriptor.value, Symbol.species, { configurable: true, value: Promise })
           speciesOverridden = true
+        }
+        else if ("value" in constructorDescriptor && constructorDescriptor.writable) {
+          // A non-configurable own constructor can still be replaced when its
+          // data slot is writable. This avoids consulting a hostile species
+          // getter while preserving the descriptor and value afterwards.
+          Object.defineProperty(result, "constructor", { value: Promise })
+          constructorOverridden = true
         }
       }
       nativePromise = new Promise((resolve, reject) => {
