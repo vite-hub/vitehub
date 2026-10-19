@@ -369,12 +369,15 @@ async function move(context: MediaContext, input: Record<string, unknown>): Prom
 
 async function remove(context: MediaContext, input: Record<string, unknown>): Promise<{ failed: BulkFailure[], removed: string[] }> {
   requireAccess(context, "manage")
+  const pathnames = textList(input.pathnames, "pathnames")
+  // Validate the complete request before starting the partial-failure loop. An
+  // escaping pathname is invalid input, rather than an item-level Blob failure.
+  const checkedPathnames = pathnames.map(pathname => checkedMutationPath(pathname))
   const removed: string[] = []
   const failed: BulkFailure[] = []
-  for (const pathname of textList(input.pathnames, "pathnames")) {
+  for (const [index, pathname] of pathnames.entries()) {
     try {
-      const checked = checkedMutationPath(pathname)
-      await blobCall(() => context.storage.media.remove(checked))
+      await blobCall(() => context.storage.media.remove(checkedPathnames[index]!))
       removed.push(pathname)
     }
     catch (error) {
@@ -388,7 +391,11 @@ async function createFolder(context: MediaContext, input: Record<string, unknown
   requireAccess(context, "write")
   const rawParent = folderPath(optionalText(input.parent, "parent") ?? "")
   const parent = rawParent ? checkedMutationPath(rawParent) : ""
-  const name = consoleMediaName(text(input.name, "name"))
+  const rawName = text(input.name, "name")
+  // Check the client pathname before URL-safe normalization, which otherwise
+  // strips a leading "../" and silently redirects the write into the root.
+  checkedMutationPath(joinPath(parent, rawName))
+  const name = consoleMediaName(rawName)
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
   const path = checkedMutationPath(joinPath(parent, name))
   await blobCall(() => context.storage.media.createFolder(path))
