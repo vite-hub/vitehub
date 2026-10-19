@@ -9,6 +9,7 @@ import { files } from "../../src/files.ts"
 import { glob } from "../../src/glob.ts"
 import { BUNDLED_GLOB_ID, collectBundledGlob, findGlobCalls, loadBundledGlob, renderBundledGlob, rewriteGlobCalls } from "../../src/internal/bundle-glob.ts"
 import { resolveGlobInput } from "../../src/sources/glob.ts"
+import { hubSource } from "../../src/vite.ts"
 
 import type { FileSource } from "../../src/core/types.ts"
 
@@ -103,6 +104,14 @@ describe("glob() bundled by the build", () => {
 })
 
 describe("glob() calls in a module", () => {
+  it("rewrites literal calls in a legacy SSR build hook without an environment", () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const code = `import { glob } from "vite-hub/source/glob"\nexport const docs = glob("docs/**/*.md")`
+    const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
+    expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
   it("finds calls by the names glob was imported under, with literal options", () => {
     const calls = findGlobCalls(parse(`
       import { glob, glob as g } from "vite-hub/source/glob"

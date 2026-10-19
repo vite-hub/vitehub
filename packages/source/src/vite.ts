@@ -571,7 +571,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       handler(code, _id, options) {
         const environment = this.environment?.config
         const server = environment ? environment.consumer === "server" : options?.ssr === true
-        if (!server || environment?.command !== "build") return
+        if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
           this.warn({
