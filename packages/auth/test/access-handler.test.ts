@@ -93,6 +93,21 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("preserves assignment-like commas inside extension cookie attributes", async () => {
+    const source = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "session=one; Extension=foo,bar=baz" },
+    })
+    Object.defineProperty(source.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result).toMatchObject({ status: 409 })
+    expect(result?.headers.get("set-cookie")).toBe("session=one; Extension=foo,bar=baz")
+  })
+
   it("does not resolve Auth for unmatched requests", async () => {
     const handler = createAuthAccessHandler([{ route: "/private/**" }])
     await expect(handler(new Request("https://app.example/public"))).resolves.toBeUndefined()

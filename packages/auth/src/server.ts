@@ -860,11 +860,6 @@ function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
 async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined> {
   if (body === null || typeof body !== "object") return
   try {
-    // Let the platform perform the unforgeable ReadableStream brand check.
-    // Response keeps genuine streams as the body; lookalike objects are
-    // coerced to text and therefore fail the identity check.
-    const normalized = new Response(body as ReadableStream<Uint8Array>)
-    if (normalized.body !== body) return
     // An own reader (or a reader supplied by an intermediate prototype) is
     // caller-controlled. Resolve the first descriptor without invoking it,
     // and accept only a native ReadableStream prototype method. The
@@ -995,6 +990,24 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
   catch {
     return
   }
+}
+
+function hasMergedCookieBoundary(value: string): boolean {
+  let segmentStart = 0
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (character === ";") {
+      segmentStart = index + 1
+      continue
+    }
+    if (character !== ",") continue
+    const segment = value.slice(segmentStart).trim()
+    // Extension attributes are explicitly allowed to contain commas, even
+    // when the following text resembles another cookie assignment.
+    if (/^Extension\s*=/i.test(segment)) continue
+    if (/^\s*[^;=,\s]+\s*=/.test(value.slice(index + 1))) return true
+  }
+  return false
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
@@ -1265,9 +1278,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // cookie attribute (for example `Path=/, next=2`), which is another merged-cookie
     // boundary. Arbitrary extension attributes may legitimately contain commas.
     if (combinedCookies !== undefined) {
-      if (
-        /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
-      ) return
+      if (hasMergedCookieBoundary(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
