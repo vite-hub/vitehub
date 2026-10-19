@@ -7,16 +7,20 @@ export type WorkspaceSourceRuntimeOptions = Pick<
   "cache" | "materialize" | "mount" | "sync" | "validate"
 >
 
+export function ownSourceOption<TOptions extends object, TKey extends keyof TOptions>(options: TOptions, key: TKey): TOptions[TKey] | undefined {
+  return Object.hasOwn(options, key) ? options[key] : undefined
+}
+
 export function withWorkspaceRuntimeOptions(
   source: WorkspaceSource,
   options: WorkspaceSourceRuntimeOptions,
 ): WorkspaceSource {
   return {
     ...source,
-    cache: options.cache,
-    materialize: options.materialize,
-    mount: options.mount,
-    sync: options.sync,
-    validate: options.validate,
+    cache: ownSourceOption(options, "cache"),
+    materialize: ownSourceOption(options, "materialize"),
+    mount: ownSourceOption(options, "mount"),
+    sync: ownSourceOption(options, "sync"),
+    validate: ownSourceOption(options, "validate"),
   }
 }

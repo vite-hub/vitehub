@@ -39,7 +39,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
+The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat` and `AgentMarkdown`. Invocation views are owned by the ViteHub Console. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
 
 ## Vue with Vite
 
@@ -120,13 +120,8 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - [Chat and transport boundary](https://vitehub.dev/docs/ui/chat)
 - [Chat prompt](https://vitehub.dev/docs/ui/chat-prompt) and [attachments](https://vitehub.dev/docs/ui/attachments)
 - [Headless message scroller](https://vitehub.dev/docs/ui/message-scroller)
-- [Agent Invocation views](https://vitehub.dev/docs/ui/invocation)
 - [Diff](https://vitehub.dev/docs/ui/diff) and [file-tree views](https://vitehub.dev/docs/ui/file-tree)
 
-## Capability inspector
+## Console views
 
-`AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
-
-`AgentInvocationInspector` shows the run summary, timeline, Agent setup, and all recorded tool contracts by default. Capability detail stays in `AgentCapabilityInspector`, as in the Console. Set `showCapabilities` to `true` to embed a grouped Capability summary in a standalone inspector. Set `showSources` to `false` when a dedicated Workspace view already displays the captured Workspace Sources. Load the package stylesheet for both components.
-
-`AgentInvocationTimeline` lists the timed steps of a run with their owner, offset, and duration; the Invocation inspector embeds it. Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.
+The Agent Invocation list, view, inspector, timeline, and Capability inspector render ViteHub runtime records, so they live in the Console in `vite-hub`. Build an application-owned inspection page from the parts, such as `Trace` and `CodeBlock`, and from `AgentToolList`, which also documents Capability tool contracts. The model maker and provider marks of the Console come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT).

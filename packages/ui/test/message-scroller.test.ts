@@ -10,7 +10,7 @@ import {
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerRoot,
+  MessageScroller,
   MessageScrollerViewport,
 } from "../src/headless/message-scroller.ts";
 
@@ -69,7 +69,7 @@ beforeEach(() => {
 
 describe("message scroller behavior", () => {
   it("labels the keyboard-scrollable transcript and announces added rows", () => {
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: {
         default: () =>
           h(MessageScrollerViewport, null, {
@@ -108,7 +108,7 @@ describe("message scroller behavior", () => {
       },
     });
 
-    expect(wrapper.findComponent(MessageScrollerRoot).props()).toMatchObject({
+    expect(wrapper.findComponent(MessageScroller).props()).toMatchObject({
       edgeThreshold: 12,
       previousItemPeek: 72,
     });
@@ -205,7 +205,7 @@ describe("message scroller behavior", () => {
     const items = ref(["old"]);
     const Harness = defineComponent({
       setup() {
-        return () => h(MessageScrollerRoot, null, {
+        return () => h(MessageScroller, null, {
           default: () => h(MessageScrollerViewport, null, {
             default: () => h(MessageScrollerContent, { items: items.value }),
           }),
@@ -239,7 +239,7 @@ describe("message scroller behavior", () => {
     const Harness = defineComponent({
       setup() {
         return () =>
-          h(MessageScrollerRoot, null, {
+          h(MessageScroller, null, {
             default: () => [
               h(MessageScrollerViewport, null, {
                 default: () =>
@@ -309,7 +309,7 @@ describe("message scroller behavior", () => {
 
   it("preserves a consumer-hidden jump control while active", async () => {
     const Harness = defineComponent({
-      setup: () => () => h(MessageScrollerRoot, null, {
+      setup: () => () => h(MessageScroller, null, {
         default: () => [h(MessageScrollerViewport), h(MessageScrollerButton, { hidden: true })],
       }),
     });
@@ -340,7 +340,7 @@ describe("message scroller behavior", () => {
     const scrollTo = vi.fn();
     const Harness = defineComponent({
       setup() {
-        return () => h(MessageScrollerRoot, null, {
+        return () => h(MessageScroller, null, {
           default: () => [h(MessageScrollerViewport), h(MessageScrollerButton)],
         });
       },
@@ -366,7 +366,7 @@ describe("message scroller behavior", () => {
     const Harness = defineComponent({
       setup() {
         return () =>
-          h(MessageScrollerRoot, null, {
+          h(MessageScroller, null, {
             default: () =>
               h(MessageScrollerViewport, null, {
                 default: () =>
@@ -426,7 +426,7 @@ describe("message scroller behavior", () => {
 
   it("keeps following when a pointer interaction does not scroll", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -450,7 +450,7 @@ describe("message scroller behavior", () => {
 
   it("stops following when a cancelled touch gesture scrolls away", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -476,7 +476,7 @@ describe("message scroller behavior", () => {
 
   it("keeps following for downward wheel input at the live edge", async () => {
     const scrollTo = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -500,7 +500,7 @@ describe("message scroller behavior", () => {
   it("stops following when keyboard input scrolls away from the live edge", async () => {
     const scrollTo = vi.fn();
     const onKeydown = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");
@@ -527,7 +527,7 @@ describe("message scroller behavior", () => {
   it("keeps following for forward keyboard navigation at the live edge", async () => {
     const scrollTo = vi.fn();
     const onKeydown = vi.fn();
-    const wrapper = mount(MessageScrollerRoot, {
+    const wrapper = mount(MessageScroller, {
       slots: { default: () => h(MessageScrollerViewport, { onKeydown }) },
     });
     const viewport = wrapper.find("[data-slot='message-scroller-viewport']");

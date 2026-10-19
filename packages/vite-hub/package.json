@@ -229,7 +229,8 @@
     "./sandbox-task": "./dist/sandbox-task.js",
     "./agent/process-host": "./dist/agent/process-host.js",
     "./presets/babysitter": "./dist/presets/babysitter.js",
-    "./presets/babysitter/server": "./dist/presets/babysitter/server.js"
+    "./presets/babysitter/server": "./dist/presets/babysitter/server.js",
+    "./ui/code-block": "./dist/ui/code-block.js"
   },
   "vitehub": {
     "agent": {
@@ -246,12 +247,16 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json",
+    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261016.1",
+    "@cloudflare/workers-types": "^5.20261003.1",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
@@ -282,6 +287,7 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
     "drizzle-kit": "catalog:database",

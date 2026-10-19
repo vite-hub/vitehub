@@ -1,4 +1,4 @@
-export { defineSchedule } from "./definition.ts"
+export { defineSchedule, defineScheduleTarget } from "./definition.ts"
 
 export type {
   ScheduleErrorCode,
@@ -12,6 +12,7 @@ export type {
   KVScheduleStoreOptions,
 } from "./runtime/store.ts"
 export type { ScheduleKVStorage } from "./runtime/kv-storage.ts"
+export { schedules } from "./runtime/client.ts"
 
 export type {
   DiscoveredScheduleDefinition,
@@ -29,4 +30,7 @@ export type {
   ScheduleRunStatus,
   ScheduleRunListOptions,
   ScheduleRunStore,
+  ScheduleTargetDefinition,
+  ScheduleTargetDefinitionInput,
+  ScheduleTargetName,
 } from "./types.ts"

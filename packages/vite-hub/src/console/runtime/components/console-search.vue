@@ -6,7 +6,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
-import type { AgentInvocationListItem } from "@vite-hub/ui"
+import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleDocumentOverview, ConsoleDocumentSearchResult, ConsoleDocumentState } from "../client/documents"
 import type { ConsoleContributedSection, ConsoleDocumentCollection } from "../definitions"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
