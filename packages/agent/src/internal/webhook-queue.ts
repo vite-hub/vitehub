@@ -159,6 +159,19 @@ interface TrackedQueueState<Options> {
 
 const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent execution."
 
+/**
+ * True when a webhook queue stop caused this error. The queue keeps the delivery and runs it
+ * again under the same run ID, so the stop is an interruption and not an outcome.
+ */
+export function isWebhookQueueStop(error: unknown): boolean {
+  const seen = new Set<object>()
+  for (let current = error; isRuntimeObject(current) && !seen.has(current); current = Reflect.get(current, "cause")) {
+    seen.add(current)
+    if (Reflect.get(current, "code") === "AGENT_R0594") return true
+  }
+  return false
+}
+
 const stoppingWebhookQueues = new Set<Promise<void>>()
 
 /** Grace budget for active deliveries on stop, from VITEHUB_SHUTDOWN_DRAIN_MS. */

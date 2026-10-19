@@ -13,6 +13,7 @@ import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
 
 const bindAgentInvocationsSymbol = Symbol.for("vitehub.bindAgentInvocations")
 const recoverInterruptedAgentInvocationsSymbol = Symbol.for("vitehub.recoverInterruptedAgentInvocations")
@@ -398,6 +399,10 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   traceId: string | undefined
   /** Wait for an asynchronous create attempt to resolve its stored identity. */
   ready(): Promise<void>
+  /**
+   * Persists the outcome and releases the claim. A cancellation caused by a webhook queue stop
+   * leaves the record open, because the queue runs the delivery again under the same run ID.
+   */
   finish(status: Extract<AgentInvocationRecordStatus, "completed" | "failed" | "cancelled">, error?: unknown): Promise<void>
   getWorkflowDispatchAttempted(): Promise<boolean | undefined>
   handoffClaim(options?: { workflowDispatch?: boolean }): Promise<string | undefined>
@@ -2674,7 +2679,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (runningRequested && !runningPersisted) {
             runningPersisted = await update({ cancelNotEnforcedBy: cancelNotEnforcedBy ?? null, cancelWarningPending: cancellationDriver?.enforced === false && !driverDispatched, cancelWarningOwnerId: cancellationOwnerId, status: "running", timestamp: new Date().toISOString() })
           }
-          const failure = redactedError(error)
+          // A queue stop is an interruption, not an outcome. The queue runs the delivery again under
+          // this run ID, so keep the record open for that run. A cancellation request still wins.
+          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error) ? {} : { status }
+          const failure = outcome.status ? redactedError(error) : undefined
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
             if (!persisted && recoverableOutcomeObservation(observation)
@@ -2689,7 +2697,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
             cancelWarningPending: false,
-            status,
+            ...outcome,
             timestamp: new Date().toISOString(),
           }
           const finishOnce = async () => {
@@ -2702,7 +2710,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 ...(failure ? { error: failure } : {}),
                 cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
                 cancelWarningPending: false,
-                status,
+                ...outcome,
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
               terminalOutcomePersisted = false

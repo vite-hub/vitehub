@@ -144,6 +144,9 @@ this; no application code is needed. On the first signal it:
 
 1. Stops the webhook queues. Active deliveries get the drain budget, and the
    persisted queue replays the deliveries that it aborts after the restart.
+   An aborted delivery's Invocation stays `running` and the replay finishes it
+   under the same Invocation. If the queue does not run it again, the
+   Invocation ends `failed`.
 2. Waits for inline Chat Invocations with `drainInlineChatInvocations()`.
    Invocations that outlast the budget post a restart notice with the
    `HOST_RESTARTED` error, and the next process retries each message once.
