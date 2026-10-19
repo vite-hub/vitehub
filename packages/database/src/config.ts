@@ -653,8 +653,15 @@ function readOpaquePropertyExpression(expression: string, key: string, source: s
     const normalized = stripLeadingEntryComments(entry).trim()
     if (!normalized) continue
     if (normalized.startsWith("...")) {
-      const spread = readOpaquePropertyExpression(normalized.slice(3), key, source, seen)
-      if (spread !== undefined) { value = spread; found = true }
+      const spreadExpression = normalized.slice(3)
+      const hasKey = opaqueObjectContainsKey(spreadExpression, source, key, new Set(seen))
+      if (hasKey === undefined) return undefined
+      if (hasKey) {
+        const spread = readOpaquePropertyExpression(spreadExpression, key, source, new Set(seen))
+        if (spread === undefined) return undefined
+        value = spread
+        found = true
+      }
       continue
     }
     if (readEntryKey(normalized) !== key) continue
@@ -671,17 +678,21 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
   const body = objectLiteralBody(trimmed)
   if (body !== undefined) {
     let unresolved = false
+    let found = false
     for (const property of splitTopLevel(body)) {
       const normalized = stripLeadingEntryComments(property).trim()
       if (!normalized) continue
-      if (readEntryKey(normalized) === key) return true
+      if (readEntryKey(normalized) === key) {
+        found = true
+        continue
+      }
       if (normalized.startsWith("...")) {
         const result = opaqueObjectContainsKey(normalized.slice(3), source, key, new Set(seen))
-        if (result === true) return true
+        if (result === true) found = true
         if (result === undefined) unresolved = true
       }
     }
-    return unresolved ? undefined : false
+    return unresolved ? undefined : found
   }
   const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
