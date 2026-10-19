@@ -291,7 +291,7 @@ export function array<TItem, const TFilter extends string = never>(
       vendor: "vite-hub",
       validate(value) {
         if (!isRecord(value)) return { issues: [{ message: "Collection query must be an object." }] }
-        const filterValues: { [TKey in TFilter]?: string[] } = {}
+        const filterValues = Object.create(null) as { [TKey in TFilter]?: string[] }
         let empty: TFilter[] | undefined
         let search: string | undefined
         for (const [key, raw] of Object.entries(value)) {

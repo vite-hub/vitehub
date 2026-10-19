@@ -2913,6 +2913,8 @@ export interface AgentAdapterRunContext<
   actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   executionBudget?: ExecutionBudget
