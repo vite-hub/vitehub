@@ -1,6 +1,6 @@
 import { describeServerEnv } from "./server.ts"
 import { createHash, randomBytes } from "node:crypto"
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, open, readFile, stat, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -421,9 +421,31 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
   const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
   let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
   if (!generatedSecretPattern.test(secret)) {
-    secret = randomBytes(32).toString("hex")
     await mkdir(dirname(secretPath), { recursive: true })
-    await writeFile(secretPath, secret, { mode: 0o600 })
+    // Create the file exclusively so concurrent Vite processes cannot replace
+    // one another's generated root. A losing process re-reads the winner.
+    const candidate = randomBytes(32).toString("hex")
+    try {
+      const handle = await open(secretPath, "wx", 0o600)
+      try {
+        await handle.writeFile(candidate)
+      }
+      finally {
+        await handle.close()
+      }
+      secret = candidate
+    }
+    catch (error: any) {
+      if (error?.code !== "EEXIST") throw error
+      for (let attempt = 0; attempt < 20; attempt++) {
+        secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+        if (generatedSecretPattern.test(secret)) break
+        await new Promise(resolve => setTimeout(resolve, 5))
+      }
+      if (!generatedSecretPattern.test(secret)) {
+        throw new Error(`[vitehub] Generated secret file ${secretPath} was concurrently created but never became valid.`)
+      }
+    }
   }
   await chmod(secretPath, 0o600)
   return { generated: true, secret, envKey }
