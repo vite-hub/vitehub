@@ -935,6 +935,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     >
                   </div>
                   <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
+                  <p v-if="status.modelCompatibility" class="text-xs text-muted">
+                    Model compatibility: {{ status.modelCompatibility.reason || status.modelCompatibility.status }}
+                  </p>
+                  <p v-if="status.workspaceCapacity" class="text-xs text-muted">
+                    Workspace capacity: {{ status.workspaceCapacity.reason || status.workspaceCapacity.status }}
+                  </p>
                   <div class="flex flex-wrap gap-3 text-xs text-muted">
                     <span v-if="status.authenticated !== undefined"
                       >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
@@ -993,76 +999,6 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             />
           </template>
         </USlideover>
-        <section v-if="section === 'accounts'">
-          <p class="mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
-
-          <p v-if="statusError" class="p-3 text-sm text-warning">{{ statusError }}</p>
-          <div v-else class="grid divide-y divide-default lg:grid-cols-2 lg:divide-y-0">
-            <article
-              v-for="status in accounts"
-              :key="status.account?.id || status.agent"
-              class="space-y-3 p-3"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h3 class="text-sm font-medium">{{ status.provider || "Provider" }} · {{ status.account ? 'Shared credential' : 'Identity unavailable' }}</h3>
-                  <p class="text-xs text-muted">{{ status.agents.join(', ') }}</p>
-                </div>
-                <UBadge
-                  :color="
-                    status.readiness === 'ready' && !status.stale
-                      ? 'success'
-                      : status.readiness === 'unavailable'
-                        ? 'error'
-                        : 'neutral'
-                  "
-                  variant="subtle"
-                  >{{ status.stale ? "Stale" : status.readiness }}</UBadge
-                >
-              </div>
-              <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
-              <p v-if="status.modelCompatibility" class="text-xs text-muted">
-                Model compatibility: {{ status.modelCompatibility.reason || status.modelCompatibility.status }}
-              </p>
-              <p v-if="status.workspaceCapacity" class="text-xs text-muted">
-                Workspace capacity: {{ status.workspaceCapacity.reason || status.workspaceCapacity.status }}
-              </p>
-              <div class="flex flex-wrap gap-3 text-xs text-muted">
-                <span v-if="status.authenticated !== undefined"
-                  >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
-                >
-                <span>Checked {{ formatPeriod(status.checkedAt, "hour") }}</span>
-              </div>
-              <div
-                v-for="limit in status.usageLimits?.windows ?? []"
-                :key="limit.id"
-                class="space-y-1.5"
-              >
-                <div class="flex justify-between gap-3 text-xs">
-                  <span>{{ limit.label }}</span
-                  ><span class="tabular-nums">{{ limit.usedPercent.toFixed(0) }}% used</span>
-                </div>
-                <progress
-                  class="h-1.5 w-full accent-primary"
-                  :value="Math.min(100, Math.max(0, limit.usedPercent))"
-                  max="100"
-                  :aria-label="limit.label"
-                />
-                <p v-if="limit.resetsAt" class="text-xs text-muted">
-                  Resets {{ formatPeriod(limit.resetsAt, "hour") }}
-                </p>
-              </div>
-              <p v-if="status.usageLimits?.unavailable" class="text-xs text-muted">
-                Subscription usage
-                {{
-                  status.usageLimits.unavailable.reason === "unsupported"
-                    ? "is not reported by this provider"
-                    : "could not be checked"
-                }}.
-              </p>
-            </article>
-          </div>
-        </section>
       </main>
     </template>
   </UDashboardPanel>
