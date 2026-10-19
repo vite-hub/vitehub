@@ -2,6 +2,8 @@ import { parseMarkdown } from "comark"
 import html from "comark/plugins/html"
 import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
+import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
+import { branchRules, getReviewThread, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -124,7 +126,7 @@ export interface GitHubPullRequestOperations {
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
 
-const snapshotQuery = `query($owner:String!,$name:String!,$number:Int!){
+const snapshotQuery = `query PullRequestOperationSnapshot($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
     autoMergeAllowed squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed deleteBranchOnMerge
     pullRequest(number:$number){
@@ -223,12 +225,12 @@ async function hasGitHubMention(body: string): Promise<boolean> {
 
 /**
  * Host-only PR operations. Keep the GitHub host and its credentials out of the
- * worker environment. Expose selected methods as capabilities, never command or access.
+ * worker environment. Expose selected methods as capabilities, never `forge()` or access.
  * Native auto-merge remains subject to GitHub's branch rules after it is enabled.
  * This module does not approve reviews, merge directly, or delete branches.
  */
 export function createGitHubPullRequestOperations(
-  github: Pick<GitHubHost, "command" | "ensureGraphQLBudget">,
+  github: Pick<GitHubHost, "forge">,
   options: GitHubPullRequestOperationsOptions,
 ): GitHubPullRequestOperations {
   const [owner, name, extra] = options.repository.split("/")
@@ -239,28 +241,27 @@ export function createGitHubPullRequestOperations(
   const repository = options.repository
   const mentionAllowlist = new Set(normalizeGitHubMentionAllowlist(options.mentionAllowlist))
   let expectedHeadOid = options.expectedHeadOid
-  const target = `/repos/${repository}/issues/${options.number}`
-  const commandOptions = { repository, signal: options.signal, timeout: 60_000 }
+  const signal = options.signal
+  const logLimit = 200_000
+
+  /** One provider for each request group, so the host can check its lease and refresh credentials. */
+  async function forge() {
+    signal?.throwIfAborted()
+    const provider = await github.forge({ repository, signal })
+    const repo = repoRef(provider, repository)
+    const pullRequest: ThreadRef = { forge: provider.forge, instance: provider.instance, repo, kind: "pull_request", number: String(options.number) }
+    return { provider, repo, pullRequest }
+  }
 
   async function graphQL(query: string, variables: Record<string, string | number> = {}): Promise<unknown> {
-    options.signal?.throwIfAborted()
-    const reservation = await github.ensureGraphQLBudget(repository, { cost: 4, signal: options.signal, timeout: 60_000 })
-    let submitted = false
-    try {
-      const args = ["api", "graphql", "-f", `query=${query}`]
-      for (const [key, value] of Object.entries(variables)) args.push(Number.isFinite(value) ? "-F" : "-f", `${key}=${value}`)
-      reservation.submit()
-      submitted = true
-      const result = await github.command(args, commandOptions)
-      const response = v.parse(v.object({ data: v.optional(v.unknown()), errors: v.optional(v.array(v.unknown())) }), JSON.parse(result.stdout))
-      if (response.errors?.length || !response.data) throw new Error("GitHub could not complete the pull request operation.")
-      return response.data
+    const { provider } = await forge()
+    const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
+    const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data
+    if (isRecord(response) && Array.isArray(response.errors) && response.errors.length) {
+      const messages = response.errors.map(error => isRecord(error) && typeof error.message === "string" ? error.message : String(error)).join("; ")
+      throw new Error(messages || "GitHub could not complete the pull request operation.")
     }
-    finally {
-      // Charge the reserved upper bound, including uncertain network outcomes.
-      if (submitted) reservation.settle(4)
-      else reservation.release()
-    }
+    return isRecord(response) && "data" in response ? response.data : response
   }
 
   async function snapshot() {
@@ -275,7 +276,7 @@ export function createGitHubPullRequestOperations(
       const cursor = page.endCursor
       if (!cursor || cursors.has(cursor)) throw new Error("GitHub returned an invalid label cursor.")
       cursors.add(cursor)
-      const result = v.parse(v.object({ node: v.object({ labels: v.object({ nodes: v.array(v.object({ name: v.string() })), pageInfo: pageSchema }) }) }), await graphQL(`query($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{labels(first:100,after:$cursor){nodes{name} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
+      const result = v.parse(v.object({ node: v.object({ labels: v.object({ nodes: v.array(v.object({ name: v.string() })), pageInfo: pageSchema }) }) }), await graphQL(`query PullRequestOperationLabels($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{labels(first:100,after:$cursor){nodes{name} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
       labels.push(...result.node.labels.nodes.map(label => label.name))
       page = result.node.labels.pageInfo
     }
@@ -286,7 +287,7 @@ export function createGitHubPullRequestOperations(
       const cursor = page.endCursor
       if (!cursor || reviewCursors.has(cursor)) throw new Error("GitHub returned an invalid review cursor.")
       reviewCursors.add(cursor)
-      const result = v.parse(v.object({ node: v.object({ latestOpinionatedReviews: v.object({ nodes: v.array(reviewSchema), pageInfo: pageSchema }) }) }), await graphQL(`query($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{latestOpinionatedReviews(first:100,after:$cursor){nodes{author{login __typename} state} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
+      const result = v.parse(v.object({ node: v.object({ latestOpinionatedReviews: v.object({ nodes: v.array(reviewSchema), pageInfo: pageSchema }) }) }), await graphQL(`query PullRequestOperationReviews($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{latestOpinionatedReviews(first:100,after:$cursor){nodes{author{login __typename} state} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
       reviews.push(...result.node.latestOpinionatedReviews.nodes)
       page = result.node.latestOpinionatedReviews.pageInfo
     }
@@ -302,44 +303,24 @@ export function createGitHubPullRequestOperations(
     const pullRequest = current.pullRequest
     if (pullRequest.isDraft) return { status: "blocked", reason: "draft" }
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
-    // The hosted gh CLI does not provide `--slurp`; emit one JSON rule per line.
-    const rules = await github.command([
-      "api", "--paginate",
-      `/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`,
-      "--jq", ".[] | @json",
-    ], commandOptions)
-    const activeRules = v.parse(
-      v.array(v.object({ type: v.string(), parameters: v.optional(v.unknown()) })),
-      rules.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)),
-    )
-    const requiredChecks = activeRules.some(rule => (rule.type === "required_status_checks"
-      && v.safeParse(v.object({ required_status_checks: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success)
-      || (rule.type === "workflows"
-        && v.safeParse(v.object({ workflows: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success))
-    // The branch rules endpoint includes active repository and organization rulesets.
-    // Classic branch protection is read separately because it is not a ruleset.
-    if (!requiredChecks) {
-      const protection = v.parse(v.object({ repository: v.object({ ref: v.nullable(v.object({ branchProtectionRule: v.nullable(v.object({ requiresStatusChecks: v.boolean(), requiredStatusCheckContexts: v.array(v.string()) })) })) }) }), await graphQL(`query($owner:String!,$name:String!,$ref:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$ref){branchProtectionRule{requiresStatusChecks requiredStatusCheckContexts}}}}`, { owner: owner!, name: name!, ref: `refs/heads/${pullRequest.baseRefName}` }))
-      const rule = protection.repository.ref?.branchProtectionRule
-      if (!rule?.requiresStatusChecks || rule.requiredStatusCheckContexts.length === 0) return { status: "blocked", reason: "required-checks-missing" }
-    }
+    const { provider, repo } = await forge()
+    // Active rulesets, including organization rulesets, and classic branch protection.
+    const rules = await branchRules(provider, repo, pullRequest.baseRefName, { signal })
+    if (!rules.requiredChecks.length && !rules.requiredWorkflows) return { status: "blocked", reason: "required-checks-missing" }
     const reviews = pullRequest.latestOpinionatedReviews.nodes
     if (pullRequest.reviewDecision === "CHANGES_REQUESTED" || reviews.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
     async function preservesChildren(state: typeof current): Promise<boolean> {
       if (!state.deleteBranchOnMerge || state.pullRequest.headRepository?.nameWithOwner.toLowerCase() !== repository.toLowerCase()) return true
-      const children = v.parse(v.object({ repository: v.object({ pullRequests: v.object({ totalCount: v.number() }) }) }), await graphQL(`query($owner:String!,$name:String!,$base:String!){repository(owner:$owner,name:$name){pullRequests(first:1,states:OPEN,baseRefName:$base){totalCount}}}`, { owner: owner!, name: name!, base: state.pullRequest.headRefName }))
+      const children = v.parse(v.object({ repository: v.object({ pullRequests: v.object({ totalCount: v.number() }) }) }), await graphQL(`query PullRequestOperationChildren($owner:String!,$name:String!,$base:String!){repository(owner:$owner,name:$name){pullRequests(first:1,states:OPEN,baseRefName:$base){totalCount}}}`, { owner: owner!, name: name!, base: state.pullRequest.headRefName }))
       return children.repository.pullRequests.totalCount === 0
     }
     if (!await preservesChildren(current)) return { status: "blocked", reason: "stacked-branch-cleanup" }
     if (pullRequest.autoMergeRequest) return { status: "already-enabled" }
-    const rulesetMethods = activeRules.filter(rule => rule.type === "pull_request").map(rule =>
-      v.parse(v.object({ allowed_merge_methods: v.optional(v.array(v.string())) }), rule.parameters ?? {}).allowed_merge_methods)
     const method = ([
-      ["SQUASH", current.squashMergeAllowed],
-      ["MERGE", current.mergeCommitAllowed],
-      ["REBASE", current.rebaseMergeAllowed],
-    ] as const).find(([method, enabled]) => enabled
-      && rulesetMethods.every(allowed => allowed === undefined || allowed.includes(method.toLowerCase())))?.[0]
+      ["SQUASH", "squash", current.squashMergeAllowed],
+      ["MERGE", "merge", current.mergeCommitAllowed],
+      ["REBASE", "rebase", current.rebaseMergeAllowed],
+    ] as const).find(([, ruleMethod, enabled]) => enabled && (!rules.mergeMethods || rules.mergeMethods.includes(ruleMethod)))?.[0]
     if (!method) return { status: "blocked", reason: "merge-method-unavailable" }
     // Recheck admission after the paginated eligibility reads. GitHub compares the
     // expected head atomically with enabling auto-merge, including concurrent pushes.
@@ -352,7 +333,8 @@ export function createGitHubPullRequestOperations(
     if (finalState.pullRequest.reviewDecision === "CHANGES_REQUESTED"
       || finalState.pullRequest.latestOpinionatedReviews.nodes.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
     if (!await preservesChildren(finalState)) return { status: "blocked", reason: "stacked-branch-cleanup" }
-    const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation($id:ID!,$method:PullRequestMergeMethod!,$head:GitObjectID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method,expectedHeadOid:$head}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, method, head: pullRequest.headRefOid }))
+    // forges `threads.merge()` cannot enable native auto-merge: GitHub offers it only through GraphQL.
+    const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation EnablePullRequestAutoMerge($id:ID!,$method:PullRequestMergeMethod!,$head:GitObjectID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method,expectedHeadOid:$head}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, method, head: pullRequest.headRefOid }))
     const confirmed = result.enablePullRequestAutoMerge.pullRequest
     if (confirmed.id !== pullRequest.id || confirmed.headRefOid !== pullRequest.headRefOid) throw new Error("GitHub did not confirm the expected pull request head.")
     if (confirmed.state === "MERGED") return { status: "merged" }
@@ -367,60 +349,82 @@ export function createGitHubPullRequestOperations(
     return options.expectedBaseOid
   }
 
+  /** The workflow run, read as GitHub reports it, for its head and pull requests. */
+  async function readRun(runId: number) {
+    if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
+    const { provider, repo } = await forge()
+    const ref: CiRunRef = { forge: provider.forge, instance: provider.instance, repo, id: String(runId) }
+    const run = await provider.ci.run(ref, { signal })
+    return { provider, run: { ref, raw: run.raw } }
+  }
+
+  /** The logs of the failed jobs of one run, bounded to `logLimit` characters. */
+  async function failedJobLogs(provider: GitHubProvider, run: { ref: CiRunRef }): Promise<{ text: string, truncated: boolean }> {
+    let text = ""
+    for await (const job of provider.ci.jobs(run.ref, { signal })) {
+      if (job.state !== "failure") continue
+      const log = await new Response(await provider.ci.log(job.ref, { signal })).text()
+      text += `${text ? "\n" : ""}## ${job.name}\n${log}`
+      if (text.length > logLimit) break
+    }
+    return { text: text.slice(0, logLimit), truncated: text.length > logLimit }
+  }
+
   return {
     requestAutoMerge,
     async readBaseCheckEvidence() {
       const base = await exactBaseSnapshot()
-      const [checksResponse, statusesResponse, runsResponse] = await Promise.all([
-        github.command(["api", `/repos/${repository}/commits/${base}/check-runs?per_page=100`], commandOptions),
-        github.command(["api", `/repos/${repository}/commits/${base}/statuses?per_page=100`], commandOptions),
-        github.command(["api", `/repos/${repository}/actions/runs?head_sha=${base}&per_page=100`], commandOptions),
+      const { provider, repo } = await forge()
+      const [checks, runsResponse] = await Promise.all([
+        provider.checks.list(repo, base, { signal }),
+        // forges `ci.runs()` cannot filter by commit.
+        provider.request<unknown>("GET", `/repos/${repository}/actions/runs`, { query: { head_sha: base, per_page: 100 }, signal }),
       ])
-      const checks = v.parse(v.object({ total_count: v.number(), check_runs: v.array(v.object({ id: v.number(), head_sha: v.string(), name: v.string(), status: v.string(), conclusion: v.nullish(v.string()), details_url: v.nullish(v.string()), html_url: v.optional(v.string()) })) }), JSON.parse(checksResponse.stdout))
-      const statuses = v.parse(v.array(v.object({ id: v.number(), sha: v.optional(v.string()), context: v.string(), state: v.string(), description: v.nullish(v.string()), target_url: v.nullish(v.string()) })), JSON.parse(statusesResponse.stdout))
-      const runs = v.parse(v.object({ total_count: v.number(), workflow_runs: v.array(v.object({ id: v.number(), head_sha: v.string(), repository: v.object({ full_name: v.string() }), status: v.string(), conclusion: v.nullish(v.string()), name: v.optional(v.string()), html_url: v.optional(v.string()) })) }), JSON.parse(runsResponse.stdout))
+      if (checks.warnings?.length) throw new Error(`GitHub could not read every check: ${checks.warnings.map(warning => warning.message).join("; ")}`)
+      const checkRuns = checks.items.filter(check => check.ref.type === "check_run").map(check => v.parse(v.object({ id: v.number(), head_sha: v.string(), name: v.string(), status: v.string(), conclusion: v.nullish(v.string()), details_url: v.nullish(v.string()), html_url: v.optional(v.string()) }), check.raw))
+      const statuses = checks.items.filter(check => check.ref.type === "status").map(check => v.parse(v.object({ id: v.number(), sha: v.optional(v.string()), context: v.string(), state: v.string(), description: v.nullish(v.string()), target_url: v.nullish(v.string()) }), check.raw))
+      const runs = v.parse(v.object({ total_count: v.number(), workflow_runs: v.array(v.object({ id: v.number(), head_sha: v.string(), repository: v.object({ full_name: v.string() }), status: v.string(), conclusion: v.nullish(v.string()), name: v.optional(v.string()), html_url: v.optional(v.string()) })) }), runsResponse.data)
       await exactBaseSnapshot()
+      const currentRuns = checkRuns.filter(check => check.head_sha === base)
       return { repository, headSha: base,
-        checkRuns: checks.check_runs.filter(check => check.head_sha === base).slice(0, 100),
+        checkRuns: currentRuns.slice(0, 100),
         statuses: statuses.filter(status => status.sha === undefined || status.sha === base).slice(0, 100).map(status => ({ ...status, sha: base })),
         workflowRuns: runs.workflow_runs.filter(run => run.head_sha === base && run.repository.full_name.toLowerCase() === repository.toLowerCase()).slice(0, 100),
-        truncated: { checkRuns: checks.total_count > 100, statuses: statuses.length >= 100, workflowRuns: runs.total_count > 100 } }
+        truncated: { checkRuns: currentRuns.length > 100, statuses: statuses.length > 100, workflowRuns: runs.total_count > 100 } }
     },
     async readBaseCheckLogs(runId) {
       if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
       const base = await exactBaseSnapshot()
-      const result = await github.command(["api", `/repos/${repository}/actions/runs/${runId}`], commandOptions)
-      const run = v.parse(v.object({ head_sha: v.string(), repository: v.object({ full_name: v.string() }) }), JSON.parse(result.stdout))
-      if (run.head_sha !== base || run.repository.full_name.toLowerCase() !== repository.toLowerCase()) {
+      const { provider, run } = await readRun(runId)
+      const raw = v.parse(v.object({ head_sha: v.string(), repository: v.object({ full_name: v.string() }) }), run.raw)
+      if (raw.head_sha !== base || raw.repository.full_name.toLowerCase() !== repository.toLowerCase()) {
         throw new Error("Workflow run does not belong to this pull request's exact base commit.")
       }
-      const logs = await github.command(["run", "view", String(runId), "--repo", repository, "--log-failed"], commandOptions)
+      const logs = await failedJobLogs(provider, run)
       await exactBaseSnapshot()
-      const limit = 200_000
-      return { repository, headSha: base, text: logs.stdout.slice(0, limit), truncated: logs.stdout.length > limit }
+      return { repository, headSha: base, ...logs }
     },
     async readCheckLogs(runId) {
       if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
       await snapshot()
-      const result = await github.command(["api", `/repos/${repository}/actions/runs/${runId}`], commandOptions)
-      const run = v.parse(v.object({
+      const { provider, run } = await readRun(runId)
+      const raw = v.parse(v.object({
         head_sha: v.string(),
         repository: v.object({ full_name: v.string() }),
         pull_requests: v.array(v.object({ number: v.number(), head: v.object({ sha: v.string() }) })),
-      }), JSON.parse(result.stdout))
-      if (run.repository.full_name.toLowerCase() !== repository.toLowerCase()
-        || !(run.head_sha === expectedHeadOid || run.pull_requests.some(pr => pr.number === options.number && pr.head.sha === expectedHeadOid))) {
+      }), run.raw)
+      if (raw.repository.full_name.toLowerCase() !== repository.toLowerCase()
+        || !(raw.head_sha === expectedHeadOid || raw.pull_requests.some(pr => pr.number === options.number && pr.head.sha === expectedHeadOid))) {
         throw new Error("Workflow run does not belong to this pull request head.")
       }
-      const logs = await github.command(["run", "view", String(runId), "--repo", repository, "--log-failed"], commandOptions)
-      const limit = 200_000
-      return { text: logs.stdout.slice(0, limit), truncated: logs.stdout.length > limit }
+      return await failedJobLogs(provider, run)
     },
     async comment(body) {
       nonempty(body, "Comment")
       if (options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
       await snapshot()
-      await github.command(["api", `${target}/comments`, "--method", "POST", "-f", `body=${options.commentPrefix ?? ""}${body}`], commandOptions)
+      const { provider, pullRequest } = await forge()
+      await provider.threads.comment(pullRequest, `${options.commentPrefix ?? ""}${body}`, { signal })
     },
     async mention(login, body) {
       const targetLogin = nonempty(login, "GitHub login")
@@ -430,24 +434,27 @@ export function createGitHubPullRequestOperations(
       const message = nonempty(body, "Mention body")
       if (await hasGitHubMention(message)) throw new Error("Mention body must not contain another mention.")
       await snapshot()
+      const { provider, pullRequest } = await forge()
       // Keep block Markdown at the start of the validated body on its own line.
-      await github.command(["api", `${target}/comments`, "--method", "POST", "-f", `body=${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`], commandOptions)
+      await provider.threads.comment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
     },
     async resolveThread(id) {
       nonempty(id, "Review thread ID")
       const current = await snapshot()
-      const thread = v.parse(v.object({ node: v.nullable(v.object({ pullRequest: v.object({ id: v.string() }), isResolved: v.boolean() })) }), await graphQL(`query($id:ID!){node(id:$id){... on PullRequestReviewThread{pullRequest{id} isResolved}}}`, { id }))
-      if (!thread.node || thread.node.pullRequest.id !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.")
-      if (thread.node.isResolved) return
+      const { provider } = await forge()
+      const thread = await getReviewThread(provider, id, { signal })
+      if (!thread || thread.pullRequestId !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.")
+      if (thread.resolved) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
-      await graphQL(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}`, { id })
+      const { provider: writer, pullRequest } = await forge()
+      await writer.threads.resolveReviewThread(pullRequest, id, { signal })
     },
     async updateMetadata(input) {
       if (input.title === undefined && input.body === undefined) throw new Error("Provide a pull request title or body.")
-      const args = ["api", target, "--method", "PATCH"]
-      if (input.title !== undefined) args.push("-f", `title=${nonempty(input.title, "Title")}`)
+      const update: { title?: string, body?: string } = {}
+      if (input.title !== undefined) update.title = nonempty(input.title, "Title")
       const current = await snapshot()
       if (input.body !== undefined) {
         if (options.restrictCommentMentions) {
@@ -455,13 +462,12 @@ export function createGitHubPullRequestOperations(
           const added = (await githubMentionTokens(input.body)).find((mention) => !existing.has(mention))
           if (added) throw new Error("Pull request bodies cannot add GitHub mentions; use the guarded mention capability.")
         }
-        args.push("-f", `body=${input.body}`)
-      }
-      if (input.body !== undefined) {
+        update.body = input.body
         const rechecked = await snapshot()
         if (rechecked.pullRequest.body !== current.pullRequest.body) throw new Error("Pull request body changed while validating the update; retry.")
       }
-      await github.command(args, commandOptions)
+      const { provider, pullRequest } = await forge()
+      await provider.threads.update(pullRequest, update, { signal })
     },
     async refreshDependencies() {
       if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.")
@@ -471,13 +477,13 @@ export function createGitHubPullRequestOperations(
     async commitRepair(input) {
       if (!options.commitRepair) throw new Error("This worker has no host-owned commit operation.")
       await snapshot()
-      options.signal?.throwIfAborted()
+      signal?.throwIfAborted()
       return await options.commitRepair(input)
     },
     async push() {
       if (!options.push) throw new Error("This worker has no host-owned push operation.")
       await snapshot()
-      options.signal?.throwIfAborted()
+      signal?.throwIfAborted()
       const pushedHead = await options.push()
       if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw new Error("The host push did not return a verified commit SHA.")
       expectedHeadOid = pushedHead
