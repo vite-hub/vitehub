@@ -158,6 +158,8 @@ describe("UI documentation", () => {
 
     expect(sidebarTop).toContain("vh-docs-context");
     expect(sidebarTop).toContain('<NuxtLink');
+  });
+
   it("keeps the sidebar header focused on search", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
