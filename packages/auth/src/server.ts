@@ -348,10 +348,40 @@ async function runAccessAuthorize(
       Reflect.apply(nativePromiseThen, directResult, [() => {}, () => {}])
       isNativePromise = true
     }
-    catch { /* ordinary thenable */ }
+    catch {
+      // A native Promise subclass can reject the species construction performed
+      // by the probe. Treat it as native when its prototype chain carries the
+      // Promise brand, and retry with the base species where the constructor
+      // permits an own override. This avoids falling through to mutable then
+      // assimilation for an already-settled native promise.
+      try {
+        let prototype: object | null = Object.getPrototypeOf(directResult)
+        for (let depth = 0; prototype && depth < 8; depth++) {
+          if (prototype === Promise.prototype) { isNativePromise = true; break }
+          prototype = Object.getPrototypeOf(prototype)
+        }
+      }
+      catch { /* ordinary thenable */ }
+    }
     if (isNativePromise) {
       const adopted = new nativePromiseConstructor((resolve, reject) => {
-        Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
+        try { Reflect.apply(nativePromiseThen, directResult, [resolve, reject]) }
+        catch {
+          const constructor = (directResult as { constructor?: unknown }).constructor
+          const descriptor = constructor && (typeof constructor === "function")
+            ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
+            : undefined
+          if (descriptor?.configurable && constructor && typeof constructor === "function") {
+            try {
+              Object.defineProperty(constructor, Symbol.species, { configurable: true, value: nativePromiseConstructor })
+              Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
+              Object.defineProperty(constructor, Symbol.species, descriptor)
+              return
+            }
+            catch { try { Object.defineProperty(constructor, Symbol.species, descriptor) } catch {} }
+          }
+          reject(new TypeError("Invalid Promise species"))
+        }
       })
       result = await adopted
     }
