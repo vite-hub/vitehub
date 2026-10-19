@@ -124,6 +124,20 @@ describe("vitehub agent invocations wait-idle", () => {
     expect(result.stderr).toContain("  late running")
   })
 
+  it("times out when a paginated idle scan finishes after the deadline", async () => {
+    const fetch = vi.fn(async (input: string) => {
+      const url = new URL(input)
+      if (!url.searchParams.has("cursor")) return Response.json({ cursor: "next", invocations: [] })
+      vi.setSystemTime(now.getTime() + 2_000)
+      return Response.json({ invocations: [] })
+    })
+    // SAFETY: The mock implements the fetch call shape that the CLI uses.
+    const result = await waitIdle(["--timeout", "1s"], fetch as unknown as typeof globalThis.fetch)
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("Could not confirm that no Agent Invocation is active within 1s.\n")
+  })
+
   it("reads the Console once per poll for a deployed --url", async () => {
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {

@@ -469,7 +469,7 @@ interface InvocationsTarget {
   detail: (id: string, observations?: { count: number, cursor: string }) => Promise<AgentInvocationDetailResult>
   list: () => Promise<AgentInvocationListResult>
   /** Every record with one of these statuses, following list cursors to the end. */
-  scan: (statuses: readonly string[]) => Promise<InvocationSummary[]>
+  scan: (statuses: readonly string[], timeout?: number) => Promise<InvocationSummary[]>
 }
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
@@ -486,7 +486,10 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
       invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),
     }),
     // One pass over the Console pages serves every status.
-    scan: async statuses => await listConsoleInvocations(target, Number.POSITIVE_INFINITY, new Set(statuses)),
+    scan: async (statuses, timeout) => {
+      const requestTarget = timeout === undefined ? target : { ...target, timeout }
+      return await listConsoleInvocations(requestTarget, Number.POSITIVE_INFINITY, new Set(statuses))
+    },
   }
 }
 
@@ -502,14 +505,14 @@ function localInvocationsTarget(parsed: ParsedArgs, context: AgentInvocationsCli
       return await request(url, fetchImpl, timeout, parseInvocationDetail)
     },
     list: async () => await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList),
-    scan: async (statuses) => {
+    scan: async (statuses, scanTimeout) => {
       const requestedStatuses = new Set(statuses)
       const page = async (cursor: string | undefined) => {
         const url = new URL(parsed.url)
         url.searchParams.delete("status")
         for (const status of statuses) url.searchParams.append("status", status)
         if (cursor !== undefined) url.searchParams.set("cursor", cursor)
-        return await request(url, fetchImpl, timeout, parseInvocationList)
+        return await request(url, fetchImpl, scanTimeout ?? timeout, parseInvocationList)
       }
       return await collectPages(page, record => requestedStatuses.has(record.status))
     },
@@ -774,7 +777,8 @@ async function waitIdle(parsed: ParsedArgs, context: AgentInvocationsCliContext,
   for (;;) {
     let records: InvocationSummary[] | undefined
     try {
-      records = (await target.scan(activeStatuses)).filter(record => parsed.agent === undefined || record.agentName === parsed.agent)
+      const remaining = Math.max(1, deadline - Date.now())
+      records = (await target.scan(activeStatuses, Math.min(parsed.timeout ?? 30_000, remaining))).filter(record => parsed.agent === undefined || record.agentName === parsed.agent)
       read = true
     }
     catch (error) {
@@ -790,16 +794,17 @@ async function waitIdle(parsed: ParsedArgs, context: AgentInvocationsCliContext,
         printed.stale = staleKey
         if (stale.length) context.stderr.write(`Ignoring ${stale.length} stale Agent Invocation(s) not updated for ${formatDuration(parsed.staleAfter)}:\n${stale.map(record => `  ${activeLine(record)}\n`).join("")}`)
       }
+      if (Date.now() >= deadline) {
+        if (parsed.json) context.stdout.write(`${JSON.stringify({ active, event: "invocations.timeout" })}\n`)
+        if (active.length) context.stderr.write(`Still ${active.length} active Agent Invocation(s) after ${formatDuration(parsed.waitTimeout)}:\n${active.map(record => `  ${activeLine(record)}\n`).join("")}`)
+        else context.stderr.write(`Could not confirm that no Agent Invocation is active within ${formatDuration(parsed.waitTimeout)}.\n`)
+        return 1
+      }
       if (!active.length) {
         context.stdout.write(parsed.json
           ? `${JSON.stringify({ event: "invocations.idle", stale })}\n`
           : `Idle: ${stale.length ? `only ${stale.length} stale Agent Invocation(s) remain pending or running` : "no pending or running Agent Invocations"}.\n`)
         return 0
-      }
-      if (Date.now() >= deadline) {
-        if (parsed.json) context.stdout.write(`${JSON.stringify({ active, event: "invocations.timeout" })}\n`)
-        context.stderr.write(`Still ${active.length} active Agent Invocation(s) after ${formatDuration(parsed.waitTimeout)}:\n${active.map(record => `  ${activeLine(record)}\n`).join("")}`)
-        return 1
       }
       // Print when the set of active records or their status changes, not on every poll.
       const activeKey = active.map(record => `${record.id}:${record.status}`).join(" ")
