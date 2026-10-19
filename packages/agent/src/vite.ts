@@ -276,8 +276,10 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Database-backed primitives need the host runtime.
-  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections")
+  // The generated Deno and Netlify route modules are host runtimes too. Keep
+  // their full capability record available to standalone handlers; the
+  // schedule registry itself still does not import these providers.
+  const standaloneCapabilities = capabilities
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )
@@ -424,6 +426,7 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
     imports: [
       ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
       ...workflowCapabilityLoaders.imports,
+      `import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       ...(options.schedule
         ? [
             `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
@@ -436,6 +439,8 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
     setup: [
       ...(options.schedule ? ["vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)"] : []),
       `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities, options.schedule === true)}`,
+      "// A standalone runAgent(), such as one in a Schedule handler, gets the same capabilities as these routes.",
+      "vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)",
       "",
       ...workflowCapabilityLoaders.setup,
     ],
@@ -544,7 +549,12 @@ async function writeStandaloneAgentScheduleRegistry(
 ): Promise<string> {
   const registryPath = join(root, generatedAgentScheduleRegistry)
   const base = ["const registry = {}", "", "export default registry", ""].join("\n")
-  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
+  // The standalone registry must stay provider-free. Provider capabilities are
+  // supplied by the generated host route and are registered globally there.
+  const registryCapabilities = runtimeCapabilities.filter(capability =>
+    capability.name !== "connections" && capability.name !== "db",
+  )
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, registryCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
   await mkdir(dirname(registryPath), { recursive: true })
   await writeFile(registryPath, contents, "utf8")
   return registryPath

@@ -63,7 +63,6 @@ type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 const fileMetadataSchema = object({
   mediaType: optional(string()),
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the reserved ownership field while parsing persisted JSON at the Store boundary.
   metadata: optional(pipe(record(string(), unknown()), check(value => value.source === undefined || typeof value.source === "string", "metadata.source must be a string when provided"))),
 })
 const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
@@ -265,7 +264,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async removeEmptyDirectory(path: string): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path)
+    const normalized = normalizeSafeWorkspacePath(path, { allowEmpty: true })
+    if (!normalized) return
     await this.#ensure()
     await this.#mutate(async () => {
       await this.#fs!.promises.rmdir(this.#absolute(normalized)).catch((error: NodeJS.ErrnoException) => {

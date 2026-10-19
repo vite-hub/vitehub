@@ -71,12 +71,13 @@ For writable access, pass `useWorkspace(name, { mode: "write" }).fs` directly to
 ## Providers and boundaries
 
 - `@vite-hub/shell/providers/just-bash` runs selected commands in `just-bash` against a supplied filesystem adapter.
-- `@vite-hub/shell/providers/cloudflare` adapts a Cloudflare execution client and reports the boundary that client can prove.
 - A custom `ShellExecutionProvider` declares its boundary and implements execution for another host.
 
 Custom providers can return Shell Processes as class instances. Sessions read the process ID, command, and working directory from the provider handle when inspected. These public metadata fields are readonly. A failed metadata read does not prevent process cleanup.
 
 Shell policy can bound calls, processes, output size, and timeouts. A declared boundary describes the provider contract; it is not proof of operating-system isolation. Use [Sandbox](https://vitehub.dev/docs/sandbox) when work needs provider-managed isolation.
+
+`runtime.boundary.execution` and `runtime.boundary.resources` expose the provider's execution model and resource controls. The Just Bash provider runs in a virtual in-process filesystem and truncates completed output before it creates a Shell Observation. It buffers the full result first, so this is not an execution memory limit. Pass an `AbortSignal` to `exec()` to cancel the command and any controlled Source request it starts.
 
 Custom providers can return Shell Observations as class instances. Sessions preserve every declared observation field, including fields exposed through getters.
 

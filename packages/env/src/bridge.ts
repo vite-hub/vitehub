@@ -149,13 +149,32 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       !authority.scope.some((grant) => grant.key === key && grant.permissions.includes(permission))
     )
       return false;
-    const grants = await safe(() => options.access.grants(key));
-    return grants.some(
-      (grant) =>
-        grant.actor.id === context.actor.id &&
-        grant.actor.kind === context.actor.kind &&
-        grant.permissions.includes(permission),
-    );
+    return await safe(async () => {
+      const grants = await options.access.grants(key);
+      if (!Array.isArray(grants)) throw new TypeError("Invalid access grants.");
+      for (const grant of grants) {
+        if (
+          !grant ||
+          typeof grant !== "object" ||
+          typeof grant.key !== "string" ||
+          !grant.actor ||
+          typeof grant.actor !== "object" ||
+          typeof grant.actor.id !== "string" ||
+          !["user", "agent", "service"].includes(grant.actor.kind) ||
+          !Array.isArray(grant.permissions) ||
+          !grant.permissions.every((value: unknown) => ["inspect", "preview", "replace", "use"].includes(value as string))
+        )
+          throw new TypeError("Invalid access grant.");
+        if (
+          grant.key === key &&
+          grant.actor.id === context.actor.id &&
+          grant.actor.kind === context.actor.kind &&
+          grant.permissions.includes(permission)
+        )
+          return true;
+      }
+      return false;
+    });
   }
   async function audited<T>(
     context: EnvAccessContext,
@@ -305,7 +324,7 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     },
     async grant(context, grant) {
       validateActor(grant.actor);
-      if (!grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
+      if (!Array.isArray(grant.permissions) || !grant.permissions.length || grant.permissions.some(permission => !["inspect", "preview", "replace", "use"].includes(permission))) throw envBridgeError("invalid");
       return audited(context, grant.key, "grant", "admin", () => options.access.setGrant(grant), undefined, { target: grant.actor, permissions: grant.permissions });
     },
     async revoke(context, actor, key) {

@@ -39,7 +39,7 @@ const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_INVALID_ENABLED: "Runtime Schedule enabled value is invalid.",
   SCHEDULE_INVALID_ID: "Runtime Schedule id is invalid.",
   SCHEDULE_INVALID_INPUT: "Runtime Schedule input is invalid.",
-  SCHEDULE_INVALID_SCHEDULED_AT: "Runtime Schedule scheduledAt value is invalid.",
+  SCHEDULE_INVALID_SCHEDULED_AT: "Schedule scheduledAt value is invalid.",
   SCHEDULE_INVALID_TARGET: "Runtime Schedule target is invalid.",
   SCHEDULE_INVALID_TIME_ZONE: "Runtime Schedule time zone is invalid.",
   SCHEDULE_MANUAL_RUN_DISABLED: "Schedule Definition does not allow manual runs. Set manual: true to allow them.",
@@ -50,6 +50,17 @@ const scheduleErrorMessages: Record<ScheduleErrorCode, string> = {
   SCHEDULE_TARGET_NOT_FOUND: "Runtime Schedule target was not found.",
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (value instanceof Date) return true
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 export function invalidScheduleValueDetails(field: ScheduleErrorField, value: unknown): ScheduleErrorDetails {
   let valueType: ScheduleErrorValueType
   try {
@@ -57,7 +68,7 @@ export function invalidScheduleValueDetails(field: ScheduleErrorField, value: un
       ? "null"
       : Array.isArray(value)
         ? "array"
-        : value instanceof Date
+        : isDateValue(value)
           ? "date"
           : typeof value
   }

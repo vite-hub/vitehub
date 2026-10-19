@@ -18,14 +18,15 @@ Select an Invocation to read its messages, tool calls, and result. The inspector
 ::component-preview{name="InvocationDashboardBlock" flush reset}
 ::
 
-Start with [the UI tutorial](/docs/ui/get-started), then read [Installation](/docs/ui/installation) for Nuxt and Vue with Vite. Copy the [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Chat app](/docs/ui/blocks/chat-app), or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+[Install the package](/docs/ui/installation), then explore the [Invocation dashboard in the Console](/docs/development/console), or copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each example explains how to connect real data.
 
 ## Components
 
 ::ui-component-gallery
-- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Code review](/docs/ui/blocks/code-review)
-- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Chat prompt](/docs/ui/chat-prompt), [Session](/docs/ui/session)
-- **Agent work:** [Invocation list](/docs/ui/invocation-list), [Invocation](/docs/ui/invocation), [Invocation inspector](/docs/ui/invocation-inspector), [Timeline](/docs/ui/timeline), [Capability inspector](/docs/ui/capability-inspector), [Tool list](/docs/ui/tool-list), [Trace](/docs/ui/trace), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
+- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review)
+- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
+- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Prompt input](/docs/ui/prompt-input), [Chat session](/docs/ui/chat-session)
+- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
 ::
 
@@ -46,7 +47,7 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `@vite-hub/ui`            | Styled components, composables, display helpers, and Pierre diff helpers.      |
-| `@vite-hub/ui/agent-*`    | One styled component entry point, such as `@vite-hub/ui/agent-chat`.            |
+| `@vite-hub/ui/<name>`     | One component or part family, such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. |
 | `@vite-hub/ui/headless`   | Message scroller primitives without styles or Nuxt UI.                         |
 | `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |

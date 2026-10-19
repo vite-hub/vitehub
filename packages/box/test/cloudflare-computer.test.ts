@@ -8,6 +8,121 @@ import {
 import { resolveBox } from "../src/index.ts";
 
 describe("Cloudflare Computer Box runtime", () => {
+  it("cancels a pending file read when its signal aborts", async () => {
+    let cancelled = false
+    let resolveReadFile!: (stream: ReadableStream<Uint8Array>) => void
+    const workspace = {
+      fs: {
+        async lstat() { return stat("file", 1) },
+        async mkdir() {},
+        async readFile() {
+          return await new Promise<ReadableStream<Uint8Array>>(resolve => {
+            resolveReadFile = resolve
+          })
+        },
+        async readdir() { return [] },
+        async rm() {},
+        async writeFile() {},
+      },
+      runtime: { async exec() { throw new Error("unused") } },
+    } satisfies CloudflareComputerWorkspace
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {})
+    const session = await box.open()
+    const controller = new AbortController()
+    const pending = session.files.read("/pending", { signal: controller.signal })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort(new Error("cancelled"))
+    resolveReadFile(new ReadableStream<Uint8Array>({
+      start() {},
+      cancel() { cancelled = true },
+    }))
+    await expect(pending).rejects.toThrow("cancelled")
+    expect(cancelled).toBe(true)
+    await session.close()
+  })
+
+  it("waits for asynchronous stream cancellation before rejecting a read", async () => {
+    let finishCancel!: () => void
+    let cancelStarted!: () => void
+    const cancellationStarted = new Promise<void>(resolve => { cancelStarted = resolve })
+    const disposeWorkspace = vi.fn()
+    const workspace = {
+      fs: {
+        async lstat() { return stat("file", 1) },
+        async mkdir() {},
+        async readFile() {
+          return new ReadableStream<Uint8Array>({
+            start() {},
+            cancel() {
+              cancelStarted()
+              return new Promise<void>(resolve => { finishCancel = resolve })
+            },
+          })
+        },
+        async readdir() { return [] },
+        async rm() {},
+        async writeFile() {},
+      },
+      runtime: { async exec() { throw new Error("unused") } },
+      [Symbol.dispose]: disposeWorkspace,
+    } satisfies CloudflareComputerWorkspace
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {})
+    const session = await box.open()
+    const controller = new AbortController()
+    const pending = session.files.read("/pending", { signal: controller.signal })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort(new Error("cancelled"))
+    await cancellationStarted
+    let settled = false
+    void pending.catch(() => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    finishCancel()
+    await expect(pending).rejects.toThrow("cancelled")
+    await session.close()
+    expect(disposeWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  it("cancels a stream acquired after its signal aborts", async () => {
+    let resolveReadFile!: (stream: ReadableStream<Uint8Array>) => void
+    let cancelled = false
+    const workspace = {
+      fs: {
+        async lstat() { return stat("file", 1) },
+        async mkdir() {},
+        readFile() { return new Promise<ReadableStream<Uint8Array>>(resolve => { resolveReadFile = resolve }) },
+        async readdir() { return [] },
+        async rm() {},
+        async writeFile() {},
+      },
+      runtime: { async exec() { throw new Error("unused") } },
+    } satisfies CloudflareComputerWorkspace
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {})
+    const session = await box.open()
+    const controller = new AbortController()
+    const pending = session.files.read("/pending", { signal: controller.signal })
+    controller.abort(new Error("cancelled"))
+    resolveReadFile(new ReadableStream({ cancel() { cancelled = true } }))
+    await expect(pending).rejects.toThrow("cancelled")
+    expect(cancelled).toBe(true)
+    await session.close()
+  })
+
   it("adapts a durable Computer workspace without owning its lifecycle", async () => {
     const files = new Map<string, Uint8Array>();
     const directories = new Set(["/"]);

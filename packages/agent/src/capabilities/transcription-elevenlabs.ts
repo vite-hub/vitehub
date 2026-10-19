@@ -59,7 +59,6 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 function assertOptions(options: ElevenLabsScribeOptions): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public driver options are validated before reading credentials.
   if (!options || typeof options !== "object") throw agentDiagnostics.AGENT_R0244({ message: "[vitehub] elevenLabsScribe() requires options." })
   if (typeof options.apiKey !== "string" && typeof options.apiKey !== "function") {
     throw agentDiagnostics.AGENT_R0245({ message: "[vitehub] elevenLabsScribe({ apiKey }) requires a string or resolver." })

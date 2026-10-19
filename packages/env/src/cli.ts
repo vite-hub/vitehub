@@ -12,6 +12,9 @@ import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/interna
 import type { ServerEnvInspection, ServerEnvInspectionEntry } from "./types.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import { isBlockingServerEnvEntry } from "./server.ts"
+import { secretCliFeatures } from "./secret-cli.ts"
+
+export { secretCliFeatures } from "./secret-cli.ts"
 
 type EnvCliCommand = "check" | "inspect"
 
@@ -20,6 +23,7 @@ export interface EnvCliInspectInput {
   env: NodeJS.ProcessEnv
   rootDir: string
   stage: string
+  stderr?: ViteHubCliContext["stderr"]
 }
 
 export interface EnvCliOptions {
@@ -119,7 +123,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
       }
     },
   }
-  return await withViteStageServer(stageVite, { ...input, env: explicitEnv }, async (server) => {
+  return await withViteStageServer(stageVite, { ...input, env: explicitEnv, stderr: input.stderr }, async (server) => {
     // The Env plugin writes this module while the stage server resolves its config.
     // Nuxt reloads its stage-specific declarations before this server resolves config.
     const selectedPlugin = server.config.plugins.find(plugin => plugin.name === "@vite-hub/env/vite")
@@ -191,7 +195,7 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
     return 0
   }
 
-  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stage: parsed.stage ?? defaultEnvCliStage }
+  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stage: parsed.stage ?? defaultEnvCliStage, stderr: context.stderr }
   const inspection = options.inspect
     ? await options.inspect(input)
     : await inspectStage({ ...input, applicationRoot: context.cwd })
@@ -224,6 +228,10 @@ export function createEnvCliContributor(options: EnvCliOptions): ViteHubCliContr
         },
       ],
       name: "env",
+    }, {
+      description: "Generate the root app secret and print derived secrets.",
+      features: secretCliFeatures,
+      name: "secret",
     }],
   }
 }

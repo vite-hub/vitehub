@@ -1717,8 +1717,29 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      const repairBudgetError = getRepairBudgetError()
+      if (repairBudgetError) throw repairBudgetError
+      const propagateRepairBudgetError = <T>(stream: AsyncIterable<T>): AsyncIterable<T> => (async function* () {
+        for await (const part of stream) yield part
+        const error = getRepairBudgetError()
+        if (error) throw error
+      })()
+      const stream = result.stream
+      const fullStream = result.fullStream
+      const streamWithBudget = stream ? propagateRepairBudgetError(stream) : undefined
+      const fullStreamWithBudget = fullStream
+        ? fullStream === stream && streamWithBudget
+          ? streamWithBudget
+          : propagateRepairBudgetError(fullStream)
+        : undefined
+      const budgetedResult = streamWithBudget || fullStreamWithBudget
+        ? cloneStreamTextResult(result, {
+            ...(streamWithBudget ? { stream: streamWithBudget } : {}),
+            ...(fullStreamWithBudget ? { fullStream: fullStreamWithBudget } : {}),
+          })
+        : result
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
+      return withWorkspaceFallbackStreamResult(budgetedResult, model as never, context, fallback, fallbackCapture?.evidence)
     },
   })
 }

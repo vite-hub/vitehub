@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-ph-markdown-logo-light
 ---
 
-`AgentMarkdown` renders Markdown with `@comark/vue` and the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
+`Markdown` renders Markdown with `@comark/vue` and the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
 
 ::component-preview{name="MarkdownExample"}
 ::
@@ -14,7 +14,7 @@ icon: i-ph-markdown-logo-light
 ## Usage
 
 ```vue
-<AgentMarkdown :value="part.text" :streaming="part.state === 'streaming'" />
+<Markdown :value="part.text" :streaming="part.state === 'streaming'" />
 ```
 
 ## Examples
@@ -50,7 +50,7 @@ Images render as compact thumbnails. Select one to open it at its full aspect ra
 Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview, or `components.math` to replace KaTeX. A math component receives the formula as `content` and a `class` that contains `block` for display math.
 
 ```vue
-<AgentMarkdown
+<Markdown
   :value="answer"
   :components="{ Callout: MyCallout, math: MyMath }"
   :options="{ gfm: true }"
@@ -74,7 +74,7 @@ Change the default class for every instance with the `markdown.class` [default](
 
 ## API reference
 
-### AgentMarkdown
+### Markdown
 
 #### Props
 
@@ -96,5 +96,5 @@ Other attributes, for example `class`, go to the Comark root.
 
 ## Related
 
-- [Message parts](/docs/ui/message-parts) uses `AgentMarkdown` for text parts.
+- [Message parts](/docs/ui/message-parts) uses `Markdown` for text parts.
 - [Installation](/docs/ui/installation#defaults) sets the default Markdown class.

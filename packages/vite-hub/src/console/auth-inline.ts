@@ -1,9 +1,10 @@
-import { createHmac } from "node:crypto"
+import { createHmac, hkdfSync } from "node:crypto"
 import { chmodSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
+import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 import type { AuthResolvedDefinitionOptions } from "@vite-hub/auth"
 
 import { defineConsoleAuth, type ConsoleAuthDefinition } from "./auth.ts"
@@ -20,19 +21,30 @@ function requiredEnv(name: string): string {
   return value
 }
 
+/**
+ * The Better Auth secret of inline Console Auth. An explicit `secretEnv` is required. Otherwise `BETTER_AUTH_SECRET`
+ * wins, then a secret derived from `VITEHUB_SECRET` for the purpose `vitehub:console-auth`.
+ * The derivation equals `deriveSecret("vitehub:console-auth")`. It is synchronous because Better Auth resolves options synchronously.
+ */
+function consoleAuthSecret(secretEnv: string | undefined, developmentSecretEnvKey: string | undefined): string {
+  if (secretEnv) return requiredEnv(secretEnv)
+  if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET
+  const root = (developmentSecretEnvKey ? process.env[developmentSecretEnvKey] : undefined) ?? readViteHubSecret(process.env)
+  if (!root) throw new TypeError("[vitehub] Console Auth requires VITEHUB_SECRET or BETTER_AUTH_SECRET.")
+  if (root.length < viteHubSecretMinimumLength) throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters.`)
+  return Buffer.from(hkdfSync("sha256", root, viteHubSecretSalt, "vitehub:console-auth", 32)).toString("hex")
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return value !== null && typeof value === "object"
 }
 
 function isVerifiedEmail(value: unknown): value is { email: string, primary?: unknown } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return isRecord(value) && value.verified === true && typeof value.email === "string" && value.email !== ""
 }
 
 // SAFETY: A GitHub /user response with a login and a numeric id. Better Auth keeps it as profile data.
 function isGitHubProfile(value: unknown): value is GitHubProfile {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return isRecord(value) && typeof value.login === "string" && typeof value.id === "number"
 }
 
@@ -89,7 +101,7 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
         clientSecret: requiredEnv(config.clientSecretEnv ?? "GITHUB_CLIENT_SECRET"),
       }
       if (orgs.length) github.getUserInfo = token => githubOrgUserInfo(orgs, allowedEmails, token.accessToken)
-      const secret = requiredEnv(config.secretEnv ?? "BETTER_AUTH_SECRET")
+      const secret = consoleAuthSecret(config.secretEnv, config.developmentSecretEnvKey)
       return {
         appName: "ViteHub Console",
         // Unset falls back to `vitehub({ publicUrl })`, then the request origin.
@@ -103,7 +115,6 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
     }),
     // Organization membership is checked at sign-in. The session ends membership access at expiry.
     authorize: ({ user }) => user.emailVerified === true
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth user fields are extensible, so verify email is a string before comparing it with the allowlist.
       && typeof user.email === "string"
       && (!allowedEmails || allowedEmails.has(user.email.toLowerCase())),
     signIn: { provider: "github", scopes: orgs.length ? ["read:org", "user:email"] : ["user:email"] },
