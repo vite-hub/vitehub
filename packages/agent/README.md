@@ -376,6 +376,8 @@ A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset 
 
 `webhook.response` is the `Response` sent for an accepted, queued, steered, or duplicate delivery, after admission, instead of the JSON receipt. Busy and error answers keep their own. The queue never stores it. See [Answer the provider](../../docs/content/docs/agents/triggers.md#answer-the-provider).
 
+`webhook.serialize: key` is `{ concurrencyKey: key, concurrencyLimit: 1 }`. A result that sets it next to `concurrencyKey` or `concurrencyLimit` throws a `TypeError`. See [Run deliveries one at a time per key](../../docs/content/docs/agents/triggers.md#run-deliveries-one-at-a-time-per-key).
+
 `webhook.debounce: { key, delayMs }` delays a queued delivery by `delayMs`. A later delivery with the same key replaces a queued one that has not started, and its wait starts again. The replaced delivery records a `superseded` Channel delivery event. See [Debounce webhook deliveries](../../docs/content/docs/agents/triggers.md#debounce-webhook-deliveries).
 
 A queued delivery gets three execution attempts. When the queue stops retrying it, after the last failed attempt or after the delivery used all its execution leases, ViteHub dispatches the Trigger's `failed` callback at most once with `{ attempts, deliveryId, error, publicError, input?, invocation?, run? }`. An error from `failed` is logged and does not change the delivery outcome. Pending notifications survive restart with built-in state providers; a process exit after the durable notification claim leaves an uncertain outcome that is not replayed automatically. See [Report a failed webhook delivery](../../docs/content/docs/agents/triggers.md#report-a-failed-webhook-delivery).

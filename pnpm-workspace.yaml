@@ -21,7 +21,7 @@ linkWorkspacePackages: true
 
 catalogs:
   ai:
-    "@agntn/web": ^0.5.5
+    "@agntn/web": ^0.7.5
     "@ai-sdk/gateway": 4.0.116
     "@ai-sdk/mcp": 2.0.78
     "@ai-sdk/vue": 4.0.143
