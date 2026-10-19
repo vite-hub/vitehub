@@ -1222,7 +1222,7 @@ function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[],
 }
 
 async function collectPluginWorkspaceContributions(plugins: readonly unknown[] | undefined, roots: WorkspacePluginRoots, serverDirs?: string[]) {
-  return await collectWorkspaceContributions(plugins, { projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs })
+  return await collectWorkspaceContributions(plugins, { projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, plugins })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

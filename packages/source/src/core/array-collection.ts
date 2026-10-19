@@ -75,6 +75,10 @@ type ArrayCursor = {
   query: string
 }
 
+function compareProtocolStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
   "~standard": {
     version: 1,
@@ -159,7 +163,7 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
   const normalized: NormalizedQuery = { empty: [], filters: Object.create(null), search: "" }
-  for (const [key, value] of Object.entries(query).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [key, value] of Object.entries(query).sort(([a], [b]) => compareProtocolStrings(a, b))) {
     if (value === undefined || value === null) continue
     if (key === "search") {
       normalized.search = String(value).trim().toLocaleLowerCase()
@@ -172,7 +176,9 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
     if (values.length) normalized.filters[key] = [...new Set(values)].sort()
   }
-  normalized.filters = Object.fromEntries(Object.entries(normalized.filters).sort(([a], [b]) => a.localeCompare(b)))
+  const filters = Object.create(null) as Record<string, string[]>
+  for (const [key, value] of Object.entries(normalized.filters).sort(([a], [b]) => compareProtocolStrings(a, b))) filters[key] = value
+  normalized.filters = filters
   return normalized
 }
 

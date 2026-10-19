@@ -29,6 +29,8 @@ export interface WorkspaceContributionContext {
   rootDir: string
   /** Server directories that the host forwards, for example Nuxt's `serverDir`. */
   serverDirs?: string[]
+  /** Vite plugins available to contribution factories. */
+  plugins?: readonly unknown[]
 }
 
 export type WorkspaceContributionFactory = (context: WorkspaceContributionContext) =>

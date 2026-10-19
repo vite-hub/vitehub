@@ -51,7 +51,7 @@ export interface ContentVitePluginOptions {
 
 export interface ContentVitePluginAPI {
   /** The resources that the `cms` preset uses, or undefined when `server/content.ts` does not select it. */
-  resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string }): Promise<CmsPresetPlan | undefined>
+  resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined>
 }
 
 export type ContentVitePlugin = Plugin & {
@@ -136,7 +136,9 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     api: { resolveCmsPreset },
     vitehub: {
       async workspaces(context: WorkspaceContributionContext) {
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs })
+        const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: context.rootDir, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
           await rm(module, { force: true })
