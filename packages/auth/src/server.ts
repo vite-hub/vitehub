@@ -495,12 +495,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       fresh = new constructor()
     }
     catch {
-      // Some supported stream subclasses require constructor arguments. When
-      // both accessors come from the same intrinsic stream prototype, the
-      // ownership relationship is inherited from that prototype and a fresh
-      // instance cannot be created for probing.
-      if (Object(body) === body) authorizationReaderMethods.set(body, getReader)
-      return true
+      // Without a fresh instance there is no trusted way to prove that an
+      // overridden reader belongs to this stream. Fail closed rather than
+      // caching an unverified method that could return another stream's reader.
+      return false
     }
     const probed = Reflect.apply(getReader, fresh, [])
     if (!Reflect.apply(trustedLocked, fresh, [])) return false
