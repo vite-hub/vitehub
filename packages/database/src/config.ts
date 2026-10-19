@@ -608,9 +608,21 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   if (body !== undefined) {
     const id = readOpaquePropertyExpression(trimmed, "databaseId", source, seen)
     const name = readOpaquePropertyExpression(trimmed, "databaseName", source, seen)
-    if (id === undefined && name === undefined) return false
-    if (id === undefined || name === undefined) return id !== "undefined" || name !== "undefined"
-    return id !== "undefined" || name !== "undefined"
+    const hasId = opaqueObjectContainsKey(trimmed, source, "databaseId")
+    const hasName = opaqueObjectContainsKey(trimmed, source, "databaseName")
+    if (!hasId && !hasName) return false
+    const resolve = (value: string | undefined): string | undefined => {
+      if (value === undefined) return undefined
+      const normalized = value.trim()
+      if (normalized === "undefined") return "undefined"
+      if (!identifierPattern.test(normalized)) return normalized
+      const declaration = readOpaqueDeclarationExpression(normalized, source)
+      return declaration === undefined ? undefined : resolve(declaration)
+    }
+    const resolvedId = resolve(id)
+    const resolvedName = resolve(name)
+    if ((hasId && resolvedId === undefined) || (hasName && resolvedName === undefined)) return undefined
+    return (resolvedId !== undefined && resolvedId !== "undefined") || (resolvedName !== undefined && resolvedName !== "undefined")
   }
   const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
