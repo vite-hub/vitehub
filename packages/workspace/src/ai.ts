@@ -6,7 +6,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 import type { ExecutionBudget } from "@vite-hub/runtime"
-import { markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
+import { executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -685,6 +685,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
       }),
       execute: async ({ command }, executionOptions) => {
         const abortSignal = executionOptions?.abortSignal
+        const executionBudget = (executionOptions as (typeof executionOptions & { [executionBudgetOverride]?: ExecutionBudget }) | undefined)?.[executionBudgetOverride] ?? resolved.budget
         if (typeof resolved.maxShellCalls === "number" && shellCalls >= resolved.maxShellCalls) {
           return {
             command,
@@ -696,8 +697,8 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
           } satisfies WorkspaceShellResult
         }
         shellCalls += 1
-        resolved.budget?.recordToolCall()
-        return await runShellCommand(input, command, { ...resolved, signal: abortSignal })
+        executionBudget?.recordToolCall()
+        return await runShellCommand(input, command, { ...resolved, budget: executionBudget, signal: abortSignal })
       },
     }))
     if (resolved.budget) markExecutionBudgetHandled(result.shell, resolved.budget)

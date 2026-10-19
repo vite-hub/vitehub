@@ -1,6 +1,6 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
-import { executionBudgetHandledBy, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
+import { executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
@@ -268,13 +268,17 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
     // Reuse the underlying executor when a tool was prepared under another
     // budget. The active Invocation owns accounting for this execution.
     const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+    const ownedBudget = executionBudgetHandledBy(tool)
     const policyOwner = agentToolPolicyOwners.get(tool)
     const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
       // Approval requests are probes. Charge the call when the policy-protected
       // execution actually succeeds, including the later approved execution.
       if (policyOwner) {
-        const budgetContext = { ...executionContext, [toolExecutionBudgetKey]: budget }
+        const budgetContext = { ...executionContext, [toolExecutionBudgetKey]: budget, ...(ownedBudget && ownedBudget !== budget ? { [executionBudgetOverride]: budget } : {}) }
         return await execute.call(tool, input, budgetContext)
+      }
+      if (ownedBudget && ownedBudget !== budget) {
+        return await execute.call(tool, input, { ...executionContext, [executionBudgetOverride]: budget })
       }
       budget.recordToolCall()
       return await execute.call(tool, input, executionContext)
