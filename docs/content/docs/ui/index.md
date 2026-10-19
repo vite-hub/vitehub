@@ -18,7 +18,12 @@ Select a session to read its messages and reply. This example uses the package s
 ::component-preview{name="ChatAppBlock" flush reset}
 ::
 
-[Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+Select an Invocation to read its messages, tool calls, and result. The inspector shows its configuration and activity. This example uses the package styles and built-in layouts.
+
+::component-preview{name="InvocationDashboardBlock" flush reset}
+::
+
+[Install the package](/docs/ui/installation), then explore the [Invocation dashboard in the Console](/docs/development/console), or copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each example explains how to connect real data.
 
 ## Components
 
