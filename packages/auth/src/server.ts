@@ -699,10 +699,44 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }])
     // Preserve one cookie when the fallback exposes only a combined value. A comma
     // followed by another cookie assignment at the cookie-pair boundary proves that
-    // multiple values were merged. Assignment-like text after an extension attribute
-    // can still be part of that attribute's value, so do not reject it as a merge.
+    // multiple values were merged. Commas in Expires values and extension attributes
+    // can still be part of one cookie, so only treat known cookie attributes as a
+    // boundary after the first semicolon-delimited attribute.
     if (combinedCookies !== undefined) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      const cookieAttributes = new Set([
+        "domain",
+        "httponly",
+        "max-age",
+        "partitioned",
+        "path",
+        "samesite",
+        "secure",
+      ])
+      let lastSemicolon = -1
+      let hasMergedCookies = false
+      for (let index = 0; index < combinedCookies.length; index++) {
+        const character = combinedCookies[index]
+        if (character === ";") {
+          lastSemicolon = index
+          continue
+        }
+        if (character !== ",") continue
+        const remainder = combinedCookies.slice(index + 1)
+        const assignment = /^\s*([^;=,\s]+)\s*=/.exec(remainder)
+        if (!assignment) continue
+        if (lastSemicolon < 0) {
+          hasMergedCookies = true
+          break
+        }
+        const attribute = combinedCookies.slice(lastSemicolon + 1).trim().split("=", 1)[0].toLowerCase()
+        const expiresDateComma = attribute === "expires"
+          && combinedCookies.slice(lastSemicolon + 1, index).includes(",")
+        if (expiresDateComma || (attribute !== "expires" && cookieAttributes.has(attribute))) {
+          hasMergedCookies = true
+          break
+        }
+      }
+      if (hasMergedCookies) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     } else {
       for (const cookie of cookies) {
