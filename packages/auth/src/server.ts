@@ -556,21 +556,34 @@ function getTrustedAuthorizationReaderRelease(
         if (releaseLock === nativeReaderMethods.releaseLock) return releaseLock
         // For a foreign stream, authenticate the complete operation set
         // against a fresh reader created by that stream's own constructor.
-        const bodyPrototype = Object.getPrototypeOf(body)
-        const streamConstructor = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "constructor")?.value
-        if (typeof streamConstructor !== "function") return
-        const freshBody = Reflect.construct(streamConstructor, []) as object
-        const freshReader = Reflect.apply(getReader, freshBody, []) as object
-        const freshPrototype = Object.getPrototypeOf(freshReader)
-        const freshClosed = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "closed")?.get
-        const freshRead = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "read")?.value
-        const freshCancel = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "cancel")?.value
-        const freshRelease = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "releaseLock")?.value
-        if (freshClosed === closed && freshRead === read && freshCancel === cancel && freshRelease === releaseLock) {
-          if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
-          return releaseLock
+        // A supported stream subclass may require constructor arguments. Walk
+        // its runtime-owned ancestors and authenticate against the first
+        // constructible stream that exposes the same reader intrinsics.
+        let bodyPrototype: object | null = Object.getPrototypeOf(body)
+        const seenConstructors = new Set<Function>()
+        while (bodyPrototype) {
+          const streamConstructor = Object.getOwnPropertyDescriptor(bodyPrototype, "constructor")?.value
+          if (typeof streamConstructor === "function" && !seenConstructors.has(streamConstructor)) {
+            seenConstructors.add(streamConstructor)
+            try {
+              const freshBody = Reflect.construct(streamConstructor, []) as object
+              const freshReader = Reflect.apply(getReader, freshBody, []) as object
+              const freshPrototype = Object.getPrototypeOf(freshReader)
+              const freshClosed = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "closed")?.get
+              const freshRead = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "read")?.value
+              const freshCancel = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "cancel")?.value
+              const freshRelease = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "releaseLock")?.value
+              if (freshClosed === closed && freshRead === read && freshCancel === cancel && freshRelease === releaseLock) {
+                if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
+                return releaseLock
+              }
+              if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
+            }
+            catch { /* try the next runtime-owned ancestor */ }
+          }
+          bodyPrototype = Object.getPrototypeOf(bodyPrototype)
         }
-        if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
+        return
       }
       prototype = Object.getPrototypeOf(prototype)
     }

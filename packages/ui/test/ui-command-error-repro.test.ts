@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
-import { AgentInvocation } from "../src/components/agent-invocation.ts";
-import type { AgentInvocationView } from "../src/types.ts";
+import { AgentInvocation } from "../../vite-hub/src/console/runtime/components/invocation/agent-invocation.ts";
+import type { AgentInvocationView } from "../../vite-hub/src/console/runtime/components/invocation/types.ts";
 
 function view(error: unknown): AgentInvocationView {
   const timestamp = "2026-10-11T00:00:00.000Z";
