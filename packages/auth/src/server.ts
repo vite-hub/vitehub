@@ -526,16 +526,15 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         // work across realms.
         const constructorDescriptor = Object.getOwnPropertyDescriptor(current, "constructor")
         if (typeof constructorDescriptor?.value !== "function") return false
-        // A caller-controlled constructor is not evidence of a native Response
-        // prototype. Native Fetch constructors have an unforgeable source form.
-        let constructorSource: string
+        // The constructor must own this exact prototype. This relationship is
+        // preserved by genuine Fetch implementations across realms while
+        // rejecting constructors attached to forged response-like prototypes.
         try {
-          constructorSource = Function.prototype.toString.call(constructorDescriptor.value)
+          if (constructorDescriptor.value.prototype !== current) return false
         }
         catch {
           return false
         }
-        if (!constructorSource.includes("[native code]")) return false
         let fresh: unknown
         try {
           fresh = Reflect.construct(constructorDescriptor.value, [])
