@@ -8,9 +8,6 @@ import {
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
-import { computed, onMounted, ref } from "vue";
-
-// Keep the server clock through hydration, then refresh prerendered timestamps.
 
 const now = useState("ui-dashboard-clock", () => Date.now());
 let clockTimer: ReturnType<typeof setInterval> | undefined;
