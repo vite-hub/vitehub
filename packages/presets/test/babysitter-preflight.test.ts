@@ -13,7 +13,7 @@ describe("Babysitter host prerequisites", () => {
     const check = createBabysitterPreflight(true, command);
     const [first, second] = await Promise.all([check(), check()]);
     expect(second).toBe(first);
-    expect(command.mock.calls).toEqual([["git", "version"]]);
+    expect(command.mock.calls).toEqual([["git", "version"], ["corepack", "version"]]);
     expect(first.pause).toBeUndefined();
     await check();
     expect(command).toHaveBeenCalledTimes(1);

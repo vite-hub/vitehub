@@ -87,14 +87,16 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
       const diagnostics: AgentHealthDiagnostic[] = [];
       const commands = ["git"];
       if (install !== false) {
-        // A boolean `true` is resolved per checkout: repositories without
-        // dependency manifests never invoke Corepack. Only an explicit
-        // installer can be checked before a checkout is claimed.
         const program = isRuntimeRecord(install) ? install.command : undefined;
-        if (program) {
+        // Automatic installs select Corepack from the checkout lockfile. Keep
+        // it in admission so dependency-bearing work cannot be claimed on a
+        // host that cannot run the installer; explicit commands use their
+        // configured executable instead.
+        const installer = program ?? "corepack";
+        if (installer) {
         // A checkout-relative custom command has no stable host PATH probe and
         // may not implement --version; the installer validates its real args.
-          if ((isAbsolute(program) || (!program.includes("/") && !program.includes("\\"))) && !commands.includes(program)) commands.push(program);
+          if ((isAbsolute(installer) || (!installer.includes("/") && !installer.includes("\\"))) && !commands.includes(installer)) commands.push(installer);
         }
       }
       for (const program of commands) {
