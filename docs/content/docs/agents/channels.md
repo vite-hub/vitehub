@@ -328,21 +328,7 @@ An inline Agent runs each item before it reads the next one and reports it as `c
 
 Some providers send one webhook for several messages. A Channel trigger can answer the webhook itself and call `context.dispatch(items, { trigger })` to start one Invocation per item through another trigger of the same Channel. Each item has an `input` for that trigger and a `key`. Dispatched items get the same Invocation IDs as a replay, so an item that already has an Invocation is skipped.
 
-On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`. The webhook queue gives a replayed delivery the same State.
-
-A trigger that always needs the State declares `durableState: true`. Its `invoke` gets `context.channelState` typed as present, and ViteHub throws `AGENT_R1005` before `invoke` runs when the State is not bound, for example when code calls the trigger outside the Channel's webhook route. Pair it with the Channel's `webhooks.durableState`, which answers `503` when the configured State is not durable.
-
-```ts
-triggers: {
-  changed: defineChannelTrigger({
-    durableState: true,
-    async invoke(context, input: { cursor: string }) {
-      await context.channelState.state.set(`${context.channelState.keyPrefix}cursor`, input.cursor)
-      return new Response(null, { status: 204 })
-    },
-  }),
-}
-```
+On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`.
 
 ```ts
 triggers: {
@@ -359,6 +345,22 @@ triggers: {
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
 
+### Queue dispatched items
+
+`context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue instead of running it now, as if the item arrived as its own webhook delivery. The receiving trigger must answer with `webhook.deliveryId` and `webhook.serialize` or `webhook.concurrencyLimit`, so `debounce` and the queue's retries apply. Items are admitted in order. The first item that cannot be admitted throws, and later items are not admitted. An item that the trigger answers below 400 without a delivery, such as `ignored()`, is skipped with reason `handled`. An item whose delivery ID is already queued is skipped with reason `duplicate`. When a queued item fails its last attempt, the `failed` callback of the receiving trigger runs.
+
+Queued dispatch is available while the Channel's webhook route runs the calling trigger with a queue-capable State, such as SQLite or libSQL. `dryRun` is not available with `queue`.
+
+Give an item `order: { key, version }` when a provider can send changes to one entity again or out of order. The item is skipped with reason `stale`, before the trigger runs, unless `version` is greater than the last version admitted or answered for `key` through the same trigger. The new version commits with the admission of the item. An item whose trigger throws or answers 400 or above does not change the version, so a retry admits it.
+
+```ts
+await context.dispatch(changes.map(change => ({
+  input: change,
+  key: change.eventId,
+  order: { key: change.recordId, version: change.sequence },
+})), { queue: true, trigger: 'change' })
+```
+
 ### Decide and write Channel State in one step
 
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
@@ -372,7 +374,7 @@ invoke: (context, change: { id: string, version: number, text: string }) =>
   }),
 ```
 
-Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+Inside `invoke` on the Channel's webhook route, or in an item of a queued dispatch, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
 
 How the write and the admission commit depends on the State:
 
