@@ -306,8 +306,10 @@ async function runAccessAuthorize(
   // Normalize response values before any thenable handling. A Response may
   // expose an own `then` property, but it must still be treated as a response
   // rather than assimilated as a promise.
-  const directResponse = await normalizeAuthorizationResponse(result)
-  if (directResponse) return directResponse
+  if (isRuntimeResponse(result)) {
+    const directResponse = await normalizeAuthorizationResponse(result)
+    if (directResponse) return directResponse
+  }
 
   let resolved: unknown
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
@@ -315,9 +317,26 @@ async function runAccessAuthorize(
     // bypasses an overridden `then` method on Promise subclasses. Plain
     // thenables fall back to normal await semantics below.
     let nativePromise: Promise<unknown> | undefined
-    try { nativePromise = Promise.prototype.then.call(result, value => value) }
+    let constructorDescriptor: PropertyDescriptor | undefined
+    let constructorOverridden = false
+    try {
+      // Shadow an inherited constructor so intrinsic `then` uses the native
+      // Promise constructor instead of consulting a throwing Symbol.species.
+      constructorDescriptor = Object.getOwnPropertyDescriptor(result, "constructor")
+      if (!constructorDescriptor || constructorDescriptor.configurable) {
+        Object.defineProperty(result, "constructor", { configurable: true, writable: true, value: Promise })
+        constructorOverridden = true
+      }
+      nativePromise = Promise.prototype.then.call(result, value => value)
+    }
     catch (error) {
       if (!(error instanceof TypeError)) throw error
+    }
+    finally {
+      if (constructorOverridden) {
+        if (constructorDescriptor) Object.defineProperty(result, "constructor", constructorDescriptor)
+        else Reflect.deleteProperty(result, "constructor")
+      }
     }
     resolved = nativePromise ? await nativePromise : await result
   }
@@ -325,8 +344,13 @@ async function runAccessAuthorize(
     resolved = result
   }
   if (resolved === true) return
-  const normalized = await normalizeAuthorizationResponse(resolved)
-  if (normalized) return normalized
+  if (isRuntimeResponse(resolved)) {
+    const normalized = await normalizeAuthorizationResponse(resolved)
+    if (normalized) return normalized
+  } else {
+    const normalized = await normalizeAuthorizationResponse(resolved)
+    if (normalized) return normalized
+  }
   return createForbiddenResponse(context.request)
 }
 
