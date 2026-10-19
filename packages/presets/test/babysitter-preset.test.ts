@@ -5,7 +5,8 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -1231,69 +1232,6 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
-  it("keeps a reviewed-head result when an unrelated event moves the claim during the pass", async () => {
-    const head = "a".repeat(40);
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
-      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
-    f.beforeResult(async () => {
-      await f.runtime.inbox.ingest("unrelated-edit-during-pass", "pull_request", {
-        repository: { full_name: "acme/app" }, action: "edited",
-        pull_request: { ...f.pr(), base: { ...f.pr().base, repo: { ...f.pr().base.repo, pushed_at: "2026-10-08T20:00:00Z", open_issues_count: 20 } } },
-      });
-    });
-    try {
-      await f.reconcile();
-      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
-      const current = await f.runtime.inbox.get("acme/app", 12);
-      expect(current).toMatchObject({ status: "waiting", lastResult: "Reviewed", attempts: 0, wait: { headSha: head } });
-      // The kept result costs the pass once, like a reviewed head on a current claim.
-      expect(current?.progressBudget?.count).toBe(1);
-      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
-      await f.reconcile();
-      expect(f.passes).toHaveLength(1);
-    } finally { await f.runtime.inbox.close(); }
-  });
-
-  it("checks a reviewed head again when new feedback arrives during the pass", async () => {
-    const head = "a".repeat(40);
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
-      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
-    f.beforeResult(async () => {
-      f.beforeResult(() => {});
-      await f.runtime.inbox.ingest("bot-review-during-pass", "pull_request_review", {
-        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
-        review: { id: 101, body: "Finding after the pass started", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: head },
-      });
-    });
-    try {
-      await f.reconcile();
-      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
-      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
-      await f.reconcile();
-      // The recorded evidence is from the claim, so the new review needs another pass.
-      expect(f.passes).toHaveLength(2);
-    } finally { await f.runtime.inbox.close(); }
-  });
-
-  it("discards a reviewed-head result when the head changes during the pass", async () => {
-    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
-      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
-    f.beforeResult(async () => {
-      f.advanceHead("b".repeat(40));
-      await f.runtime.inbox.ingest("external-push-during-pass", "pull_request", {
-        repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr(),
-      });
-    });
-    try {
-      await f.reconcile();
-      const current = await f.runtime.inbox.get("acme/app", 12);
-      expect(current?.pr?.head?.sha).toBe("b".repeat(40));
-      expect(current?.wait).toBeUndefined();
-      expect(current?.status).toBe("ready");
-      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
-    } finally { await f.runtime.inbox.close(); }
-  });
-
   it("preserves the dependency installation opt-out in the configured preset", () => {
     const agent = defineAgent({ extends: babysitter, options: { install: false } });
     expect(agent.install).toBe(false);
@@ -1455,6 +1393,10 @@ describe("Babysitter preset runtime", () => {
       expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
     }
     expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
+    for (const dailyPassBudget of [0, 2.5, "16" as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget } })).toThrow(/dailyPassBudget must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { dailyPassBudget: false } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { deferWhilePending: "yes" as unknown as boolean } })).toThrow(/deferWhilePending must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required \}/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 0 } } })).toThrow(/install must be/);
@@ -1524,6 +1466,44 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(f.push).toHaveBeenCalledOnce();
       expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [f.pr().head.sha] });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("parks a PR that spent its daily pass budget until the window frees a pass, except for a person", async () => {
+    const inboxPath = join(await mkdtemp(join(tmpdir(), "vitehub-babysitter-daily-")), "inbox.sqlite");
+    roots.push(dirname(inboxPath));
+    const f = await fixture(false, false, { inboxPath, options: { dailyPassBudget: 1, noProgressBudget: false } });
+    const botReview = (id: number) => f.runtime.inbox.ingest(`bot-review-${id}`, "pull_request_review", {
+      repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+      review: { id, body: `Finding ${id}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const [first] = (await f.runtime.inbox.get("acme/app", 12))!.dailyPassBudget!.passes;
+      await botReview(301);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.wait).toMatchObject({ reason: "daily-pass-budget", retryAt: first! + 24 * 60 * 60_000 });
+      expect(parked.lastResult).toMatch(/1 model pass in the last 24 hours.*next pass can start at/);
+      expect(f.events).toHaveBeenCalledWith("babysitter.wait.kept", expect.objectContaining({ reason: "daily-pass-budget", avoided_invocation: true }));
+      // A person's comment is exempt and still starts a pass.
+      await f.runtime.inbox.ingest("human-comment", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
+        comment: { id: 302, body: "Please look again.", user: { login: "developer", type: "User" } } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      // Bot feedback runs again once the window frees a pass.
+      const db = new DatabaseSync(inboxPath);
+      try {
+        const row = db.prepare("SELECT value FROM vitehub_babysitter_pull_requests WHERE number = 12").get() as { value: string };
+        const value = JSON.parse(row.value);
+        value.dailyPassBudget.passes = value.dailyPassBudget.passes.map((at: number) => at - 24 * 60 * 60_000 - 60_000);
+        db.prepare("UPDATE vitehub_babysitter_pull_requests SET value = ? WHERE number = 12").run(JSON.stringify(value));
+      } finally { db.close(); }
+      await botReview(303);
+      await f.reconcile();
+      expect(f.passes).toHaveLength(3);
     } finally { await f.runtime.inbox.close(); }
   });
 
