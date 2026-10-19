@@ -325,7 +325,13 @@ function hasNativePromiseBrand(value: object): boolean {
     // and its tag may be shadowed. The intrinsic then brand check is the
     // remaining realm-independent way to recognize it. Use no-op handlers so
     // a rejected source promise is observed while probing.
-    Reflect.apply(nativePromiseThen, value, [() => undefined, () => undefined])
+    const probe = Reflect.apply(nativePromiseThen, value, [() => undefined, () => undefined])
+    // Consume the derived promise as well. A hostile species constructor may
+    // return a rejected promise here; dropping it would create an unhandled
+    // rejection even though the source promise has no-op settlement handlers.
+    if (probe && (typeof probe === "object" || typeof probe === "function")) {
+      Reflect.apply(nativePromiseThen, probe, [() => undefined, () => undefined])
+    }
     return true
   }
   catch {
