@@ -35,12 +35,13 @@ function routeExists(route: string): boolean {
 describe("launch documentation trust boundaries", () => {
   it("publishes an inspectable host support matrix with qualified statuses", () => {
     const matrix = readFileSync(resolve(docsRoot, "frameworks-hosts/support-matrix.md"), "utf8");
+    const matrixData = readFileSync(resolve(repoRoot, "docs/app/data/support-matrix.ts"), "utf8");
     const matrixComponent = readFileSync(
-      resolve(repoRoot, "docs/app/components/SupportMatrix.vue"),
+      resolve(repoRoot, "docs/app/components/content/SupportMatrix.vue"),
       "utf8",
     );
     const docsLayout = readFileSync(resolve(repoRoot, "docs/app/layouts/docs.vue"), "utf8");
-    const appHeader = readFileSync(resolve(repoRoot, "docs/app/components/AppHeader.vue"), "utf8");
+    const docsPage = readFileSync(resolve(repoRoot, "docs/app/pages/docs/[...slug].vue"), "utf8");
     const matrixHeader = matrix.split("\n").find((line) => line.startsWith("| Contract")) ?? "";
 
     expect(matrixHeader).not.toBe("");
@@ -58,18 +59,18 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toMatch(
       /\| Browser\s+\| Local provider\s+\| Browser Run.*\| Local provider\s+\|/,
     );
-    expect(matrixComponent).toContain("Browser Definitions require ViteHub's Cloudflare preset");
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain("Browser Definitions require ViteHub's Cloudflare preset");
+    expect(matrixData).toContain(
       "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process",
     );
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted self-hosted Node process",
     );
     expect(matrix).toContain(
       "Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`",
     );
     expect(matrix).toContain("Standalone `Deno.cron`");
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       'vitehub({ preset: \\"deno\\", schedule: true }) is not supported',
     );
     expect(matrix).toContain(
@@ -99,28 +100,28 @@ describe("launch documentation trust boundaries", () => {
       "Workspace",
     ]) {
       expect(matrix).toMatch(new RegExp(`\\| ${primitive}\\s+\\|`));
-      expect(matrixComponent).toContain(`label: "${primitive}"`);
+      expect(matrixData).toContain(`label: "${primitive}"`);
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
     expect(matrix).toMatch(/\| Queue\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\|/);
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
     );
     expect(matrix).toContain("Discovery only");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
     expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
     expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "The Cloudflare preset supports the built-in Cloudflare Email driver default",
     );
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "Cloudflare Durable Objects provide the production room authority",
     );
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
     );
-    expect(matrixComponent).toContain(
+    expect(matrixData).toContain(
       "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials",
     );
     expect(matrix).toMatch(
@@ -131,56 +132,21 @@ describe("launch documentation trust boundaries", () => {
     );
     expect(matrix).toContain("Cloudflare Workflows");
     expect(matrix).toContain("Vercel Workflow");
-    expect(matrixComponent).toContain("row.values[column.id]!.display");
-    expect(matrixComponent).toContain('class="support-matrix-cell-mark"');
-    expect(matrixComponent).toContain("<tbody");
-    expect(matrixComponent).toContain('v-for="(section, sectionIndex) in sections"');
-    expect(matrixComponent).toContain('anchor: "server-primitives"');
-    expect(matrixComponent).toContain('anchor: "deployment-and-proof"');
-    expect(matrixComponent).toContain('<section id="qualifications"');
-    expect(matrixComponent).toContain('<h2>Qualifications</h2>');
-    const normalizeQualification = (value: string) =>
-      value.replace(/<[^>]+>|[*`]/g, "").replace(/\s+/g, " ").trim();
-    const markdownQualifications = matrix
-      .match(/## Qualifications\n\n([\s\S]*?)\n\nLocal memory/)![1]!
-      .split("\n")
-      .filter((line) => line.startsWith("- "))
-      .map((line) => normalizeQualification(line.slice(2)));
-    const renderedQualifications = [
-      ...matrixComponent
-        .match(/<section id="qualifications"[\s\S]*?<\/section>/)![0]!
-        .matchAll(/<li>([\s\S]*?)<\/li>/g),
-    ].map((match) => normalizeQualification(match[1]!));
-    expect(renderedQualifications).toEqual(markdownQualifications);
-    expect(matrixComponent).toContain(':id="section.anchor" class="support-matrix-section-anchor"');
-    expect(matrixComponent).toContain('scroll-margin-block-start: 7rem');
-    expect(matrixComponent).toContain(
-      'scroll-margin-block-start: calc(var(--ui-header-height) + 42px + 1rem)',
-    );
-    expect(matrixComponent).toMatch(
-      /@media \(max-width: 1023px\) \{\s*\.support-matrix-navigation \{\s*display: none;/,
-    );
-    expect(matrixComponent).toMatch(
-      /@media \(max-width: 1119px\)[\s\S]*?\.support-matrix-data-row > th \{\s*position: sticky;/,
-    );
-    expect(matrixComponent).toContain("var(--ui-header-height) + 42px + 0.5rem");
-    expect(matrixComponent).toContain(
-      "max-height: var(--reka-popover-content-available-height)",
-    );
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );
     expect(matrix).toContain(
       "Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory`",
     );
-    expect(matrixComponent).toContain("support-matrix-navigation-panel");
-    expect(matrixComponent).toContain("<DocsAsideLeftBody />");
-    expect(matrixComponent).toContain('v-model:open="openDetails[`${row.id}-${column.id}`]"');
-    expect(matrixComponent).not.toContain('<main class="support-matrix-main">');
-    expect(docsLayout).toMatch(
-      /v-if="isSupportMatrix"[\s\S]*<AnnouncementBanner \/>[\s\S]*<slot \/>/,
-    );
-    expect(appHeader).toContain("container: isDocsRoute ? 'max-w-none' : undefined");
+    // The page is a normal docs article. The Markdown tables are the text version of the matrix.
+    expect(matrix).toMatch(/::support-matrix\n[\s\S]*\| Primitive[\s\S]*\| Contract[\s\S]*\n::\n/);
+    expect(matrix).toContain("## Qualifications");
+    expect(matrixComponent).toContain('<div class="hidden"><slot /></div>');
+    expect(matrixComponent).toContain("supportMatrixGroups");
+    expect(matrixComponent).toContain("tipCell.display");
+    expect(matrixComponent).toContain("tipCell.detail");
+    expect(docsLayout).not.toContain("support-matrix");
+    expect(docsPage).not.toContain("SupportMatrix");
   });
 
   it("keeps launch-facing docs free from stale version and internal process prose", () => {

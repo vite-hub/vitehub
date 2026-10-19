@@ -1,5 +1,6 @@
 import { isApiKeyProvider } from "./api-key.ts"
-import { ConnectionError } from "./errors.ts"
+import { isLoginProvider } from "./oauth-login.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { providerApis } from "./catalog.ts"
 
 import type { RequestScheduler } from "./requests.ts"
@@ -26,10 +27,10 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
   function prepare(url: string | URL, input?: RequestInit["headers"]): Record<string, string> {
     const origin = new URL(url).origin
     const origins = Object.values(providerApis(definition)).map(catalog => new URL(catalog.rootUrl).origin)
-    if (isApiKeyProvider(provider)) origins.push(...provider.origins)
+    if (isApiKeyProvider(provider) || isLoginProvider(provider)) origins.push(...provider.origins)
     if (provider.mcp) origins.push(new URL(provider.mcp).origin)
     if (!origins.includes(origin)) {
-      throw new ConnectionError("invalid", `Connection "${name}" does not send its token to ${origin}.`, { details: { connection: name } })
+      throw connectionsErrorDiagnostics.CONNECTIONS_ORIGIN_NOT_ALLOWED({ connection: name, origin })
     }
     const headers = new Headers(input)
     headers.delete("authorization")

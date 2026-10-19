@@ -821,6 +821,36 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   }
 }
 
+function splitSetCookieHeader(value: string): string[] {
+  const cookies: string[] = []
+  let start = 0
+  let quoted = false
+  let escaped = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quoted && character === "\\") {
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      quoted = !quoted
+      continue
+    }
+    if (quoted || character !== ",") continue
+    const remainder = value.slice(index + 1)
+    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
+      cookies.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  cookies.push(value.slice(start).trim())
+  return cookies.filter(Boolean)
+}
+
 async function checkAuthRequest(
   input: AuthRequestInput,
   definition: AuthDefinition,

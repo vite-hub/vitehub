@@ -19,15 +19,12 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
 
-/** Stable display order for task lanes in primitive sidebars. */
-const primitiveSidebarGroupOrder: Array<string | null> = [
-  null,
-  "Learn",
-  "Build",
-  "Deploy and operate",
-];
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
@@ -121,11 +118,6 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 /** Pages of a product section other than its Overview, in sidebar order. The landing page lists them as cards. */
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
-}
-
-/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
-export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getDocsSectionKind(section: DocsSection): string {
