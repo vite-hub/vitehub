@@ -404,7 +404,11 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         const clone = Reflect.get(value, "clone")
         if (typeof clone === "function") {
           const cloned = Reflect.apply(clone, value, [])
-          if (cloned !== value && cloned instanceof Response) return true
+          const nativeClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
+          // Only the platform clone operation proves that a proxy targets a
+          // genuine local Response; a caller-supplied clone can return any
+          // branded response and must not establish provenance.
+          if (clone === nativeClone && cloned !== value && cloned instanceof Response) return true
         }
       }
       catch {}
