@@ -88,6 +88,13 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Definition errors. `defineDatabase()` throws them.
+    DATABASE_C0001: { why: ({ message }: { message?: string }) => message || "The Database Definition name does not match its discovered identity.", fix: "Set the discovered database name." },
+    DATABASE_C0002: { why: ({ message }: { message?: string }) => message || "Database Definitions use incompatible configuration.", fix: "Fix the reported database configuration." },
+    DATABASE_C0003: { why: ({ message }: { message?: string }) => message || "Database Definitions conflict.", fix: "Keep one compatible definition." },
+    DATABASE_C0008: { why: ({ message }: { message?: string }) => message || "Database configuration conflicts.", fix: "Fix the reported database configuration conflict." },
+    DATABASE_C0009: { why: ({ message }: { message?: string }) => message || "Database layer definitions conflict.", fix: "Fix the reported layer conflict." },
+    DATABASE_C0011: { why: ({ message }: { message?: string }) => message || "The Database Definition dialect is invalid.", fix: "Set dialect to sqlite or postgresql." },
+
     DATABASE_INVALID_CASING: {
       why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
       fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",
