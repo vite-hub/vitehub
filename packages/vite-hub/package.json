@@ -879,6 +879,12 @@
       "require": "./dist/ui.js",
       "default": "./dist/ui.js"
     },
+    "./ui/code-block": {
+      "types": "./dist/ui/code-block.d.ts",
+      "import": "./dist/ui/code-block.js",
+      "require": "./dist/ui/code-block.js",
+      "default": "./dist/ui/code-block.js"
+    },
     "./ui/headless": {
       "types": "./dist/ui/headless.d.ts",
       "import": "./dist/ui/headless.js",
@@ -1018,6 +1024,8 @@
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
+    "@json-render/core": "0.21.1",
+    "@json-render/vue": "0.21.1",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
@@ -1048,6 +1056,7 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
     "drizzle-kit": "catalog:database",

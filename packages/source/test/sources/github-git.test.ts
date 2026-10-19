@@ -9,6 +9,8 @@ import { gzipSync } from "node:zlib"
 import { describe, expect, it } from "vitest"
 
 import { parseGitHubArchive } from "../../src/sources/github/archive.ts"
+import { forgeGitCredentials } from "@vite-hub/forge"
+
 import { getGitSparsePatterns, loadGitArchiveFiles } from "../../src/sources/github/git.ts"
 import { createTarGz } from "./fixtures/github.ts"
 
@@ -78,15 +80,14 @@ describe("@vite-hub/source GitHub git materialization", () => {
         const root = "server/workspaces/mirror/"
         return path.startsWith(root) ? path.slice(root.length) : undefined
       },
+      credentials: forgeGitCredentials({ forge: "github", repository: "acme/private", token: "github-token" }),
       ref: "main",
-      repo: "acme/private",
       shouldInclude: key => key !== "docs/private.md",
       signal,
       sparsePatterns: [
         "server/workspaces/mirror/data/tasks.jsonl",
         "server/workspaces/mirror/docs/**",
       ],
-      token: "github-token",
     }, runGit)
 
     expect(files).toEqual([
@@ -124,6 +125,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
     expect(env?.GIT_DIR).toBeUndefined()
     expect(env?.GIT_INDEX_FILE).toBeUndefined()
     expect(env?.GIT_WORK_TREE).toBeUndefined()
+    expect(env?.GIT_CONFIG_KEY_0).toBe("http.https://github.com/acme/private.git.extraheader")
     expect(env?.GIT_CONFIG_VALUE_0).toBe(
       `AUTHORIZATION: basic ${Buffer.from("x-access-token:github-token").toString("base64")}`,
     )
@@ -172,9 +174,9 @@ describe("@vite-hub/source GitHub git materialization", () => {
     }
 
     await expect(loadGitArchiveFiles({
+      credentials: { url: "https://github.com/acme/app.git" },
       keyForRepoPath: path => path,
       ref: "main",
-      repo: "acme/app",
       shouldInclude: () => true,
       signal: controller.signal,
       sparsePatterns: ["docs/**"],
@@ -199,8 +201,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
         },
         keyForRepoPath: path => path,
         ref: "main",
-        repo: "local/fixture",
-        repositoryUrl: fixture.remote,
+        credentials: { url: fixture.remote },
         shouldInclude: () => true,
         sparsePatterns: ["docs/**"],
       })
@@ -223,8 +224,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
       const files = await loadGitArchiveFiles({
         keyForRepoPath: path => path,
         ref: "main",
-        repo: "local/fixture",
-        repositoryUrl: fixture.remote,
+        credentials: { url: fixture.remote },
         shouldInclude: () => true,
         sparsePatterns: [":README.md", ":/README.md"],
       })
@@ -245,8 +245,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
       await expect(loadGitArchiveFiles({
         keyForRepoPath: path => path,
         ref: "main",
-        repo: "local/fixture",
-        repositoryUrl: fixture.remote,
+        credentials: { url: fixture.remote },
         shouldInclude: () => true,
         sparsePatterns: ["assets/**"],
       })).rejects.toThrow("Git LFS pointer")
@@ -284,8 +283,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
         },
         keyForRepoPath: path => path,
         ref: "main",
-        repo: "local/auth-fixture",
-        repositoryUrl: `http://127.0.0.1:${address.port}/repo.git`,
+        credentials: { url: `http://127.0.0.1:${address.port}/repo.git` },
         shouldInclude: () => true,
         sparsePatterns: ["README.md"],
       })).rejects.toThrow("git fetch exited")

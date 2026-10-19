@@ -11,24 +11,15 @@ icon: i-ph-squares-four-light
 
 The package owns presentation, layout, and interaction defaults. Your app owns transport, persistence, and authorization. Every example uses synthetic data, makes no network requests, and shows the source below the live preview.
 
-## A Console with the defaults
-
-Select an Invocation to read its messages, tool calls, and result. The inspector shows its configuration and activity. This example uses the package styles and built-in layouts.
-
-::component-preview{name="InvocationDashboardBlock" flush reset}
-::
-
-[Install the package](/docs/ui/installation), then copy the [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Chat app](/docs/ui/blocks/chat-app), or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+[Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
 
 ## Components
 
 ::ui-component-gallery
-- **Start:** [Get started](/docs/ui/get-started)
-- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Code review](/docs/ui/blocks/code-review)
-- **Perspective:** [Built for the Vue ecosystem](/docs/getting-started/built-for-vue)
-- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace)
+- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review)
+- **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Chat prompt](/docs/ui/chat-prompt), [Session](/docs/ui/session)
-- **Agent work:** [Invocation list](/docs/ui/invocation-list), [Invocation](/docs/ui/invocation), [Invocation inspector](/docs/ui/invocation-inspector), [Timeline](/docs/ui/timeline), [Capability inspector](/docs/ui/capability-inspector), [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
+- **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
 ::
 
