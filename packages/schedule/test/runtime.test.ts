@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
 import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
-import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
+import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
@@ -611,6 +611,39 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
+  it("rejects hostile scheduledAt objects through the Schedule diagnostic", async () => {
+    const handler = vi.fn()
+    const cases = [
+      { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
+      new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
+    ]
+    for (const scheduledAt of cases) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "report", scheduledAt: scheduledAt as never,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
     const scheduledAt = realm === "foreign"
       ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
@@ -622,29 +655,12 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-  it.each([
-    { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
-    new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
-  ])("rejects hostile scheduledAt objects through the Schedule diagnostic", async (scheduledAt) => {
-    const handler = vi.fn()
-    await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler },
-      name: "report",
-      scheduledAt: scheduledAt as never,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
-    expect(handler).not.toHaveBeenCalled()
-  })
-
   it("accepts genuine Dates without consulting a caller-defined tag", async () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
     Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
     const run = await executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
-      scheduledAt,
+      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "report", scheduledAt,
     })
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     expect(readTag).not.toHaveBeenCalled()
@@ -656,6 +672,39 @@ describe("Schedule Run bookkeeping", () => {
       cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "cross-realm-invalid-date", scheduledAt,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
+
+  it("accepts genuine dates with custom or throwing toString tags", async () => {
+    for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
+      const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+      Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
+      const run = await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
+      })
+      expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    }
+  })
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
 
   it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
     const handler = vi.fn(async () => {})
@@ -696,12 +745,79 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostileScheduledAt = { get [Symbol.toStringTag]() { throw new Error("hostile tag") } } as unknown as Date
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
-      scheduledAt: hostileScheduledAt,
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
@@ -985,7 +1101,7 @@ describe("Manual Schedule runs", () => {
 
     expect(new Set(runs.map(run => run.id)).size).toBe(2)
     expect(calls).toBe(2)
-    expect(await schedules.listRuns()).toHaveLength(2)
+    expect(await getScheduleRunStore().listRuns()).toHaveLength(2)
   })
 
   it("uses the installed runtime registry when no registry is passed", async () => {

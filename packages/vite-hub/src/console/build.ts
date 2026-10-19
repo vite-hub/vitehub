@@ -10,7 +10,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 export type ConsoleAgentEntry = { handler: string; name: string }
 /** A Static Schedule Definition that sets `manual: true`. */
-export type ConsoleScheduleEntry = { handler: string; name: string }
+type ConsoleScheduleEntry = { handler: string; name: string }
 
 export interface ConsoleBuildCatalog {
   agents: readonly ConsoleAgentEntry[]
@@ -25,6 +25,8 @@ export interface ConsoleBuildCatalog {
  */
 export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscoveryContext & {
   databaseDiscoveryRoot?: string
+  /** List the implicit default Database when the app has no Database Definition. The Vite Database plugin uses one. */
+  databaseImplicitDefault?: boolean
   sections: readonly ConsoleSectionId[]
 }): Promise<ConsoleBuildCatalog> {
   const { projectRoot, sections, serverDirs } = options
@@ -34,10 +36,13 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const content: Record<ConsoleSectionId, ConsoleSectionContent> = {}
   if (sections.includes("databases")) {
     content.databases = {
-      definitions: inspectDatabaseDefinitions({
+      definitions: await inspectDatabaseDefinitions({
+        implicitDefault: options.databaseImplicitDefault,
+        plugins: options.plugins,
         projectRoot,
         rootDir: options.databaseDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.databaseDiscoveryRoot ? undefined : serverDirs,
+        viteRoot: options.discoveryRoot,
       }),
       kind: "definition-catalog",
     }
@@ -57,7 +62,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
         serverDirs,
         serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,
       })
-        .filter(definition => definition.manual === true && definition.runtimeOnly !== true)
+        .filter(definition => definition.manual === true)
         .map(definition => ({ handler: definition.handler, name: definition.name }))
     : []
   return { agents, content, manualSchedules }

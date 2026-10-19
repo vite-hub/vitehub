@@ -36,7 +36,7 @@ The Vite config key is `workspace`.
 | Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Defaults: prefix `.vitehub/workspaces`, access `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
@@ -75,7 +75,7 @@ export default defineWorkspace({ store: dropStore })
 
 `vite-hub/workspace/blob-database` also exports the constructor and schema. Install `drizzle-orm` when using this subpath. Configure the selected Blob store and Database connection through their integrations. The Store does not create cloud resources or apply migrations at runtime.
 
-Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. The default prefix is `vitehub/workspace-history`; custom prefixes accept letters, numbers, underscores, dashes, and single slashes. Each Store owns its Blob namespace. Do not write its objects through another API.
+Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. History objects always live under `_vitehub/workspace-history/`. An optional `prefix` adds a namespace below it: `prefix: 'handbook'` stores objects under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides paths under `_vitehub/` by default. Each Store owns its Blob namespace. Do not write its objects through another API.
 
 Normal `fs` writes stage changes in the Store instance and follow the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`. A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone. Failed commits preserve staged changes. Staged changes are lost when the instance stops; committed revisions are durable. Other instances observe committed heads, and a staged checkpoint fails if its base head moved.
 
@@ -112,7 +112,7 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 
 ## Workspace Definition options
 
-`defineWorkspace()` accepts these top-level fields. The name comes from the discovered file path.
+`defineWorkspace()` accepts these top-level fields. The name comes from the discovered file path, or from the contribution when a package [contributes the Workspace](#contribute-workspace-definitions-from-a-package).
 
 | Option | Type | Description |
 | --- | --- | --- |
@@ -126,9 +126,55 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
-| `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 
 Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and file-backed bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
+
+## Contribute Workspace Definitions from a package
+
+A package can register a Workspace from its own Vite plugin, so applications do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of a `defineWorkspace()` result:
+
+```ts [my-package/vite.ts]
+import { fileURLToPath } from 'node:url'
+import type { Plugin } from 'vite'
+import type { WorkspaceContributingPlugin } from '@vite-hub/workspace/vite'
+
+export function myPackage(): Plugin & WorkspaceContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      workspaces: () => [{
+        name: 'content',
+        definition: {
+          module: fileURLToPath(new URL('./runtime/workspace.js', import.meta.url)),
+          export: 'contentWorkspace',
+        },
+        reason: 'Stores CMS documents.',
+      }],
+    },
+  }
+}
+```
+
+```ts [my-package/runtime/workspace.ts]
+import { defineWorkspace } from '@vite-hub/workspace'
+
+export const contentWorkspace = defineWorkspace({ /* store, rules, plugins */ })
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Workspace name for `useWorkspace(name)`. |
+| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
+| `definition.export` | `string` | Export that holds the Workspace Definition. Defaults to `default`. |
+| `reason` | `string` | Optional. Why the package adds the Workspace. `vitehub inspect definitions` and the Console show it. |
+
+`vitehub.workspaces` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. The Workspace plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+
+A contributed Workspace behaves like a discovered file. It is in the generated Nitro registry, in the `WorkspaceName` types, in `vitehub inspect definitions`, and in the Console Workspaces section. Its definition is loaded at build time for asset bundling and Cloudflare Artifacts, the same as discovered files. The definition must not set `name`.
+
+Each Workspace name has one definition. If a contribution reuses the name of a discovered file or of another contribution, the build fails with `WORKSPACE_B0003`, and the message names both sources or both plugins. An invalid contribution fails with `WORKSPACE_B0004`. If the named export is missing at runtime, the first `useWorkspace(name)` call throws a `TypeError` that names the module, export, and contributing plugin.
+
+`collectWorkspaceContributions(plugins, context)` from `@vite-hub/workspace/vite` returns the validated contributions. It helps when another build step needs the same list.
 
 ## Source Binding options
 

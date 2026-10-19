@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.dev.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // Resolve workspace packages through their built declarations, so server sources stay out of this browser program.
+    "paths": {}
+  },
+  "include": [
+    "src/console/runtime/components/invocation/**/*.ts",
+    "test/console-invocation-views/**/*.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

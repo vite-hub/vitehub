@@ -76,6 +76,13 @@ export interface ConsoleOptions {
   retention?: AgentInvocationRetentionOptions
 }
 
+/** Direct plugin use without Console options in development installs the development-only `local` policy. */
+interface LocalConsoleOptions extends ConsoleOptions {
+  local: true
+}
+
+const localDevelopmentConsole: Readonly<LocalConsoleOptions> = Object.freeze({ auth: false, local: true })
+
 /**
  * Validate the `console` option at the ViteHub boundary. Every environment must choose Console access explicitly.
  * Returns `undefined` when the Console is off.
@@ -85,7 +92,19 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (value === true) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0003({ message: '[vitehub] console: true is not supported. Choose who can open the Console: console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
   }
-  if (!(value instanceof Object) || Array.isArray(value) || !("auth" in value)) {
+  if (!(value instanceof Object) || Array.isArray(value)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
+  }
+  if ("access" in value && value.access !== undefined) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access is no longer supported. Use console.auth.' })
+  }
+  if ("exposure" in value && value.exposure !== undefined && value.exposure !== "host-managed") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure is no longer supported. Use console.auth.' })
+  }
+  if (value.exposure === "host-managed" && !('auth' in value)) {
+    return { ...value, auth: false } as ConsoleOptions
+  }
+  if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
   const auth = value.auth
@@ -101,10 +120,11 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
   return options && options.auth !== false && options.auth !== "app" ? options.auth : undefined
 }
 
-interface ConsoleVitePluginOptions {
+export interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
-  console: ConsoleOptions
+  console?: ConsoleOptions
   connections?: unknown
+  runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
@@ -293,7 +313,6 @@ export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset
 /** Resolve the `console.authorize` file. A configured path must exist. */
 export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): string | undefined {
   if (authorize === undefined) return
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- console.authorize crosses the open Vite config boundary.
   if (typeof authorize !== "string" || !authorize.trim()) throw new TypeError("[vitehub] console.authorize must be a path to a server file.")
   const file = resolve(root, authorize)
   if (!existsSync(file)) throw new TypeError(`[vitehub] console.authorize file does not exist: ${file}`)
@@ -320,7 +339,9 @@ export function resolveConsoleAccessBuild(
 ): ConsoleAccessBuild {
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
-  if (configured.auth === false) return withAuthorize({ mode: "open" })
+  if ("local" in configured && configured.local === true) return { mode: "local" }
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
+  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: authorize ? "host-managed" : "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
@@ -354,6 +375,15 @@ export function assertConsoleAccess(
   if (missing.length) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] console: { auth: "app" } needs console.authorize, or app Auth access routes with an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
   }
+}
+
+/** Check the app Auth access routes of a production build. */
+export function assertConsoleProductionAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig, base?: string, development?: boolean, sections?: readonly ConsoleSectionId[] }): void {
+  if (options.development) return
+  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed" && !configured.authorize) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize in production." })
+  }
+  if (configured.auth === "app" && options.auth) assertConsoleAccess(configured, options)
 }
 
 export function generatedConsolePluginRegistration(value: string): boolean {
@@ -401,8 +431,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess())
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -439,7 +469,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "connections")
       }
       root = resolve(config.root || process.cwd())
-      const configured = resolveConsoleOptions(options.console)
+      const configured: ConsoleOptions | undefined = resolveConsoleOptions(options.console) ?? (environment.command === "serve" ? localDevelopmentConsole : undefined)
       // The root integration does not add this plugin without Console options, so this only guards direct use.
       if (!configured) throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
       resolvedConsoleConfiguration = configured
@@ -452,7 +482,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         kv?: unknown
         queue?: unknown
         rateLimit?: unknown
-        sandbox?: unknown
+        sandboxTask?: unknown
         schedule?: unknown
         workspace?: unknown
         workflow?: unknown
@@ -466,17 +496,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
-      if ("sandbox" in viteConfig) {
-        sections = sections.filter(section => section !== "sandboxes")
-        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      if ("sandboxTask" in viteConfig) {
+        sections = sections.filter(section => section !== "sandbox-tasks")
+        if (viteConfig.sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
       if ("workspace" in viteConfig) {
         sections = sections.filter(section => section !== "workspaces")
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Service configuration crosses Vite's open user-config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
@@ -484,7 +512,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         ? configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
         : configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
         : options.rateLimitScanDirs
@@ -498,6 +525,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolvedAppAuth = appAuth
       baseURL = config.base ?? "/"
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
+      assertConsoleProductionAccess(configured, {
+        auth: appAuth,
+        base: baseURL,
+        development: environment.command !== "build",
+        sections,
+      })
       openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
@@ -530,9 +563,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         configureConsoleFixtureLifecycle(options.invocationRootState, generatedPlugin, refreshConsoleCatalog)
       }
       if (!cliDiscovery && !fixture) {
-        const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandboxes", "workflows", "workspaces"])
+        const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
-        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
+        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -550,6 +583,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           consoleAuthMode,
           retention,
           consoleAccess(),
+          options.runtimeCapabilityImports,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -565,7 +599,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       kit.addPlugin(generatedPlugin)
 
       const connectionsActor = sections.includes("connections")
-        ? await writeConsoleConnectionsActor(root)
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.middleware)
         : undefined
       const alias = kit.config.alias ?? {}
       consoleConfig.nitro = {
@@ -588,14 +622,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       projectRoot ||= resolveViteHubProjectRoot(config.root)
       generatedPlugin ||= resolve(projectRoot, generatedConsolePlugin)
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
-      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandbox?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
+      const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandboxTask?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveBlobRegistration(viteConfig.blob)
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
@@ -609,17 +641,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       rateLimitDiscoveryRoot = "rateLimit" in viteConfig
         ? configuredProjectRoot(viteConfig.rateLimit)
         : rateLimitDiscoveryRoot
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
       if ("rateLimit" in viteConfig) {
         rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit scan directories cross Vite's open config boundary, so validate each entry before discovery.
           ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
           : undefined
       }
       scheduleDiscoveryRoot = configuredProjectRoot(viteConfig.schedule) ?? scheduleDiscoveryRoot
-      if ("sandbox" in viteConfig) {
-        sections = sections.filter(section => section !== "sandboxes")
-        if (viteConfig.sandbox) sections = [...sections, "sandboxes"]
+      if ("sandboxTask" in viteConfig) {
+        sections = sections.filter(section => section !== "sandbox-tasks")
+        if (viteConfig.sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
       workspaceDiscoveryRoot = "workspace" in viteConfig
         ? configuredProjectRoot(viteConfig.workspace)

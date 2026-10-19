@@ -31,10 +31,36 @@
   },
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./internal/grant": "./dist/internal/grant.js",
-    "./internal/runtime-type": "./dist/internal/runtime-type.js",
-    "./node": "./dist/node.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./h3": {
+      "types": "./dist/h3.d.ts",
+      "import": "./dist/h3.js",
+      "require": "./dist/h3.js",
+      "default": "./dist/h3.js"
+    },
+    "./internal/grant": {
+      "types": "./dist/internal/grant.d.ts",
+      "import": "./dist/internal/grant.js",
+      "require": "./dist/internal/grant.js",
+      "default": "./dist/internal/grant.js"
+    },
+    "./internal/runtime-type": {
+      "types": "./dist/internal/runtime-type.d.ts",
+      "import": "./dist/internal/runtime-type.js",
+      "require": "./dist/internal/runtime-type.js",
+      "default": "./dist/internal/runtime-type.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.js",
+      "default": "./dist/node.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -48,6 +74,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

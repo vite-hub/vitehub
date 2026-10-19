@@ -20,13 +20,10 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) =>
-    !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) &&
-    !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
-const previewNames = (source: string) =>
-  Array.from(source.matchAll(previewPattern), (match) => match[1]!);
+const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
 
 describe("UI documentation", () => {
   it("lists component pages in the overview through the generated gallery", () => {
@@ -34,9 +31,7 @@ describe("UI documentation", () => {
 
     expect(source).toContain("::ui-component-gallery");
     expect(source).not.toContain(":::u-page-card\n\n---");
-    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(
-      true,
-    );
+    expect(existsSync(resolve(docsRoot, "app/components/content/UiComponentGallery.vue"))).toBe(true);
   });
 
   it("keeps the overview's text list in sync for raw Markdown readers", () => {
@@ -63,10 +58,7 @@ describe("UI documentation", () => {
       let previous = firstPreview;
       for (const section of sections) {
         const index = page.source.indexOf(`\n${section}\n`);
-        expect(
-          index,
-          `${page.name} should have ${section} after the previous section`,
-        ).toBeGreaterThan(previous);
+        expect(index, `${page.name} should have ${section} after the previous section`).toBeGreaterThan(previous);
         previous = index;
       }
     }
@@ -83,9 +75,7 @@ describe("UI documentation", () => {
   it("backs every preview with one example file and leaves no example unused", () => {
     const used = new Set(pages.flatMap((page) => previewNames(page.source)));
     for (const name of used) {
-      expect(existsSync(resolve(examplesRoot, `${name}.vue`)), `${name}.vue should exist`).toBe(
-        true,
-      );
+      expect(existsSync(resolve(examplesRoot, `${name}.vue`)), `${name}.vue should exist`).toBe(true);
     }
     const examples = readdirSync(examplesRoot)
       .filter((file) => file.endsWith(".vue"))
@@ -129,19 +119,33 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
+  it("renders component references through the shared article layout", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
     expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
+    expect(article).toContain('<ContentRenderer :value="page" :components="{ pre: DocsCodePre }" />');
+    expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
+    expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
+  });
+
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+
+    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
+    expect(layout).toContain("vh-docs-main");
+    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(layout).toContain("max-width: none;");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
-    const inspector = readFileSync(resolve(examplesRoot, "InvocationInspectorExample.vue"), "utf8");
+    const inspector = readFileSync(
+      resolve(examplesRoot, "InvocationInspectorExample.vue"),
+      "utf8",
+    );
 
     expect(invocation).toContain('<div class="h-[34rem]');
     expect(invocation).toContain('class="h-full"');
@@ -149,24 +153,23 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("uses a static context link instead of a product disclosure control", () => {
+  it("keeps the sidebar header focused on search", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain('<NuxtLink');
+    expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebarTop).not.toContain("vh-docs-context");
+    expect(sidebarTop).not.toContain("<NuxtLink");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
-
 
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
     expect(rail).toContain("<template #header");
-    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(rail).toContain('{ label: "Projects", to: "/projects"');
-    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("getDocsRailCatalog(docsManifest.sections)");
+    expect(rail).toContain("getUncategorizedDocsSections(docsManifest.sections)");
     expect(rail).toContain("<template #default");
   });
 
@@ -182,10 +185,11 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toMatch(/<UPageAside class="vh-docs-aside">/);
+    expect(layout).toContain("flex-direction: column;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
     expect(layout).toContain("flex: 1;");
   });
 
@@ -194,6 +198,6 @@ describe("UI documentation", () => {
 
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toContain("I am Maxi");
   });
 });

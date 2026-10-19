@@ -8,6 +8,11 @@ function providerOutputTask(provider: "cloudflare" | "vercel") {
 }
 
 export const rootTestTasks = Object.freeze({
+  "package:metadata": {
+    cache: false,
+    command: "node test/package-metadata.mjs",
+    dependsOn: ["build"],
+  },
   test: {
     cache: false,
     command: "node test/run-package-task.mjs test",
