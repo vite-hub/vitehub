@@ -327,7 +327,11 @@ async function runAccessAuthorize(
   // Normalize an already-returned native Response before awaiting it. This
   // avoids assimilating an own `then` property on the Response object.
   let response = await normalizeAuthorizationResponse(result)
-  if (!response) response = await normalizeAuthorizationResponse(await result)
+  if (!response) {
+    const resolved = await result
+    if (resolved === true) return
+    response = await normalizeAuthorizationResponse(resolved)
+  }
   if (response) return response
   return createForbiddenResponse(context.request)
 }
