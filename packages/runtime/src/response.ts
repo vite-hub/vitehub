@@ -21,6 +21,9 @@ interface BlobMethods {
   readonly type: string
 }
 
+const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
+const blobArrayBufferMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")?.value
+
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const cleanup = async (reason?: unknown, cancel = false) => {
@@ -60,27 +63,19 @@ function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    let streamMethod: ((this: object) => ReadableStream) | undefined
-    let typeGetter: ((this: object) => unknown) | undefined
-    let prototype: object | null = Object.getPrototypeOf(value)
-    for (let depth = 0; prototype && depth < 8; depth++) {
-      const stream = Object.getOwnPropertyDescriptor(prototype, "stream")?.value
-      const type = Object.getOwnPropertyDescriptor(prototype, "type")?.get
-      if (!streamMethod && typeof stream === "function") streamMethod = stream
-      if (!typeGetter && typeof type === "function") typeGetter = type
-      if (streamMethod && typeGetter) break
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    if (!streamMethod || !typeGetter) return undefined
-    Reflect.apply(typeGetter, value, [])
-    Reflect.apply(streamMethod, value, [])
-    try {
-      return {
-        type: String(Reflect.apply(typeGetter, value, [])),
-        body: () => streamBody(() => Reflect.apply(streamMethod!, value, [])),
-      }
-    }
-    catch { return undefined }
+    if (typeof blobTypeGetter !== "function" || typeof blobArrayBufferMethod !== "function") return undefined
+    const type = String(Reflect.apply(blobTypeGetter, value, []))
+    const body = () => new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          const bytes = new Uint8Array(await Reflect.apply(blobArrayBufferMethod!, value, []))
+          controller.enqueue(bytes)
+          controller.close()
+        }
+        catch (error) { controller.error(error) }
+      },
+    })
+    return { type, body }
   }
   catch {
     return undefined
