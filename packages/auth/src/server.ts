@@ -327,7 +327,16 @@ async function runAccessAuthorize(
     const directResponse = await normalizeAuthorizationResponse(authorization)
     if (directResponse) return directResponse
   }
-  const result = await authorization
+  // Adopt genuine Promise values through the intrinsic operation. Promise
+  // subclasses and cross-realm promises may expose a mutable `then` method;
+  // invoking that override would let authorization results alter settlement.
+  let adopted: PromiseLike<unknown> | undefined
+  try {
+    adopted = Promise.prototype.then.call(authorization as PromiseLike<unknown>, value => value, error => { throw error })
+  } catch {
+    // Non-Promise thenables retain normal await semantics.
+  }
+  const result = adopted ? await adopted : await authorization
   if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
@@ -456,9 +465,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // cross-runtime implementations, which expose function declarations or
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
-    const delegatedReader = /^\s*getReader\s*\(\.\.\.args\)\s*\{\s*return\s+super\.getReader\(\.\.\.args\)\s*\}\s*$/.test(source)
     if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
-      && !delegatedReader
       && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream)/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
@@ -489,6 +496,9 @@ function nativeGetReaderFromStreamPrototype(owner: object): { value: unknown, ow
     const descriptor = Object.getOwnPropertyDescriptor(current, "getReader")
     if (descriptor) {
       const value = descriptor.value
+      // The host intrinsic is captured before any response is inspected. If
+      // the host prototype has been polluted, do not trust its replacement.
+      if (current === nativeStreamPrototype && value !== nativeStreamGetReader) return
       if (isNativeFunction(value, nativeStreamGetReader, "getReader", false, false)) return { value, owner: current }
       return
     }
