@@ -439,6 +439,8 @@ const authorizationResponseProperties = ["status", "statusText", "headers", "bod
 const trustedResponseGetters = Object.fromEntries(
   authorizationResponseProperties.map(key => [key, Object.getOwnPropertyDescriptor(Response.prototype, key)?.get]),
 ) as Record<typeof authorizationResponseProperties[number], (() => unknown) | undefined>
+const nativeResponsePrototype = Response.prototype
+const nativeResponseConstructor = Response
 
 function hasTrustedResponseDescriptors(prototype: object): boolean {
   return authorizationResponseProperties.every(key =>
@@ -524,9 +526,6 @@ async function hasResponsePrototype(value: unknown, localResponsePrototype: obje
   return false
 }
 
-const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
-const intrinsicTypedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get
-
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -563,6 +562,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   try {
     const constructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value
     if (typeof constructor !== "function") return false
+    const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value
+    if (intrinsicReader !== getReader) return false
     const fresh = new constructor()
     const probed = Reflect.apply(getReader, fresh, [])
     const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
@@ -797,22 +798,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    const nativeBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-    let nativeBodyState = body === null
     let serializableBody = body === null
     if (body !== null) {
       try {
         serializableBody = isSerializableAuthorizationBody(body)
-        nativeBodyState = serializableBody && nativeBodyUsedGetter !== undefined
-          && !Reflect.apply(nativeBodyUsedGetter, candidate, [])
       }
       catch {
         // A response from another Fetch realm cannot be branded by this realm.
         // Keep it on the normalization and body-bridge path instead.
-        nativeBodyState = false
       }
     }
-    if (value instanceof Response && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    if (value instanceof localResponseConstructor && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!serializableBody) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
