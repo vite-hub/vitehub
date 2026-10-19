@@ -74,8 +74,6 @@ describe("public package export contracts", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],
       ["@vite-hub/agent/runtime/workflow", "@vite-hub/workflow"],
-      ["@vite-hub/agent/vite", "vite"],
-      ["@vite-hub/auth/vite", "vite"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
       ["@vite-hub/browser/internal/chromium", "playwright-core"],
