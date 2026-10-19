@@ -53,13 +53,19 @@ function readDefinitionObjectBody(file: string, exact = false): ObjectExpression
   const module = scanModule(readFileSync(file, "utf8"), file)
   const exported = defaultExportExpression(module)
   const callsByIdentifier = new Map<string, Expression>()
-  walk(module.program, (node) => {
-    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
-    const value = unwrapExpression(node.init)
-    if (value && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "defineDatabase") {
-      callsByIdentifier.set(node.id.name, value)
+  // Only module-level bindings can satisfy `export default <identifier>`.
+  // Nested declarations may reuse the same name and must not overwrite it.
+  for (const statement of module.program.body) {
+    if (statement.type !== "VariableDeclaration") continue
+    for (const declaration of statement.declarations) {
+      if (declaration.id.type !== "Identifier") continue
+      if (!declaration.init) continue
+      const value = unwrapExpression(declaration.init)
+      if (value && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "defineDatabase") {
+        callsByIdentifier.set(declaration.id.name, value)
+      }
     }
-  })
+  }
   let call: Expression | undefined
   if (exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase") {
     call = exported
