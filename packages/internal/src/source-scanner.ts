@@ -759,7 +759,13 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
 
 function isMethodDeclarationName(source: string, index: number, closeParen: number) {
   const previous = previousNonWhitespace(source, index)
-  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
+  const afterClose = skipWhitespaceAndComments(source, closeParen + 1)
+  if (source[afterClose] === "{") return previous !== "(" && previous !== "=" && previous !== "," && previous !== ":"
+  // TypeScript interface/type-literal members use a return-type annotation
+  // instead of a method body: `defineThing(value: Value): Result`.
+  const suffix = source.slice(afterClose)
+  const typedSignature = /^:\s*[^;{},]*(?:[;},]|\r?\n)/.test(suffix)
+  return typedSignature
     && previous !== "("
     && previous !== "="
     && previous !== ","

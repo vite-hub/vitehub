@@ -18,10 +18,12 @@ const hasPanel = computed(
     <DocsSidebars class="vh-docs-desktop-nav" :panel="hasPanel" />
 
     <div class="vh-docs-content">
-      <UContainer v-if="isSupportMatrix">
-        <AnnouncementBanner />
-        <slot />
-      </UContainer>
+      <div v-if="isSupportMatrix" class="vh-docs-support-matrix">
+        <UContainer class="vh-docs-support-matrix-content">
+          <AnnouncementBanner />
+          <slot />
+        </UContainer>
+      </div>
 
       <slot v-else-if="isLanding" />
 
@@ -43,6 +45,16 @@ const hasPanel = computed(
 .vh-docs-content {
   min-width: 0;
   max-width: none;
+}
+
+.vh-docs-support-matrix {
+  width: 100%;
+  max-width: none;
+}
+
+.vh-docs-support-matrix-content {
+  width: 100%;
+  max-width: none !important;
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */

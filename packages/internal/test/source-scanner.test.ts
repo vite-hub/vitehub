@@ -515,6 +515,16 @@ describe("source scanner", () => {
     expect(commentedCalls[0]?.arguments).toEqual(["\"real\""])
   })
 
+  it("ignores typed interface method signatures with matching names", () => {
+    const calls = findIdentifierCalls([
+      `interface Config { defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
   it("keeps generic arrow function commas inside one argument", () => {
     expect(splitTopLevel(`<T, U>(ctx: T) => ctx, { id: "daily" }`)).toEqual([
       `<T, U>(ctx: T) => ctx`,
