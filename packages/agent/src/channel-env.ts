@@ -21,6 +21,7 @@ export type BuiltInChannelEnv = {
   github: ForgeEnv["github"]
   gitlab: ForgeEnv["gitlab"]
   forgejo: ForgeEnv["forgejo"]
+  teams: Record<"apiUrl" | "appId" | "appPassword" | "appTenantId", ChannelEnvField>
   telegram: Record<"apiBaseUrl" | "botToken" | "webhookSecret", ChannelEnvField>
 }
 
