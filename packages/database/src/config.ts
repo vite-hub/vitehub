@@ -255,8 +255,8 @@ function maskCommentsAndStrings(source: string) {
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([\p{ID_Start}$_\\][\p{ID_Continue}$\\]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/u.exec(stripLeadingEntryComments(entry))
   if (match?.[1]) return decodeIdentifierKey(match[1])
-  if (match?.[2]) return readStaticStringLiteral(match[0].trim().slice(0, -1).trim())
-  if (match?.[3]) return readStaticStringLiteral(match[0].trim().replace(/^\[\s*/, "").replace(/\s*\](?::|$)/, ""))
+  if (match?.[2]) return match[2]
+  if (match?.[3]) return readStaticStringLiteral(match[3].trim())
 }
 
 function decodeIdentifierKey(identifier: string): string | undefined {
@@ -575,14 +575,17 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
     const parts = splitTopLevel(remainder)
     let partOffset = 0
     for (const part of parts) {
-      const name = new RegExp(`^\\s*${identifierCapturePattern}\\s*=`, "u").exec(part)?.[1]
+      const partStart = remainder.indexOf(part.trim(), partOffset)
+      if (partStart < 0) continue
+      const rawPart = remainder.slice(partStart, partStart + part.trim().length)
+      const name = new RegExp(`^\\s*${identifierCapturePattern}\\s*=`, "u").exec(rawPart)?.[1]
       if (name !== identifier) {
-        partOffset += part.length + 1
+        partOffset = partStart + rawPart.length
         continue
       }
-      const equals = part.indexOf("=")
-      const expressionStart = valueStart + partOffset + equals + 1
-      const expression = masked.slice(expressionStart, valueStart + partOffset + part.length)
+      const equals = rawPart.indexOf("=")
+      const expressionStart = valueStart + partStart + equals + 1
+      const expression = masked.slice(expressionStart, valueStart + partStart + rawPart.length)
       let expressionEnd = expression.length
       let nested = 0
       for (let index = 0; index < expression.length; index++) {
@@ -604,6 +607,13 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
   return undefined
 }
 
+function isStaticUndefined(expression: string | undefined): boolean {
+  if (!expression) return false
+  let normalized = stripStaticTypeAssertions(stripExpressionComments(expression)).trim()
+  while (normalized.startsWith("(") && findMatching(normalized, 0, "(", ")") === normalized.length - 1) normalized = normalized.slice(1, -1).trim()
+  return normalized === "undefined"
+}
+
 function readOpaqueResourceOwnership(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
   const trimmed = expression?.trim()
   if (!trimmed) return undefined
@@ -621,7 +631,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
     const resolve = (value: string | undefined): string | undefined => {
       if (value === undefined) return undefined
       const normalized = value.trim()
-      if (normalized === "undefined") return "undefined"
+      if (isStaticUndefined(normalized)) return "undefined"
       if (!identifierPattern.test(normalized)) return normalized
       if (resolving.has(normalized)) return undefined
       resolving.add(normalized)
