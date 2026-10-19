@@ -88,6 +88,11 @@ export function isResponse(value: unknown): value is Response {
             || !Object.prototype.hasOwnProperty.call(candidate, "_generatedBody")
             || !Object.prototype.hasOwnProperty.call(candidate, "_signal")
             || !Object.prototype.hasOwnProperty.call(candidate, "bodyUsed")) return false
+          // A bodyless foreign instance cannot provide an unforgeable brand
+          // through this structural boundary. Keep null-body candidates on
+          // the generic path unless the host intrinsic already authenticated
+          // them above.
+          return false
         }
         return true
       }
