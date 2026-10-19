@@ -447,16 +447,17 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
   try {
-  // Capture the instance operation before any prototype reflection. A hostile
-  // prototype can throw during the walk, but this direct lookup gives cleanup
-  // the source reader's own release operation first.
-  try { releaseLock = Reflect.get(reader, "releaseLock") as typeof releaseLock } catch {}
+  // Prefer the reader's own prototype intrinsic. An instance-level override
+  // is caller-controlled and may strand the underlying stream.
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
+    releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
+    if (typeof releaseLock === "function") break
+  }
+  // If prototype reflection fails or exposes no intrinsic, retain a guarded
+  // instance lookup as a last-resort cleanup path.
   if (typeof releaseLock !== "function") {
-    for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
-      releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
-      if (typeof releaseLock === "function") break
-    }
+    try { releaseLock = Reflect.get(reader, "releaseLock") as typeof releaseLock } catch {}
   }
   if (typeof releaseLock !== "function") {
     releaseLock = intrinsicReaderReleaseLock
