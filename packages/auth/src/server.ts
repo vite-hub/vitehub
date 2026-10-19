@@ -382,7 +382,11 @@ function hasNativePromiseBrand(value: object): boolean {
             // This final result is native by construction and its no-op
             // handlers ensure any rejection is observed.
             if (cleanupResult && (typeof cleanupResult === "object" || typeof cleanupResult === "function")) {
-              Reflect.apply(nativePromiseThen, cleanupResult, [() => undefined, () => undefined])
+              const finalCleanup = Reflect.apply(nativePromiseThen, cleanupResult, [() => undefined, () => undefined])
+              // Keep the final derived promise reachable until its handlers
+              // are installed. Native construction above makes this call
+              // species-safe, so no further adoption is required.
+              void finalCleanup
             }
           }
           finally {
@@ -518,7 +522,11 @@ async function runAccessAuthorize(
         else Reflect.deleteProperty(constructorDescriptor.value, Symbol.species)
       }
     }
-    resolved = nativePromise ? await nativePromise : await result
+    // If species construction is completely unreplaceable, the probe above
+    // has still observed the source settlement. Do not await the original
+    // value here: that would dispatch its mutable/species-sensitive `then`
+    // again and can rethrow a hostile species error.
+    resolved = nativePromise ? await nativePromise : undefined
   }
   else {
     resolved = result !== null && (typeof result === "object" || typeof result === "function")
