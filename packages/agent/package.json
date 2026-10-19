@@ -320,6 +320,7 @@
     "@chat-adapter/teams": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -350,6 +351,9 @@
       "optional": true
     },
     "@vite-hub/blob": {
+      "optional": true
+    },
+    "@vite-hub/connections": {
       "optional": true
     },
     "@vite-hub/database": {

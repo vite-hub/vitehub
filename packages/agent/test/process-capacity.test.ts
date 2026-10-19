@@ -13,7 +13,7 @@ const resources = vi.hoisted(() => ({
   availableMemory: 8 * 1024 ** 3,
   cgroupAvailable: true,
   cpuPressure: 0,
-  memoryCurrent: 2 * 1024 ** 3,
+  memoryCurrent: 2 * 1024 ** 3 as number | string,
   memoryHigh: 8 * 1024 ** 3,
   memoryHighEvents: 0,
   memoryMax: 10 * 1024 ** 3,
@@ -348,6 +348,19 @@ describe("process Agent capacity", () => {
     await sample({ active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal })
 
     expect(vi.mocked(readFile)).toHaveBeenCalledWith("/run/cgroup view/memory.current", expect.any(Object))
+  })
+
+  it.each(["not-a-number", "", "1.5", "1e3"])("falls back to Node memory when cgroup memory.current is malformed (%s)", async value => {
+    resources.memoryCurrent = value
+    const sample = createBuiltInSample({
+      concurrency: 6,
+      memory: { perInvocationBytes: GiB, reserveBytes: GiB },
+    })
+
+    await expect(sample({ active: 0, concurrency: 6, pending: 1, signal: new AbortController().signal })).resolves.toEqual({
+      concurrency: 6,
+      reason: "capacity available (8.0 GiB memory headroom)",
+    })
   })
 
   it("uses Node memory when cgroup v2 data is unavailable", async () => {
