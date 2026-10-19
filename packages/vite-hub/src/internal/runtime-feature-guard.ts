@@ -2,64 +2,42 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { findMatching, maskSourceLiterals } from "@vite-hub/internal/source-scanner"
+import { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
+
+import type { ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
-function stripCommentsAndStrings(source: string): string {
-  return source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|\/\/[^\n]*|\/\*[\s\S]*?\*\//gu, match =>
-    match.startsWith("/") ? " ".repeat(match.length) : " ".repeat(match.length),
-  )
-}
-
-function matchingBrace(source: string, open: number): number {
-  return findMatching(source, open, "{", "}") ?? -1
-}
-
-function hasAgentOptOut(source: string): boolean {
-  const clean = stripCommentsAndStrings(source)
+/** True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`. */
+function hasAgentOptOut(source: string, file: string): boolean {
+  const module = scanModule(source, file)
   const pluginNames = new Set<string>()
-  for (const match of clean.matchAll(/\bimport\s*\{([\s\S]*?)\}\s*from\s*/gu)) {
-    // `clean` keeps source positions while removing comments and strings. Check
-    // the original source only at the module-specifier position so import-like
-    // text in a comment or string cannot create a ViteHub binding.
-    const fromOffset = match[0].lastIndexOf("from")
-    const moduleStart = match.index! + fromOffset + "from".length
-    if (!/^(?:(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*)["']vite-hub["']/u.test(source.slice(moduleStart))) continue
-    for (const specifier of match[1].split(",")) {
-      const parts = specifier.trim().split(/\s+as\s+/u)
-      if (parts[0] === "vitehub") pluginNames.add(parts[1] || parts[0])
+  for (const statement of module.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || statement.source.value !== "vite-hub") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+      const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
+      if (imported === "vitehub") pluginNames.add(specifier.local.name)
     }
   }
-  const starts: number[] = []
-  for (const match of clean.matchAll(/\bvitehub\s*:\s*\{|\b([A-Za-z_$][\w$]*)\s*\(\s*\{/gu)) {
-    const token = match[0]
-    if (token.includes("(") && !pluginNames.has(match[1])) continue
-    starts.push(match.index! + match[0].lastIndexOf("{"))
-  }
-  return starts.some(open => {
-    const end = matchingBrace(clean, open)
-    return end >= 0 && hasAgentOptOutInObject(clean.slice(open + 1, end))
+  const options: ObjectExpression[] = []
+  walk(module.program, (node) => {
+    if (node.type === "Property" && !node.computed && node.key.type === "Identifier" && node.key.name === "vitehub") {
+      const value = unwrapExpression(node.value)
+      if (value.type === "ObjectExpression") options.push(value)
+    }
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && pluginNames.has(node.callee.name)) {
+      const value = argumentExpression(node.arguments[0])
+      if (value?.type === "ObjectExpression") options.push(value)
+    }
   })
-}
-
-function hasAgentOptOutInObject(body: string): boolean {
-  // The object body can contain regular expressions. Mask all literals before
-  // counting braces so a `}` inside `/}/` cannot hide a later opt-out.
-  const syntax = maskSourceLiterals(body)
-  for (const match of syntax.matchAll(/\bagent\s*:\s*(false|\{)/gu)) {
-    let depth = 0
-    for (const character of syntax.slice(0, match.index)) {
-      if (character === "{") depth++
-      else if (character === "}") depth--
-    }
-    if (depth !== 0) continue
-    if (match[1] === "false") return true
-    const open = match.index! + match[0].lastIndexOf("{")
-    const end = matchingBrace(syntax, open)
-    if (end >= 0 && /\bcli\s*:\s*false\b/u.test(syntax.slice(open, end))) return true
-  }
-  return false
+  return options.some((object) => {
+    const agent = findProperty(object, "agent")?.value
+    if (agent === undefined) return false
+    if (staticValue(agent) === false) return true
+    const cli = agent.type === "ObjectExpression" ? findProperty(agent, "cli")?.value : undefined
+    return cli !== undefined && staticValue(cli) === false
+  })
 }
 
 /** Detects explicit Agent CLI opt-outs without evaluating the project config. */
@@ -68,7 +46,7 @@ export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
   const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
   for (const extension of configExtensions) {
     const path = join(rootDir, `${owner}.config.${extension}`)
-    if (existsSync(path)) return !(hasAgentOptOut(await readFile(path, "utf8")))
+    if (existsSync(path)) return !hasAgentOptOut(await readFile(path, "utf8"), path)
   }
   return true
 }

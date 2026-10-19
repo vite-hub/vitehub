@@ -1,6 +1,6 @@
 import * as v from "valibot"
 
-import { isValidApiKeyProvider } from "./api-key.ts"
+import { isSafeEndpoint, isValidApiKeyProvider } from "./api-key.ts"
 import { ConnectionError } from "./errors.ts"
 import type { ConnectionApiSelection, ConnectionDefinition } from "./types.ts"
 
@@ -15,6 +15,23 @@ const apiCatalogsSchema = v.record(v.string(), v.object({
   methods: v.record(v.string(), v.tuple([v.string(), v.string(), v.boolean()])),
   highRisk: v.optional(v.array(v.string())),
 }))
+const mcpSchema = v.optional(v.pipe(v.string(), v.check(isSafeEndpoint)))
+const delaySchema = v.pipe(v.number(), v.finite(), v.minValue(0))
+const spanSchema = v.pipe(v.number(), v.finite(), v.gtValue(0))
+const requestsSchema = v.optional(v.strictObject({
+  bucket: v.optional(v.pipe(v.string(), v.minLength(1))),
+  rate: v.optional(v.union([
+    v.strictObject({ intervalMs: spanSchema }),
+    v.strictObject({ limit: v.pipe(v.number(), v.integer(), v.minValue(1)), perMs: spanSchema }),
+  ])),
+  retry: v.optional(v.strictObject({
+    attempts: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+    methods: v.optional(v.array(v.pipe(v.string(), v.regex(/^[A-Za-z]+$/)))),
+    delayMs: v.optional(delaySchema),
+    on429: v.optional(v.strictObject({ minDelayMs: v.optional(delaySchema) })),
+  })),
+  timeoutMs: v.optional(spanSchema),
+}))
 const rulesSchema = {
   api: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), v.optional(v.array(v.string()))))),
   access: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), accessRuleSchema))),
@@ -28,6 +45,8 @@ const oauthDefinitionSchema = v.looseObject({
     clientSecret: v.optional(connectionValue),
     account: v.optional(v.function()),
     apis: v.optional(apiCatalogsSchema),
+    mcp: mcpSchema,
+    requests: requestsSchema,
   }),
   scopes: v.array(v.string()),
   ...rulesSchema,
@@ -43,6 +62,8 @@ const apiKeyDefinitionSchema = v.looseObject({
       scheme: v.optional(v.string()),
       origins: v.array(v.string()),
       apis: apiCatalogsSchema,
+      mcp: mcpSchema,
+      requests: requestsSchema,
       fallback: v.optional(v.function()),
       verify: v.optional(v.function()),
     }),

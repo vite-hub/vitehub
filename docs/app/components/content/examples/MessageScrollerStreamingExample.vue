@@ -3,7 +3,7 @@ import {
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerRoot,
+  MessageScroller,
   MessageScrollerViewport,
 } from "@vite-hub/ui/headless";
 import { onBeforeUnmount, onMounted, ref } from "vue";
@@ -26,7 +26,7 @@ onBeforeUnmount(() => clearInterval(interval));
 </script>
 
 <template>
-  <MessageScrollerRoot class="relative h-72 overflow-hidden rounded-md border border-default bg-default">
+  <MessageScroller class="relative h-72 overflow-hidden rounded-md border border-default bg-default">
     <MessageScrollerViewport class="h-full overflow-y-auto" aria-label="Build log">
       <MessageScrollerContent :items="messages.map((message) => message.id)" class="space-y-1 p-3 font-mono text-xs">
         <MessageScrollerItem v-for="message in messages" :key="message.id" :message-id="message.id">
@@ -39,5 +39,5 @@ onBeforeUnmount(() => clearInterval(interval));
     >
       Follow output
     </MessageScrollerButton>
-  </MessageScrollerRoot>
+  </MessageScroller>
 </template>
