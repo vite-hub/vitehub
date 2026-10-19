@@ -527,6 +527,27 @@ function releaseAuthorizationReader(reader: object, trustedRelease?: Function): 
   catch { /* best effort cleanup */ }
 }
 
+function getTrustedAuthorizationReaderRelease(reader: object): Function | undefined {
+  try {
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return
+      seen.add(prototype)
+      const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
+      const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
+      const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+      const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+      if (typeof closed === "function"
+        && typeof read === "function"
+        && typeof cancel === "function"
+        && typeof releaseLock === "function") return releaseLock
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch { /* best effort cleanup */ }
+}
+
 function isSerializableAuthorizationBody(body: unknown, reader: unknown): body is ReadableStream<Uint8Array> {
   return (body === null || (typeof body === "object" && typeof reader === "function"))
 }
@@ -555,13 +576,7 @@ function bridgeAuthorizationBody(
   let initialization: Promise<NonNullable<typeof methods>> | undefined
   const initialize = () => initialization ??= Promise.resolve().then(() => {
     const nextReader = Reflect.apply(getReader, body, [])
-    let trustedRelease: Function | undefined
-    let releasePrototype: object | null = Object.getPrototypeOf(nextReader)
-    while (releasePrototype && !trustedRelease) {
-      const descriptor = Object.getOwnPropertyDescriptor(releasePrototype, "releaseLock")
-      if (typeof descriptor?.value === "function") trustedRelease = descriptor.value
-      releasePrototype = Object.getPrototypeOf(releasePrototype)
-    }
+    const trustedRelease = getTrustedAuthorizationReaderRelease(nextReader)
     try {
       const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
       if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
