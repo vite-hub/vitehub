@@ -12,6 +12,8 @@ import type { AgentInvocationsDevRequestBody } from "../invocations-dev.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
+import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -36,6 +38,9 @@ const actionsWithoutId = new Set<string | undefined>(["list", "prune", "wait-idl
 function isAction(value: string): value is Action {
   return actions.has(value)
 }
+
+/** Actions that can read a journal file with --database instead of asking the app. */
+const fileActions = new Set<string | undefined>(["list", "show", "tail"])
 
 interface ParsedArgs {
   action?: Action | "cancel"
@@ -104,6 +109,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
+    "With --database, list, show, and tail read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
     "Options:",
@@ -123,6 +129,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            and does not wait on them. Defaults to 2h.",
     "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
     "  --database <url>          Journal database for delete and prune. Defaults to the Console journal.",
+    "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
+    "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
     "  --older-than <duration>   Prune records last updated before this age, such as 12h or 7d. Defaults to 30d.",
     "  --dry-run                 List the records that prune would delete.",
@@ -264,7 +272,12 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune") {
     parsed.console = consoleBaseUrl(parsed.url)
   }
-  if (parsed.console && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+  if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
+    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+  }
+  const readsFile = parsed.database !== undefined && fileActions.has(parsed.action)
+  if (!parsed.help && readsFile && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
+  if ((parsed.console || readsFile) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
   // cancel targets the Vite Development Server, not the application inspection route.
@@ -489,6 +502,32 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
     scan: async (statuses, timeout) => {
       const requestTarget = timeout === undefined ? target : { ...target, timeout }
       return await listConsoleInvocations(requestTarget, Number.POSITIVE_INFINITY, new Set(statuses))
+    },
+  }
+}
+
+/** Read a journal file through the same response parsers as an endpoint, so every target prints the same records. */
+async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
+  const database = journalDatabase(parsed, context)
+  if (database.path === undefined) {
+    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app." })
+  }
+  if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
+  const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
+  return {
+    cancel: async () => {
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+    },
+    close: file.close,
+    detail: async (id) => {
+      const detail = file.get(id)
+      if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
+      return parseInvocationDetail(detail)
+    },
+    list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
+    scan: async statuses => {
+      const wanted = new Set(statuses)
+      return parseInvocationList(file.list({ limit: maxAgentInvocationListLimit })).invocations.filter(record => wanted.has(record.status))
     },
   }
 }
@@ -847,11 +886,14 @@ export async function runAgentInvocationsCli(
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000
-  const target = parsed.console
-    ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed)
-    : localInvocationsTarget(parsed, context, fetchImpl, timeout)
   const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
+  let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
   try {
+    const target = parsed.database !== undefined && fileActions.has(parsed.action)
+      ? file = await journalFileTarget(parsed, context)
+      : parsed.console
+        ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed)
+        : localInvocationsTarget(parsed, context, fetchImpl, timeout)
     if (parsed.action === "cancel") {
       const result = await target.cancel(parsed.id!)
       if (!result) return 1
@@ -894,5 +936,8 @@ export async function runAgentInvocationsCli(
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     return 1
+  }
+  finally {
+    file?.close()
   }
 }

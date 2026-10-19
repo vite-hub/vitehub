@@ -1,11 +1,8 @@
-import { isPlainObject } from "@vite-hub/internal/object"
-
 import { describeDatabaseContribution } from "../contributions.ts"
 import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CollectedDatabaseContribution } from "../contributions.ts"
-import type { DiscoveredDatabaseDefinition } from "../types.ts"
+import type { DatabaseContribution } from "../contributions.ts"
 
 export interface DatabaseTableNameOptions {
   /** Import aliases the host applies to the Database Definition, such as Vite `resolve.alias`. */
@@ -39,7 +36,7 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "schema key", name: key, second: part.owner })
       keys.set(key, part.owner)
     }
-    for (const sqlName of part.schema.sqlNames.values()) {
+    for (const sqlName of new Set(part.schema.sqlNames.values())) {
       const existing = sqlNames.get(sqlName)
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "table", name: sqlName, second: part.owner })
       sqlNames.set(sqlName, part.owner)
@@ -48,7 +45,7 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return isPlainObject(value)
+  return typeof value === "object" && value !== null
 }
 
 function errorMessage(error: unknown) {
@@ -156,14 +153,14 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
  * that cannot load fails with `DATABASE_SCHEMA_LOAD_FAILED`, unless `onFallback` accepts it; its tables are then known only at runtime.
  */
 export async function loadContributedDatabaseSchema(
-  contribution: CollectedDatabaseContribution,
+  contribution: DatabaseContribution & { contributor?: string },
   parent: string,
   options: DatabaseTableNameOptions = {},
 ): Promise<LoadedDatabaseSchema> {
   const source = describeDatabaseContribution(contribution)
   let module: Record<string, unknown>
   try {
-    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.module)
   }
   catch (error) {
     const failure = databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${source}` })
@@ -171,7 +168,7 @@ export async function loadContributedDatabaseSchema(
     options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
-  const exportName = contribution.definition.export
+  const exportName = contribution.export ?? "default"
   const schema = module[exportName]
   const { isTableOrView } = await loadDrizzleSchemaTools()
   if (!isRecord(schema) || Array.isArray(schema) || isTableOrView(schema)) {

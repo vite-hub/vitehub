@@ -267,6 +267,9 @@ exports `table()` too.
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.
 
+`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
+in a Workspace file.
+
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
