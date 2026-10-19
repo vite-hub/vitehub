@@ -58,6 +58,7 @@ import {
   resolveAgentTriggerInvocationResult,
   taskAgentIdentity,
   verifyAgentWebhookRequest,
+  webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import {
   admitAgentChannelStateCommit,
@@ -769,6 +770,8 @@ async function matchedWebhookRegistrationRequiresVerification(
   const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return secret !== false
+  // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
+  if (registration.signature === "bearer") return true
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
@@ -8620,7 +8623,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
         const secret = await resolveWebhookSecret(registration.secretToken, context)
-        if (!registration.secretHeader || !secret) {
+        const secretHeader = webhookSecretHeader(registration)
+        if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
         }
         try {

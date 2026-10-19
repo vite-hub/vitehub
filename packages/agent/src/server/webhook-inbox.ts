@@ -145,9 +145,10 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   }
   activeWebhookInboxLocks.add(key)
   const ownerKey = `${key}:owner`
+  const ownerToken = crypto.randomUUID()
   let indexed = false
   try {
-    await state.set(ownerKey, true, webhookInboxOwnerTtlMs)
+    await state.set(ownerKey, { token: ownerToken, heartbeatAt: Date.now() }, webhookInboxOwnerTtlMs)
   }
   catch (error) {
     activeWebhookInboxLocks.delete(key)
@@ -155,7 +156,7 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
     throw error
   }
   const ownerHeartbeat = setInterval(() => {
-    void state.set(ownerKey, true, webhookInboxOwnerTtlMs).catch(() => undefined)
+    void state.set(ownerKey, { token: ownerToken, heartbeatAt: Date.now() }, webhookInboxOwnerTtlMs).catch(() => undefined)
   }, Math.max(1_000, webhookInboxOwnerTtlMs / 3))
   try {
     const previous = await state.get(key)
@@ -179,7 +180,8 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
         // lock is gone prevents takeover during settlement.
         await state.releaseLock(lock).catch(() => undefined)
         activeWebhookInboxLocks.delete(key)
-        await state.delete(ownerKey).catch(() => undefined)
+        const currentOwner = await state.get(ownerKey).catch(() => undefined)
+        if (isRecord(currentOwner) && currentOwner.token === ownerToken) await state.delete(ownerKey).catch(() => undefined)
       },
       async settle() {
         clearInterval(ownerHeartbeat)
@@ -329,11 +331,23 @@ export async function replayWebhookInbox(
         let response = await route(makeRequest(), stored.webhookId)
         // A lock left by a crashed process is indistinguishable from a duplicate request
         // at the route boundary. If this process does not own it, take over once and retry.
-        if (response.headers.get("x-vitehub-webhook-duplicate") === "1" && !activeWebhookInboxLocks.has(key) && !(await state.get(`${key}:owner`))) {
+        const currentOwner = await state.get(`${key}:owner`)
+        const ownerIsStale = isRecord(currentOwner)
+          && isRuntimeNumber(currentOwner.heartbeatAt)
+          && Date.now() - currentOwner.heartbeatAt > webhookInboxOwnerTtlMs / 3
+        if (response.headers.get("x-vitehub-webhook-duplicate") === "1" && !activeWebhookInboxLocks.has(key) && (!(isRecord(currentOwner) && currentOwner.settled === true)) && (!currentOwner || ownerIsStale)) {
           const forceReleaseLock = (state as StateAdapter & { forceReleaseLock?: (threadId: string) => Promise<void> }).forceReleaseLock
           if (forceReleaseLock) {
-            await forceReleaseLock(`${key}:admission`).catch(() => undefined)
-            response = await route(makeRequest(), stored.webhookId)
+            // Re-read the lease immediately before takeover. A replacement admission
+            // must not be revoked by a replay that observed an older owner.
+            const takeoverOwner = await state.get(`${key}:owner`)
+            const sameOwner = !currentOwner
+              ? !takeoverOwner
+              : isRecord(currentOwner) && isRecord(takeoverOwner) && currentOwner.token === takeoverOwner.token
+            if (sameOwner && !(isRecord(takeoverOwner) && takeoverOwner.settled === true)) {
+              await forceReleaseLock(`${key}:admission`).catch(() => undefined)
+              response = await route(makeRequest(), stored.webhookId)
+            }
           }
         }
         await response.arrayBuffer().catch(() => undefined)
