@@ -54,6 +54,7 @@ interface GeneratedDBArtifacts {
   definitionDefaultsFile: string
   generatedDir: string
   runtimeModuleFiles: Record<DBProvider, string>
+  providers: readonly DBProvider[]
   vercelServerFile: string
 }
 
@@ -189,6 +190,7 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
     definitionDefaultsFile,
     generatedDir,
     runtimeModuleFiles,
+    providers,
     vercelServerFile: entryFiles.vercel,
   }
 }
@@ -336,17 +338,15 @@ export function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig
 
 function getSupportedProviderRuntimeModules(
   artifacts: GeneratedDBArtifacts,
-  runtimeConfig: ResolvedDBViteConfig,
-  provisionState: ProvisionState,
 ) {
   return {
-    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState)
+    ...(artifacts.providers.includes("cloudflare")
       ? {
           cloudflare: artifacts.runtimeModuleFiles.cloudflare,
           "cloudflare-definition-defaults": artifacts.definitionDefaultsFile,
         }
       : {}),
-    ...(shouldCreateVercelOutput(runtimeConfig)
+    ...(artifacts.providers.includes("vercel")
       ? {
           vercel: artifacts.runtimeModuleFiles.vercel,
           "vercel-definition-defaults": artifacts.definitionDefaultsFile,
@@ -364,7 +364,7 @@ function registerSupportedProviderRuntimeModules(
 ): void {
   contributeProviderRuntime(providerOutput, {
     owner: "database",
-    runtimeModules: getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState),
+    runtimeModules: getSupportedProviderRuntimeModules(artifacts),
   }, generation)
 }
 
@@ -378,7 +378,7 @@ export async function generateProviderOutputs(
   const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
   await write({
     clientOutDir: options.clientOutDir,
-    cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
+    cloudflare: artifacts.providers.includes("cloudflare") ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
       cloudflare: () => {
         const hasOtherCloudflareOutput = hasProviderRuntimeModule(options.providerOutput, "cloudflare", { except: "database", generation: options.generation })
@@ -391,7 +391,7 @@ export async function generateProviderOutputs(
     },
     rootDir: options.rootDir,
     sourceRootDir: options.appRootDir,
-    vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
+    vercel: artifacts.providers.includes("vercel") ? createVercelOutput(writeOptions) : undefined,
   })
   return artifacts
 }
