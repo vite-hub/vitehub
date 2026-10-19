@@ -1,4 +1,4 @@
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ConnectionApiCatalog, ConnectionApiKeyFallback, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition, ConnectionRequestPolicy } from "./types.ts"
 
@@ -44,7 +44,7 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Normalize an API key origin. Returns `undefined` for a URL with a path, query, credentials, or plain `http` to a remote host. */
-function apiKeyOrigin(value: string): string | undefined {
+export function apiKeyOrigin(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)
@@ -137,11 +137,14 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
       return false
     }
   })
+  // `new URL()` accepts `*` in a host name, but a request origin never equals it. Reject it, so the key goes only to exact origins.
+  const wildcard = options.origins.find(origin => typeof origin === "string" && origin.includes("*"))
+  if (wildcard !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ origin: wildcard })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {
-    throw new ConnectionError("invalid", "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({})
   }
   if (options.mcp !== undefined && !isSafeEndpoint(options.mcp)) {
-    throw new ConnectionError("invalid", "The API key provider mcp endpoint must be an HTTPS or loopback URL without credentials, query, or fragment.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ origin: options.mcp })
   }
   return provider
 }
