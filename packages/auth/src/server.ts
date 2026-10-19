@@ -592,13 +592,26 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function authorizationBodyReader(body: object): (() => unknown) | undefined {
   let prototype: object | null = Object.getPrototypeOf(body)
   const seen = new Set<object>()
+  let first: (() => unknown) | undefined
+  let firstOwner: object | undefined
   for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
     if (seen.has(prototype)) return
     seen.add(prototype)
     const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
-    if (typeof reader === "function") return reader
+    if (typeof reader === "function") {
+      if (!first) {
+        first = reader
+        firstOwner = prototype
+      } else if (prototype !== firstOwner) {
+        // Use the implementation inherited by an overriding subclass. This
+        // keeps supported `super.getReader()` wrappers from selecting an
+        // unrelated reader supplied by the override itself.
+        return reader
+      }
+    }
     prototype = Object.getPrototypeOf(prototype)
   }
+  return first
 }
 
 function bridgeAuthorizationBody(
