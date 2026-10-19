@@ -335,7 +335,10 @@ async function runAccessAuthorize(
     if (Object(returned) === returned) {
       try {
         const probe = Reflect.apply(intrinsicPromiseThen, returned, [() => {}, () => {}])
-        probe.catch(() => {})
+        // Observe the probe through the captured intrinsic operation. Calling
+        // `probe.catch()` would dispatch a foreign Promise subclass override
+        // and could incorrectly force the mutable thenable fallback.
+        Reflect.apply(intrinsicPromiseThen, probe, [() => {}, () => {}])
         adoption = new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
       }
       catch {
@@ -607,7 +610,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(result.value)
+        else controller.enqueue(new intrinsicUint8ArrayConstructor(result.value))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
