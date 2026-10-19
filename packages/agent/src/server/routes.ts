@@ -8599,8 +8599,21 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 },
               )
               if (outcome) {
-                // A delivery steered into the running Invocation is accepted too. After an admission this does nothing.
-                if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) await settleAgentChannelStateCommit(stateCommit)
+                // A steered delivery is only committed after the active invocation
+                // completes successfully. If it fails, release the staged decision
+                // so the retry can re-evaluate it.
+                if (outcome.settlement) {
+                  context.waitUntil(
+                    outcome.settlement.then(async completed => {
+                      if (completed) await settleAgentChannelStateCommit(stateCommit)
+                      else await releaseAgentChannelStateCommit(stateCommit)
+                    }),
+                  )
+                } else if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) {
+                  await settleAgentChannelStateCommit(stateCommit)
+                } else if (outcome.invalidState || outcome.duplicate) {
+                  await releaseAgentChannelStateCommit(stateCommit)
+                }
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 if (outcome.settlement) {
                   await recordChannelDeliveryEvidence(channelDelivery, {
