@@ -269,6 +269,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         if (search) options.search = search
         if (input.cursor !== undefined) options.cursor = text(input.cursor, "cursor")
         if (input.sort) options.sort = { field: text(input.sort.field, "sort.field"), direction: input.sort.direction === "desc" ? "desc" : "asc" }
+        if (input.facets !== undefined && !Array.isArray(input.facets)) throw invalidInput("facets must be an array.")
         if (input.facets?.length) options.facets = input.facets.map(field => text(field, "facets"))
         const page = await collection.list(options)
         const titleField = titleFieldOf(collection.schema)

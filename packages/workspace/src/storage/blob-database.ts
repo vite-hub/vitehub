@@ -382,7 +382,13 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, this.#active(workspace))).returning({ head: refs.head }),
+      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
+        eq(refs.workspace, workspace),
+        eq(refs.ref, ref),
+        sql`${refs.head} is ${options.ifHead}`,
+        ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
+        this.#active(workspace),
+      )).returning({ head: refs.head }),
       this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {

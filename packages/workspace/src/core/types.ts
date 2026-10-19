@@ -337,6 +337,8 @@ export interface WorkspaceHistoryChanges {
 export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   /** The expected head of `ref`. Use null for the first revision on the ref. */
   ifHead: string | null
+  /** Expected heads of other refs that must remain unchanged for the commit. */
+  ifHeads?: Record<string, string | null>
   message?: string
   metadata?: Record<string, unknown>
 }

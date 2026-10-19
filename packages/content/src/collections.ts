@@ -1015,6 +1015,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
+          ifHeads: draftHead ? { draft: draftHead.id } : undefined,
           changes: { put, delete: remove },
           message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
           metadata: writeMetadata(publishOptions.metadata, {
