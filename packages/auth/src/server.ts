@@ -413,39 +413,40 @@ function hasNativePromiseBrand(value: object): boolean {
 }
 
 function getDirectRuntimeResponse(value: Response): Response | undefined {
-  if (!nativeResponseStatus || !nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
-  if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
-  const body = Reflect.apply(nativeResponseBody, value, [])
-  const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (locked && Reflect.apply(locked, body, [])) return
-  const headers = Reflect.apply(nativeResponseHeaders, value, [])
-  if (!headers || !nativeHeadersForEach || !nativeHeadersGet
-    || Reflect.get(headers, "forEach") !== nativeHeadersForEach
-    || Reflect.get(headers, "get") !== nativeHeadersGet) return
-  // A subclass or intermediate prototype can replace native accessors even
-  // when the instance has no own shadowing properties. Clone any response
-  // whose prototype chain defines these names before the native Response
-  // prototype, so downstream reads use the internal response state.
-  const shadowed = ["status", "statusText", "headers", "body"].some((key) => {
-    if (Object.prototype.hasOwnProperty.call(value, key)) return true
-    let prototype: object | null = Object.getPrototypeOf(value)
-    const seen = new Set<object>()
-    while (prototype && prototype !== Response.prototype) {
-      if (seen.has(prototype)) return true
-      seen.add(prototype)
-      if (Object.prototype.hasOwnProperty.call(prototype, key)) return true
-      prototype = Object.getPrototypeOf(prototype)
+  try {
+    if (!nativeResponseStatus || !nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
+    if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
+    const body = Reflect.apply(nativeResponseBody, value, [])
+    const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (locked && Reflect.apply(locked, body, [])) return
+    const headers = Reflect.apply(nativeResponseHeaders, value, [])
+    if (!headers || !nativeHeadersForEach || !nativeHeadersGet
+      || Reflect.get(headers, "forEach") !== nativeHeadersForEach
+      || Reflect.get(headers, "get") !== nativeHeadersGet) return
+    const shadowed = ["status", "statusText", "headers", "body"].some((key) => {
+      if (Object.prototype.hasOwnProperty.call(value, key)) return true
+      let prototype: object | null = Object.getPrototypeOf(value)
+      const seen = new Set<object>()
+      while (prototype && prototype !== Response.prototype) {
+        if (seen.has(prototype)) return true
+        seen.add(prototype)
+        if (Object.prototype.hasOwnProperty.call(prototype, key)) return true
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
+    })
+    if (shadowed || Object.prototype.hasOwnProperty.call(value, "then")) {
+      const clone = nativeResponseClone
+      try { return clone ? Reflect.apply(clone, value, []) : undefined }
+      catch { return }
     }
-    return false
-  })
-  if (shadowed || Object.prototype.hasOwnProperty.call(value, "then")) {
-    const clone = nativeResponseClone
-    try { return clone ? Reflect.apply(clone, value, []) : undefined }
-    catch { return }
+    Reflect.apply(nativeResponseStatus, value, [])
+    Reflect.apply(nativeResponseStatusText, value, [])
+    return value
   }
-  Reflect.apply(nativeResponseStatus, value, [])
-  Reflect.apply(nativeResponseStatusText, value, [])
-  return value
+  catch {
+    return
+  }
 }
 
 /**
