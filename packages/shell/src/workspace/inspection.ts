@@ -29,17 +29,19 @@ export async function runWorkspaceInspectionCommand(
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
-  const maxOutputLength = options.maxOutputLength || 30_000
-  const timeout = options.timeout || 30_000
+  const maxOutputLength = options.maxOutputLength ?? 30_000
+  const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
   if (unsupportedSyntax) return unsupportedSyntax
-  const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd)
+  const preflight = await withInspectionTimeout(timeout, async () => {
+    const broad = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd)
+    if (broad) return broad
+    return await preflightMissingWorkspacePath(command, options.fs, options.cwd)
+  }, command, options.cwd)
   if (preflight) return preflight
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
   if (pipedBroadSearch) return pipedBroadSearch
-  const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
-  if (missingPath) return missingPath
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
   if (unsupported) return unsupported
   const runtime = createShellRuntime({
@@ -59,6 +61,20 @@ export async function runWorkspaceInspectionCommand(
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+}
+
+async function withInspectionTimeout(timeout: number, run: () => Promise<ShellObservation | undefined>, command: string, cwd?: string) {
+  if (!Number.isFinite(timeout) || timeout < 0) return await run()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<ShellObservation>(resolve => {
+        timer = setTimeout(() => resolve({ command, cwd, event: "command_timed_out", exitCode: null, stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`, stdout: "", timedOut: true, workspaceGuardrail: { kind: "timeout" } }), timeout)
+      }),
+    ])
+  }
+  finally { if (timer) clearTimeout(timer) }
 }
 
 function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {

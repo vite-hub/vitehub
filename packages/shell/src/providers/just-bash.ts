@@ -65,12 +65,12 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
-      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async () => {
+      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async signal => {
         const curlResult = await runControlledCurlCommand(command, {
           commands,
           cwd,
           networkGrants,
-          signal: execOptions.signal,
+          signal,
         })
         if (curlResult) return curlResult
 
@@ -84,13 +84,13 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         const timeoutSignal = typeof execOptions.timeout === "number"
           ? AbortSignal.timeout(execOptions.timeout)
           : undefined
-        const signal = timeoutSignal && execOptions.signal
-          ? AbortSignal.any([execOptions.signal, timeoutSignal])
-          : timeoutSignal ?? execOptions.signal
+        const bashSignal = timeoutSignal && signal
+          ? AbortSignal.any([signal, timeoutSignal])
+          : timeoutSignal ?? signal
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
-          signal,
+          signal: bashSignal,
         })
           .then(result => ({
             command,
@@ -363,15 +363,19 @@ function policyDeniedCurl(command: string, cwd: string | undefined, message: str
 async function withProviderTimeout(
   command: string,
   options: ShellRuntimeExecOptions,
-  run: () => Promise<ShellObservation>,
+  run: (signal?: AbortSignal) => Promise<ShellObservation>,
 ): Promise<ShellObservation> {
-  if (typeof options.timeout !== "number") return await run()
+  if (typeof options.timeout !== "number") return await run(options.signal)
+  const controller = new AbortController()
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      run(),
+      run(signal),
       new Promise<ShellObservation>((resolve) => {
-        timeout = setTimeout(() => resolve({
+        timeout = setTimeout(() => {
+          controller.abort()
+          resolve({
           command,
           cwd: options.cwd,
           event: "command_timed_out",
@@ -379,7 +383,8 @@ async function withProviderTimeout(
           stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
           stdout: "",
           timedOut: true,
-        }), options.timeout)
+          })
+        }, options.timeout)
       }),
     ])
   }

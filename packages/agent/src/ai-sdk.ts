@@ -1491,6 +1491,10 @@ async function createAgent(
     return isStepCount(stepLimit ?? 20)(steps as never)
   }
 
+  const effectiveStopWhen = Array.isArray(configuredStopWhen)
+    ? [stopWhen, ...configuredStopWhen]
+    : stopWhen
+
   return {
     agent: new ToolLoopAgent({
       ...commonSettings,
@@ -1502,7 +1506,7 @@ async function createAgent(
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      stopWhen: stopWhen as never,
+      stopWhen: effectiveStopWhen as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
