@@ -82,6 +82,16 @@ describe("server auth helpers", () => {
     })
   })
 
+  it("keeps environment resolvers isolated between Auth Definitions", () => {
+    const first = defineAuth(({ env }) => ({ appName: "First", secret: env.secret as string }))
+    const second = defineAuth(({ env }) => ({ appName: "Second", secret: env.secret as string }))
+    setAuthRuntimeEnvResolver(() => ({ secret: "first-secret" }), first)
+    setAuthRuntimeEnvResolver(() => ({ secret: "second-secret" }), second)
+
+    expect(createBetterAuthOptions(first).secret).toBe("first-secret")
+    expect(createBetterAuthOptions(second).secret).toBe("second-secret")
+  })
+
   it("derives request runtime origin defaults", () => {
     const definition = defineAuth({ appName: "ViteHub" })
     const request = new Request("https://app.example.com/api/auth/session")
