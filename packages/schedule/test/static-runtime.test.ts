@@ -26,12 +26,8 @@ describe("Static Schedule runtime", () => {
     })
   })
 
-  it("rejects dates whose brand lookup throws", async () => {
-    const scheduledAt = Object.defineProperty({}, Symbol.toStringTag, {
-      get() {
-        throw new Error("spoofed date")
-      },
-    }) as Date
+  it("normalizes scheduledAt values with throwing cross-realm tags", async () => {
+    const scheduledAt = { get [Symbol.toStringTag]() { throw new Error("tag access") } } as unknown as Date
     await expect(executeStaticSchedule({
       cron: "0 4 * * *",
       definition: { cron: "0 4 * * *", handler: async () => {} },
@@ -39,6 +35,7 @@ describe("Static Schedule runtime", () => {
       scheduledAt,
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "object" },
     })
   })
 

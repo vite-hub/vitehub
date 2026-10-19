@@ -57,11 +57,14 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews that report no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as deployment preview bots, whose comments and reviews never need an assessment. They do not block a direct merge or wake a waiting PR. |
-| `deferWhilePending` | `true` | Wait for running required checks and review checks before a pass, so one pass handles CI and review results together. A failure or a conflict starts the pass at once. |
+| `deferWhilePending` | `true` | Wait for running current-head checks before a pass, so one pass handles CI and review results together. A fast failure also waits for the checks that still run. A conflict starts the pass at once. A check that runs for 30 minutes counts as stuck. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits until its head changes or a person comments. `false` disables the budget. |
-| `install` | `true` | Install dependencies on the host before the model starts. `true` detects pnpm, npm or Yarn from the lockfile and installs it frozen; `{ command, args }` overrides it; `{ cache: { directory, entries } }` configures the pnpm cache; `false` skips it. |
+| `install` | `true` | Install dependencies on the host before the model starts. `true` detects pnpm, npm or Yarn from the lockfile and installs it frozen; `{ command, args }` overrides it; `{ cache: { directory, entries } }` configures the pnpm cache; `{ concurrency }` sets how many installs run at once (default `2`); `{ required: true }` parks the PR on a failed install instead of continuing without dependencies (default `false`); `false` skips it. See [Dependency installation](#dependency-installation). |
+| `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
 | `mentionAllowlist` | `[]` | Exact GitHub logins the worker may notify through `mentionOnPullRequest`. The tool is reserved for verified blockers that need one person's action. |
-| `concurrency` | `1` | Pull requests repaired at the same time. |
+| `concurrency` | `1` | Pull requests repaired at the same time. Host work, such as direct merges and stack retargets, uses this limit. |
+| `modelConcurrency` | `concurrency` | Model passes that run at the same time. Set it to what your provider accounts can serve. |
+| `providerCooldownMs` | `300000` | First cooldown after a pass runs out of provider rate-limit retries. See [Provider rate limits](#provider-rate-limits). |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
 | `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
@@ -113,6 +116,17 @@ export default defineAgent({
 The preset reads no token-budget or provider-quota environment variables and no provider status files. Applications that used `BABYSITTER_HOURLY_INPUT_TOKENS`, `BABYSITTER_DAILY_INPUT_TOKENS` or provider-specific quota guards must map them into these options and `admission.check`.
 
 The health route shows the decision in `admission` and the token use, the limits and the `check` result in `budget`.
+
+## Provider rate limits
+
+A pass retries a provider rate limit (HTTP 429) three times, 10 seconds apart. When the retries run out, the host opens a cooldown:
+
+- Model passes stop until the cooldown ends. Host work continues: ready pull requests still merge directly and stacked pull requests are still retargeted. Pull requests that need a model pass stay queued, unchanged.
+- The pass that ran out of retries waits until the cooldown ends. It is not reported as failed and does not count against `noProgressBudget`. A pass cancelled after a rate limit does not count either.
+- The first cooldown lasts `providerCooldownMs`. Each further cooldown doubles, up to one hour, and halves the number of model passes that can start (never below two). Passes that fail together count once.
+- A successful pass removes one step only when it ends at least 30 minutes after the last cooldown, so capacity returns gradually.
+
+A GitHub rate limit uses a separate breaker. It stops every GitHub request of the host for one hour, including merges.
 
 ## Bound local verification
 
@@ -167,9 +181,9 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
-The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
+The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. See [Dependency installation](#dependency-installation) for what happens when it fails.
 
-Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
+Host installation accepts the pnpm workspace settings `peerDependencyRules`, `minimumReleaseAge`, and `minimumReleaseAgeExclude`, because they run no code. Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
 
 ## Deploy
 
@@ -196,9 +210,21 @@ Feedback that a pass assessed, or answered with a repair push, stays assessed on
 
 A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
 
-A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. Stack parents are claimed before other work, and a restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
+A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. A restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
 
 The host installs dependencies in each pass workspace before the model starts. The install gets only `PATH`, `HOME`, locale, package manager and `NODE_OPTIONS` variables, never the provider or GitHub credentials, and disables lifecycle scripts for detected installs. Custom install commands are trusted host configuration. The result is in `.git/vitehub-install.json` for the model.
+
+Before a direct merge, the host compares the files that the pull request changes with the files that the base branch changed since the pull request's checks ran. Checks test the base of their moment, so two pull requests that change the same file can both pass and still break the base together. When the files overlap, or when the host cannot find the tested base, it updates the branch through GitHub and waits for checks on the new head instead of merging. Failed checks that ran on an older base get one update and retest every six hours when the current base tip has no failing check. Neither step starts a model pass.
+
+The queue claims a pull request whose current head has a stored review first, then pull requests whose current-head checks all passed, then stack parents, then the oldest work. When GitHub still computes mergeability, the host reads the pull request again for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
+
+### Dependency installation
+
+Detected installs share `install.concurrency` slots (two by default). A pass waits up to ten minutes for a free slot and keeps its checkout while it waits.
+
+By default, installation is optional. When it fails, the pass continues without dependencies and `.git/vitehub-install.json` records `"status": "failed"` with the reason. The model then repairs the pull request's lockfile or manifests when they caused the failure, or works without local dependencies, relies on hosted CI, and names the failure in its result. After a failed install, `commitRepair` does not verify dependencies against the install. An unresolved dependency conflict in a prepared merge still needs `refreshDependencies` before validation.
+
+With `install: { required: true }`, a failed install parks the pull request. Invalid installation inputs wait durably without a timer retry; correct them, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes. A lockfile that the frozen install rejects (for example `ERR_PNPM_OUTDATED_LOCKFILE`) goes to one more pass on the same head. That pass runs on this host without dependencies and gets the install error in a `<dependency-install-failure>` block, so the model can repair the lockfile.
 
 On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier pass with the same repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches and Node version. The host copies trees with independent writable inodes (using copy-on-write when supported), and verifies them with a frozen offline install; a failed check gets a clean install. Passes that need the same trees wait for the first install. It defaults to `BABYSITTER_INSTALL_CACHE` or `vitehub-install-cache` in the temporary directory, and keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8 entries. Set `install: { cache: false }` to disable it.
 
