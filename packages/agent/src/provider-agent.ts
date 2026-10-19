@@ -3281,13 +3281,22 @@ async function* runProvider<
       && ![options.providerSettings?.launchArgs, providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS].some(args => hasRuntimeType(args, "string") && args.includes("developer_instructions"))
       ? instructions
       : undefined
-    developerInstructionsDigest = codexDeveloperInstructions === undefined
-      ? undefined
-      : createHash("sha256").update(codexDeveloperInstructions).digest("hex")
+    const effectiveCodexInstructions = options.provider === "codex" ? (codexDeveloperInstructions ?? instructions) : undefined
+    if (effectiveCodexInstructions !== undefined) {
+      const digestInput = codexDeveloperInstructions === undefined
+        ? JSON.stringify([effectiveCodexInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
+        : effectiveCodexInstructions
+      developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
+    }
     // Codex renders developer instructions only when a thread starts. Resume a
     // thread only with the instructions it started with; otherwise start a new
     // thread, which receives the transcript and the current instructions.
-    if (resumeCursor !== undefined && resumeInstructions !== developerInstructionsDigest) {
+    // A missing digest means the session used an instruction path that cannot be
+    // fingerprinted (for example AGENTS.md fallback or launch overrides). Do not
+    // resume such a session: two absent digests do not prove compatibility.
+    if (resumeCursor !== undefined && (developerInstructionsDigest === undefined
+      || resumeInstructions === undefined
+      || resumeInstructions !== developerInstructionsDigest)) {
       resumeCursor = undefined
       pendingResumeCursor = undefined
     }
