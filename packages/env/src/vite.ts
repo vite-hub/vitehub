@@ -427,12 +427,31 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
     for (let attempt = 0; attempt < 120 && !lock; attempt++) {
       try {
         lock = await open(lockPath, "wx", 0o600)
+        await lock.writeFile(`${process.pid}\n`)
       }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
         try {
-          const age = Date.now() - (await stat(lockPath)).mtimeMs
-          if (age > 30_000) await unlink(lockPath)
+          const lockStat = await stat(lockPath)
+          const owner = await readFile(lockPath, "utf8").catch(() => "")
+          let ownerAlive = false
+          const ownerPid = Number.parseInt(owner, 10)
+          if (Number.isInteger(ownerPid) && ownerPid > 0) {
+            try {
+              process.kill(ownerPid, 0)
+              ownerAlive = true
+            }
+            catch (error) {
+              ownerAlive = (error as NodeJS.ErrnoException).code !== "ESRCH"
+            }
+          }
+          if (!ownerAlive && Date.now() - lockStat.mtimeMs > 30_000) {
+            // Claim stale ownership by renaming the old inode. This prevents
+            // its eventual owner from removing a newer lock at the pathname.
+            const stalePath = `${lockPath}.${process.pid}.${Date.now()}.stale`
+            await rename(lockPath, stalePath).catch(() => {})
+            await unlink(stalePath).catch(() => {})
+          }
         }
         catch {}
         await new Promise(resolve => setTimeout(resolve, 5))
@@ -449,8 +468,11 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
       }
     }
     finally {
+      const owned = await lock.stat().then(lockStat =>
+        stat(lockPath).then(pathStat => lockStat.dev === pathStat.dev && lockStat.ino === pathStat.ino, () => false),
+      )
       await lock.close()
-      await unlink(lockPath).catch(() => {})
+      if (owned) await unlink(lockPath).catch(() => {})
       await unlink(replacementPath).catch(() => {})
     }
   }
