@@ -417,7 +417,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     root: string
     projectRoot: string
     generatedPlugin: string
-    catalog: Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>
+    catalog?: Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>
     consoleConfiguration?: ConsoleOptions
     appAuth?: ResolvedAuthViteConfig
     baseURL: string
@@ -649,7 +649,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             root: config.root,
             projectRoot: projectRoot!,
             generatedPlugin: generatedPlugin!,
-            catalog: consoleBuildCatalogs.get(projectRoot!)!,
+            catalog: consoleBuildCatalogs.get(projectRoot!),
             consoleConfiguration: resolvedConsoleConfiguration,
             appAuth: resolvedAppAuth,
             baseURL: config.base,
@@ -694,25 +694,27 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                   sections: callbackState.sections,
                 })
               : undefined
-            await writeConsoleNitroPlugin(
-              callbackState.generatedPlugin,
-              callbackState.projectRoot,
-              callbackState.sections,
-              callbackState.catalog.agents,
-              callbackState.catalog,
-              callbackState.blobStores,
-              callbackState.kvStores,
-              callbackState.fixture,
-              callbackState.invocationBinding,
-              callbackState.invoke,
-              callbackState.observations,
-              () => !callbackState.invocationState?.closed,
-              callbackState.journal,
-              callbackState.consoleAuthMode,
-              callbackState.retention,
-              access,
-              callbackState.runtimeCapabilityImports,
-            )
+            if (callbackState.catalog) {
+              await writeConsoleNitroPlugin(
+                callbackState.generatedPlugin,
+                callbackState.projectRoot,
+                callbackState.sections,
+                callbackState.catalog.agents,
+                callbackState.catalog,
+                callbackState.blobStores,
+                callbackState.kvStores,
+                callbackState.fixture,
+                callbackState.invocationBinding,
+                callbackState.invoke,
+                callbackState.observations,
+                () => !callbackState.invocationState?.closed,
+                callbackState.journal,
+                callbackState.consoleAuthMode,
+                callbackState.retention,
+                access,
+                callbackState.runtimeCapabilityImports,
+              )
+            }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
             const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers)
             const connectionsActor = callbackState.sections.includes("connections")
