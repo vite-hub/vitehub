@@ -156,10 +156,21 @@ function isHiddenFolder(folder: string): boolean {
 
 /** Pathnames under `_vitehub/` or a hidden root folder, which the library never shows. */
 function isReservedPath(pathname: string): boolean {
-  const slash = pathname.indexOf("/")
-  if (slash === -1) return false
-  const root = pathname.slice(0, slash).toLowerCase()
+  const root = pathname.split("/", 1)[0]!.toLowerCase()
   return root === "_vitehub" || hiddenRootFolders.has(root)
+}
+
+function checkedMutationPath(pathname: string): string {
+  const parts: string[] = []
+  for (const part of pathname.replaceAll("\\", "/").split("/")) {
+    if (part === "..") parts.pop()
+    else if (part && part !== ".") parts.push(part)
+  }
+  const normalized = parts.join("/")
+  if (!normalized || isReservedPath(normalized) || isHiddenFolder(normalized)) {
+    throw failure(400, "MEDIA_INPUT", "This path is reserved for ViteHub.")
+  }
+  return normalized
 }
 
 /** Turns a Blob failure into a Console failure with a status the library shows. */
@@ -285,7 +296,7 @@ async function get(context: MediaContext, input: Record<string, unknown>): Promi
 
 async function update(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
   requireAccess(context, "write")
-  const pathname = text(input.pathname, "pathname")
+  const pathname = checkedMutationPath(text(input.pathname, "pathname"))
   const patch: MediaUpdate = {}
   for (const key of ["alt", "caption"] as const) {
     const value = input[key]
@@ -315,7 +326,7 @@ async function update(context: MediaContext, input: Record<string, unknown>): Pr
 
 async function removeCropReplacement(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
   requireAccess(context, "write")
-  return mediaFile(await blobCall(() => context.storage.media.replaceCrop(text(input.pathname, "pathname"), text(input.crop, "crop"), null)))
+  return mediaFile(await blobCall(() => context.storage.media.replaceCrop(checkedMutationPath(text(input.pathname, "pathname")), text(input.crop, "crop"), null)))
 }
 
 interface BulkFailure {
@@ -335,9 +346,10 @@ async function move(context: MediaContext, input: Record<string, unknown>): Prom
   }
   const moves = input.moves.map((entry: unknown) => {
     if (!isRecord(entry)) throw failure(400, "MEDIA_INPUT", "Each move must be { from, to }.")
-    const from = text(entry.from, "from")
+    const from = checkedMutationPath(text(entry.from, "from"))
     const target = text(entry.to, "to")
-    return { from, to: joinPath(folderPath(parentFolder(target)), fileName(target)) }
+    const to = checkedMutationPath(joinPath(folderPath(parentFolder(target)), fileName(target)))
+    return { from, to }
   })
   const moved: ConsoleMediaFile[] = []
   const failed: BulkFailure[] = []
@@ -358,7 +370,8 @@ async function remove(context: MediaContext, input: Record<string, unknown>): Pr
   const failed: BulkFailure[] = []
   for (const pathname of textList(input.pathnames, "pathnames")) {
     try {
-      await blobCall(() => context.storage.media.remove(pathname))
+      const checked = checkedMutationPath(pathname)
+      await blobCall(() => context.storage.media.remove(checked))
       removed.push(pathname)
     }
     catch (error) {
@@ -381,19 +394,18 @@ async function createFolder(context: MediaContext, input: Record<string, unknown
 
 async function moveFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ moved: number, path: string }> {
   requireAccess(context, "manage")
-  const from = folderPath(text(input.from, "from"))
+  const from = checkedMutationPath(folderPath(text(input.from, "from")))
   const segments = folderPath(text(input.to, "to")).split("/")
   const name = consoleMediaName(segments.pop() ?? "")
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
-  const path = joinPath(segments.join("/"), name)
-  if (isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  const path = checkedMutationPath(joinPath(segments.join("/"), name))
   const result = await blobCall(() => context.storage.media.moveFolder(from, path))
   return { ...result, path }
 }
 
 async function removeFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ removed: number }> {
   requireAccess(context, "manage")
-  return await blobCall(() => context.storage.media.removeFolder(folderPath(text(input.path, "path")), { force: input.force === true }))
+  return await blobCall(() => context.storage.media.removeFolder(checkedMutationPath(folderPath(text(input.path, "path"))), { force: input.force === true }))
 }
 
 async function usage(section: string, access: ConsoleAccess, input: Record<string, unknown>): Promise<unknown> {

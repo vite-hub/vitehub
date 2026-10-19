@@ -161,6 +161,9 @@ function authorizedSections(result: unknown): readonly ConsoleSectionId[] | unde
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "[vitehub] Console access is not configured. The generated Console output did not install an access policy.")
+  if (policy.mode === "local" && globalThis.process?.env?.NODE_ENV === "production") {
+    return rejection(403, "[vitehub] Console local access is available only during development.")
+  }
   let user: ConsoleUser | undefined
   if (policy.mode !== "open" && policy.mode !== "local") {
     if (!policy.check) {
