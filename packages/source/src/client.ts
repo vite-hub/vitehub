@@ -167,6 +167,8 @@ export function useCollection<TName extends CollectionName>(
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
       let response: TPage
+      let aggregateTotal: TPage["total"]
+      let aggregateFacets: TPage["facets"]
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
       do {
@@ -184,6 +186,8 @@ export function useCollection<TName extends CollectionName>(
         response = { ...parsed, items: parsed.items as TItem[] }
         if (active !== controller) return
         loadedItems = [...loadedItems, ...response.items]
+        if (aggregateTotal === undefined && response.total !== undefined) aggregateTotal = response.total
+        if (aggregateFacets === undefined && response.facets !== undefined) aggregateFacets = response.facets
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
           throw sourceErrorDiagnostics.SOURCE_R0003({ message: "[vitehub] Collection returned the same cursor twice." })
@@ -194,10 +198,10 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
-      total.value = response.total
-      facets.value = response.facets
+      total.value = aggregateTotal
+      facets.value = aggregateFacets
       loaded = true
-      return { ...response, items: loadedItems }
+      return { ...response, items: loadedItems, total: aggregateTotal, facets: aggregateFacets }
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return
       error.value = accessError(cause) ?? cause

@@ -221,6 +221,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     },
     async del(pathnames: string | string[]) {
       const normalizedPathnames = toArray(pathnames).map(value => normalizePathname(value))
+      normalizedPathnames.forEach(assertWritablePath)
       return blobResult("del", store, async () => {
         await driver.delete(normalizedPathnames)
         await Promise.all(normalizedPathnames.map(clearDerived))
