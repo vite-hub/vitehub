@@ -3,7 +3,7 @@ import * as v from "valibot"
 
 import { createRequestScheduler } from "./requests.ts"
 import { providerAccount } from "./account.ts"
-import { createConnectionTransport } from "./transport.ts"
+import { createConnectionTransport, isMcpEndpoint } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
 import { isConnectionDefinition } from "./definition.ts"
@@ -667,6 +667,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       definition: context.definition,
       highRisk: providerRequest.highRisk,
       inherited: context.inherited,
+      mcp: providerRequest.action === "fetch" && isMcpEndpoint(context.definition.provider.mcp, providerRequest.url),
       write: providerRequest.write,
     })
     if (decision === "deny") {

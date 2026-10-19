@@ -159,6 +159,16 @@ An Agent discovered under `server/agents/` that has no rule of its own uses the 
 
 ViteHub checks the actor rule before the operation. A write list can contain exact Operation ids or `*` patterns; high-risk writes require an explicit matching pattern.
 
+An actor that only uses the provider's [MCP endpoint](#mcp-endpoint) can have the `'mcp'` preset instead of a rule:
+
+```ts [server/connections/docs.ts]
+access: {
+  'agent:support': 'mcp',
+},
+```
+
+The preset allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Connection with the preset must declare `mcp` on its provider.
+
 | Decision | Result |
 | --- | --- |
 | `allow` | The call runs. |

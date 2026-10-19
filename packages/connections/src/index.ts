@@ -6,6 +6,7 @@ export type { ApiKeyProviderOptions } from "./api-key.ts"
 export type { ConnectionErrorCode, ConnectionErrorDetails, ConnectionErrorReason } from "./errors.ts"
 export type { ConnectionDefinitionName } from "./registry-types.ts"
 export type {
+  ConnectionAccessPreset,
   ConnectionAccessRule,
   ConnectionAccount,
   ConnectionActionInfo,

@@ -9,7 +9,7 @@ const MAX_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
 /** Whether `url` is the provider's `mcp` endpoint. Trailing slashes and the query do not count. */
-function isMcpEndpoint(endpoint: string | undefined, url: string): boolean {
+export function isMcpEndpoint(endpoint: string | undefined, url: string): boolean {
   if (!endpoint) return false
   const declared = new URL(endpoint)
   const target = new URL(url)

@@ -5,11 +5,14 @@ import { ConnectionError } from "./errors.ts"
 import type { ConnectionApiSelection, ConnectionDefinition } from "./types.ts"
 
 const connectionValue = v.union([v.string(), v.function()])
-const accessRuleSchema = v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.object({
-  read: v.optional(v.boolean()),
-  write: v.optional(v.union([v.boolean(), v.literal("approve"), v.array(v.string())])),
-  approve: v.optional(v.boolean()),
-}))
+const accessRuleSchema = v.union([
+  v.literal("mcp"),
+  v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.object({
+    read: v.optional(v.boolean()),
+    write: v.optional(v.union([v.boolean(), v.literal("approve"), v.array(v.string())])),
+    approve: v.optional(v.boolean()),
+  })),
+])
 const apiCatalogsSchema = v.record(v.string(), v.object({
   rootUrl: v.string(),
   methods: v.record(v.string(), v.tuple([v.string(), v.string(), v.boolean()])),
@@ -72,7 +75,11 @@ const apiKeyDefinitionSchema = v.looseObject({
   scopes: v.optional(v.undefined()),
   ...rulesSchema,
 })
-const definitionSchema = v.union([oauthDefinitionSchema, apiKeyDefinitionSchema])
+const definitionSchema = v.pipe(
+  v.union([oauthDefinitionSchema, apiKeyDefinitionSchema]),
+  // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
+  v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),
+)
 /** Validate discovered and directly declared Connections with the same contract. */
 export function isConnectionDefinition(value: unknown): value is ConnectionDefinition {
   return v.is(definitionSchema, value)

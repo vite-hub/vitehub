@@ -9,7 +9,7 @@ import type { ConnectionDefinitionName, ConnectionRegistryClient } from "../regi
 import type { ConnectionRuntimeClient, ConnectionsRuntime, ConnectionsRuntimeOptions } from "../runtime.ts"
 import type { ConnectionStore } from "../store.ts"
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts"
-import type { ConnectionClient, ConnectionFetchInit, UseConnectionOptions } from "../types.ts"
+import type { ConnectionClient, ConnectionFetchInit, ConnectionStatus, UseConnectionOptions } from "../types.ts"
 
 let runtime: ConnectionsRuntime | undefined
 
@@ -64,6 +64,16 @@ function methodProxy(client: ConnectionRuntimeClient, path: string): unknown {
   })
 }
 
+/** The status of a Connection. A Connection that cannot be inspected, for example because its store cannot open, is disconnected. */
+async function connectionStatus(name: string): Promise<ConnectionStatus> {
+  try {
+    return (await getConnectionsRuntime().inspect(name)).status
+  }
+  catch {
+    return "disconnected"
+  }
+}
+
 /**
  * Use a Connection. The client calls provider API methods with the stored token,
  * applies the Connection access policy, and records activity.
@@ -81,6 +91,7 @@ export function useConnection(name: string, options: UseConnectionOptions = {}):
     get(target, property) {
       if (property === "name") return target.name
       if (property === "fetch") return (input: string | URL, init?: ConnectionFetchInit) => resolveClient().fetch(input, init)
+      if (property === "status") return () => connectionStatus(name)
       const key = v.safeParse(v.string(), property)
       if (!key.success || key.output === "then" || key.output === "toJSON") return undefined
       return methodProxy({

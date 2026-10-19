@@ -5,7 +5,7 @@ import { google } from "../src/google.ts"
 import { useConnection } from "../src/runtime/state.ts"
 
 import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -143,5 +143,20 @@ describe("Connection types", () => {
       scopes: ["profile"],
     })
     expectTypeOf(oidc).toMatchTypeOf<ConnectionDefinition>()
+  })
+  it("accepts the mcp access preset and returns the status", () => {
+    const mcp = defineConnection({
+      access: { "agent:support": "mcp", "server": { read: true } },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", mcp: "https://mcp.example.com/mcp", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(mcp).toMatchTypeOf<ConnectionDefinition>()
+    defineConnection({
+      // @ts-expect-error The only access preset is `"mcp"`.
+      access: { "agent:support": "all" },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(client.status).returns.toEqualTypeOf<Promise<ConnectionStatus>>()
   })
 })

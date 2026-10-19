@@ -137,6 +137,13 @@ export interface ConnectionAccessRule<TPattern extends string = string> {
   approve?: boolean
 }
 
+/**
+ * A named access rule. `"mcp"` lets the actor use the provider's `mcp` endpoint with every method
+ * and without approvals, because MCP sends every protocol message as a POST and cannot wait for an
+ * approval. Every other request, including typed API methods, is denied. The provider must declare `mcp`.
+ */
+export type ConnectionAccessPreset = "mcp"
+
 /** A key, a sealed Server Env secret, or nothing. */
 export type ConnectionApiKeyFallback = () =>
   | string
@@ -181,13 +188,14 @@ interface ConnectionDefinitionRules<TApis extends object, TSelection extends Con
   /** API methods to expose. Omit to expose every method of every provider API. */
   api?: TSelection
   /**
-   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`.
+   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`. A rule is an object or
+   * the `"mcp"` preset, for an actor that only uses the provider's `mcp` endpoint.
    * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
    * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
    * When omitted, server actors may read and
    * call non-high-risk writes, and Agent writes require approval.
    */
-  access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>>>>
+  access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>> | ConnectionAccessPreset>>
 }
 
 /** A Connection that an account owner grants through OAuth 2.0. */
@@ -284,6 +292,11 @@ export type ConnectionClient<TApis extends object = object, TSelection = Connect
    * writes, and an access rule must name `fetch` to allow them.
    */
   fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Response>
+  /**
+   * The Connection status, for example `"connected"`. It never rejects: a Connection that cannot be
+   * inspected, for example because its store cannot open, is `"disconnected"`.
+   */
+  status: () => Promise<ConnectionStatus>
 } & {
   readonly [TApi in keyof TApis & keyof TSelection]: ConnectionClientTree<SelectedMethods<TApis[TApi], SelectionPatterns<TSelection, TApi>>, TDryRun>
 }

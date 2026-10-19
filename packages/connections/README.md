@@ -52,6 +52,10 @@ The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS me
 
 Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins, declared API key origins, or the origin of the provider's `mcp` endpoint. `mcp` is an HTTPS or loopback URL without credentials, query, or fragment, and `inspect()` reports it. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
 
+An actor that only uses the provider's MCP endpoint can have the `"mcp"` preset instead of a rule object: `access: { "agent:support": "mcp" }`. It allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Definition with the preset and no provider `mcp` is invalid.
+
+`useConnection(name).status()` resolves the Connection status, for example `"connected"`. It never rejects: a Connection that cannot be inspected, for example because the store cannot open, is `"disconnected"`. Use it to skip work that needs a Connection.
+
 ## Use an API key
 
 Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code:
