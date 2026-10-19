@@ -130,6 +130,16 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
+function resolveDrizzleKit(rootDir: string): string {
+  try {
+    // Resolve from the Database project so external project roots can provide
+    // their own peer dependency instead of relying on this package's ancestry.
+    return createRequire(join(rootDir, "package.json")).resolve("drizzle-kit")
+  } catch {
+    return require.resolve("drizzle-kit")
+  }
+}
+
 async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string): Promise<number> {
   const drizzleArgs = [
     feature,
@@ -143,7 +153,7 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
   // Run Drizzle Kit's JavaScript entry through Node instead.
   const windows = process.platform === "win32"
   const command = windows ? process.execPath : "drizzle-kit"
-  const commandArgs = windows ? [join(dirname(require.resolve("drizzle-kit")), "bin.cjs"), ...drizzleArgs] : drizzleArgs
+  const commandArgs = windows ? [join(dirname(resolveDrizzleKit(context.rootDir)), "bin.cjs"), ...drizzleArgs] : drizzleArgs
   const result = await context.spawn(command, commandArgs, {
     cwd: context.rootDir,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
