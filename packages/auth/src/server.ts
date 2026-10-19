@@ -331,7 +331,23 @@ async function runAccessAuthorize(
   // may expose an own `then` property, and reading that property can throw.
   const directResponse = await normalizeAuthorizationResponse(directResult)
   if (directResponse) return directResponse
-  const result = await directResult
+  // Adopt branded native promises through the intrinsic operation. This
+  // bypasses an overridden `then` on a Promise subclass while retaining
+  // normal thenable assimilation for other callback results.
+  let result: unknown
+  if (directResult !== null && (typeof directResult === "object" || typeof directResult === "function")) {
+    let adopted: Promise<unknown> | undefined
+    try {
+      adopted = new Promise((resolve, reject) => {
+        Reflect.apply(Promise.prototype.then, directResult, [resolve, reject])
+      })
+    }
+    catch {
+      adopted = undefined
+    }
+    result = adopted ? await adopted : await directResult
+  }
+  else result = await directResult
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
@@ -577,7 +593,9 @@ function getTrustedAuthorizationReaderRelease(
               for (let streamDepth = 0; streamPrototype && streamDepth < authorizationResponsePrototypeLimit; streamDepth++) {
                 if (seenStreamPrototypes.has(streamPrototype)) break
                 seenStreamPrototypes.add(streamPrototype)
-                const descriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+                const descriptor = streamPrototype === (streamConstructor as { prototype?: object }).prototype
+                  ? Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+                  : undefined
                 if (typeof descriptor?.value === "function") {
                   sourceGetReader = descriptor.value as (this: object) => unknown
                   break
