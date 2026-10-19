@@ -983,8 +983,8 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
   let captured = false
   let capturedUsage: unknown
   let metadataSource: unknown
-  let accountedInputTokens = 0
-  let accountedOutputTokens = 0
+  let observedInputTokens = 0
+  let observedOutputTokens = 0
   let modelCallObserved = false
   const seenEvents = new WeakSet<object>()
 
@@ -992,14 +992,16 @@ function createUsageCapture(executionBudget?: ExecutionBudget) {
     const inputTokens = usageTokenCount(usage, "inputTokens")
     const outputTokens = usageTokenCount(usage, "outputTokens")
     if (inputTokens !== undefined) {
-      const delta = cumulative ? inputTokens - accountedInputTokens : inputTokens
+      const delta = cumulative ? inputTokens - observedInputTokens : inputTokens
       if (delta > 0) executionBudget?.recordInputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
-      accountedInputTokens += cumulative ? Math.max(0, delta) : inputTokens
+      if (cumulative) observedInputTokens = Math.max(observedInputTokens, inputTokens)
+      else observedInputTokens += inputTokens
     }
     if (outputTokens !== undefined) {
-      const delta = cumulative ? outputTokens - accountedOutputTokens : outputTokens
+      const delta = cumulative ? outputTokens - observedOutputTokens : outputTokens
       if (delta > 0) executionBudget?.recordOutputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
-      accountedOutputTokens += cumulative ? Math.max(0, delta) : outputTokens
+      if (cumulative) observedOutputTokens = Math.max(observedOutputTokens, outputTokens)
+      else observedOutputTokens += outputTokens
     }
   }
 

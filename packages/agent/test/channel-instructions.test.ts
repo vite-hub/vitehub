@@ -50,12 +50,12 @@ const outputSchema = {
   },
 }
 
-function createModel() {
+function createModel(withUsage = true) {
   const doGenerateCalls: Array<{ prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }> = []
   return {
     doGenerate: async (options: { prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }) => {
       doGenerateCalls.push(options)
-      return generateResult
+      return withUsage ? generateResult : { ...generateResult, usage: undefined }
     },
     doGenerateCalls,
     doStream: async () => {
@@ -449,30 +449,40 @@ describe("Channel instructions", () => {
   })
 
   it("charges model usage against the Invocation execution budget", async () => {
+    const controlBudget = createExecutionBudget()
     const budget = createExecutionBudget()
     try {
-      const model = createModel()
-      const adapter = createAiSdkAdapter({
+      const controlModel = createModel(false)
+      const controlAdapter = createAiSdkAdapter({
         // SAFETY: createModel implements the AI SDK methods exercised by this test.
-        model: model as never,
+        model: controlModel as never,
       })
+      const model = createModel()
+      const adapter = createAiSdkAdapter({ model: model as never })
       const invoker = { id: "budget-test", kind: "user" }
 
-      await adapter.generate({
+      const request = {
         actor: invoker,
         context: createAgentInvocationContextStore(),
-        executionBudget: budget,
         input: {},
         invoker,
         messages: [createMessage({ role: "user", text: "Count this input." })],
         runtime,
+      }
+      await controlAdapter.generate({ ...request, executionBudget: controlBudget } as never)
+      await adapter.generate({
+        ...request,
+        executionBudget: budget,
       } as never)
 
       // AI SDK reports tokens, so the adapter charges the documented four-byte
-      // estimate per token for both input and output.
-      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 12, outputBytes: 4 })
+      // estimate per token for both input and output, in addition to the
+      // serialized prompt and generated content charged by the middleware.
+      expect(budget.snapshot().usage.inputBytes - controlBudget.snapshot().usage.inputBytes).toBe(12)
+      expect(budget.snapshot().usage.outputBytes - controlBudget.snapshot().usage.outputBytes).toBe(4)
     }
     finally {
+      controlBudget.dispose()
       budget.dispose()
     }
   })
