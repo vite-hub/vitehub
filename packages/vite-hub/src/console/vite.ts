@@ -110,6 +110,9 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
   }
+  if (legacy.exposure === "host-managed" && typeof (value as { authorize?: unknown }).authorize !== "string") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure: "host-managed" requires console.authorize.' })
+  }
   if (legacy.access !== undefined && legacy.exposure !== undefined) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access and console.exposure cannot be combined. Use one legacy Console access setting.' })
   }

@@ -455,7 +455,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       source.forEach((value, name) => setHeader(name, value))
       return
     }
-    if (source instanceof Object && "get" in source && source.get instanceof Function) {
+    if (source instanceof Object && "get" in source && typeof source.get === "function") {
       for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
@@ -510,7 +510,7 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
   if ("section" in routeScope) {
     const section = routeScope.section
-    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
+    if (typeof section === "function" || (typeof section === "string" && section.length > 0)) return
   }
   if ("anySection" in routeScope && routeScope.anySection === true) return
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
@@ -624,7 +624,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
   routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
+  if (typeof handler !== "function") throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {
@@ -637,7 +637,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       checkedEvents.set(event, access)
     }
     if ("section" in declared) {
-      const section = declared.section instanceof Function ? declared.section(event) : declared.section
+      const section = typeof declared.section === "function" ? declared.section(event) : declared.section
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
@@ -648,7 +648,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
 }
 
 export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
-  return route instanceof Function ? routeScopes.get(route) : undefined
+  return typeof route === "function" ? routeScopes.get(route) : undefined
 }
 
 /**
