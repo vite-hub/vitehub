@@ -31,7 +31,7 @@ Plugin options are evaluated when the runtime is created. Recreate or rebuild th
 | Registered Source name | Opens `useSource(name)` for each load. |
 | Reader factory `() => reader` | Calls the factory for each load. |
 | Explicit reader with `items()` | Keeps its caller-owned lifecycle and selected revision across refreshes. |
-| `files()` from `vite-hub/source/files` | Serves files bundled at build time. Use it on hosts without a runtime file system. See [Bundle files](/docs/source/configure#bundle-files-with-files). |
+| `glob()` from `vite-hub/source/glob` | Serves project files, such as `glob('content/docs/**/*.md')`. A build bundles them, so every host serves them. See [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system). |
 | Native Comark Source, such as `comark-content/sources/fs` | Keeps its own loading behavior. |
 
 Each item's public path comes from its `path`, or from its key. Items need `content` or `data`. ViteHub serializes structured `data` as JSON before Comark parses it.
@@ -193,6 +193,6 @@ Content has no hosted provider. Comark Content stores its query and search index
 | Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite. |
 | SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. |
 
-The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. For example, `glob()` reads the local file system at runtime. On Cloudflare Workers and other serverless hosts, use [`files()`](/docs/source/configure#bundle-files-with-files) to bundle the files at build time.
+The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.

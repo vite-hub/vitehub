@@ -1,19 +1,20 @@
 import { lookup } from "mrmime"
 
 import { sourceError } from "../core/errors.ts"
-import { normalizeSafeSourcePath } from "../core/path.ts"
+import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { FileSource, SourceContent } from "../core/types.ts"
 
 export interface FilesSourceOptions {
   /** Removed from the start of every path, such as the folder that an `import.meta.glob()` pattern starts with. */
   base?: string
+  /** Put before every item's path, like glob()'s `prefix`. Keys stay without it. */
+  prefix?: string
 }
 
 /**
- * A Source of files that the server already holds, keyed by path. Pass the result of
- * `import.meta.glob(pattern, { query: "?raw", import: "default", eager: true })` to put the files in the server
- * bundle at build time. Hosts without a runtime file system, such as Cloudflare Workers, can then read them.
+ * A Source of files that the server already holds, keyed by path. A ViteHub build turns `glob()` into this, with the
+ * matched files in the server bundle. Call it yourself for files you hold another way.
  */
 export function files(entries: Record<string, SourceContent>, options: FilesSourceOptions = {}): FileSource<string> {
   const base = options.base ? `${options.base.replace(/\\/g, "/").replace(/\/+$/, "")}/` : ""
@@ -28,6 +29,7 @@ export function files(entries: Record<string, SourceContent>, options: FilesSour
     items.set(key, content)
   }
   const keys = [...items.keys()].sort((left, right) => left.localeCompare(right))
+  const prefix = normalizeSafeSourcePath(options.prefix || "", { allowEmpty: true })
 
   return {
     name: "files",
@@ -37,7 +39,7 @@ export function files(entries: Record<string, SourceContent>, options: FilesSour
     async getItem(key: string) {
       const content = items.get(key)
       if (content === undefined) throw sourceError(`[vitehub] files() could not find ${JSON.stringify(key)}.`)
-      return { key, path: key, content, mediaType: lookup(key) }
+      return { key, path: normalizeSourcePath(prefix ? `${prefix}/${key}` : key), content, mediaType: lookup(key) }
     },
   }
 }

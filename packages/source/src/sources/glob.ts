@@ -18,12 +18,63 @@ export interface GlobSourceOptions {
   prefix?: string
 }
 
+/** A pattern such as `content/docs/**\/*.md`, or the options. */
+export type GlobInput = string | GlobSourceOptions
+
+/**
+ * The options a pattern stands for: the folders before its first wildcard are `cwd`, so keys are the paths below
+ * them (`content/docs/**\/*.md` keys `guide/setup.md`). A pattern without a wildcard names a folder: every file in it.
+ */
+export function resolveGlobInput(input: GlobInput): GlobSourceOptions {
+  if (typeof input !== "string") return input
+  const parts = input.replaceAll("\\", "/").replace(/^\.\//, "").split("/").filter(Boolean)
+  const wild = parts.findIndex(part => /[*?[\]{}()!]/.test(part))
+  if (wild === -1) return { cwd: parts.join("/") || ".", include: "**/*" }
+  return { cwd: parts.slice(0, wild).join("/") || ".", include: parts.slice(wild).join("/") }
+}
+
+/** The project's files a glob matches, sorted, and where they sit. Shared by `glob()` and the build that bundles it. */
+export async function collectGlobFiles(rootDir: string, options: GlobSourceOptions): Promise<{ paths: ResolvedGlobPaths, keys: string[] }> {
+  const paths = await resolveGlobPaths(rootDir, options.cwd)
+  const include = normalizePatterns(options.include).map(normalizeGlobPattern)
+  const ignore = normalizePatterns(options.ignore).map(normalizeGlobPattern)
+  const files = await tinyglobby(include, {
+    cwd: paths.cwd,
+    dot: options.dot ?? false,
+    followSymbolicLinks: options.followSymlinks ?? false,
+    ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
+    onlyFiles: true,
+  })
+  let keys = files
+    .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
+    .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
+  if (options.followSymlinks) {
+    const rooted: string[] = []
+    for (const key of keys) {
+      if (await resolveRootedGlobFilePath(key, paths, true)) rooted.push(key)
+    }
+    keys = rooted
+  }
+  return { paths, keys: keys.sort((left, right) => left.localeCompare(right)) }
+}
+
+/** Where a key's file is, or undefined when glob() would not read it (a symbolic link it does not follow, say). */
+export function globFilePath(key: string, paths: ResolvedGlobPaths, followSymlinks: boolean): Promise<string | undefined> {
+  return resolveRootedGlobFilePath(key, paths, followSymlinks)
+}
+
 interface GlobKeyCache {
   snapshot?: { key: string, keys: Promise<string[]> }
   latest?: { key: string, keys: string[] }
 }
 
-export function glob(options: GlobSourceOptions): FileSource<string> {
+/**
+ * Project files that match a pattern, such as `glob("content/docs/**\/*.md")`. Under `vite dev` they are read from
+ * disk, so new files show up at once. A ViteHub build bundles a call with literal options into the server, so hosts
+ * without a file system, such as Cloudflare Workers, serve the same files.
+ */
+export function glob(input: GlobInput): FileSource<string> {
+  const options = resolveGlobInput(input)
   // createSource retains one context for each reader's preparation and reads.
   const caches = new WeakMap<SourceContext, GlobKeyCache>()
 
@@ -42,27 +93,7 @@ export function glob(options: GlobSourceOptions): FileSource<string> {
   }
 
   async function loadKeys(ctx: SourceContext) {
-    const paths = await resolveGlobPaths(resolveSourceRoot(ctx), options.cwd)
-    const include = normalizePatterns(options.include).map(normalizeGlobPattern)
-    const ignore = normalizePatterns(options.ignore).map(normalizeGlobPattern)
-    const files = await tinyglobby(include, {
-      cwd: paths.cwd,
-      dot: options.dot ?? false,
-      followSymbolicLinks: options.followSymlinks ?? false,
-      ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
-      onlyFiles: true,
-    })
-    let keys = files
-      .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
-      .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
-    if (options.followSymlinks) {
-      const rooted: string[] = []
-      for (const key of keys) {
-        if (await resolveRootedGlobFilePath(key, paths, true)) rooted.push(key)
-      }
-      keys = rooted
-    }
-    return keys.sort((left, right) => left.localeCompare(right))
+    return (await collectGlobFiles(resolveSourceRoot(ctx), options)).keys
   }
 
   async function refreshKeys(ctx: SourceContext) {
@@ -164,7 +195,7 @@ function resolveSourceRoot(ctx: SourceContext) {
   return ctx.sourceRootDir || ctx.rootDir
 }
 
-interface ResolvedGlobPaths {
+export interface ResolvedGlobPaths {
   root: string
   cwd: string
 }

@@ -87,19 +87,19 @@ callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
 `auth: false` reads without a token.
 
-`files()` serves files the server already holds, keyed by path. With Vite's
-`import.meta.glob()`, the files go in the server bundle at build time, so
-hosts without a runtime file system, such as Cloudflare Workers, can read
-them. `base` is removed from the start of each path.
+`glob()` takes a pattern or options. In a pattern, the folders before the first
+wildcard are `cwd`, so keys are the paths below them:
 
 ```ts
-import { files } from "@vite-hub/source/files"
+import { glob } from "@vite-hub/source/glob"
 
-export const docs = files(
-  import.meta.glob<string>("../docs/**/*.md", { query: "?raw", import: "default", eager: true }),
-  { base: "../docs" },
-)
+export const docs = glob("content/docs/**/*.md") // keys like "guide/setup.md"
 ```
+
+Under `vite dev` it reads the files from disk. A server build with `hubSource()`
+bundles the files of a call whose options are literals, through `files()`, so
+hosts without a runtime file system, such as Cloudflare Workers, serve them.
+`files(entries, { base, prefix })` serves files the server already holds.
 
 ## Reuse a definition
 
