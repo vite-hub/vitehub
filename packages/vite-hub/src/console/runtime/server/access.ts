@@ -15,7 +15,7 @@ import type { ConsoleSectionId } from "../sections.ts"
  * `authorize` is the `console.authorize` function. It runs after the mode check and can limit the allowed sections.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open", authorize?: ConsoleAuthorize }
+  | { mode: "open" | "local", authorize?: ConsoleAuthorize }
   | {
     mode: "auth" | "cloudflare-access"
     authorize?: ConsoleAuthorize
@@ -59,7 +59,7 @@ const checkedEvents = new WeakMap<object, ConsoleAccess>()
 // Reads the signed-in user of an access that did not need it during the check. Keyed by the checked access.
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open", "local"])
 
 function isResponseLike(value: unknown): value is Response {
   if (value instanceof Response) return true
@@ -162,7 +162,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "[vitehub] Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
-  if (policy.mode !== "open") {
+  if (policy.mode !== "open" && policy.mode !== "local") {
     if (!policy.check) {
       return rejection(500, policy.mode === "auth"
         ? "[vitehub] console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
@@ -188,7 +188,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   const fields: { mode: ConsoleAccessMode, sections: ConsoleAccess["sections"], user?: ConsoleUser } = { mode: policy.mode, sections }
   if (user) fields.user = user
   const access: ConsoleAccess = consoleAccessGrant.issue(policy.mode, fields)
-  const readUser = policy.mode !== "open" && !user ? policy.user : undefined
+  const readUser = policy.mode !== "open" && policy.mode !== "local" && !user ? policy.user : undefined
   if (readUser) {
     let pending: Promise<ConsoleUser | undefined> | undefined
     deferredUsers.set(access, () => pending ??= readUser(event))
