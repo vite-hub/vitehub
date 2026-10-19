@@ -726,12 +726,13 @@ export function resolveAgentTriggerInvocationResult<
       trigger: trigger as never,
     }
   }
+  const normalized = withWebhookDeliveryRun(invocation, trigger)
   return {
-    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
-    metadata: invocation.metadata,
-    run: invocation.run,
+    input: withAgentTriggerContext(normalized.input, trigger, normalized.delivery, normalized.message),
+    metadata: normalized.metadata,
+    run: normalized.run,
     trigger: trigger as never,
-    webhook: withSerializedWebhook(invocation.webhook, trigger),
+    webhook: withSerializedWebhook(normalized.webhook, trigger),
   }
 }
 

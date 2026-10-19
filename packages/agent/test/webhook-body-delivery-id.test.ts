@@ -118,7 +118,6 @@ describe("webhook route without deliveryId", () => {
     await expect(send(second, "c")).resolves.toMatchObject({ accepted: true, queued: true })
 
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2))
-    // A rehydrated result sets its own run, so only the direct result runs under the delivery ID.
-    if (!rehydrate) expect(runIds.sort()).toEqual([sha256(first), sha256(second)].sort())
+    expect(runIds.sort()).toEqual([sha256(first), sha256(second)].sort())
   })
 })
