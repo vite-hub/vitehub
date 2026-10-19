@@ -744,7 +744,35 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
       if (combinedCookies !== undefined) {
-        if (/(?:^|;)\s*(?!extension\s*=)[^,;=]+\s*=[^,;]*,\s*[^;=,\s]+\s*=|^[^;,]*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)) return
+        // Detect a second cookie pair while preserving commas in Extension and
+        // the first comma of an Expires date.
+        let attribute = ""
+        let expiresComma = false
+        let segmentStart = 0
+        for (let index = 0; index <= combinedCookies.length; index++) {
+          const character = combinedCookies[index]
+          if (character === ";" || index === combinedCookies.length) {
+            const segment = combinedCookies.slice(segmentStart, index).trim()
+            const equals = segment.indexOf("=")
+            if (equals >= 0) attribute = segment.slice(0, equals).trim().toLowerCase()
+            segmentStart = index + 1
+            if (character === ";") expiresComma = false
+            continue
+          }
+          if (character !== ",") continue
+          const rest = combinedCookies.slice(index + 1)
+          const looksLikeCookie = /^\s*[^;=,\s]+\s*=/.test(rest)
+          if (!looksLikeCookie) {
+            if (attribute === "expires") expiresComma = true
+            continue
+          }
+          if (attribute === "extension") continue
+          if (attribute === "expires" && !expiresComma) {
+            expiresComma = true
+            continue
+          }
+          return
+        }
         normalizedHeaders.append("set-cookie", combinedCookies)
       }
       for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
