@@ -32,7 +32,7 @@ it("rejects unsafe API catalog roots in login definitions", () => {
       origins: [],
       redirectUri: "http://127.0.0.1/callback",
     },
-  })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+  })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
 })
 
 it("does not validate an overlapping login provider as OAuth", () => {
@@ -50,5 +50,5 @@ it("does not validate an overlapping login provider as OAuth", () => {
       redirectUri: "http://127.0.0.1/callback",
       tokenEndpoint: "https://auth.example.com/token",
     },
-  })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+  })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
 })

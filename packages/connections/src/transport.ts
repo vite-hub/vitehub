@@ -47,9 +47,35 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     const { json, ...requestInit } = init
     if (json && init.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json")
     const authenticated = { ...requestInit, headers }
-    const dispatch = (attempt: RequestInit) => isApiKeyProvider(provider) ? sendKey(url, attempt) : request(url, attempt)
+    const dispatch = (attempt: RequestInit) => isApiKeyProvider(provider)
+      ? sendKey(url, attempt)
+      : isMcpEndpoint(provider.mcp, url) ? sendMcp(url, attempt) : request(url, attempt)
     // MCP sessions are long-lived streams, so the request policy does not pace, retry, or time them out.
     return await (policy && !isMcpEndpoint(provider.mcp, url) ? scheduler.send(policy, authenticated, dispatch) : dispatch(authenticated))
+  }
+
+  /** Follow MCP redirects only while the destination remains the declared endpoint. */
+  async function sendMcp(url: string, init: RequestInit): Promise<Response> {
+    if (init.redirect && init.redirect !== "follow") return await request(url, init)
+    let target = new URL(url)
+    let current = init
+    for (let hop = 0; ; hop += 1) {
+      const response = await request(target.toString(), { ...current, redirect: "manual" })
+      const location = response.headers.get("location")
+      if (!REDIRECT_STATUSES.has(response.status) || !location || hop === MAX_REDIRECTS) return response
+      const next = new URL(location, target)
+      // Do not send the Connection token to another path, even on the same origin.
+      if (!isMcpEndpoint(provider.mcp, next.toString())) return response
+      await response.body?.cancel().catch(() => undefined)
+      const method = (current.method ?? "GET").toUpperCase()
+      if ((response.status === 303 && method !== "GET" && method !== "HEAD") || ((response.status === 301 || response.status === 302) && method === "POST")) {
+        const headers = new Headers(current.headers)
+        headers.delete("content-type")
+        headers.delete("content-length")
+        current = { ...current, body: undefined, headers, method: "GET" }
+      }
+      target = next
+    }
   }
 
   /**

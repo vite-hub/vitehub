@@ -46,10 +46,10 @@ describe("the mcp access preset", () => {
     await connect(test)
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot" }) })
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
-    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
-    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/labels"))).toMatchObject({ code: "CONNECTION_DENIED" })
-    expect(await rejection(client.fetch("https://mail.example.com/mcp-admin", { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
+    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
+    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/labels"))).toMatchObject({ code: "CONNECTIONS_DENIED" })
+    expect(await rejection(client.fetch("https://mail.example.com/mcp-admin", { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -59,14 +59,14 @@ describe("the mcp access preset", () => {
     const child = test.runtime.client("mail", { access: agentEnvAccess({ name: "bot-dev" }, {}, ["bot"]) })
     expect((await child.fetch(MCP, { body: "{}", method: "POST" })).status).toBe(200)
     const server = test.runtime.client("mail", {})
-    expect(await rejection(server.fetch(MCP, { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(server.fetch(MCP, { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(server.call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
   })
 
   it("requires a provider mcp endpoint", () => {
-    expect(() => defineConnection({ access: { "agent:bot": "mcp" }, provider: testProvider(), scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => defineConnection({ access: { "agent:bot": "mcp" }, provider: testProvider(), scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
     // SAFETY: The test checks that runtime validation rejects an unknown preset name.
     const unknown = { "agent:bot": "all" } as unknown as Record<string, ConnectionAccessPreset>
-    expect(() => defineConnection({ access: unknown, provider: { ...testProvider(), mcp: MCP }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => defineConnection({ access: unknown, provider: { ...testProvider(), mcp: MCP }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
   })
 })

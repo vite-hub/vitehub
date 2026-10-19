@@ -202,7 +202,7 @@ describe("Connection types", () => {
     expectTypeOf<Extract<ConnectionDefinitionName, `keyedTest${string}`>>().toEqualTypeOf<"keyedTest:acme" | "keyedTest:beta">()
     expectTypeOf(keyed.instances).toEqualTypeOf<readonly ("acme" | "beta")[]>()
     expectTypeOf<"keyedTest">().not.toMatchTypeOf<ConnectionDefinitionName>()
-    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Response>>()
+    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>>()
   })
 
   it("types the login context", () => {
