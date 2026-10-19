@@ -448,7 +448,8 @@ function createOpenAPICli<
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   connection: OpenAPIConnection | undefined,
 ): AgentCapabilityCliContribution<TRuntimeConfig, Name> {
-  const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = {}
+  // A record name such as `toString` is a valid command, so the map has no prototype to collide with.
+  const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = Object.create(null)
   for (const operation of operations) {
     const name = operation.name ?? operationCommandName(cli.name, operation.operationId)
     if (Object.hasOwn(commands, name)) {

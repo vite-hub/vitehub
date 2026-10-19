@@ -224,6 +224,26 @@ describe("openapi capability", () => {
     })
   })
 
+  it("accepts operations record keys that are Object.prototype names", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ customers: ["acme"] }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const operations = { constructor: "getOrder", toString: "listCustomers" }
+
+    const tools = await resolveAgentCapabilities({
+      capabilities: [openapi({ operations, spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+    const cli = await resolveAgentCapabilities({
+      capabilities: [openapi({ cli: { name: "portal" }, operations, spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+
+    expect(Object.keys(tools.tools || {})).toEqual(["constructor", "toString"])
+    await expect(cli.tools?.portal?.execute?.({ argv: ["toString", "--json"] })).resolves.toMatchObject({
+      exitCode: 0,
+      json: { customers: ["acme"] },
+    })
+  })
+
   it("does not validate operations outside the selection", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
