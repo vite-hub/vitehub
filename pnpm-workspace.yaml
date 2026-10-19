@@ -144,9 +144,9 @@ catalogs:
     "@iconify-json/simple-icons": ^1.2.100
     "@iconify-json/vscode-icons": ^1.2.90
     "@iconify/vue": ^5.0.3
-    "@vueuse/core": ^14.4.0
-    motion-v: ^2.5.2
-    reka-ui: ^2.10.5
+    "@vueuse/core": ^15.0.0
+    motion-v: ^2.8.0
+    reka-ui: ^2.11.0
     vue: 3.5.43
   unjs:
     defu: ^6.1.7
