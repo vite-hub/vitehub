@@ -20,7 +20,7 @@ import { renderContributionImport } from "./internal/generated.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { isImplicitDefaultDatabase, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { renderPostgresDatabaseExpression } from "./internal/runtime-config-expression.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
@@ -333,7 +333,10 @@ async function installNitroLocalDatabaseRuntime(
 
   const runtime = resolveDBViteConfig(options, root, { contributions, implicitDefault: true, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
-  if (!runtime?.definitions.length) {
+  // `implicitDefault: true` keeps resolution useful for normal runtime setup, but it
+  // must not prevent cleanup when the last user Definition has been removed.
+  const onlyImplicitDefault = runtime?.definitions.length === 1 && isImplicitDefaultDatabase(runtime.definitions[0]!)
+  if (!runtime?.definitions.length || onlyImplicitDefault) {
     await rm(file, { force: true })
     await removeGeneratedDatabaseTypes(root)
     if (alias && existingAlias === file) {
