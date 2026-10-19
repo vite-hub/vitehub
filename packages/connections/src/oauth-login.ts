@@ -1,5 +1,5 @@
 import { apiKeyOrigin, isLoopbackHost, isSafeEndpoint } from "./api-key.ts"
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type {
   ConnectionAccount,
@@ -104,7 +104,7 @@ export function oauthLogin<const TApis extends object = object>(options: OAuthLo
   // SAFETY: The provider API map is constrained by the generic catalog contract.
   const catalogs = Object.values(provider.apis ?? {}) as ConnectionApiCatalog[]
   if (!/^\S+$/.test(provider.id) || typeof provider.login !== "function" || !isValidLoginProvider(provider) || !catalogs.every(catalog => isSafeEndpoint(catalog.rootUrl))) {
-    throw new ConnectionError("invalid", "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({})
   }
   return provider
 }

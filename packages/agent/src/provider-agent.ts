@@ -41,7 +41,7 @@ import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachmen
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -407,6 +407,14 @@ function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecor
 function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
   return isRuntimeRecord(value)
     && (value[providerSessionCursorRecordKey] === "invalidated" || value[providerSessionCursorRecordKey] === "ready")
+}
+
+/** Returns the native thread ID in a provider runtime resume cursor, or undefined for an opaque cursor. */
+export function providerNativeThreadId(cursor: unknown): string | undefined {
+  const value = isProviderSessionCursorRecord(cursor) ? cursor.value : cursor
+  if (!isRuntimeRecord(value) || !isRuntimeRecord(value.providerThread)) return undefined
+  const ref = value.providerThread.nativeThreadRef
+  return isRuntimeRecord(ref) && hasRuntimeType(ref.nativeId, "string") ? ref.nativeId : undefined
 }
 
 function providerSessionStore(
@@ -3433,7 +3441,6 @@ async function* runProvider<
     }
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    const resumed = resumeCursor !== undefined
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
@@ -3449,6 +3456,30 @@ async function* runProvider<
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
+    // The provider runtime starts a new native thread when it cannot resume the
+    // requested one. Opaque cursors do not identify a thread, so they count as resumed.
+    const requestedNativeThreadId = providerNativeThreadId(resumeCursor)
+    const startedNativeThreadId = providerNativeThreadId(session.resumeCursor)
+    const resumeFailed = requestedNativeThreadId !== undefined && requestedNativeThreadId !== startedNativeThreadId
+    const resumed = resumeCursor !== undefined && !resumeFailed
+    if (resumeFailed) {
+      await traceAgentEvent({
+        context: context.context,
+        driverContributions: context.driverContributions,
+        input: context.input,
+        invoker: context.invoker,
+        run: context.runtime.run,
+        runtime: context.runtime,
+      }, {
+        attributes: {
+          "gen_ai.provider.name": options.provider,
+          "vitehub.provider.requested_thread.id": requestedNativeThreadId,
+          "vitehub.provider.started_thread.id": startedNativeThreadId,
+        },
+        name: "agent.provider.session.resume-failed",
+        type: "run",
+      })
+    }
     const attachments = await waitForProviderOperation(
       prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
       effectiveSignal,
@@ -3456,7 +3487,8 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    const replayAttachments = !preservesProviderSession && context.messages.length > 1
+    // The lost native thread had the earlier attachments, so replay them like an unpreserved session.
+    const replayAttachments = (!preservesProviderSession || resumeFailed) && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
     if (!prompt) throw agentDiagnostics.AGENT_R0718({ message: "[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment." })
     effectiveSignal?.throwIfAborted()

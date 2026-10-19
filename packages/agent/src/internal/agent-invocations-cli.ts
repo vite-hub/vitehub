@@ -14,6 +14,9 @@ import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
+import type { RetentionSizeLimit } from "./retention-policy.ts"
+import type { AgentRetentionPolicy } from "../retention.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -55,6 +58,10 @@ interface ParsedArgs {
   interval: number
   json: boolean
   limit?: number
+  /** Size limit for prune. Set by --max-size. */
+  maxSize?: RetentionSizeLimit
+  /** Count limit for prune. Set by --max-records. */
+  maxRecords?: number
   olderThanMs?: number
   status?: string
   tablePrefix?: string
@@ -133,6 +140,11 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
     "  --older-than <duration>   Prune records last updated before this age, such as 12h or 7d. Defaults to 30d.",
+    "  --max-records <count>     Prune the oldest records past this count. With --max-size, --older-than is",
+    "                            optional and applies only when given.",
+    "  --max-size <size>         Prune the oldest records until the live data of the database file fits this size,",
+    "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
+    "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
     "  --dry-run                 List the records that prune would delete.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
@@ -153,9 +165,16 @@ function positiveInteger(value: string, flag: string): number {
 }
 
 function duration(value: string, flag: string): number {
-  const match = /^(\d+)(ms|s|m|h|d|w)$/.exec(value.trim())
-  const result = match ? Number(match[1]) * durationUnits[match[2]!]! : Number.NaN
-  if (!Number.isSafeInteger(result)) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  const result = parseRetentionDuration(value)
+  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  return result
+}
+
+function size(value: string, flag: string): RetentionSizeLimit {
+  // A bare integer is a number of bytes, as in the maxSize option.
+  const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
+  const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
+  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
   return result
 }
 
@@ -234,6 +253,10 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument.startsWith("--table-prefix=")) parsed.tablePrefix = argument.slice("--table-prefix=".length)
     else if (argument === "--older-than") { parsed.olderThanMs = duration(optionValue(args, index, argument), argument); index += 1 }
     else if (argument.startsWith("--older-than=")) parsed.olderThanMs = duration(argument.slice("--older-than=".length), "--older-than")
+    else if (argument === "--max-size") { parsed.maxSize = size(optionValue(args, index, argument), argument); index += 1 }
+    else if (argument.startsWith("--max-size=")) parsed.maxSize = size(argument.slice("--max-size=".length), "--max-size")
+    else if (argument === "--max-records") { parsed.maxRecords = positiveInteger(optionValue(args, index, argument), argument); index += 1 }
+    else if (argument.startsWith("--max-records=")) parsed.maxRecords = positiveInteger(argument.slice("--max-records=".length), "--max-records")
     else if (argument === "--status") {
       parsed.status = optionValue(args, index, argument)
       index += 1
@@ -269,6 +292,9 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     throw agentDiagnostics.AGENT_R0505({ message: `${staleAfterSet ? "--stale-after" : "--agent"} is only supported for wait-idle.` })
   }
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
+  if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
+    throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
+  }
   if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune") {
     parsed.console = consoleBaseUrl(parsed.url)
   }
@@ -510,7 +536,7 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
   }
   if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
@@ -527,7 +553,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
     list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
     scan: async statuses => {
       const wanted = new Set(statuses)
-      return parseInvocationList(file.list({ limit: maxAgentInvocationListLimit })).invocations.filter(record => wanted.has(record.status))
+      return await collectPages(async cursor => parseInvocationList(file.list({ cursor, limit: maxAgentInvocationListLimit })), record => wanted.has(record.status))
     },
   }
 }
@@ -728,7 +754,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
   return { ...token, label: path, path, secrets, url: `${pathToFileURL(path).href}${query}` }
 }
 
-async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>): Promise<T> {
+async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>, retention: AgentRetentionPolicy = {}): Promise<T> {
   const database = journalDatabase(parsed, context)
   if (database.path !== undefined && !existsSync(database.path)) {
     throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal URL.` })
@@ -746,7 +772,7 @@ async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocations
   }
   try {
     const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, ...retention, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
       throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
@@ -784,6 +810,7 @@ async function deleteInvocation(parsed: ParsedArgs, context: AgentInvocationsCli
 }
 
 async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
+  if (parsed.maxSize || parsed.maxRecords !== undefined) return await pruneByLimits(parsed, context)
   const olderThanMs = parsed.olderThanMs ?? defaultPruneAgeMs
   const cutoff = new Date(Date.now() - olderThanMs)
   if (Number.isNaN(cutoff.getTime())) {
@@ -860,6 +887,40 @@ async function waitIdle(parsed: ParsedArgs, context: AgentInvocationsCliContext,
     }
     await sleep(Math.max(0, Math.min(parsed.interval, deadline - Date.now())))
   }
+}
+
+/** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
+async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
+  const retention: AgentRetentionPolicy = {
+    maxAge: parsed.olderThanMs ?? false,
+    maxRecords: parsed.maxRecords ?? false,
+    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${parsed.maxSize.fraction * 100}%`,
+  }
+  const result = await withJournalStore(parsed, context, async store => await store.prune!(parsed.dryRun ? { dryRun: true } : {}), retention)
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify({ dryRun: result.dryRun, ids: result.ids, limits: retention, ...(result.size ? { size: result.size } : {}) }, null, 2)}\n`)
+    return 0
+  }
+  for (const id of result.ids) context.stdout.write(`${id}\n`)
+  const count = `${result.ids.length} terminal Agent Invocation${result.ids.length === 1 ? "" : "s"}`
+  context.stdout.write(`${result.dryRun ? "Would delete" : "Deleted"} ${count}.\n`)
+  if (result.size) {
+    const { afterBytes, beforeBytes, budgetBytes } = result.size
+    context.stdout.write(`Live data: ${formatBytes(beforeBytes)} before, ${formatBytes(afterBytes)} after, budget ${formatBytes(budgetBytes)}.\n`)
+    if (afterBytes > budgetBytes) context.stdout.write("The journal is still above the budget. Only pending and running records remain.\n")
+  }
+  return 0
+}
+
+function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
 }
 
 function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecord {
