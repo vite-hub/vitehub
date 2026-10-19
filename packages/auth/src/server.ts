@@ -372,6 +372,11 @@ async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
     }
   }
   catch (error) {
+    // A non-configurable own constructor cannot be stabilized. Do not fall
+    // back to `await value`, which would assimilate a mutable own `then`.
+    if (constructorDescriptor && !constructorDescriptor.configurable && needsStableConstructor) {
+      return Promise.reject(error)
+    }
     // Promise subclasses can expose a throwing species getter. Retry the
     // intrinsic adoption with the standard constructor, restoring the object
     // immediately after the intrinsic has captured it.
