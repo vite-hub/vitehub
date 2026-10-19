@@ -6,6 +6,8 @@ import { activeAgentInvocationScope } from "./invocation-scope.ts"
 import { recordDriverUsage } from "./auxiliary-usage.ts"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
+import { normalizeRetention } from "./retention-policy.ts"
+import type { NormalizedRetention } from "./retention-policy.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -63,6 +65,8 @@ export type NormalizedAgentDriver<
     reasoningEffort?: CodexReasoningEffort
     reasoningSummary?: CodexReasoningSummary
     requirements?: readonly string[]
+    /** Codex home retention. Undefined when the Driver sets no retention. */
+    retention?: NormalizedRetention
     sessionStorePath?: string
     toolchain?: SandboxToolchain
   }
@@ -154,7 +158,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "retention", "sessionStorePath", "toolchain"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity"])
 
@@ -253,7 +257,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     throw agentDiagnostics.AGENT_R0970({ message: "[vitehub] defineAgent({ driver.requirements }) requires a launch resolver when driver.launch is set." })
   }
   validateProviderToolchain(value.toolchain)
-  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
+  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary", "retention"].filter(key => value[key] !== undefined)
   if (provider !== "codex" && codexOptions.length) {
     throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
   }
@@ -285,6 +289,18 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   if (credentials !== undefined && credentialProfile === undefined && value.sessionStorePath !== undefined) {
     throw agentDiagnostics.AGENT_R0483({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) requires driver.credentialProfile when driver.credentials is configured." })
+  }
+  const retention = value.retention === undefined
+    ? undefined
+    : normalizeRetention(value.retention, {
+        defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
+        error: message => agentDiagnostics.AGENT_R1005({ message: `[vitehub] ${message}` }),
+        label: "defineAgent({ driver.retention })",
+        size: "any",
+      })
+  // Plain credentials without a profile use a temporary home that ViteHub removes after each run.
+  if (retention && credentials !== undefined && credentialProfile === undefined) {
+    throw agentDiagnostics.AGENT_R1006({ message: "[vitehub] driver.retention requires a persistent Codex home. Set driver.credentialProfile, or use a gateway or CODEX_HOME." })
   }
   if (value.reasoningEffort !== undefined
     && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
@@ -346,6 +362,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
     // SAFETY: requirements is either absent or validated as a list of command names above.
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
+    retention,
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
     // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
     toolchain: value.toolchain as SandboxToolchain | undefined,

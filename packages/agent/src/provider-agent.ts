@@ -5,6 +5,9 @@ import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionCursorRecordKey } from "./internal/provider-session-cursor.ts"
+import type { ProviderSessionCursorRecord } from "./internal/provider-session-cursor.ts"
+export { providerNativeThreadId } from "./internal/provider-session-cursor.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
 import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
@@ -393,28 +396,8 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 
 const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
 const invalidatedProviderSessions = new WeakMap<ProviderRuntimeSessionStore, Set<ThreadId>>()
-const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
-
-interface ProviderSessionCursorRecord {
-  [providerSessionCursorRecordKey]: "invalidated" | "ready"
-  value?: unknown
-}
-
 function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecord {
   return { [providerSessionCursorRecordKey]: "ready", value }
-}
-
-function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
-  return isRuntimeRecord(value)
-    && (value[providerSessionCursorRecordKey] === "invalidated" || value[providerSessionCursorRecordKey] === "ready")
-}
-
-/** Returns the native thread ID in a provider runtime resume cursor, or undefined for an opaque cursor. */
-export function providerNativeThreadId(cursor: unknown): string | undefined {
-  const value = isProviderSessionCursorRecord(cursor) ? cursor.value : cursor
-  if (!isRuntimeRecord(value) || !isRuntimeRecord(value.providerThread)) return undefined
-  const ref = value.providerThread.nativeThreadRef
-  return isRuntimeRecord(ref) && hasRuntimeType(ref.nativeId, "string") ? ref.nativeId : undefined
 }
 
 function providerSessionStore(
