@@ -766,12 +766,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
             if (attribute === "expires") expiresComma = true
             continue
           }
-          // Commas in extension attributes are part of the attribute value. Since
-          // extension names are application-defined, only treat a boundary as a
-          // merged cookie when the preceding attribute is a standard cookie
-          // attribute whose value cannot contain a cookie assignment.
-          const standardAttribute = /^(?:expires|max-age|domain|path|secure|httponly|samesite|priority)$/i.test(attribute)
-          if (!standardAttribute) continue
+          // The documented Extension attribute may contain an assignment-like
+          // comma value. Other attributes are treated as cookie boundaries so a
+          // merged header such as `Foo=bar, second=2` is rejected.
+          const currentSegment = combinedCookies.slice(segmentStart, index)
+          const currentEquals = currentSegment.indexOf("=")
+          const currentAttribute = currentEquals >= 0
+            ? currentSegment.slice(0, currentEquals).trim().toLowerCase()
+            : attribute
+          if (currentAttribute === "extension") continue
           if (attribute === "expires" && !expiresComma) {
             expiresComma = true
             continue
