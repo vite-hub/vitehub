@@ -301,14 +301,14 @@ function isRuntimeResponse(value: unknown): value is Response {
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
-): Promise<Response | undefined> {
+): Promise<{ response?: Response }> {
   const result: unknown = authorize(context)
   // Normalize response values before any thenable handling. A Response may
   // expose an own `then` property, but it must still be treated as a response
   // rather than assimilated as a promise.
   if (isRuntimeResponse(result)) {
     const directResponse = await normalizeAuthorizationResponse(result)
-    if (directResponse) return directResponse
+    if (directResponse) return { response: directResponse }
   }
 
   let resolved: unknown
@@ -318,6 +318,8 @@ async function runAccessAuthorize(
     // thenables fall back to normal await semantics below.
     let nativePromise: Promise<unknown> | undefined
     let constructorDescriptor: PropertyDescriptor | undefined
+    let speciesDescriptor: PropertyDescriptor | undefined
+    let speciesOverridden = false
     let constructorOverridden = false
     try {
       // Shadow an inherited constructor so intrinsic `then` uses the native
@@ -327,7 +329,19 @@ async function runAccessAuthorize(
         Object.defineProperty(result, "constructor", { configurable: true, writable: true, value: Promise })
         constructorOverridden = true
       }
-      nativePromise = Promise.prototype.then.call(result, value => value)
+      else if (typeof constructorDescriptor.value === "function") {
+        speciesDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, Symbol.species)
+        if (!speciesDescriptor || speciesDescriptor.configurable) {
+          Object.defineProperty(constructorDescriptor.value, Symbol.species, { configurable: true, value: Promise })
+          speciesOverridden = true
+        }
+      }
+      nativePromise = new Promise((resolve, reject) => {
+        // Use a native promise as the adoption target. The returned derived
+        // promise may reject because of a hostile species constructor, but
+        // the source callbacks still observe the original settlement.
+        Promise.prototype.then.call(result, resolve, reject)
+      })
     }
     catch (error) {
       if (!(error instanceof TypeError)) throw error
@@ -337,21 +351,25 @@ async function runAccessAuthorize(
         if (constructorDescriptor) Object.defineProperty(result, "constructor", constructorDescriptor)
         else Reflect.deleteProperty(result, "constructor")
       }
+      if (speciesOverridden && constructorDescriptor && typeof constructorDescriptor.value === "function") {
+        if (speciesDescriptor) Object.defineProperty(constructorDescriptor.value, Symbol.species, speciesDescriptor)
+        else Reflect.deleteProperty(constructorDescriptor.value, Symbol.species)
+      }
     }
     resolved = nativePromise ? await nativePromise : await result
   }
   else {
     resolved = result
   }
-  if (resolved === true) return
+  if (resolved === true) return {}
   if (isRuntimeResponse(resolved)) {
     const normalized = await normalizeAuthorizationResponse(resolved)
-    if (normalized) return normalized
+    if (normalized) return { response: normalized }
   } else {
     const normalized = await normalizeAuthorizationResponse(resolved)
-    if (normalized) return normalized
+    if (normalized) return { response: normalized }
   }
-  return createForbiddenResponse(context.request)
+  return { response: createForbiddenResponse(context.request) }
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -972,7 +990,7 @@ async function checkAuthRequest(
       }
       if (!authorize) continue
       const rejection = await runAccessAuthorize(authorize, authorization)
-      if (rejection) return reject(rejection)
+      if (rejection.response) return reject(rejection.response)
     }
     return { authorization }
   }
@@ -1008,7 +1026,7 @@ async function checkAuthorizeRequest(
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
-  return rejection ? reject(rejection) : { authorization }
+  return rejection.response ? reject(rejection.response) : { authorization }
 }
 
 /**
