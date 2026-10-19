@@ -97,6 +97,17 @@ describe("message scroller behavior", () => {
     expect(wrapper.get("[data-slot='message-scroller-content']").attributes("aria-busy")).toBeUndefined();
   });
 
+  it("keeps following when a submitted user message is the live edge", () => {
+    const wrapper = mount(Chat, {
+      props: {
+        messages: [{ id: "user", parts: [{ text: "Question", type: "text" }], role: "user" }],
+        status: "submitted",
+      },
+    });
+
+    expect(wrapper.findComponent(MessageScrollerItem).props("scrollAnchor")).toBe(false);
+  });
+
   it("applies package-wide defaults to the styled chat", () => {
     const wrapper = mount(Chat, {
       global: {
