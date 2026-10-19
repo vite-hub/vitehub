@@ -601,15 +601,6 @@ function staticVueAnchors(source) {
   return anchors;
 }
 
-function supportMatrixAnchors(docsRoot) {
-  const path = join(docsRoot, "app/components/SupportMatrix.vue");
-  if (!existsSync(path)) return undefined;
-  const source = readFileSync(path, "utf8");
-  const anchors = staticHtmlAnchors(source);
-  for (const match of source.matchAll(/\banchor\s*:\s*["']([^"']+)["']/g)) anchors.add(match[1]);
-  return anchors;
-}
-
 function isStaticApplicationRoute(route) {
   return !route.split("/").some((segment) => segment.includes("[") || segment.includes("]"));
 }
@@ -748,8 +739,6 @@ function applicationInventory(docsRoot, contentRoutes) {
     "/mcp",
     "/sitemap.xml", // Provided by @nuxtjs/sitemap through Docus.
   ]) routeAnchors.set(route, new Set());
-  const matrixAnchors = supportMatrixAnchors(docsRoot);
-  if (matrixAnchors) routeAnchors.set("/docs/frameworks-hosts/support-matrix", matrixAnchors);
   return { importedFiles, importedNames, importedProperties, routeAnchors, sourceRoutes };
 }
 

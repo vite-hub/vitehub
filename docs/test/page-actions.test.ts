@@ -82,7 +82,6 @@ describe("docs page actions", () => {
       "app/pages/docs/index.vue",
       "app/components/DocsArticle.vue",
       "app/components/DocsProductLanding.vue",
-      "app/components/SupportMatrix.vue",
     ]) {
       expect(read(page)).toContain("<DocsPageHeaderLinks />");
     }
