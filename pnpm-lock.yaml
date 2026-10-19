@@ -1779,7 +1779,7 @@ importers:
         version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
       vitest:
         specifier: catalog:tooling
-        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(happy-dom@21.0.3)
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/queue:
     dependencies:
@@ -2281,12 +2281,12 @@ importers:
 
   packages/source:
     dependencies:
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2457,12 +2457,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261016.1
-      '@google-cloud/storage':
-        specifier: catalog:storage
-        version: 8.4.0
-      '@googleapis/drive':
-        specifier: catalog:storage
-        version: 26.0.2
       '@json-render/core':
         specifier: 0.21.1
         version: 0.21.1(zod@4.6.7)
@@ -2649,10 +2643,10 @@ importers:
         version: 12.34.0
       '@google-cloud/storage':
         specifier: catalog:storage
-        version: 7.22.0
+        version: 8.4.0
       '@googleapis/drive':
         specifier: catalog:storage
-        version: 20.2.0
+        version: 26.0.2
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.145
@@ -8354,7 +8348,7 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca':
-    resolution: {integrity: sha512-O4vQ+ZsHBiWMkhD9yOKsL7aiz+Jhl4yXdMw7ZgxZ3Fev2V6gFxE0sF6o92EzuQLHrM/xzVy2/nadjQkVGka5nQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@4a1a0087b30b479aa78871bc789ac9a766afffca}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.5
@@ -25538,7 +25532,7 @@ snapshots:
       '@vue/compiler-dom': 3.5.44
       js-beautify: 2.0.3
       vue: 3.5.44(typescript@6.0.3)
-      vue-component-type-helpers: 3.3.12
+      vue-component-type-helpers: 3.3.13
     optionalDependencies:
       '@vue/server-renderer': 3.5.44
 
