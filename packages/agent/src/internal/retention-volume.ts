@@ -21,20 +21,3 @@ export async function retentionBudgetBytes(size: RetentionSizeLimit, storePath: 
   }
   return Math.floor(size.fraction * cached.capacity)
 }
-
-/**
- * Returns up to `pages` free pages of a SQLite file with `auto_vacuum = INCREMENTAL` to the file system.
- * The libSQL client runs one step of `PRAGMA incremental_vacuum` and keeps its write lock, so this opens the file
- * with node:sqlite, which runs the statement to the end. A short busy timeout keeps a locked file from blocking the
- * event loop; the next prune frees the remaining pages.
- */
-export async function incrementalVacuum(path: string, pages: number): Promise<void> {
-  const { DatabaseSync } = await import("node:sqlite")
-  const database = new DatabaseSync(path, { timeout: 100 })
-  try {
-    database.exec(`PRAGMA incremental_vacuum(${Math.max(1, Math.floor(pages))})`)
-  }
-  finally {
-    database.close()
-  }
-}

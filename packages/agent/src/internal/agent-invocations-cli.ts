@@ -127,8 +127,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --max-records <count>     Prune the oldest records past this count. With --max-size, --older-than is",
     "                            optional and applies only when given.",
     "  --max-size <size>         Prune the oldest records until the live data of the database file fits this size,",
-    "                            such as 500MB, or this percent of its volume, such as 30%. The file shrinks only",
-    "                            when it uses auto_vacuum = INCREMENTAL.",
+    "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
+    "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
     "  --dry-run                 List the records that prune would delete.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
@@ -155,8 +155,10 @@ function duration(value: string, flag: string): number {
 }
 
 function size(value: string, flag: string): RetentionSizeLimit {
-  const result = parseRetentionSize(value)
-  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, or a percent of the volume such as 30%.` })
+  // A bare integer is a number of bytes, as in the maxSize option.
+  const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
+  const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
+  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
   return result
 }
 

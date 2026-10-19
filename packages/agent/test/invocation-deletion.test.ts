@@ -234,7 +234,7 @@ describe("vitehub agent invocations delete and prune", () => {
     vi.mocked(createClient).mockClear()
     const size = output()
     await expect(runAgentInvocationsCli(["prune", "--max-size", "2PB"], { env: {}, ...size })).resolves.toBe(1)
-    expect(size.chunks.stderr).toContain("--max-size requires a size such as 500MB or 3GB, or a percent of the volume such as 30%.")
+    expect(size.chunks.stderr).toContain("--max-size requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.")
     const count = output()
     await expect(runAgentInvocationsCli(["prune", "--max-records", "0"], { env: {}, ...count })).resolves.toBe(1)
     expect(count.chunks.stderr).toContain("--max-records requires a positive integer.")
