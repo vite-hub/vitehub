@@ -324,7 +324,19 @@ async function runAccessAuthorize(
   const directResponse = await normalizeAuthorizationResponse(result)
   if (directResponse) return { response: directResponse }
 
-  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+  const resultObject = result !== null && (typeof result === "object" || typeof result === "function")
+    ? result as object
+    : undefined
+  let resultThen: unknown
+  try {
+    resultThen = resultObject
+      ? Reflect.get(resultObject, "then")
+      : undefined
+  }
+  catch (error) {
+    return Promise.reject(error)
+  }
+  if (resultObject && typeof resultThen === "function") {
     const settle = async (resolved: unknown): Promise<{ response?: Response }> => {
       const response = await normalizeAuthorizationResponse(resolved)
       if (response) return { response }
@@ -345,7 +357,7 @@ async function runAccessAuthorize(
         // native constructor where the instance permits temporary replacement.
         let owner: object | undefined
         let descriptor: PropertyDescriptor | undefined
-        let current: object | null = result
+        let current: object | null = resultObject
         while (current) {
           const candidate = Object.getOwnPropertyDescriptor(current, "constructor")
           if (candidate) { owner = current; descriptor = candidate; break }
@@ -353,15 +365,15 @@ async function runAccessAuthorize(
         }
         try {
           if (!descriptor || descriptor.configurable) {
-            Object.defineProperty(owner ?? result, "constructor", { configurable: true, value: Promise })
+            Object.defineProperty(owner ?? resultObject, "constructor", { configurable: true, value: Promise })
             try { attach(); branded = true }
             finally {
               if (descriptor) Object.defineProperty(owner!, "constructor", descriptor)
-              else Reflect.deleteProperty(owner ?? result, "constructor")
+              else Reflect.deleteProperty(owner ?? resultObject, "constructor")
             }
           }
           else {
-            const constructor = Reflect.get(result, "constructor")
+            const constructor = Reflect.get(resultObject, "constructor")
             const species = constructor !== null && (typeof constructor === "object" || typeof constructor === "function")
               ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
               : undefined
@@ -379,12 +391,12 @@ async function runAccessAuthorize(
           // Promise resolution performs another observable `then` lookup. If
           // the value has an own override, mask it while creating the native
           // adoption promise so the fallback cannot dispatch that override.
-          const ownThen = Object.getOwnPropertyDescriptor(result, "then")
+          const ownThen = Object.getOwnPropertyDescriptor(resultObject, "then")
           let masked = false
           let maskDescriptor: PropertyDescriptor | undefined
           if (!ownThen || ownThen.configurable || ("value" in ownThen && ownThen.writable)) {
             try {
-              Object.defineProperty(result, "then", {
+              Object.defineProperty(resultObject, "then", {
                 configurable: ownThen?.configurable ?? true,
                 enumerable: ownThen?.enumerable ?? false,
                 value: intrinsicPromiseThen,
@@ -400,12 +412,12 @@ async function runAccessAuthorize(
           }
           let nativeAdopted: Promise<unknown>
           try {
-            nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
+            nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(resultObject))
           }
           finally {
             if (masked) {
-              if (maskDescriptor) Object.defineProperty(result, "then", maskDescriptor)
-              else Reflect.deleteProperty(result, "then")
+              if (maskDescriptor) Object.defineProperty(resultObject, "then", maskDescriptor)
+              else Reflect.deleteProperty(resultObject, "then")
             }
           }
           void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
@@ -417,15 +429,7 @@ async function runAccessAuthorize(
     if (branded) return adopted
   }
 
-  let thenMethod: unknown
-  try {
-    thenMethod = result !== null && (typeof result === "object" || typeof result === "function")
-      ? Reflect.get(result, "then")
-      : undefined
-  }
-  catch (error) {
-    return Promise.reject(error)
-  }
+  const thenMethod = resultThen
   if (typeof thenMethod !== "function") return { response: result !== true ? createForbiddenResponse(context.request) : undefined }
   const assimilated = new Promise<unknown>((resolve, reject) => {
     queueMicrotask(() => {
