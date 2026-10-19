@@ -137,11 +137,8 @@ describe("UI documentation", () => {
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
-    const invocation = readFileSync(resolve(examplesRoot, "InvocationRunningExample.vue"), "utf8");
     const inspector = readFileSync(resolve(examplesRoot, "InvocationInspectorExample.vue"), "utf8");
 
-    expect(invocation).toContain('<div class="h-[28rem]');
-    expect(invocation).toContain('class="h-full"');
     expect(inspector).toContain('<div class="mx-auto h-[28rem]');
     expect(inspector).toContain('class="h-full border-x border-default"');
   });

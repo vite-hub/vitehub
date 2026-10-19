@@ -63,7 +63,7 @@ const invocation = computed<AgentInvocationView>(() => ({
 </script>
 
 <template>
-  <div class="h-[28rem] min-w-0 bg-default">
-    <AgentInvocationInspector :invocation="invocation" class="h-full" />
+  <div class="mx-auto h-[28rem] min-w-0 bg-default">
+    <AgentInvocationInspector :invocation="invocation" class="h-full border-x border-default" />
   </div>
 </template>
