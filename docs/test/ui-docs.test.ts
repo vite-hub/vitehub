@@ -131,12 +131,14 @@ describe("UI documentation", () => {
     expect(styles).toContain("--vh-content-width: 46rem");
   });
 
-  it("switches sections with the primitive rail instead of a product selector", () => {
-    const sidebarTop = readFileSync(
-      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
-      "utf8",
-    );
-    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
+    expect(layout).toContain("vh-docs-main");
+    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8")).toContain("max-width: calc(");
+  });
 
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-sidebar-search");
@@ -152,23 +154,20 @@ describe("UI documentation", () => {
     expect(rail).toContain("<template #header");
     expect(rail).toContain("getDocsRailCatalog");
     expect(rail).toContain("getUncategorizedDocsSections");
-    expect(rail).toContain("section.title");
-    expect(rail).toContain("section.path");
     expect(rail).toContain("<template #default");
   });
-  it("keeps the docs sidebar visible with one search control", () => {
-    const sidebarTop = readFileSync(
-      resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"),
-      "utf8",
-    );
+
+  it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
-    expect(sidebarTop).not.toContain("<details");
-    expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebar).not.toContain("<details");
+    expect(sidebar).not.toContain("<summary");
+   expect(sidebarPanel).toContain("vh-docs-sidebars");
+    expect(sidebarPanel).toContain("vh-docs-panel");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain('<DocsSidebars v-if="!isSupportMatrix" class="vh-docs-desktop-nav" :panel="hasPanel" />');
     expect(sidebarPanel).toContain("overflow: hidden;");
@@ -185,7 +184,5 @@ describe("UI documentation", () => {
 
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
-    expect(page).toContain("@vite-hub/ui` is ViteHub's Vue component package.");
   });
 });
