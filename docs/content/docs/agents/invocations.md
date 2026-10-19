@@ -346,6 +346,8 @@ After a create or a terminal update, the adapter measures the file when the byte
 
 Deletes free pages inside the file. The file shrinks only when it uses `auto_vacuum = INCREMENTAL`. The adapter sets that mode when it creates a new file, and after a size prune it returns up to 1,000 free pages to the file system. A file created before this mode keeps its largest size until a `VACUUM` rebuilds it, but its free pages are reused for new records.
 
+To shrink such a file, run [`vitehub agent invocations compact`](#compact-a-journal-file) once. It rebuilds the file to its live data and sets `auto_vacuum = INCREMENTAL`, so later size prunes shrink it without help.
+
 ### Choose how storage failures affect a run
 
 The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
@@ -525,6 +527,21 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
 Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+
+#### Compact a journal file
+
+A journal file that the adapter created before it set `auto_vacuum = INCREMENTAL` keeps its largest size. Its deletes only free pages inside the file. Run `compact` once to rebuild the file with `VACUUM` and set the mode:
+
+```sh
+vitehub agent invocations compact --database /data/console.sqlite --dry-run
+vitehub agent invocations compact --database /data/console.sqlite --json
+```
+
+`compact` measures the file, its WAL, the page count, the free pages, and the `auto_vacuum` mode. Then it runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`, and prints the size before and after, the reclaimed bytes, and the new mode. `--dry-run` prints the measurements, the projected size, and the free space check, and changes nothing. It exits with 1 when compact would refuse to run. Prune first, so that the rebuilt file holds only the records that you keep.
+
+- Only a local SQLite file can be compacted. A remote libSQL URL and an in-memory database fail with `AGENT_R0931`.
+- `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses to run when a volume has less free space than 1.1 times the live data for each of these files, plus the current WAL. When both are on the same volume, it needs both. Set `SQLITE_TMPDIR` to put the temporary copy on another volume.
+- `VACUUM` needs the write lock for its full duration, and the server waits to write until it finishes. Stop the server or run compact during a quiet window. When another process holds the lock for more than 5 seconds, compact fails and changes nothing.
 
 `list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or a Console session. This works inside a running container, where the journal is on local disk:
 
