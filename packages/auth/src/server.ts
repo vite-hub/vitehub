@@ -317,7 +317,12 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result: unknown = await authorize(context)
+  // Inspect direct values before awaiting so a Response carrying an own `then`
+  // property is not assimilated as a thenable before normalization.
+  const returned: unknown = authorize(context)
+  const direct = await normalizeAuthorizationResponse(returned)
+  if (direct) return direct
+  const result: unknown = await returned
   if (result === true) return
   const normalized = await normalizeAuthorizationResponse(result)
   if (normalized) return normalized
@@ -409,6 +414,16 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         // work across realms.
         const constructorDescriptor = Object.getOwnPropertyDescriptor(current, "constructor")
         if (typeof constructorDescriptor?.value !== "function") return false
+        // A caller-controlled constructor is not evidence of a native Response
+        // prototype. Native Fetch constructors have an unforgeable source form.
+        let constructorSource: string
+        try {
+          constructorSource = Function.prototype.toString.call(constructorDescriptor.value)
+        }
+        catch {
+          return false
+        }
+        if (!constructorSource.includes("[native code]")) return false
         let fresh: unknown
         try {
           fresh = Reflect.construct(constructorDescriptor.value, [])
