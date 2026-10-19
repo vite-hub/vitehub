@@ -334,7 +334,7 @@ describe("D1 Agent Invocation store", () => {
   })
 
   it("prunes terminal records and their claims while retaining active records", async () => {
-    const journal = store({ maxRecords: 1, maxAgeMs: false })
+    const journal = store({ maxRecords: 1, maxAge: false })
     await journal.create(invocation("active", { updatedAt: "2000-01-01T00:00:00.000Z" }))
     await journal.claim("active", "owner", 30_000)
     await journal.create(invocation("old"))
@@ -349,7 +349,7 @@ describe("D1 Agent Invocation store", () => {
   })
 
   it("applies age retention and permits both retention limits to be disabled", async () => {
-    await store({ maxAgeMs: false, maxRecords: false }).create(invocation("old", { status: "completed", updatedAt: "2000-01-01T00:00:00.000Z" }))
+    await store({ maxAge: false, maxRecords: false }).create(invocation("old", { status: "completed", updatedAt: "2000-01-01T00:00:00.000Z" }))
     expect(await store().get("old")).toBeDefined()
     await store().create(invocation("new"))
     expect(await store().get("old")).toBeUndefined()
@@ -454,7 +454,7 @@ describe("D1 Agent Invocation store", () => {
   it("deletes terminal records and prunes by cutoff or configured retention", async () => {
     const day = 24 * 60 * 60 * 1000
     const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()
-    const unbounded = store({ maxAgeMs: false, maxRecords: false })
+    const unbounded = store({ maxAge: false, maxRecords: false })
     await unbounded.create(invocation("old-completed", { status: "completed", updatedAt: ago(40 * day) }))
     await unbounded.create(invocation("old-failed", { status: "failed", updatedAt: ago(35 * day) }))
     await unbounded.create(invocation("old-running", { status: "running", updatedAt: ago(40 * day) }))
@@ -466,7 +466,7 @@ describe("D1 Agent Invocation store", () => {
     expect(await invocations.prune({ dryRun: true, olderThanMs: 36 * day })).toEqual({ dryRun: true, ids: ["old-completed"] })
     expect(await invocations.prune({ olderThanMs: 36 * day })).toEqual({ dryRun: false, ids: ["old-completed"] })
     await expect(invocations.prune()).resolves.toEqual({ dryRun: false, ids: [] })
-    expect(await defineAgentInvocations({ store: store({ maxAgeMs: 30 * day, maxRecords: false }) }).prune()).toEqual({ dryRun: false, ids: ["old-failed"] })
+    expect(await defineAgentInvocations({ store: store({ maxAge: 30 * day, maxRecords: false }) }).prune()).toEqual({ dryRun: false, ids: ["old-failed"] })
     await expect(invocations.delete("recent")).resolves.toBe("deleted")
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["old-running"])
   })
@@ -546,13 +546,19 @@ describe("D1 Agent Invocation store", () => {
 
   it("validates table identifiers, retention, paging and leases", async () => {
     expect(() => d1AgentInvocationSchema({ tablePrefix: "unsafe;" })).toThrow(/identifier/)
-    expect(() => store({ maxRecords: 0 })).toThrow(/retention/)
-    expect(() => store({ maxAgeMs: Infinity })).toThrow(/retention/)
-    for (const limit of ["maxAgeMs", "maxRecords"] as const) {
+    expect(() => store({ maxRecords: 0 })).toThrow(/maxRecords must be a positive safe integer/)
+    expect(() => store({ maxAge: Infinity })).toThrow(/maxAge must be a positive duration/)
+    for (const limit of ["maxAge", "maxRecords"] as const) {
       const options: Partial<D1AgentInvocationStoreOptions> = {}
       Reflect.set(options, limit, null)
-      expect(() => store(options)).toThrow(/retention/)
+      expect(() => store(options)).toThrow(new RegExp(`${limit} must be a positive`))
     }
+    for (const maxSize of [1024, "500MB", "30%"]) {
+      const options: Partial<D1AgentInvocationStoreOptions> = {}
+      Reflect.set(options, "maxSize", maxSize)
+      expect(() => store(options)).toThrow("D1 Agent Invocation stores do not support maxSize. Use maxRecords or maxAge.")
+    }
+    expect(() => store({ maxAge: "30d", maxSize: false })).not.toThrow()
     await expect(store().list({ cursor: "01" })).rejects.toThrow(/cursor/)
     await expect(store().list({ limit: 0 })).rejects.toThrow(/limit/)
     await expect(store().list({ search: "x".repeat(257) })).rejects.toThrow(/search/)

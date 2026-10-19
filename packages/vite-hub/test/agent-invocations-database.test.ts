@@ -40,7 +40,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     useDatabase.mockReturnValue({ db })
 
     const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
-    const store = createDatabaseAgentInvocationStore({ database: "journal", maxAgeMs: false, maxRecords: false })
+    const store = createDatabaseAgentInvocationStore({ database: "journal", maxAge: false, maxRecords: false })
 
     await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
     expect(useDatabase).toHaveBeenCalledWith("journal")
@@ -55,7 +55,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     const batch = vi.fn(async queries => queries.map(() => ({ rows: [[1]] })))
     useDatabase.mockReturnValue({ db: drizzle(execute, batch) })
     const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
-    const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+    const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
 
     await expect(store.create(input)).rejects.toThrow("Cloudflare D1 HTTP driver is not supported")
     expect(execute).not.toHaveBeenCalled()
@@ -72,7 +72,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     useDatabase.mockReturnValue({ db })
 
     const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
-    const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+    const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
 
     await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
     await expect(store.get(input.id)).resolves.toMatchObject({ id: input.id, status: input.status, cursor: "1" })
@@ -108,7 +108,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     useDatabase.mockReturnValue({ db: runtime })
 
     const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
-    const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+    const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
     await expect(store.create(input)).resolves.toMatchObject({ created: true })
     active = 1
     await expect(store.create({ ...input, id: "invocation-2" })).resolves.toMatchObject({ created: true })
@@ -130,7 +130,7 @@ describe("createDatabaseAgentInvocationStore", () => {
       useDatabase.mockReturnValue({ db: drizzleDb })
 
       const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
-      const store = createDatabaseAgentInvocationStore({ maxAgeMs: false, maxRecords: false })
+      const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
 
       await expect(store.create(input)).resolves.toMatchObject({ created: true, record: { id: input.id, cursor: "1" } })
       await expect(store.get(input.id)).resolves.toMatchObject({ id: input.id, status: input.status, cursor: "1" })

@@ -11,7 +11,7 @@ it.each(["memory", "sqlite"] as const)("appends concurrent live and terminal evi
   const directory = await mkdtemp(join(tmpdir(), "vitehub-observation-append-"))
   const url = `file:${join(directory, "archive.sqlite")}`
   const clients = Array.from({ length: 2 }, () => createClient({ url }))
-  const options = { maxAgeMs: false, maxRecords: false } as const
+  const options = { maxAge: false, maxRecords: false } as const
   const stores = adapter === "sqlite"
     ? [createLibsqlAgentInvocationStore({ ...options, client: clients[0] })]
     : [createMemoryAgentInvocationStore()]

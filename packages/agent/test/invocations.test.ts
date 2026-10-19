@@ -70,7 +70,7 @@ describe("Agent Invocations", () => {
 
   it("preserves direct libSQL list diagnostic codes", async () => {
     const client = createClient({ url: "file::memory:" })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     try {
       await expect(store.list({ limit: 0 })).rejects.toMatchObject({ code: "AGENT_R0629" })
       // SAFETY: Deliberately violates the typed input to check runtime validation.
@@ -5465,7 +5465,7 @@ describe("Agent Invocations", () => {
   it("stores a compact searchable SQLite projection without raw tool payloads", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-search-projection-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     const timestamp = "2026-01-01T00:00:00.000Z"
     const bulkyToolPayload = `raw-tool-payload-${"x".repeat(512 * 1024)}`
     try {
@@ -5518,7 +5518,7 @@ describe("Agent Invocations", () => {
   it("persists compact SQLite invocation summaries apart from observation records", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-summary-projection-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     const timestamp = "2026-01-01T00:00:00.000Z"
     try {
       await store.create({
@@ -5612,7 +5612,7 @@ describe("Agent Invocations", () => {
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
       })
 
-      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
       await expect(store.list({ search: "legacy searchable message" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "legacy-search-v2" })],
       })
@@ -5652,7 +5652,7 @@ describe("Agent Invocations", () => {
         }
       },
     }) as Client
-    const store = createLibsqlAgentInvocationStore({ client: observingClient, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client: observingClient, maxAge: false, maxRecords: false })
     const timestamp = "2026-01-01T00:00:00.000Z"
     try {
       await store.create({
@@ -5715,8 +5715,8 @@ describe("Agent Invocations", () => {
   it("bounds terminal SQLite invocation records by age and count", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: 2 })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: 2 })
     const recent = new Date().toISOString()
     const expired = new Date(Date.now() - 2_000).toISOString()
     const record = (id: string, status: "completed" | "running", updatedAt = recent) => ({
@@ -5757,7 +5757,7 @@ describe("Agent Invocations", () => {
   it("prunes SQLite retention when an invocation becomes terminal", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: 1 })
     const timestamp = new Date().toISOString()
     const pending = (id: string) => ({
       createdAt: timestamp,
@@ -5786,7 +5786,7 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-sampled-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     // 200 records sample the count limit on 1 in 2 prunes.
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 200 })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: 200 })
     const timestamp = new Date().toISOString()
     const terminalCount = async () => Number((await client.execute(`SELECT count(*) AS count FROM vitehub_agent_invocations
       WHERE status IN ('completed', 'failed', 'cancelled')`)).rows[0]?.count)
@@ -5823,8 +5823,8 @@ describe("Agent Invocations", () => {
   it("recreates a duplicate SQLite invocation when retention prunes the old record", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-duplicate-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false })
     const expired = new Date(Date.now() - 2_000).toISOString()
     const current = new Date().toISOString()
     try {
@@ -5862,8 +5862,8 @@ describe("Agent Invocations", () => {
       createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
       createClient({ url: `file:${join(directory, "invocations.sqlite")}` }),
     ]
-    const unboundedStore = createLibsqlAgentInvocationStore({ client: clients[0], maxAgeMs: false, maxRecords: false })
-    const stores = clients.map(client => createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false }))
+    const unboundedStore = createLibsqlAgentInvocationStore({ client: clients[0], maxAge: false, maxRecords: false })
+    const stores = clients.map(client => createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false }))
     const expired = new Date(Date.now() - 2_000).toISOString()
     const current = new Date().toISOString()
     try {
@@ -5898,8 +5898,8 @@ describe("Agent Invocations", () => {
   it("prunes a recreated terminal SQLite duplicate before create returns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: 1 })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: 1 })
     const timestamp = new Date().toISOString()
     const terminal = (id: string, traceId = `${id}-trace`) => ({
       createdAt: timestamp,
@@ -5928,8 +5928,8 @@ describe("Agent Invocations", () => {
   it("uses one age cutoff while creating a terminal SQLite duplicate", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-cutoff-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false })
     const now = Date.now()
     const nearlyExpired = new Date(now - 999).toISOString()
     try {
@@ -5969,7 +5969,7 @@ describe("Agent Invocations", () => {
   it("rejects an age-expired terminal SQLite create that retention removes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-expired-create-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: 1_000, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false })
     const expired = new Date(Date.now() - 2_000).toISOString()
     try {
       await expect(store.create({
@@ -5991,18 +5991,18 @@ describe("Agent Invocations", () => {
   it("validates and disables SQLite invocation retention limits", async () => {
     for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
       // SAFETY: invalid retention options throw before the client is accessed.
-      expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: value })).toThrow("maxAgeMs")
+      expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAge: value })).toThrow("maxAge must be a positive duration")
       // SAFETY: invalid retention options throw before the client is accessed.
       expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: value })).toThrow("maxRecords")
     }
     // SAFETY: invalid retention options throw before the client is accessed.
-    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAgeMs: Number.MAX_SAFE_INTEGER })).toThrow("maxAgeMs")
+    expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxAge: Number.MAX_SAFE_INTEGER })).toThrow("maxAge must be a positive duration")
     // SAFETY: constructing the store does not access the client.
     expect(() => createLibsqlAgentInvocationStore({ client: {} as Client, maxRecords: Number.MAX_SAFE_INTEGER })).not.toThrow()
 
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-unbounded-retention-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
     try {
       const expired = "2020-01-01T00:00:00.000Z"
       for (const id of ["first", "second", "third"]) {
@@ -6228,7 +6228,7 @@ describe("Agent Invocations", () => {
           }
         },
       }) as Client
-      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAge: false, maxRecords: false })
       const ordinaryReads = Promise.all([
         store.get("legacy-search-v2"),
         store.list(),
@@ -6329,7 +6329,7 @@ describe("Agent Invocations", () => {
           }
         },
       }) as Client
-      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client: stalledClient, maxAge: false, maxRecords: false })
       const ordinaryReads = Promise.all([
         store.get("legacy-summary"),
         store.getSummary("legacy-summary"),
@@ -6419,7 +6419,7 @@ describe("Agent Invocations", () => {
           }
         },
       }) as Client
-      const store = createLibsqlAgentInvocationStore({ client: transientClient, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client: transientClient, maxAge: false, maxRecords: false })
 
       await expect(store.list()).resolves.toEqual({
         invocations: [expect.objectContaining({ id: "legacy-summary-retry" })],
@@ -6448,7 +6448,7 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-fresh-overlap-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     try {
-      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
       await store.list()
       await client.execute({
         args: ["review completed", JSON.stringify({
@@ -6474,7 +6474,7 @@ describe("Agent Invocations", () => {
       await expect(store.list({ search: "fresh observation-only" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })
-      await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "fresh observation-only" }))
+      await expect(createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false }).list({ search: "fresh observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
 
       await store.update("fresh-overlapping-legacy-writer", {
@@ -6512,7 +6512,7 @@ describe("Agent Invocations", () => {
       await expect(store.list({ search: "updated observation-only" })).resolves.toMatchObject({
         invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })],
       })
-      await expect(createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false }).list({ search: "updated observation-only" }))
+      await expect(createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false }).list({ search: "updated observation-only" }))
         .resolves.toMatchObject({ invocations: [expect.objectContaining({ id: "fresh-overlapping-legacy-writer" })] })
     }
     finally {

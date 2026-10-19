@@ -48,7 +48,7 @@ async function seed(store: AgentInvocationStore) {
 const stores = {
   libsql: async () => {
     const directory = await temporaryDirectory()
-    return createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url: `file:${join(directory, "journal.sqlite")}` })
+    return createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${join(directory, "journal.sqlite")}` })
   },
   memory: async () => createMemoryAgentInvocationStore(),
 }
@@ -116,13 +116,13 @@ describe("Agent Invocation retention", () => {
   it("applies the SQLite store's configured retention when prune has no cutoff", async () => {
     const directory = await temporaryDirectory()
     const url = `file:${join(directory, "journal.sqlite")}`
-    await seed(createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url }))
-    const bounded = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAgeMs: 30 * day, maxRecords: false, url }) })
+    await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
+    const bounded = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: 30 * day, maxRecords: false, url }) })
 
     expect([...(await bounded.prune({ dryRun: true })).ids].sort()).toEqual(["old-completed", "old-failed"])
     expect([...(await bounded.prune()).ids].sort()).toEqual(["old-completed", "old-failed"])
 
-    const counted = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: 1, url }) })
+    const counted = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: 1, url }) })
     await counted.prune()
     const remaining = (await counted.list()).invocations.map(record => record.id).sort()
     expect(remaining).toEqual(["old-running", "recent-cancelled"])
@@ -132,7 +132,7 @@ describe("Agent Invocation retention", () => {
     const directory = await temporaryDirectory()
     const client = createClient({ url: `file:${join(directory, "journal.sqlite")}` })
     try {
-      const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+      const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
       await store.create(invocation("claimed", "completed"))
       expect(await store.claim("claimed", "owner", 30_000)).toBe(true)
       expect((await client.execute("SELECT id FROM vitehub_agent_invocations_claims")).rows).toHaveLength(1)
@@ -170,8 +170,8 @@ describe("vitehub agent invocations delete and prune", () => {
     const rootDir = await temporaryDirectory()
     await mkdir(join(rootDir, ".vitehub/data"), { recursive: true })
     const url = `file:${join(rootDir, ".vitehub/data/console.sqlite")}`
-    await seed(createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url }))
-    const read = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url }) })
+    await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
+    const read = defineAgentInvocations({ store: createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }) })
     return { read, rootDir }
   }
 
@@ -206,6 +206,42 @@ describe("vitehub agent invocations delete and prune", () => {
     await expect(runAgentInvocationsCli(["prune", "--older-than=36d"], { env: {}, rootDir, ...pruned })).resolves.toBe(0)
     expect(pruned.chunks.stdout).toMatch(/^old-completed\nDeleted 1 terminal Agent Invocation last updated before \S+\.\n$/)
     expect((await read.list()).invocations.map(record => record.id).sort()).toEqual(["old-failed", "old-running", "recent-cancelled"])
+  })
+
+  it("previews and prunes terminal records by size and count", async () => {
+    const { read, rootDir } = await consoleJournal()
+
+    const counted = output()
+    await expect(runAgentInvocationsCli(["prune", "--max-records", "1", "--dry-run", "--json"], { env: {}, rootDir, ...counted })).resolves.toBe(0)
+    expect(JSON.parse(counted.chunks.stdout)).toMatchObject({ dryRun: true, limits: { maxAge: false, maxRecords: 1, maxSize: false } })
+    expect([...JSON.parse(counted.chunks.stdout).ids].sort()).toEqual(["old-completed", "old-failed"])
+
+    const preview = output()
+    await expect(runAgentInvocationsCli(["prune", "--max-size", "1", "--dry-run", "--json"], { env: {}, rootDir, ...preview })).resolves.toBe(0)
+    const planned = JSON.parse(preview.chunks.stdout)
+    expect(planned).toMatchObject({ dryRun: true, size: { budgetBytes: 1 } })
+    expect([...planned.ids].sort()).toEqual(["old-completed", "old-failed", "recent-cancelled"])
+    expect((await read.list()).invocations).toHaveLength(4)
+
+    const pruned = output()
+    await expect(runAgentInvocationsCli(["prune", "--max-size=1B"], { env: {}, rootDir, ...pruned })).resolves.toBe(0)
+    expect(pruned.chunks.stdout).toContain("Deleted 3 terminal Agent Invocations.\n")
+    expect(pruned.chunks.stdout).toMatch(/Live data: .+ before, .+ after, budget 1 B\.\nThe journal is still above the budget\./)
+    expect((await read.list()).invocations.map(record => record.id)).toEqual(["old-running"])
+  })
+
+  it("rejects invalid size and count limits before opening the journal", async () => {
+    vi.mocked(createClient).mockClear()
+    const size = output()
+    await expect(runAgentInvocationsCli(["prune", "--max-size", "2PB"], { env: {}, ...size })).resolves.toBe(1)
+    expect(size.chunks.stderr).toContain("--max-size requires a size such as 500MB or 3GB, or a percent of the volume such as 30%.")
+    const count = output()
+    await expect(runAgentInvocationsCli(["prune", "--max-records", "0"], { env: {}, ...count })).resolves.toBe(1)
+    expect(count.chunks.stderr).toContain("--max-records requires a positive integer.")
+    const action = output()
+    await expect(runAgentInvocationsCli(["delete", "old-completed", "--max-size", "1GB"], { env: {}, ...action })).resolves.toBe(1)
+    expect(action.chunks.stderr).toContain("--max-size and --max-records are only supported for prune.")
+    expect(createClient).not.toHaveBeenCalled()
   })
 
   it.each(["list", "prune"])("rejects an invocation id for %s before reading or deleting records", async (action) => {
@@ -254,7 +290,7 @@ describe("vitehub agent invocations delete and prune", () => {
     await mkdir(appRoot)
     await mkdir(join(projectRoot, ".vitehub/data"), { recursive: true })
     const url = `file:${join(projectRoot, ".vitehub/data/console.sqlite")}`
-    await seed(createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url }))
+    await seed(createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url }))
     const io = output()
 
     await expect(runAgentInvocationsCli(["delete", "old-completed"], { env: {}, rootDir: appRoot, ...io })).resolves.toBe(0)

@@ -27,7 +27,7 @@ async function withStore(adapter: "memory" | "sqlite", run: (store: AgentInvocat
     if (adapter === "memory") return memory
     const client = createClient({ url: `file:${join(directory, "journal.sqlite")}` })
     clients.push(client)
-    return createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+    return createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
   }
   try { await run(open(), open) }
   finally {

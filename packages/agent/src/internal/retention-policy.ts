@@ -30,7 +30,7 @@ export function parseRetentionDuration(value: string): number | undefined {
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d|w)$/.exec(value.trim())
   if (!match) return
   const result = Math.round(Number(match[1]) * durationUnits[match[2]!]!)
-  return Number.isSafeInteger(result) && result >= 1 && result <= maximumAgeMs ? result : undefined
+  return Number.isSafeInteger(result) && result >= 1 ? result : undefined
 }
 
 /** Parses `500MB`, `3 GB` (1024-based, case-insensitive), or `45%`. Returns undefined for anything else. */
@@ -57,8 +57,8 @@ export function normalizeRetention(input: unknown, options: NormalizeRetentionOp
   if (!isRuntimeRecord(input) || Array.isArray(input)) throw error(`${label} must be an object with maxAge, maxRecords, or maxSize.`)
   for (const key of Object.keys(input)) {
     if (!retentionKeys.has(key)) {
-      const hint = key === "maxAgeMs" ? " Use maxAge." : ""
-      throw error(`${label} has an unknown key ${JSON.stringify(key)}.${hint} Use maxAge, maxRecords, or maxSize.`)
+      const fix = key === "maxAgeMs" ? "Rename it to maxAge." : "Use maxAge, maxRecords, or maxSize."
+      throw error(`${label} has an unknown key ${JSON.stringify(key)}. ${fix}`)
     }
   }
   return {
@@ -73,8 +73,8 @@ function normalizeMaxAge(value: unknown, { defaults, error, label }: NormalizeRe
   if (value === false) return false
   const result = hasRuntimeType(value, "string")
     ? parseRetentionDuration(value)
-    : hasRuntimeType(value, "number") && Number.isSafeInteger(value) && value >= 1 && value <= maximumAgeMs ? value : undefined
-  if (result === undefined) throw error(`${label} maxAge must be a positive duration such as 14d, a number of milliseconds, or false.`)
+    : hasRuntimeType(value, "number") && Number.isSafeInteger(value) && value >= 1 ? value : undefined
+  if (result === undefined || result > maximumAgeMs) throw error(`${label} maxAge must be a positive duration such as 14d, a number of milliseconds, or false.`)
   return result
 }
 

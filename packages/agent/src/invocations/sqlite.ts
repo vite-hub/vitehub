@@ -860,9 +860,13 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   }
   /** Returns free pages to the file system. A failure only delays it, so it does not fail the prune. */
   const vacuumFreePages = async () => {
-    await client.execute(`PRAGMA incremental_vacuum(${incrementalVacuumPages})`).catch((error: unknown) => {
-      console.warn(`[vitehub] SQLite Agent Invocation incremental vacuum failed: ${error instanceof Error ? error.message : String(error)}`)
-    })
+    try {
+      const { incrementalVacuum } = await import("../internal/retention-volume.ts")
+      await incrementalVacuum(storePath!, incrementalVacuumPages)
+    }
+    catch (error) {
+      console.warn(`[vitehub] SQLite Agent Invocation incremental vacuum failed. The next prune frees the remaining pages: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   const sizeCadence = createSizeRetentionCadence()
   let knownBudgetBytes: number | undefined

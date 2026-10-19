@@ -26,12 +26,13 @@ import type { Value } from "@libsql/client"
 import type { ConsoleUsageClient } from "./usage-index.ts"
 import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleFixture } from "../../fixture.ts"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleD1MaxSizeError } from "../../retention.ts"
 
 // Content attributes that the Console journal keeps in metadata mode: prompts, results, tool input and output.
 // `input.data` and `result.output` are the structured forms, such as `driver.ask` state and answers.
@@ -125,9 +126,9 @@ const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocati
 const consoleDatabaseConfigurations = new WeakMap<AgentInvocations, string>()
 const consoleObservationConfigurations = new WeakMap<AgentInvocations, string>()
 
-function observationConfiguration(observations: AgentInvocationsOptions["observations"], retention?: AgentInvocationRetentionOptions): string {
+function observationConfiguration(observations: AgentInvocationsOptions["observations"], retention?: AgentRetentionPolicy): string {
   const configuration = JSON.stringify(observations, ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"]) ?? "undefined"
-  return retention === undefined ? configuration : `${configuration}:${JSON.stringify(retention, ["maxAgeMs", "maxRecords"])}`
+  return retention === undefined ? configuration : `${configuration}:${JSON.stringify(retention, ["maxAge", "maxRecords", "maxSize"])}`
 }
 
 export function getConsoleInvocations(): AgentInvocations {
@@ -201,7 +202,9 @@ function isD1Database(value: unknown): value is ConsoleD1Database {
 }
 
 /** Console journal in the app's D1 database. The store creates its table on first use and keeps its default retention. */
-export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], retention?: AgentInvocationRetentionOptions): AgentInvocations {
+export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], retention?: AgentRetentionPolicy): AgentInvocations {
+  const { maxSize, ...limits } = retention ?? {}
+  if (maxSize !== undefined && maxSize !== false) throw consoleD1MaxSizeError()
   // Keep only completed initialization; Worker requests cannot share pending I/O.
   const migrated = new WeakSet<AgentInvocationD1Database>()
   const database = async () => {
@@ -219,7 +222,7 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
     configuration: "content",
     metadataContent: consoleMetadataContent,
     observations,
-    store: createD1AgentInvocationStore({ database, migrate: false, ...retention }),
+    store: createD1AgentInvocationStore({ database, migrate: false, ...limits }),
   })
   const db = drizzleRemote(async (query, parameters, method) => {
     const binding = await database()
@@ -279,7 +282,7 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
 }
 
 /** Console journals keep every terminal record unless `retention` sets a limit. */
-export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string, retention?: AgentInvocationRetentionOptions): AgentInvocations {
+export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string, retention?: AgentRetentionPolicy): AgentInvocations {
   const database = resolveConsoleDatabaseOptions(projectRoot, databaseUrl)
   const client = createClient(database)
   let invocations: AgentInvocations
@@ -290,8 +293,9 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
       observations,
       store: createLibsqlAgentInvocationStore({
         client,
-        maxAgeMs: retention?.maxAgeMs === undefined ? false : retention.maxAgeMs,
+        maxAge: retention?.maxAge === undefined ? false : retention.maxAge,
         maxRecords: retention?.maxRecords === undefined ? false : retention.maxRecords,
+        maxSize: retention?.maxSize === undefined ? false : retention.maxSize,
       }),
     })
   }
@@ -329,7 +333,7 @@ export function installConsoleInvocations(
   observations?: AgentInvocationsOptions["observations"],
   databaseUrl?: string,
   d1?: ConsoleD1Journal,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
 ): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const identity = createConsoleInvocationsIdentity(resolvedRoot)

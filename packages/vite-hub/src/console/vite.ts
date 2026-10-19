@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Environment, Plugin, ResolvedConfig } from "vite"
@@ -15,7 +15,7 @@ import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/se
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
-import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
+import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
@@ -73,7 +73,7 @@ export interface ConsoleOptions {
   /** Let the Console start Agent Invocations and run manual Schedules. Defaults to `true` in development and `false` in production builds. */
   invoke?: boolean
   observations?: AgentInvocationsOptions["observations"]
-  retention?: AgentInvocationRetentionOptions
+  retention?: AgentRetentionPolicy
 }
 
 /** Direct plugin use without Console options in development installs the development-only `local` policy. */
@@ -415,7 +415,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let invoke = false
   let journal: ConsoleJournal | undefined
   let observations: AgentInvocationsOptions["observations"]
-  let retention: AgentInvocationRetentionOptions | undefined
+  let retention: AgentRetentionPolicy | undefined
   let consoleAuthHandlers: ConsoleAuthHandlers | undefined
   let consoleAuthMode: true | "cloudflare-access" | false = false
   let resolvedConsoleConfiguration: ConsoleOptions | undefined
@@ -600,6 +600,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       journal = resolveConsoleJournal(configuredDatabaseUrl, build && !configuredDatabaseUrl ? options.resolveD1Binding?.(root, serverDirs) : undefined, build)
       observations = configured.observations
       retention = configured.retention
+      assertConsoleRetention(retention, journal)
       invoke = !fixture && (configured.invoke ?? !build)
       generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
       if (fixture && options.invocationRootState) {
