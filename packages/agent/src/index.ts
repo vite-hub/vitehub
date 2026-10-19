@@ -2406,16 +2406,16 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const executionBudget = executionBudgetHasConstraints(context.input)
-      ? createExecutionBudget({
-          ...(context.input.executionBudget || {}),
-          ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
-          signal: context.input.abortSignal,
-        })
-      : undefined
+    // Keep the budget passed to the invocation context owned by this synthetic
+    // run, including unconstrained runs where the context's default is used.
+    const executionBudget = createExecutionBudget({
+      ...(context.input.executionBudget || {}),
+      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
+      signal: context.input.abortSignal,
+    })
     const invocationInput = {
       ...context.input,
-      ...(executionBudget ? { abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal } : {}),
+      abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
     }
     let release: (() => void) | undefined
     let budgetDeferred = false
