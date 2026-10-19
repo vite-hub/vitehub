@@ -2,6 +2,7 @@ import type { AgentProviderCredentialContext } from "../src/types.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
@@ -87,6 +88,13 @@ import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 import { prepareGitHubPullRequestWorkspace } from "../src/server/github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts"
+
+/** The `developer_instructions` value of the last Codex launch, as Codex parses it. */
+function launchedCodexDeveloperInstructions(): string | undefined {
+  const [, value] = /-c "developer_instructions=((?:[^"\\]|\\.)*)"/.exec(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)) ?? []
+  // The runtime unescapes these characters inside a double-quoted argument. Codex parses the result as TOML.
+  return value === undefined ? undefined : JSON.parse(value.replace(/\\(["\\$`])/g, "$1"))
+}
 
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { payload, threadId, type, ...extra }
@@ -886,7 +894,8 @@ describe("Provider Agent Driver", () => {
       expect(provider.close).toHaveBeenCalledOnce()
       expect(abortSignal.aborted).toBe(false)
       root = cwd
-      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toContain("exit evidence instructions")
+      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe("")
+      expect(launchedCodexDeveloperInstructions()).toBe("exit evidence instructions")
       evidence = await readFile(join(cwd, "proof.txt"), "utf8")
       if (fail) throw new Error("evidence failed")
     })
@@ -4546,7 +4555,8 @@ cli_auth_credentials_store = "keyring"
       async onStartSession() {
         expect(createProviderRuntime.mock.lastCall?.[0].cwd).toBe(join(root, "portal"))
         expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: join(root, "portal") }))
-        const instructions = await readFile(join(root, "portal", "AGENTS.md"), "utf8")
+        expect(await readFile(join(root, "portal", "AGENTS.md"), "utf8")).toBe("")
+        const instructions = launchedCodexDeveloperInstructions()
         expect(instructions).toContain("provider instructions")
         expect(instructions).toContain('"mount": ""')
         expect(instructions).not.toContain('"mount": "portal"')
@@ -4836,8 +4846,11 @@ cli_auth_credentials_store = "keyring"
           expect(git("rev-parse", "MERGE_HEAD").trim()).toBe(git("rev-parse", "target").trim())
           expect(git("show", ":AGENTS.md")).toBe("updated source instructions")
           expect(git("show", ":CLAUDE.md")).toBe("updated source Claude instructions")
-          const promptPath = provider === "codex" ? "AGENTS.md" : ".claude/vitehub-system-prompt.md"
-          expect(await readFile(join(root, promptPath), "utf8")).toBe("generated repair instructions")
+          if (provider === "codex") {
+            expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("")
+            expect(launchedCodexDeveloperInstructions()).toBe("generated repair instructions")
+          }
+          else expect(await readFile(join(root, ".claude/vitehub-system-prompt.md"), "utf8")).toBe("generated repair instructions")
           await writeFile(join(root, "repair.txt"), "repair")
           git("add", "-A")
           git("commit", "-qm", "finish repair merge")
@@ -5211,6 +5224,86 @@ cli_auth_credentials_store = "keyring"
         : change === "edit" ? "edited instructions\nprovider addition"
           : change === "replace" ? "replacement instructions" : original)
     }
+  })
+
+  it("keeps Codex driver instructions in a prompt prefix that is identical across invocations", async () => {
+    // Codex renders AGENTS.md under "# AGENTS.md instructions for <cwd>". Each
+    // invocation has its own root, so that header must not carry the instructions.
+    const invocations: Array<{ agents: string, launchArgs: string, root: string }> = []
+    for (const index of [1, 2]) {
+      const threadId = `thread-codex-stable-prefix-${index}`
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onStartSession() {
+          const options = createProviderRuntime.mock.lastCall?.[0]
+          const root = String(options?.cwd)
+          invocations.push({ agents: await readFile(join(root, "AGENTS.md"), "utf8"), launchArgs: String(options?.settings?.launchArgs), root })
+        },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ instructions: "Repair one \"PR\" with `git` and $HOME.\nThen stop.", provider: "codex" }).generate(context(threadId) as never)
+    }
+    const [first, second] = invocations
+    expect(first!.root).not.toBe(second!.root)
+    expect(first!.agents).toBe("")
+    expect(second!.agents).toBe("")
+    expect(first!.launchArgs).toBe(second!.launchArgs)
+    expect(first!.launchArgs).not.toContain(first!.root)
+    expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
+  })
+
+  it("resumes a Codex session only with the developer instructions it started with", async () => {
+    const threadId = `thread-codex-developer-resume-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    let instructions = "first instructions"
+    const turn = (cursor: string) => runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: cursor })
+    const messages = [
+      { parts: [{ text: "previous question", type: "text" }], role: "user" },
+      { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+      { parts: [{ text: "continue", type: "text" }], role: "user" },
+    ]
+    const generate = () => createProviderAgentAdapter({ instructions: () => instructions, provider: "codex", sessionStorePath: path })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      .generate(context(threadId, { messages, prompt: "continue" }) as never)
+
+    turn("cursor-1")
+    await generate()
+    const durableStore = await lastDurableProviderSessionStore()
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      instructions: createHash("sha256").update("first instructions").digest("hex"),
+      value: "cursor-1",
+    })
+
+    const unchanged = turn("cursor-2")
+    await generate()
+    expect(unchanged.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "cursor-1" }))
+    expect(unchanged.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue" }))
+
+    // Codex would keep rendering the old developer instructions in a resumed thread.
+    instructions = "changed instructions"
+    const changed = turn("cursor-3")
+    await generate()
+    expect(changed.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(changed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining("previous answer") }))
+
+    // A cursor stored before developer instructions belongs to a thread that read AGENTS.md.
+    await durableStore.set(persistedThreadId, { __vitehubProviderSessionCursor: "ready", value: "legacy-cursor" })
+    const legacy = turn("cursor-4")
+    await generate()
+    expect(legacy.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+  })
+
+  it("keeps Codex driver instructions in AGENTS.md when a launch-argument override would drop them", async () => {
+    const threadId = "thread-codex-launch-override-instructions"
+    let agents = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { agents = await readFile(join(String(createProviderRuntime.mock.lastCall?.[0].cwd), "AGENTS.md"), "utf8") },
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ env: { T3CODE_CODEX_LAUNCH_ARGS: "--enable example" }, instructions: "override instructions", provider: "codex" }).generate(context(threadId) as never)
+    expect(agents).toBe("override instructions")
+    expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)).not.toContain("developer_instructions")
   })
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {

@@ -206,12 +206,26 @@ function toRequest(request: AuthRequest): Request {
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
   init.headers = new Headers(request.headers as HeadersInit)
-  if (request.signal instanceof AbortSignal) init.signal = request.signal
+  // Preserve genuine AbortSignals from another Fetch realm when rebuilding a
+  // request. `instanceof` only recognizes this realm's constructor.
+  if (isAbortSignalLike(request.signal)) init.signal = request.signal as AbortSignal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
   }
   return new Request(request.url, init)
+}
+
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object AbortSignal]") return false
+    if (Object.prototype.hasOwnProperty.call(value, "aborted")) return false
+    return typeof Reflect.get(value, "aborted") === "boolean"
+  }
+  catch {
+    return false
+  }
 }
 
 export function createAuthRequestRuntimeOptions(
