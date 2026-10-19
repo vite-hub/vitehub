@@ -57,10 +57,14 @@ export interface ScheduleDefinitionRegistry {
 /** Discovered targets that allow Runtime Schedules. */
 export interface ScheduleTargetRegistry {}
 
-export type RegisteredScheduleTargetName = Extract<keyof ScheduleTargetRegistry, string>
-export type ScheduleTargetInput<TTarget extends RegisteredScheduleTargetName> = ScheduleTargetRegistry[TTarget] extends { handler: (context: infer TContext) => unknown }
-  ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
-  : never
+/** Target names declared by generated or consumer type augmentation. */
+type RegisteredScheduleTargetKeys = Extract<keyof ScheduleTargetRegistry, string>
+export type RegisteredScheduleTargetName = [RegisteredScheduleTargetKeys] extends [never] ? ScheduleTargetName : RegisteredScheduleTargetKeys
+export type ScheduleTargetInput<TTarget extends RegisteredScheduleTargetName> = TTarget extends keyof ScheduleTargetRegistry
+  ? ScheduleTargetRegistry[TTarget] extends { handler: (context: infer TContext) => unknown }
+    ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
+    : never
+  : unknown
 
 // Durable records and operational calls can reference targets outside this build.
 export type ScheduleTargetName = string & {}
