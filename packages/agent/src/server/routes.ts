@@ -1771,7 +1771,9 @@ async function executeQueuedWebhookDelivery(
         invocation = undefined
         handledResponse = resolved.response
         // `retryLater(reason)` and other 5xx answers retry the delivery. The error names the reason.
-        const retryReason = handledResponse.status >= 500 ? await handledResponseReason(handledResponse) : undefined
+        const retryReason = handledResponse.status >= 500
+          ? await Promise.race([handledResponseReason(handledResponse), executionTimeout])
+          : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
