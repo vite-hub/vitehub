@@ -82,7 +82,7 @@ describe("useCollection", () => {
     scope.stop()
   })
 
-  it("exposes total and facets from the latest page", async () => {
+  it("retains the first defined total and facets across pages", async () => {
     const { calls, request } = controlledRequester()
     const scope = effectScope()
     let collection!: UseCollectionReturn<typeof definition>
@@ -101,8 +101,28 @@ describe("useCollection", () => {
     const next = collection.loadMore()
     calls[1]!.resolve({ ...page([{ id: 2 }], null), facets: { kind: [{ count: 2, value: "a" }] }, total: 2 })
     await next
+    expect(collection.total.value).toBe(3)
+    expect(collection.facets.value).toEqual({ kind: [{ count: 3, value: "a" }] })
+    scope.stop()
+  })
+
+  it("retains metadata when later all-pages omit it", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), total: 2, facets: { kind: [{ count: 1, value: "a" }] } })
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], null))
+    await refresh
+
+    expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }])
     expect(collection.total.value).toBe(2)
-    expect(collection.facets.value).toEqual({ kind: [{ count: 2, value: "a" }] })
+    expect(collection.facets.value).toEqual({ kind: [{ count: 1, value: "a" }] })
     scope.stop()
   })
 
