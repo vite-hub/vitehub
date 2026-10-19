@@ -653,7 +653,8 @@ function bridgeAuthorizationBody(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+        const sourceReader = await acquire()
+        const result = await Reflect.apply(read, sourceReader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
@@ -714,6 +715,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
 
@@ -723,6 +725,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (!(value instanceof localResponseConstructor) && body !== null && bodyUsed === true) return
     let intrinsicStatus: unknown
     let intrinsicStatusText: unknown
     let intrinsicHeaders: unknown
