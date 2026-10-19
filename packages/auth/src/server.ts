@@ -608,7 +608,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           // a reader for a different stream between validation and bridging.
           validatedAuthorizationReaders.set(body, ownershipReader)
           foreignReaderMethods.set(constructor, probeMethods)
-          return descriptor.value
+          return descriptor.value as (this: object) => ReadableStreamDefaultReader<Uint8Array>
         }
         return
       }
@@ -829,6 +829,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
 
+    // Native same-runtime Responses are already trusted; avoid acquiring a
+    // reader that would lock the caller's body before returning it.
+    if (value instanceof Response) return value
+
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
@@ -845,12 +849,25 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (sourceResponse.body !== body) return
       const converted = sourceResponse
       body = converted.body
-      const convertedReader = nativeStreamGetReader?.call(body)
+      const convertedReader: object | undefined = nativeStreamGetReader ? (nativeStreamGetReader.call(body) as object) : undefined
       if (!convertedReader) return
       nativeBodyReader = nativeStreamGetReader
-      validatedAuthorizationReaders.set(body, convertedReader)
+      validatedAuthorizationReaders.set(body as object, convertedReader)
     }
-    if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
+    if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) {
+      if (body) {
+        const rejectedReader = validatedAuthorizationReaders.get(body)
+        if (rejectedReader) {
+          try {
+            const release = Object.getPrototypeOf(rejectedReader)?.releaseLock
+            if (typeof release === "function") Reflect.apply(release, rejectedReader, [])
+          }
+          catch {}
+          validatedAuthorizationReaders.delete(body)
+        }
+      }
+      return
+    }
 
     // Reader validation yields to the event loop. Re-read the source
     // response's intrinsic disturbed state immediately before acquiring the
