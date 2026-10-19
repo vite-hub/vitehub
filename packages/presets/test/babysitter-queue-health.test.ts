@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import type { GitHubInboxSummary } from "../src/server/github-inbox.ts";
-import { babysitterQueueHealth } from "../src/presets/babysitter/queue-health.ts";
+import type { GitHubInboxSummary } from "../src/babysitter/inbox/store.ts";
+import { babysitterQueueHealth } from "../src/babysitter/queue-health.ts";
 
 it("distinguishes runnable work, scheduled preparation, suppression, and external blockers", () => {
   const summary: GitHubInboxSummary = { repository: "acme/app", number: 1, head: "a", generation: 2, handled: 1, status: "ready", reasons: [], dirty: true, attempts: 0, nextAt: 0, dirtyAt: 100 };
