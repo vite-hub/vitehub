@@ -138,7 +138,7 @@ export function connectGitHubRepository(repository: string, token: string): GitH
 
 /**
  * Run one Forge call. A failed request becomes a Workspace error that keeps the Forge error as its cause.
- * With `response`, a `TypeError` from the Forge response mapping becomes a malformed `response` error.
+ * With `response`, a Forge response mapping error becomes a malformed `response` error.
  */
 export async function githubRequest<T>(
   repository: GitHubRepository,
@@ -151,12 +151,20 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    if (status === undefined && response && (error instanceof ForgeResponseError || error instanceof TypeError) && !(error instanceof GitHubNetworkError)) {
+    if (status === undefined && response && isForgeResponseError(error)) {
       throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
     throw workspaceError(`[vitehub] GitHub workspace request failed for ${repository.name}: ${status} ${error instanceof Error ? error.message : ""}`.trim(), { cause: error });
   }
+}
+
+/** Forge uses TypeError for some successful-response mappers; keep request TypeErrors as transport errors. */
+function isForgeResponseError(error: unknown): boolean {
+  if (error instanceof ForgeResponseError) return true;
+  if (!(error instanceof TypeError) || error instanceof GitHubNetworkError) return false;
+  const stack = error.stack ?? "";
+  return stack.includes("github-") && !stack.includes("utils-");
 }
 
 /** The HTTP status of the GitHub request behind a Workspace error. */
