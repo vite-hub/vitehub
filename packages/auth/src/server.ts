@@ -312,7 +312,12 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result = await authorize(context)
+  const returned = authorize(context)
+  // Normalize a direct Response before promise assimilation. A Response may
+  // expose a callable `then` property and must remain a response value.
+  const directResponse = await normalizeAuthorizationResponse(returned)
+  if (directResponse) return directResponse
+  const result = await returned
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
@@ -440,11 +445,21 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
   try {
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  // Capture releaseLock first. If later descriptor reflection fails, this
+  // source-realm intrinsic still releases the exact reader we acquired.
+  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
+    releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
+    if (typeof releaseLock === "function") break
+  }
+  if (typeof releaseLock !== "function") {
+    releaseAuthorizationReader(reader)
+    return
+  }
+  readerPrototype = Object.getPrototypeOf(reader)
   for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
     if (!read) read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as typeof read
     if (!cancel) cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as typeof cancel
-    if (!releaseLock) releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
-    if (read && cancel && releaseLock) break
+    if (read && cancel) break
   }
   // Capture a prototype intrinsic before touching the instance property. If
   // the instance lookup is a throwing accessor, cleanup can still release the
