@@ -21,7 +21,6 @@ async function validateExecutable(path: string): Promise<void> {
     const buffer = Buffer.alloc(256);
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0).finally(() => file.close());
     const bytes = buffer.subarray(0, bytesRead);
-    const header = bytes.toString("utf8");
     if (!(bytes[0] === 0x23 && bytes[1] === 0x21)) {
       const elf = bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46;
       const macho = [
@@ -38,6 +37,7 @@ async function validateExecutable(path: string): Promise<void> {
         throw new Error(`Executable has no interpreter: ${path}`);
       }
     } else {
+      const header = bytes.toString("utf8");
       const line = header.slice(2, header.indexOf("\n") < 0 ? undefined : header.indexOf("\n")).trim();
       const parts = line.split(/\s+/).filter(Boolean);
       const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env"
