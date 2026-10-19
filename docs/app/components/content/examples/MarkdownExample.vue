@@ -8,5 +8,5 @@ The error row now reserves its full height.`;
 </script>
 
 <template>
-  <AgentMarkdown :value="answer" />
+  <Markdown :value="answer" />
 </template>
