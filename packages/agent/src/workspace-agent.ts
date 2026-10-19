@@ -35,6 +35,7 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { formatRetentionPercentage } from "./internal/retention-policy.ts"
 import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
@@ -828,7 +829,7 @@ function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentIns
     ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
     ...(retention.maxSize === false
       ? {}
-      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${retention.maxSize.fraction * 100}%` }),
+      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${formatRetentionPercentage(retention.maxSize.fraction)}%` }),
   }
 }
 

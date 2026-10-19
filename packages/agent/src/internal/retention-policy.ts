@@ -19,6 +19,19 @@ export interface NormalizeRetentionOptions {
   error: (message: string) => Error
 }
 
+/** Formats a normalized fraction as a percentage without binary floating-point artifacts. */
+export function formatRetentionPercentage(fraction: number): `${number}` {
+  const source = fraction.toString().match(/^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i)
+  if (!source) return `${fraction * 100}` as `${number}`
+  const digits = `${source[1]}${source[2] || ""}`
+  const decimalIndex = source[1]!.length + Number(source[3] || 0) + 2
+  let result: string
+  if (decimalIndex <= 0) result = `0.${"0".repeat(-decimalIndex)}${digits}`
+  else if (decimalIndex >= digits.length) result = `${digits}${"0".repeat(decimalIndex - digits.length)}`
+  else result = `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
+  return result.replace(/^0+(?=\d)/, "").replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1") as `${number}`
+}
+
 const durationUnits: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }
 const sizeUnits: Record<string, number> = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 }
 const retentionKeys = new Set(["maxAge", "maxRecords", "maxSize"])
