@@ -1176,10 +1176,11 @@ function persistedWebhookInvocation(
 function queuedWebhookTask(
   trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>,
   saved: NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+  options: { validateOwnership?: boolean } = {},
 ) {
   if (saved.task === undefined) return undefined
   const task = agentTriggerTask(trigger, saved.task)
-  if (saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
+  if (options.validateOwnership !== false && saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
     throw new Error(`[vitehub] Queued task "${saved.task}" of trigger "${trigger.id}" no longer runs the Agent it was accepted for.`)
   }
   return task
@@ -1577,7 +1578,11 @@ async function notifyQueuedWebhookFailure(
     if (match && taskKey !== undefined) {
       try {
         // Apply the same persisted-Agent identity check used by queued replay.
-        const task = queuedWebhookTask(match.trigger, { ...(delivery.invocation ?? {}), task: taskKey } as NonNullable<AgentWebhookQueueDelivery["invocation"]>)
+        const task = queuedWebhookTask(
+          match.trigger,
+          { ...(delivery.invocation ?? {}), task: taskKey } as NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+          { validateOwnership: delivery.invocation?.task !== undefined || delivery.invocation?.agentName !== undefined },
+        )
         taskFailed = task?.failed
       }
       catch {
@@ -1898,7 +1903,9 @@ async function executeQueuedWebhookDelivery(
         throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       }
       const taskKey = trigger ? queuedWebhookTaskKey(trigger, saved, invocation?.run) : undefined
-      const task = trigger && taskKey !== undefined ? queuedWebhookTask(trigger, { ...saved, task: taskKey }) : undefined
+      const task = trigger && taskKey !== undefined
+        ? queuedWebhookTask(trigger, { ...saved, task: taskKey }, { validateOwnership: saved.task !== undefined || saved.agentName !== undefined })
+        : undefined
       if (trigger && invocation) {
         accepted = {
           ...(task?.agent ? { agent: task.agent } : {}),
