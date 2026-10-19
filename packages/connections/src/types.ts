@@ -1,3 +1,6 @@
+import type { Result } from "@vite-hub/runtime"
+
+import type { ConnectionsErrorCode } from "./errors.ts"
 import type { EnvAccessContext } from "@vite-hub/env/bridge"
 import type { EnvDatabase } from "@vite-hub/env/database"
 
@@ -351,8 +354,8 @@ type MethodDryRunResult<TSignature, TDryRun extends boolean> = TSignature extend
 
 /** A typed provider method. In dry run, a skipped write resolves to `undefined`. */
 export type ConnectionMethod<TSignature, TDryRun extends boolean = false> = object extends MethodInput<TSignature>
-  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
-  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
+  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<Result<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>, ConnectionsErrorCode>>
+  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<Result<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>, ConnectionsErrorCode>>
 
 type Head<TId extends string> = TId extends `${infer THead}.${string}` ? THead : TId
 
@@ -369,11 +372,12 @@ export type ConnectionClient<TApis extends object = object, TSelection = Connect
   /**
    * Call a provider URL with the Connection token. GET is a read. Other methods are
    * writes, and an access rule must name `fetch` to allow them.
+   * Returns `[error, response]`. A provider error status is in `response.status`, not in `error`.
    */
-  fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Response>
+  fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>
   /**
-   * The Connection status, for example `"connected"`. It never rejects: a Connection that cannot be
-   * inspected, for example because its store cannot open, is `"disconnected"`.
+   * The Connection status, for example "connected". It never rejects: a Connection that cannot be
+   * inspected, for example because its store cannot open, is "disconnected".
    */
   status: () => Promise<ConnectionStatus>
 } & {

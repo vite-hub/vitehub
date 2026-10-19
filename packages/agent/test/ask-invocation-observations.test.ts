@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ask } from "../src/ask.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
+import { usage } from "../src/capabilities/usage.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import type { AgentInvocationRecord } from "../src/invocations.ts"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
@@ -123,6 +124,38 @@ describe("ask Driver Invocation observations", () => {
       second: { choice: "different" },
     })
     expect(JSON.stringify(parent)).not.toContain("secret-key")
+  })
+
+  it("adds each Jev request to the Invocation usage record, which usage({ pricing }) prices", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const finished: unknown[] = []
+    const agent = defineAgent({
+      capabilities: [usage({ pricing: ({ usage }) => ({ estimated: false, source: "test", usd: ((usage.inputTokens ?? 0) / 1e6).toFixed(6) }) })],
+      // Three questions of about 22 KB each need two Jev requests.
+      driver: { ask: () => ask.each(["first", "second", "third"], {
+        key: name => name,
+        question: name => ask.choice(`Compare candidate ${name}: ${"x".repeat(22_000)}`, ["duplicate", "different"]),
+      }) },
+      hooks: { "agent:finish": (event) => { finished.push(event.invocation.usage) } },
+      invocations,
+      name: "priced",
+      runtime: false,
+    })
+    await runAgent(agent, runtime(), { data: "ticket" })
+    const summary = (await invocations.list()).invocations[0]
+    const record = summary ? await invocations.get(summary.id) : undefined
+
+    expect(systemOne).toHaveBeenCalledTimes(2)
+    const expected = {
+      calls: [
+        { model: "jev-test", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 2, totalTokens: 102 } },
+        { model: "jev-test", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 1, totalTokens: 101 } },
+      ],
+      model: "jev-test",
+      usage: { inputTokens: 200, outputTokens: 3, totalTokens: 203 },
+    }
+    expect(finished).toMatchObject([{ ...expected, cost: { usd: "0.0002" } }])
+    expect(named(record, "agent.invocation.finish")[0]?.attributes?.["usage.record"]).toMatchObject({ ...expected, cost: { usd: "0.0002" } })
   })
 
   it("records a failed request as agent.tool.error for each unanswered question", async () => {
