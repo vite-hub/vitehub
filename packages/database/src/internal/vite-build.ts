@@ -165,7 +165,7 @@ export async function writeHostedDatabaseRuntimeModules(
   return definitionDefaultsFile
 }
 
-async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string): Promise<Omit<GeneratedDBArtifacts, "blobRuntimeModules">> {
+async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBViteConfig, appRootDir = rootDir, artifactDir?: string, providers: readonly DBProvider[] = ["cloudflare", "vercel"]): Promise<Omit<GeneratedDBArtifacts, "blobRuntimeModules">> {
   const generatedDir = artifactDir ?? ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
@@ -174,9 +174,9 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
   })
   const entryFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
   const runtimeModuleFiles: Record<DBProvider, string> = { cloudflare: "", vercel: "" }
-  const definitionDefaultsFile = await writeHostedDatabaseRuntimeModules(generatedDir, runtimeConfig)
+  const definitionDefaultsFile = await writeHostedDatabaseRuntimeModules(generatedDir, runtimeConfig, providers)
 
-  await Promise.all(providerEntrySpecs.map(async (spec) => {
+  await Promise.all(providerEntrySpecs.filter(spec => providers.includes(spec.name)).map(async (spec) => {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const runtimeModuleFile = resolve(generatedDir, `${spec.name}-runtime.mjs`)
     entryFiles[spec.name] = entryFile
@@ -397,13 +397,18 @@ export async function generateProviderOutputs(
 }
 
 export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "appRootDir" | "generation" | "providerOutput" | "rootDir" | "runtimeConfig"> & { artifactDir?: string }): Promise<GeneratedDBArtifacts> {
+  const provisionState = readProvisionStateSync(options.rootDir)
+  const providers: DBProvider[] = [
+    ...(shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? ["cloudflare" as const] : []),
+    ...(shouldCreateVercelOutput(options.runtimeConfig) ? ["vercel" as const] : []),
+  ]
   const artifacts = {
-    ...await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir, options.artifactDir),
+    ...await writeProviderEntries(options.rootDir, options.runtimeConfig, options.appRootDir, options.artifactDir, providers),
     blobRuntimeModules: {
       cloudflare: getProviderRuntimeModule(options.providerOutput, "blob", "cloudflare", options.generation),
       vercel: getProviderRuntimeModule(options.providerOutput, "blob", "vercel", options.generation),
     },
   }
-  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir), options.generation)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState, options.generation)
   return artifacts
 }
