@@ -140,8 +140,20 @@ describe("forgeBlob", () => {
     await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
   })
 
+  it("accepts empty blobs and base64 response whitespace", async () => {
+    const encoded = Buffer.from("target.md").toString("base64")
+    const fake = githubRoutes({
+      "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: ` ${encoded.slice(0, 4)}\n${encoded.slice(4)}\n`, encoding: "base64", sha: "abc" }),
+    })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+    await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).resolves.toEqual(Uint8Array.from(Buffer.from("target.md")))
+
+    const empty = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: "", encoding: "base64", sha: "abc" }) })
+    const emptyProvider = await forgeProvider({ forge: "github", token: "secret", fetch: empty.fetch })
+    await expect(forgeBlob(emptyProvider, repo(emptyProvider, "acme", "app"), "abc")).resolves.toEqual(new Uint8Array())
+  })
+
   it.each([
-    { content: "", encoding: "base64", sha: "abc" },
     { content: "not-base64", encoding: "base64", sha: "abc" },
     { content: Buffer.from("target.md").toString("base64"), encoding: "base64", sha: "" },
   ])("rejects an invalid blob payload: %j", async (payload) => {
