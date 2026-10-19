@@ -2406,12 +2406,29 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    let release = await acquireAgentCapacity(definition, context.input.abortSignal)
+    const executionBudget = createExecutionBudget({
+      ...(context.input.executionBudget || {}),
+      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined
+        ? { deadlineAt: Date.now() + context.input.timeout }
+        : {}),
+      signal: context.input.abortSignal,
+    })
+    const budgetAbortSignal = context.input.abortSignal
+      ? AbortSignal.any([context.input.abortSignal, executionBudget.signal])
+      : executionBudget.signal
+    const callerAbortSignal = agentInvocationCallerAbortSignal(context.input)
+    const budgetedInput = { ...context.input, abortSignal: budgetAbortSignal }
+    transferParsedAgentWorkflowInput(context.input, budgetedInput)
+    markAgentInvocationCallerAbortSignal(budgetedInput, callerAbortSignal)
+    const budgetedContext = { ...context, input: budgetedInput }
+    // Build the deadline budget before waiting for a capacity slot so timeout and deadline
+    // cancellation also interrupt synthetic workspace runs queued behind another Invocation.
+    let release = await acquireAgentCapacity(definition, budgetAbortSignal)
     try {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, budgetedContext)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+      const invocationContext = await createAgentInvocationContext(definition as never, budgetedContext as never, budgetedInput, "run", undefined, undefined, executionBudget)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
