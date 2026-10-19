@@ -60,8 +60,14 @@ function readDefinitionObjectBody(file: string) {
   // Search from the statement boundary rather than a fixed-size prefix. Long
   // comments or whitespace between `export default` and the call must not
   // cause the selector to fall back to an earlier decoy call.
-  const call = calls.find(item => /(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*$/.test(maskedSource.slice(0, item.start)))
-    || calls[0]
+  const call = calls.find((item) => {
+    const prefix = maskedSource.slice(0, item.start)
+    if (/(?:^|[;\n\r\u2028\u2029])\s*export\s+default\s*\(*\s*$/.test(prefix)) return true
+    const assignment = /(?:^|[;\n\r\u2028\u2029])\s*(?:const|let|var)\s+([$_\u200C\u200D\p{ID_Start}][$_\u200C\u200D\p{ID_Continue}]*)\s*=\s*\(*\s*$/u.exec(prefix)
+    if (!assignment) return false
+    const name = assignment[1]
+    return new RegExp(`(?:^|[;\\n\\r\\u2028\\u2029])\\s*export\\s+default\\s+${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`).test(maskedSource.slice(item.closeParen))
+  })
   const argument = call?.arguments[0] ? stripExpressionComments(call.arguments[0]).trim() : undefined
   return objectLiteralBody(argument)
 }
