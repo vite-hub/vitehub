@@ -323,6 +323,22 @@ function isNativeReaderMethod(value: unknown, key: string): value is (...args: u
 
 const foreignReaderMethods = new WeakMap<Function, Record<string, Function>>()
 
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  if (!typedArrayTagGetter) return false
+  try {
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
+
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
     let current: object | null = Object(value)
@@ -563,9 +579,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           // leaves the supplied body locked, which provides an observable
           // ownership check before the bridge accepts the method.
           const ownershipReader = Reflect.apply(descriptor.value, body, []) as object
-          if (!body.locked) return
+          if (!(body as ReadableStream).locked) return
           Reflect.apply(probeMethods.releaseLock, ownershipReader, [])
-          if (body.locked) return
+          if ((body as ReadableStream).locked) return
           foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
@@ -672,7 +688,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           if (result.done) {
             release()
             controller.close()
-          } else if (!result.value || !ArrayBuffer.isView(result.value) || result.value.BYTES_PER_ELEMENT !== 1) {
+          } else if (!isUint8Array(result.value)) {
             throw new Error("Malformed authorization response reader chunk")
           } else controller.enqueue(result.value)
         }
