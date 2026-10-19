@@ -312,7 +312,6 @@ function hasNativePromiseBrand(value: object): boolean {
   // the chain also recognizes same-realm promises whose toStringTag or then
   // method has been shadowed. Plain thenables never inherit Promise.prototype.
   try {
-    if (Object.prototype.toString.call(value) === "[object Promise]") return true
     let prototype = Object.getPrototypeOf(value)
     const seen = new Set<object>()
     while (prototype && !seen.has(prototype)) {
