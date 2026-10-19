@@ -71,7 +71,7 @@ describe("UI documentation", () => {
   });
 
   it("gives every block page a full-width, resettable preview", () => {
-    expect(blockPages.length).toBeGreaterThanOrEqual(2);
+    expect(blockPages.length).toBeGreaterThanOrEqual(3);
     for (const page of blockPages) {
       expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
       expect(page.source, page.name).toContain("navigation.group: Console");
