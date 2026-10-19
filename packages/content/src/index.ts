@@ -310,6 +310,9 @@ export function defineContent<
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
   const { source, sources, workspace, collections, extends: presetSelection, authorize, seo: seoOptions, ...sharedOptions } = options
   const presetDefaults = presetSelection === undefined ? undefined : resolveContentPreset(presetSelection)
+  if (presetDefaults !== undefined && workspace !== undefined) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
+  }
   const effectiveWorkspace = workspace ?? presetDefaults?.workspace
   const seo = normalizeSeoOptions(seoOptions)
   if (authorize !== undefined && !(authorize instanceof Function)) {
