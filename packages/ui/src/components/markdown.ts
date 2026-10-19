@@ -1,4 +1,4 @@
-import { Markdown, type MarkdownProps } from "@comark/vue";
+import { Markdown as ComarkMarkdown, type MarkdownProps } from "@comark/vue";
 import alert from "@comark/vue/plugins/alert";
 import attributes from "@comark/vue/plugins/attributes";
 import components from "@comark/vue/plugins/components";
@@ -48,8 +48,8 @@ const AgentMath = defineComponent({
   },
 });
 
-export const AgentMarkdown = defineComponent({
-  name: "AgentMarkdown",
+export const Markdown = defineComponent({
+  name: "Markdown",
   inheritAttrs: false,
   props: {
     components: { type: Object as PropType<MarkdownProps["components"]> },
@@ -80,7 +80,7 @@ export const AgentMarkdown = defineComponent({
         else plugins.push(plugin);
       }
       const safePlugins = plugins.filter(plugin => plugin.name !== "html");
-      const markdown = () => h(Markdown, {
+      const markdown = () => h(ComarkMarkdown, {
         ...attrs,
         class: [defaults.markdown.class, attrs.class],
         components: { img: ImagePreview, math: AgentMath, ...props.components },

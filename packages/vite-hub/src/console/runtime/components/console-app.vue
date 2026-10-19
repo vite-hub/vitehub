@@ -1219,7 +1219,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel
       v-else
-      id="agent-session"
+      id="chat-session"
       class="vitehub-console__session-panel"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >

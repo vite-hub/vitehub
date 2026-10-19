@@ -13,5 +13,5 @@ const answer = `Latency dropped after the cache change.
 </script>
 
 <template>
-  <AgentMarkdown :value="answer" />
+  <Markdown :value="answer" />
 </template>

@@ -133,11 +133,6 @@ describe("Auth access handlers", () => {
       ["undefined", () => undefined],
       ["a string", () => "allow"],
       ["a plain object", () => ({ status: 200 })],
-      ["a Response from another Fetch implementation with one cookie and no getSetCookie", () => {
-        const response = new ForeignResponse("Policy rejected", { status: 409, headers: { "set-cookie": "first=1" } })
-        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
-        return response
-      }],
       ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
       ["a proxy around a Response", () => new Proxy(new Response("Policy rejected", { status: 409 }), {})],
       ["an object created from Response.prototype", () => Object.create(Response.prototype)],

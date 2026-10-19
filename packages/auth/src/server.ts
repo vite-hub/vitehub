@@ -296,7 +296,6 @@ const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype,
 const nativePromiseConstructor = Promise
 const nativePromiseThen = Promise.prototype.then
 const nativePromiseResolve = Promise.resolve
-const intrinsicObjectToString = Object.prototype.toString
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -372,7 +371,6 @@ async function runAccessAuthorize(
       try {
         // Object.prototype.toString performs the native Promise brand check
         // across realms, including subclasses whose species probe failed.
-        if (Reflect.apply(intrinsicObjectToString, directResult, []) === "[object Promise]") isNativePromise = true
         let prototype: object | null = Object.getPrototypeOf(directResult)
         for (let depth = 0; prototype && depth < 8; depth++) {
           if (prototype === Promise.prototype) { isNativePromise = true; break }

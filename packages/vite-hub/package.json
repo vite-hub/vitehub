@@ -38,6 +38,12 @@
     "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
     "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
     "./_internal/agent/eve": "./dist/_internal/agent/eve.js",
+    "./_internal/agent/invocations": {
+      "types": "./dist/_internal/agent/invocations.d.ts",
+      "import": "./dist/_internal/agent/invocations.js",
+      "require": "./dist/_internal/agent/invocations.js",
+      "default": "./dist/_internal/agent/invocations.js"
+    },
     "./_internal/agent/runtime/invocations-dev": "./dist/_internal/agent/runtime/invocations-dev.js",
     "./_internal/agent/runtime/process": "./dist/_internal/agent/runtime/process.js",
     "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",
@@ -57,6 +63,12 @@
     "./_internal/markdown-template": "./dist/_internal/markdown-template.js",
     "./_internal/rate-limit/runtime": "./dist/_internal/rate-limit/runtime.js",
     "./_internal/rate-limit/runtime/console": "./dist/_internal/rate-limit/runtime/console.js",
+    "./_internal/sandbox-task/runtime/state": {
+      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox-task/runtime/state.js",
+      "require": "./dist/_internal/sandbox-task/runtime/state.js",
+      "default": "./dist/_internal/sandbox-task/runtime/state.js"
+    },
     "./_internal/schedule": "./dist/_internal/schedule.js",
     "./_internal/schedule/runtime": "./dist/_internal/schedule/runtime.js",
     "./_internal/schedule/runtime/dev": "./dist/_internal/schedule/runtime/dev.js",
@@ -71,6 +83,12 @@
     "./_internal/workflow/runtime/state": "./dist/_internal/workflow/runtime/state.js",
     "./_internal/workflow/runtime/vercel-vite": "./dist/_internal/workflow/runtime/vercel-vite.js",
     "./_internal/workspace": "./dist/_internal/workspace.js",
+    "./_internal/workspace/internal/runtime/history-dev": {
+      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
+    },
     "./_internal/workspace/internal/runtime/hosted": "./dist/_internal/workspace/internal/runtime/hosted.js",
     "./_internal/workspace/internal/runtime/hosted-vercel-blob": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
     "./_internal/workspace/internal/runtime/state": "./dist/_internal/workspace/internal/runtime/state.js",
@@ -86,6 +104,7 @@
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/observability": "./dist/agent/observability.js",
+    "./agent/process-host": "./dist/agent/process-host.js",
     "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/server/github": "./dist/agent/server/github.js",
@@ -138,6 +157,30 @@
     "./markdown-template": "./dist/markdown-template.js",
     "./markdown-template/file": "./dist/markdown-template/file.js",
     "./nuxt": "./dist/nuxt.js",
+    "./presets/babysitter": {
+      "types": "./dist/presets/babysitter.d.ts",
+      "import": "./dist/presets/babysitter.js",
+      "require": "./dist/presets/babysitter.js",
+      "default": "./dist/presets/babysitter.js"
+    },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js",
+      "require": "./dist/presets/babysitter/server.js",
+      "default": "./dist/presets/babysitter/server.js"
+    },
+    "./presets/labeller": {
+      "types": "./dist/presets/labeller.d.ts",
+      "import": "./dist/presets/labeller.js",
+      "require": "./dist/presets/labeller.js",
+      "default": "./dist/presets/labeller.js"
+    },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js",
+      "require": "./dist/presets/workspace.js",
+      "default": "./dist/presets/workspace.js"
+    },
     "./queue": "./dist/queue.js",
     "./rate-limit": "./dist/rate-limit.js",
     "./realtime": "./dist/realtime.js",
@@ -147,6 +190,18 @@
     "./runtime/h3": "./dist/runtime/h3.js",
     "./runtime/node": "./dist/runtime/node.js",
     "./sandbox": "./dist/sandbox.js",
+    "./sandbox/ssh": {
+      "types": "./dist/sandbox/ssh.d.ts",
+      "import": "./dist/sandbox/ssh.js",
+      "require": "./dist/sandbox/ssh.js",
+      "default": "./dist/sandbox/ssh.js"
+    },
+    "./sandbox-task": {
+      "types": "./dist/sandbox-task.d.ts",
+      "import": "./dist/sandbox-task.js",
+      "require": "./dist/sandbox-task.js",
+      "default": "./dist/sandbox-task.js"
+    },
     "./schedule": "./dist/schedule.js",
     "./schedule/runtime": "./dist/schedule/runtime.js",
     "./schedule/runtime/kv": "./dist/schedule/runtime/kv.js",
@@ -232,65 +287,80 @@
     },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
-    "./_internal/agent/invocations": {
-      "types": "./dist/_internal/agent/invocations.d.ts",
-      "import": "./dist/_internal/agent/invocations.js",
-      "require": "./dist/_internal/agent/invocations.js",
-      "default": "./dist/_internal/agent/invocations.js"
+    "./ui/attachment": {
+      "types": "./dist/ui/attachment.d.ts",
+      "import": "./dist/ui/attachment.js",
+      "default": "./dist/ui/attachment.js"
     },
-    "./_internal/sandbox-task/runtime/state": {
-      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox-task/runtime/state.js",
-      "require": "./dist/_internal/sandbox-task/runtime/state.js",
-      "default": "./dist/_internal/sandbox-task/runtime/state.js"
+    "./ui/bubble": {
+      "types": "./dist/ui/bubble.d.ts",
+      "import": "./dist/ui/bubble.js",
+      "default": "./dist/ui/bubble.js"
     },
-    "./_internal/workspace/internal/runtime/history-dev": {
-      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
+    "./ui/chat": {
+      "types": "./dist/ui/chat.d.ts",
+      "import": "./dist/ui/chat.js",
+      "default": "./dist/ui/chat.js"
     },
-    "./agent/process-host": {
-      "types": "./dist/agent/process-host.d.ts",
-      "import": "./dist/agent/process-host.js",
-      "require": "./dist/agent/process-host.js",
-      "default": "./dist/agent/process-host.js"
+    "./ui/chat-message": {
+      "types": "./dist/ui/chat-message.d.ts",
+      "import": "./dist/ui/chat-message.js",
+      "default": "./dist/ui/chat-message.js"
     },
-    "./presets/babysitter": {
-      "types": "./dist/presets/babysitter.d.ts",
-      "import": "./dist/presets/babysitter.js",
-      "require": "./dist/presets/babysitter.js",
-      "default": "./dist/presets/babysitter.js"
+    "./ui/chat-session": {
+      "types": "./dist/ui/chat-session.d.ts",
+      "import": "./dist/ui/chat-session.js",
+      "default": "./dist/ui/chat-session.js"
     },
-    "./presets/babysitter/server": {
-      "types": "./dist/presets/babysitter/server.d.ts",
-      "import": "./dist/presets/babysitter/server.js",
-      "require": "./dist/presets/babysitter/server.js",
-      "default": "./dist/presets/babysitter/server.js"
+    "./ui/code-view": {
+      "types": "./dist/ui/code-view.d.ts",
+      "import": "./dist/ui/code-view.js",
+      "default": "./dist/ui/code-view.js"
     },
-    "./presets/labeller": {
-      "types": "./dist/presets/labeller.d.ts",
-      "import": "./dist/presets/labeller.js",
-      "require": "./dist/presets/labeller.js",
-      "default": "./dist/presets/labeller.js"
+    "./ui/file-tree": {
+      "types": "./dist/ui/file-tree.d.ts",
+      "import": "./dist/ui/file-tree.js",
+      "default": "./dist/ui/file-tree.js"
     },
-    "./presets/workspace": {
-      "types": "./dist/presets/workspace.d.ts",
-      "import": "./dist/presets/workspace.js",
-      "require": "./dist/presets/workspace.js",
-      "default": "./dist/presets/workspace.js"
+    "./ui/markdown": {
+      "types": "./dist/ui/markdown.d.ts",
+      "import": "./dist/ui/markdown.js",
+      "default": "./dist/ui/markdown.js"
     },
-    "./sandbox/ssh": {
-      "types": "./dist/sandbox/ssh.d.ts",
-      "import": "./dist/sandbox/ssh.js",
-      "require": "./dist/sandbox/ssh.js",
-      "default": "./dist/sandbox/ssh.js"
+    "./ui/message": {
+      "types": "./dist/ui/message.d.ts",
+      "import": "./dist/ui/message.js",
+      "default": "./dist/ui/message.js"
     },
-    "./sandbox-task": {
-      "types": "./dist/sandbox-task.d.ts",
-      "import": "./dist/sandbox-task.js",
-      "require": "./dist/sandbox-task.js",
-      "default": "./dist/sandbox-task.js"
+    "./ui/message-parts": {
+      "types": "./dist/ui/message-parts.d.ts",
+      "import": "./dist/ui/message-parts.js",
+      "default": "./dist/ui/message-parts.js"
+    },
+    "./ui/prompt-input": {
+      "types": "./dist/ui/prompt-input.d.ts",
+      "import": "./dist/ui/prompt-input.js",
+      "default": "./dist/ui/prompt-input.js"
+    },
+    "./ui/tool-list": {
+      "types": "./dist/ui/tool-list.d.ts",
+      "import": "./dist/ui/tool-list.js",
+      "default": "./dist/ui/tool-list.js"
+    },
+    "./ui/trace": {
+      "types": "./dist/ui/trace.d.ts",
+      "import": "./dist/ui/trace.js",
+      "default": "./dist/ui/trace.js"
+    },
+    "./ui/trace-run": {
+      "types": "./dist/ui/trace-run.d.ts",
+      "import": "./dist/ui/trace-run.js",
+      "default": "./dist/ui/trace-run.js"
+    },
+    "./ui/marker": {
+      "types": "./dist/ui/marker.d.ts",
+      "import": "./dist/ui/marker.js",
+      "default": "./dist/ui/marker.js"
     }
   },
   "vitehub": {
@@ -341,7 +411,6 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -364,7 +433,8 @@
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "valibot": "catalog:runtime",
-    "workflow": "catalog:workflow"
+    "workflow": "catalog:workflow",
+    "@vite-hub/sandbox-task": "workspace:*"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "catalog:storage",
