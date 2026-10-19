@@ -319,7 +319,15 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result: unknown = await authorize(context);
+  const pending: unknown = authorize(context);
+  let result: unknown = pending;
+  if (pending !== null && Object(pending) === pending) {
+    const directResponse = await normalizeAuthorizationResponse(pending);
+    if (directResponse) result = directResponse;
+    else result = await pending;
+  } else {
+    result = await pending;
+  }
   if (result === true) return;
   const response = await normalizeAuthorizationResponse(result);
   return response ?? createForbiddenResponse(context.request);
@@ -465,7 +473,7 @@ async function validateAuthorizationBody(
     async cancel(reason) {
       await cleanupReader(reason);
     },
-  });
+  }, { highWaterMark: 0 });
 }
 
 function isUint8ArrayChunk(value: unknown): value is Uint8Array {
@@ -535,6 +543,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
           const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get;
           if (locked && Reflect.apply(locked, nativeBodyValue, [])) return;
         }
+        const headerValue = Reflect.apply(nativeHeaders, candidate, []);
+        const headerPrototype = Object.getPrototypeOf(headerValue);
+        const nativeHeaderPrototype = Headers.prototype;
+        if (headerPrototype !== nativeHeaderPrototype) return;
+        if (Object.prototype.hasOwnProperty.call(headerValue, "get") || Object.prototype.hasOwnProperty.call(headerValue, "forEach")) return;
+        const nativeGet = Object.getOwnPropertyDescriptor(nativeHeaderPrototype, "get")?.value;
+        const nativeForEach = Object.getOwnPropertyDescriptor(nativeHeaderPrototype, "forEach")?.value;
+        if (Reflect.get(headerValue, "get") !== nativeGet || Reflect.get(headerValue, "forEach") !== nativeForEach) return;
         return candidate as Response;
       } catch {
         return;
