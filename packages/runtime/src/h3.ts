@@ -54,6 +54,7 @@ function isRequest(value: unknown): value is Request {
       const visited = new Set<object>()
       let depth = 0
       let reachedObjectPrototype = false
+      let foundRequestPrototype = false
       while (prototype !== null) {
         if (depth++ >= maxPrototypeDepth) return false
         if (visited.has(prototype)) return false
@@ -120,7 +121,7 @@ function isRequest(value: unknown): value is Request {
           const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
           if (typeof headersGet !== "function") return false
           headersGet.call(headers, "x-vite-hub-brand")
-          return reachedObjectPrototype
+          foundRequestPrototype = true
 
         }
         // A proxy can manufacture a fresh prototype on every lookup. Ordinary
@@ -129,7 +130,7 @@ function isRequest(value: unknown): value is Request {
         const nextPrototype = Object.getPrototypeOf(prototype)
         prototype = nextPrototype
       }
-      return false
+      return foundRequestPrototype && reachedObjectPrototype
     }
   } catch {
     return false
