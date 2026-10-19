@@ -318,7 +318,16 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result = await authorize(context)
+  // Normalize direct response values before awaiting them. A response may
+  // expose an own `then` property for application metadata; awaiting it would
+  // assimilate that property and execute caller-controlled code before the
+  // response boundary can inspect the value.
+  const authorization = authorize(context)
+  if (Object(authorization) === authorization) {
+    const directResponse = await normalizeAuthorizationResponse(authorization)
+    if (directResponse) return directResponse
+  }
+  const result = await authorization
   if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
@@ -499,7 +508,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const discoveredGetReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
   if (!locked || !discoveredGetReader
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(discoveredGetReader.value, nativeStreamGetReader, "getReader", false, false)
-    || discoveredGetReader.owner !== locked.owner) return false
+    || (discoveredGetReader.owner !== locked.owner && !hasNativeDelegationSource(discoveredGetReader.value))) return false
   if (Reflect.apply(locked.value, stream, [])) return false
   // The Web Streams API exposes the disturbed state only through brand checks:
   // constructing a Response rejects a stream that has already been consumed,
@@ -551,7 +560,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (!locked || !getReaderIntrinsic
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false)
     || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)
-    || discoveredGetReaderIntrinsic.owner !== locked.owner) throw new Error("Non-native response stream")
+    || (discoveredGetReaderIntrinsic.owner !== locked.owner && !hasNativeDelegationSource(discoveredGetReaderIntrinsic.value))) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
