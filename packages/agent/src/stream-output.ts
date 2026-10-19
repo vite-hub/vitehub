@@ -115,7 +115,14 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
     const body = bodyDescriptor?.get ? Reflect.apply(bodyDescriptor.get, value, []) : bodyDescriptor && "value" in bodyDescriptor ? bodyDescriptor.value : undefined
     const headers = responseHeadersDescriptor?.get ? Reflect.apply(responseHeadersDescriptor.get, value, []) : responseHeadersDescriptor && "value" in responseHeadersDescriptor ? responseHeadersDescriptor.value : undefined
     const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
-    const get = registered ? Reflect.get(headers as object, "get") : headers && headersDescriptor(headers, "get")?.value
+    // A host Headers instance has an intrinsic brand-checked method. Do not
+    // honor an own `get` replacement on it merely because its Response was
+    // recognized through the registered-constructor path. Foreign adapters
+    // retain their explicitly supported header operation surface.
+    const intrinsicGet = Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "get")?.value
+    const get = headers instanceof intrinsicHeaders && hasRuntimeType(intrinsicGet, "function")
+      ? intrinsicGet
+      : registered ? Reflect.get(headers as object, "get") : headers && headersDescriptor(headers, "get")?.value
     if (!body || !headers || (!registered && !lockedGetter) || !hasRuntimeType(get, "function")) return false
     if (!registered) Reflect.apply(lockedGetter, body, [])
     return Reflect.apply(get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"

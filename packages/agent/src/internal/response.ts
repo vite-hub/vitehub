@@ -80,7 +80,14 @@ export function isResponse(value: unknown): value is Response {
         if (body.call(value) == null) {
           const candidate = value as object
           if (!Object.prototype.hasOwnProperty.call(candidate, "bodyInit")
-            || !Object.prototype.hasOwnProperty.call(candidate, "options")) return false
+            || !Object.prototype.hasOwnProperty.call(candidate, "options")
+            // The ponyfill initializes these implementation-owned state
+            // slots on every instance. Requiring the complete initialized
+            // state keeps a prototype copy with only the public body fields
+            // from being accepted as a bodyless Response.
+            || !Object.prototype.hasOwnProperty.call(candidate, "_generatedBody")
+            || !Object.prototype.hasOwnProperty.call(candidate, "_signal")
+            || !Object.prototype.hasOwnProperty.call(candidate, "bodyUsed")) return false
         }
         return true
       }
