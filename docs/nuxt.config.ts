@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 export default defineNuxtConfig({
   extends: ["docus"],
   modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
+  components: [{ path: "../packages/vite-hub/src/console/runtime/components/invocation", pathPrefix: false }],
   site: {
     description: "Portable Agents for Vite, built on Server Primitives.",
     name: "ViteHub",

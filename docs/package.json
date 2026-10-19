@@ -29,6 +29,7 @@
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "vite-hub": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "ai": "catalog:ai",
     "agents": "catalog:ai",

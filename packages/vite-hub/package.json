@@ -133,6 +133,12 @@
     "./connections/http": "./dist/connections/http.js",
     "./connections/server": "./dist/connections/server.js",
     "./console": "./dist/console.js",
+    "./console/ui": {
+      "types": "./dist/console/ui.d.ts",
+      "import": "./dist/console/ui.js",
+      "require": "./dist/console/ui.js",
+      "default": "./dist/console/ui.js"
+    },
     "./console/auth": "./dist/console/auth.js",
     "./console/server": "./dist/console/server.js",
     "./content": "./dist/content.js",

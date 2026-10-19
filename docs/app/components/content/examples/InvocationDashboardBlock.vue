@@ -4,7 +4,7 @@ import {
   agentInvocationTitle,
   type AgentInvocationListItem,
   type AgentInvocationView,
-} from "@vite-hub/ui";
+} from "vite-hub/console/ui";
 import { computed, ref } from "vue";
 
 // Keep running timestamps relative to the page load, including server rendering.
