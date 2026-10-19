@@ -328,6 +328,9 @@ async function runAccessAuthorize(
 ): Promise<Response | undefined> {
   const result = authorize(context)
   if (result === true) return
+  // Preserve native Responses with an own then property without allowing
+  // async-function resolution to assimilate that user-defined method.
+  if (result instanceof Response && Object.prototype.hasOwnProperty.call(result, "then")) return result
   // Normalize an already-returned native Response before awaiting it. This
   // avoids assimilating an own `then` property on the Response object.
   let response = await normalizeAuthorizationResponse(result)
@@ -342,24 +345,33 @@ async function runAccessAuthorize(
 
 async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return await value
-  let adopted: Promise<unknown> | undefined
+  let nativePromise = false
   try {
+    nativePromise = Object.prototype.toString.call(value) === "[object Promise]"
+  }
+  catch {
+    nativePromise = false
+  }
+  // Promise.prototype.then rejects ordinary thenables as incompatible
+  // receivers. Preserve their normal assimilation semantics instead of
+  // trying to apply the native Promise path to every object.
+  if (!nativePromise) return await value
+
+  let adopted: Promise<unknown> | undefined
+  const constructorDescriptor = Object.getOwnPropertyDescriptor(value, "constructor")
+  const promiseConstructor = (value as { constructor?: unknown }).constructor
+  const needsStableConstructor = promiseConstructor !== Promise
+  try {
+    if (needsStableConstructor) Object.defineProperty(value, "constructor", { configurable: true, value: Promise })
     adopted = new Promise((resolve, reject) => {
       Reflect.apply(intrinsicPromiseThen, value, [resolve, reject])
     })
+    if (needsStableConstructor) {
+      if (constructorDescriptor) Object.defineProperty(value, "constructor", constructorDescriptor)
+      else Reflect.deleteProperty(value, "constructor")
+    }
   }
   catch (error) {
-    // Promise.prototype.then rejects ordinary thenables as incompatible
-    // receivers. Preserve their normal assimilation semantics instead of
-    // trying to apply the native Promise path to every object.
-    let nativePromise = false
-    try {
-      nativePromise = Object.prototype.toString.call(value) === "[object Promise]"
-    }
-    catch {
-      nativePromise = false
-    }
-    if (!nativePromise) return await value
     // Promise subclasses can expose a throwing species getter. Retry the
     // intrinsic adoption with the standard constructor, restoring the object
     // immediately after the intrinsic has captured it.
