@@ -764,6 +764,9 @@ function isMethodDeclarationName(source: string, index: number, closeParen: numb
   // TypeScript interface/type-literal members use a return-type annotation
   // instead of a method body: `defineThing(value: Value): Result`.
   if (source[afterClose] !== ":") return false
+  // A switch case expression can also be followed by a colon. It is an
+  // executable call, rather than a type-member return annotation.
+  if (/\bcase\s*$/u.test(source.slice(0, index))) return false
   let cursor = afterClose + 1
   const depths = { "{": 0, "[": 0, "<": 0 }
   for (; cursor < source.length; cursor++) {

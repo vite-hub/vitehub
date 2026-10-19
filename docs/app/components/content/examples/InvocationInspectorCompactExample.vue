@@ -1,14 +1,5 @@
 <script setup lang="ts">
-<<<<<<< HEAD
-const invocation = {
-  id: "inspector-compact-example", traceId: "trace-compact-example", status: "running",
-  title: "Check repository", agentName: "assistant", createdAt: "2026-01-01T12:00:00.000Z",
-  startedAt: "2026-01-01T12:00:01.000Z", updatedAt: "2026-01-01T12:00:10.000Z", observations: [],
-  configuration: { agent: { name: "assistant", version: "1.0.0" }, tools: [] },
-};
-</script>
-<template><AgentInvocationInspector :invocation="invocation" :show-timeline="false" /></template>
-=======
+
 import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const invocation: AgentInvocationView = {
@@ -39,4 +30,3 @@ const invocation: AgentInvocationView = {
     <AgentInvocationInspector :invocation="invocation" :show-timeline="false" show-capabilities class="h-full border-x border-default" />
   </div>
 </template>
->>>>>>> 1fc525c3e1102bd4cb361efe46bd096fe5061afd

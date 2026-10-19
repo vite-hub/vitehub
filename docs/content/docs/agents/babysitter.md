@@ -59,6 +59,8 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as deployment preview bots, whose comments and reviews never need an assessment. They do not block a direct merge or wake a waiting PR. |
 | `deferWhilePending` | `true` | Wait for running current-head checks before a pass, so one pass handles CI and review results together. A fast failure also waits for the checks that still run. A conflict starts the pass at once. A check that runs for 30 minutes counts as stuck. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits until its head changes or a person comments. `false` disables the budget. |
+| `dailyPassBudget` | `16` | Model passes on one PR in a rolling 24 hours. Then the PR parks until the oldest pass is 24 hours old. See [Limit passes per pull request](#limit-passes-per-pull-request). `false` disables the budget. |
+| `reviewPushBudget` | `3` | Review-driven pushes on one PR. After that many, bot feedback and failed `reviewChecks` no longer start a model pass. See [Stop review ping-pong](#stop-review-ping-pong). `false` disables the budget. |
 | `install` | `true` | Install dependencies on the host before the model starts. `true` detects pnpm, npm or Yarn from the lockfile and installs it frozen; `{ command, args }` overrides it; `{ cache: { directory, entries } }` configures the pnpm cache; `{ concurrency }` sets how many installs run at once (default `2`); `{ required: true }` parks the PR on a failed install instead of continuing without dependencies (default `false`); `false` skips it. See [Dependency installation](#dependency-installation). |
 | `ciRecovery` | `true` | Rerun failed GitHub Actions runs once before a model pass repairs them. |
 | `mentionAllowlist` | `[]` | Exact GitHub logins the worker may notify through `mentionOnPullRequest`. The tool is reserved for verified blockers that need one person's action. |
@@ -193,7 +195,7 @@ ViteHub starts the Babysitter when the server starts. A development server start
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/_vitehub/host/health` | Health and the pull request queue: working, ready, and waiting. |
+| `GET /api/_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked`, the PRs that a budget parked, with the reason. |
 | `GET /api/_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
 
 To replace the process, send SIGUSR2, wait until the drain route reports `drained`, then restart. Running passes finish first.
@@ -210,13 +212,39 @@ Feedback that a pass assessed, or answered with a repair push, stays assessed on
 
 A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
 
-A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. A restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
+A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. A pull request that spent its `reviewPushBudget` waits for work that a bot did not ask for, as [Stop review ping-pong](#stop-review-ping-pong) explains. A pull request that spent its `dailyPassBudget` waits until the 24-hour window frees a pass, as [Limit passes per pull request](#limit-passes-per-pull-request) explains. A restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
 
 The host installs dependencies in each pass workspace before the model starts. The install gets only `PATH`, `HOME`, locale, package manager and `NODE_OPTIONS` variables, never the provider or GitHub credentials, and disables lifecycle scripts for detected installs. Custom install commands are trusted host configuration. The result is in `.git/vitehub-install.json` for the model.
 
 Before a direct merge, the host compares the files that the pull request changes with the files that the base branch changed since the pull request's checks ran. Checks test the base of their moment, so two pull requests that change the same file can both pass and still break the base together. When the files overlap, or when the host cannot find the tested base, it updates the branch through GitHub and waits for checks on the new head instead of merging. Failed checks that ran on an older base get one update and retest every six hours when the current base tip has no failing check. Neither step starts a model pass.
 
 The queue claims a pull request whose current head has a stored review first, then pull requests whose current-head checks all passed, then stack parents, then the oldest work. When GitHub still computes mergeability, the host reads the pull request again for a few seconds before it waits. A stored queue entry that fails validation is reported once as `babysitter.inbox.invalid_row` and skipped, so it cannot stop other work or the health route.
+
+### Stop review ping-pong
+
+Review bots review every push, and a repair push for one finding often gets new findings. `reviewPushBudget` (default `3`) ends that loop on each pull request:
+
+- A push is review-driven when its pass had no merge conflict and no failing check outside `reviewChecks`. The host decides this from the GitHub state that the pass claimed, not from the model's report. A push that repairs a conflict or another failing check does not count. A pass that pushes counts once.
+- After `reviewPushBudget` review-driven pushes, comments, reviews and review threads from bots, and failures of the checks in `reviewChecks`, no longer wake the pull request.
+- A person's comment or review, a failing check outside `reviewChecks`, a merge conflict, and a head that someone else pushed still start a pass.
+- With `merge: 'direct'`, the host merges the pull request when its required checks pass, every review thread with a person's comment is resolved, and every comment from a person was assessed. Bot feedback and failed `reviewChecks` do not block that merge. GitHub branch rules still apply.
+- Otherwise the pull request parks. Its result says why and what resumes it, its GitHub status shows that result, and the health route lists it under `queue.parked` with `budget: "review-push-budget"`.
+
+The count lasts for the life of the pull request. The inbox stores it in the pull request's `reviewPushBudget` record, `{ count, heads }`, which the inbox summary also returns. `heads` lists the heads that the worker pushed and the heads that already had a pass after the budget was spent.
+
+### Limit passes per pull request
+
+`dailyPassBudget` (default `16`) limits the model passes that one pull request gets in a rolling 24 hours. Each pass that starts the model counts once, when it starts. Host work, such as direct merges, CI reruns and recorded waits, does not count.
+
+When the pull request already had `dailyPassBudget` passes in the last 24 hours, the host parks it before the next model pass. The wait resumes when the oldest pass is 24 hours old. The result names that time, the GitHub status shows it, and the health route lists the pull request under `queue.parked` with `budget: "daily-pass-budget"` and `resumeAt`. New feedback before that time does not start a pass.
+
+Three kinds of work still start a pass after the budget is spent. These passes count too:
+
+- a person's comment or review that no pass saw yet
+- the first failing required check on a head
+- a merge conflict on a pull request with no failing check and no open review thread, once per head and base commit
+
+The inbox stores the pull request's `dailyPassBudget` record, `{ passes, human, exemptions }`, which the inbox summary also returns. `passes` holds the start time of each pass in the last 24 hours.
 
 ### Dependency installation
 
