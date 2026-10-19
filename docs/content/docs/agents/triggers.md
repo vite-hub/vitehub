@@ -165,6 +165,43 @@ defineChannelTrigger({
 })
 ```
 
+Two siblings answer the other cases. Both answer `{ accepted: false, ok: false, reason }`, and no Invocation starts.
+
+| Helper | Status | Use it when | Retry |
+| --- | --- | --- | --- |
+| `ignored(reason)` | 200 | The Channel does not handle the event. | No |
+| `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. When the webhook queue replays a queued delivery and the trigger returns it, the queue retries and its error names the reason. |
+| `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
+
+```ts
+import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
+
+defineChannelTrigger({
+  input: ticketOpened,
+  async invoke(context, event) {
+    if (!event.ticketId) return rejected('missing_ticket')
+    if (!await ticketing.isReady()) return retryLater('ticketing_unavailable')
+    return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
+  },
+})
+```
+
+### Run deliveries one at a time per key
+
+Set `webhook.serialize: key` to queue a delivery and run it only when no other delivery with the same key runs.
+
+```ts
+defineChannelTrigger({
+  input: ticketOpened,
+  invoke: (context, event) => ({
+    input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
+    webhook: { deliveryId: event.changeId, serialize: event.ticketId },
+  }),
+})
+```
+
+`serialize: key` is the same as `concurrencyKey: key` with `concurrencyLimit: 1`, so it needs a state provider. The limit counts the deliveries of one `concurrencyGroup`, so deliveries with other keys in the same group also wait. Set `serialize` or `concurrencyKey` and `concurrencyLimit`, not both: ViteHub throws a `TypeError` when the result has `serialize` and either of the others.
+
 ### Debounce webhook deliveries
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
@@ -184,6 +221,61 @@ defineChannelTrigger({
 ```
 
 Debounce needs a queued delivery, so it needs a state provider and `concurrencyLimit`. A delivery that already runs is not stopped; the later delivery runs after it. A replaced delivery is complete in the queue and shows a `superseded` event in its Channel delivery record. `debounce` is not available with `busy: 'steer'`.
+
+### Answer the provider
+
+After ViteHub admits a webhook delivery, it answers with a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. Some providers expect a specific answer. Set `webhook.response` to send that `Response` instead:
+
+```ts
+defineChannelTrigger({
+  input: recordChanged,
+  invoke: (context, event) => ({
+    input: { prompt: `Check record ${event.recordId} for duplicates.` },
+    webhook: { concurrencyLimit: 1, deliveryId: event.changeId, response: new Response(null, { status: 200 }) },
+  }),
+})
+```
+
+ViteHub sends `webhook.response` for an accepted, queued, steered, or duplicate delivery, after the delivery is admitted. Busy and error answers keep their own status and body. The queue does not store `webhook.response`, so a restart or a retry never sends it again.
+
+### Prepare accepted work and run tasks
+
+Keep `invoke` fast: it decides whether to accept a delivery and returns JSON input. Put slow or side-effecting work in `prepare`, and name units of work in `tasks`. `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
+
+```ts
+import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
+import triage from '../agents/triage'
+
+defineChannelTrigger({
+  input: ticketChanged,
+  tasks: {
+    triage: {
+      agent: triage,
+      async prepare(context, { input }) {
+        const ticket = await fetchTicket(input.data.ticketId)
+        if (ticket.closed) return ignored('closed_ticket')
+        return { ...input, data: ticket }
+      },
+    },
+    mirror: {
+      run: (context, { input }) => mirrorToChat(input.data),
+    },
+  },
+  invoke: (context, event) => ({
+    task: event.fromAgent ? 'mirror' : 'triage',
+    input: { data: { ticketId: event.ticketId }, prompt: `Triage ticket ${event.ticketId}.` },
+    webhook: { deliveryId: event.changeId, serialize: event.ticketId },
+  }),
+})
+```
+
+With the webhook queue, ViteHub stores the task key, the name of the task's Agent and the accepted JSON input before `prepare` runs. The queue then runs `prepare` and the task on every attempt. After a restart, the queue reads the task from the current trigger definition and does not call `invoke` again. The input and `run` metadata must be JSON-serializable, and a task Agent needs a stable `name`. If a stored task no longer exists, or now runs another Agent, the attempt fails.
+
+A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
+
+Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. `busy: 'steer'` sends input to a running Invocation, so it does not run `prepare` or tasks. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
+
+
 
 ### Report a failed webhook delivery
 
