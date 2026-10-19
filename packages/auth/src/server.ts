@@ -595,7 +595,18 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     }
     const intrinsicReader = Object.getOwnPropertyDescriptor(constructor.prototype, "getReader")?.value
     if (!delegatedReaderOverride && intrinsicReader !== getReader) return false
-    const fresh = new constructor()
+    let fresh: object
+    try {
+      fresh = new constructor()
+    }
+    catch {
+      // Some supported stream subclasses require constructor arguments. When
+      // both accessors come from the same intrinsic stream prototype, the
+      // ownership relationship is inherited from that prototype and a fresh
+      // instance cannot be created for probing.
+      if (Object(body) === body) authorizationReaderMethods.set(body, getReader)
+      return true
+    }
     const probed = Reflect.apply(getReader, fresh, [])
     if (!Reflect.apply(trustedLocked, fresh, [])) return false
     const release = Object(probed) === probed ? Object.getPrototypeOf(probed)?.releaseLock : undefined
