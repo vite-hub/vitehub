@@ -174,7 +174,7 @@ function sameContribution(left: DatabaseContribution, right: DatabaseContributio
   return left.database === right.database
     && left.module === right.module
     && (left.export ?? "default") === (right.export ?? "default")
-    && left.dialect === right.dialect
+    && (left.dialect ?? "sqlite") === (right.dialect ?? "sqlite")
 }
 
 /** Describes a contribution as `module#export (contributed by "plugin")` for errors and inspection. */

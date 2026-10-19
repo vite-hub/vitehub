@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { findDefaultExportCall, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { findDefaultExportCall, findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -49,7 +49,17 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 function readDefinitionObjectBody(file: string, exact = false) {
   const source = readFileSync(file, "utf8")
-  const exported = findDefaultExportCall(source, ["defineDatabase"])
+  let exported = findDefaultExportCall(source, ["defineDatabase"])
+  // Support an indirect default export: `const database = defineDatabase(...); export default database`.
+  if (!exported) {
+    const defaultName = /\bexport\s+default\s+([A-Za-z_$][\w$]*)/.exec(source)?.[1]
+    if (defaultName) {
+      const call = findIdentifierCalls(source, "defineDatabase").find(candidate =>
+        new RegExp(`\\b(?:const|let|var)\\s+${defaultName}\\s*=\\s*$`).test(source.slice(0, candidate.start)),
+      )
+      if (call) exported = { ...call, argument: call.arguments[0] || "" }
+    }
+  }
   let argument = exported?.argument?.trim()
   while (argument?.startsWith("(")) {
     const end = findMatching(argument, 0, "(", ")")
