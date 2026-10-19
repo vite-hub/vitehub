@@ -495,7 +495,7 @@ export function defineMcpToolCapability<
     async workspace(context) {
       const servers = skillsByInvocation.get(context.context)
       if (!servers?.length) return
-      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition)
+      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition, context.workspaceMaterializationPaths)
     },
     async close(context) {
       const clients = clientsByContext.get(context) || []

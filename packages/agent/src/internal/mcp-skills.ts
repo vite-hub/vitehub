@@ -168,8 +168,9 @@ function pathsOverlap(left: string, right: string): boolean {
 export async function mcpSkillsWorkspaceContribution(
   servers: ReadonlyArray<{ server: string, skills: readonly McpSkill[] }>,
   definition: WorkspaceDefinition | undefined,
+  materializationPaths: readonly string[] = [],
 ): Promise<AgentCapabilityWorkspaceContribution | undefined> {
-  const occupied = await occupiedPaths(definition)
+  const occupied = [...await occupiedPaths(definition), ...materializationPaths]
   const taken = new Set<string>()
   const sources: Record<string, WorkspaceSourceInput> = {}
   for (const { server, skills } of servers) {
