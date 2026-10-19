@@ -312,6 +312,25 @@ defineChannelTrigger({
 
 ViteHub dispatches `failed` at most once per delivery: after the last failed attempt, after an execution timeout, or when the delivery used all its execution leases because the process stopped during each attempt. It does not call `failed` for an attempt that the queue retries, or for a cancelled Invocation. The event has `attempts`, `deliveryId`, `error`, `publicError`, and, when they are known, `input`, `run`, and `invocation: { id, consoleUrl? }`. `consoleUrl` needs a [public URL](/docs/development/integrations-and-output#public-url).
 
+A task can declare its own `failed`. It replaces the trigger's `failed` for that task's deliveries and gets the same event. The trigger's `failed` stays the fallback for tasks without one. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
+
+```ts
+defineChannelTrigger({
+  input: ticketChanged,
+  tasks: {
+    triage: {
+      agent: triage,
+      failed: event => commentOnTicket(event.run?.runId, 'Triage failed. Edit the ticket to retry.'),
+    },
+  },
+  invoke: (context, event) => ({
+    task: 'triage',
+    input: { prompt: `Triage ticket ${event.ticketId}.` },
+    webhook: { deliveryId: event.changeId, serialize: event.ticketId },
+  }),
+})
+```
+
 The delivery is already marked as failed when `failed` runs. ViteHub logs an error from `failed` and does not retry the delivery or change its outcome. Keep the callback short, because the queue worker waits for it.
 
 With the built-in SQLite state providers, a pending notification survives a restart until a worker claims it. Its `failure.notificationStarted` dispatch marker is permanent, so another worker cannot repeat the callback after a lease expires. Queue ownership still expires: recovery completes the terminal delivery and records the channel failure without replaying `failed`, even if the original callback is paused or its process exited before recording completion. Queue completion therefore does not prove that the callback finished or that its external effects succeeded. Reconcile uncertain effects with the destination using `deliveryId`. `webhookDeliveries(scope)` exposes the dispatch marker until queue completion. Custom queue adapters without durable notification claims provide best-effort, at-most-once dispatch.

@@ -4,11 +4,11 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
-import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
-import type { AgentTriggerAcceptedInvocation, AgentTriggerPrepareResult, AgentTriggerRunInvokeResult } from "../src/types.ts"
+import type { AgentTriggerAcceptedInvocation, AgentTriggerFailedEvent, AgentTriggerPrepareResult, AgentTriggerRunInvokeResult } from "../src/types.ts"
 
 const cleanups: Array<() => Promise<void> | void> = []
 
@@ -25,8 +25,15 @@ function ticketsAgent(options: {
   delayMs?: number
   /** Answer without the webhook queue. */
   inline?: boolean
+  failed?: (event: AgentTriggerFailedEvent) => void
+  taskFailed?: (event: AgentTriggerFailedEvent) => void
+  hostThrows?: boolean
+  origin?: string
 } = {}) {
-  const host = vi.fn(() => "host")
+  const host = vi.fn(() => {
+    if (options.hostThrows) throw new Error("host failed")
+    return "host"
+  })
   const triage = vi.fn((context: { input: { data?: unknown, prompt?: unknown }, run?: { runId?: string } }) => ({ data: context.input.data, prompt: context.input.prompt, runId: context.run?.runId }))
   const mirror = vi.fn((input: { data?: unknown }) => input.data)
   const triageAgent = defineAgent({ name: "triage", driver: { run: triage }, runtime: false })
@@ -39,9 +46,11 @@ function ticketsAgent(options: {
           // The webhook route passes the parsed body as `payload`.
           opened: defineChannelTrigger<{ payload: Ticket }>({
             ...(options.prepare ? { prepare: (_context, invocation) => options.prepare!(invocation) } : {}),
+            ...(options.failed ? { failed: options.failed } : {}),
             tasks: {
               triage: {
                 agent: triageAgent,
+                ...(options.taskFailed ? { failed: options.taskFailed } : {}),
                 ...(options.taskPrepare
                   ? { prepare: (_context, { input }) => options.taskPrepare!(input) as undefined }
                   : {}),
@@ -53,6 +62,7 @@ function ticketsAgent(options: {
               return {
                 ...(ticket.kind === "plain" ? {} : { task: ticket.kind }),
                 input: { data: { id: ticket.id }, prompt: `ticket ${ticket.id}` },
+                ...(options.origin ? { run: { origin: options.origin, runId: `ticket-${ticket.id}` } } : {}),
                 webhook: options.inline
                   ? { deliveryId: `ticket-${ticket.id}` }
                   : {
@@ -236,5 +246,44 @@ describe("Channel trigger tasks", () => {
       tasks: { both: { agent: defineAgent({ name: "other", driver: { run: () => "ok" } }), run: () => undefined } },
       invoke: () => ({ input: { prompt: "x" }, task: "both" }),
     }), runtime, "tickets.opened", {})).rejects.toThrow('Task "both" of trigger "tickets.opened" must declare exactly one of agent or run.')
+  })
+
+  it("calls the task's failed instead of the trigger's when the queue stops retrying", { timeout: 20_000 }, async () => {
+    const state = await stateFile()
+    const failed = vi.fn()
+    const taskFailed = vi.fn()
+    const { agent, triage } = ticketsAgent({ failed, taskFailed, taskPrepare: () => { throw new Error("not ready") } })
+    const { send } = serve(agent, state)
+
+    await send({ id: "9", kind: "triage" })
+    await vi.waitFor(() => expect(taskFailed).toHaveBeenCalledOnce(), { timeout: 15_000 })
+    expect(taskFailed).toHaveBeenCalledWith(expect.objectContaining({ attempts: 3, deliveryId: "ticket-9" }))
+    expect(failed).not.toHaveBeenCalled()
+    expect(triage).not.toHaveBeenCalled()
+  })
+
+  it("finds the task of a row without a task key through run.origin", { timeout: 20_000 }, async () => {
+    const state = await stateFile()
+    const failed = vi.fn()
+    const taskFailed = vi.fn()
+    const { agent, host } = ticketsAgent({ failed, hostThrows: true, origin: "triage", taskFailed })
+    const { send } = serve(agent, state)
+
+    await send({ id: "10", kind: "plain" })
+    await vi.waitFor(() => expect(taskFailed).toHaveBeenCalledOnce(), { timeout: 15_000 })
+    expect(host).toHaveBeenCalledTimes(3)
+    expect(taskFailed).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ origin: "triage" }) }))
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it("defaults run.origin to the task key for Agent tasks", async () => {
+    const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
+    const resolve = (agent: ReturnType<typeof ticketsAgent>["agent"], ticket: Ticket) =>
+      resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", { payload: ticket })
+
+    await expect(resolve(ticketsAgent().agent, { id: "11", kind: "triage" })).resolves.toMatchObject({ run: { origin: "triage", runId: "ticket-11" } })
+    await expect(resolve(ticketsAgent({ origin: "custom" }).agent, { id: "12", kind: "triage" })).resolves.toMatchObject({ run: { origin: "custom" } })
+    await expect(resolve(ticketsAgent().agent, { id: "13", kind: "mirror" })).resolves.not.toHaveProperty("run.origin")
+    await expect(resolve(ticketsAgent().agent, { id: "14", kind: "plain" })).resolves.not.toHaveProperty("run.origin")
   })
 })
