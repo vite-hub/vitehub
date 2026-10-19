@@ -3271,6 +3271,12 @@ async function* runProvider<
     // developer instructions instead, which come before every cwd-dependent
     // message, so the provider can reuse the cached prompt prefix across
     // invocations. A launch-argument override would drop them, so it keeps AGENTS.md.
+    const generatedCodexInstructionsArg = instructions === undefined
+      ? undefined
+      : codexDeveloperInstructionsArg(instructions)
+    const hasCallerDeveloperInstructions = [options.providerSettings?.launchArgs, providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS]
+      .some(args => hasRuntimeType(args, "string") && args.includes("developer_instructions")
+        && !(auxiliary && args.includes(generatedCodexInstructionsArg ?? "\u0000")))
     const codexDeveloperInstructions = options.provider === "codex"
       && !options.sandbox
       && instructions
@@ -3278,7 +3284,7 @@ async function* runProvider<
       && !preserveNativeInstructions
       && Buffer.byteLength(instructions) <= codexDeveloperInstructionsMaxBytes
       && (auxiliary || providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS === undefined)
-      && ![options.providerSettings?.launchArgs, providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS].some(args => hasRuntimeType(args, "string") && args.includes("developer_instructions"))
+      && !hasCallerDeveloperInstructions
       ? instructions
       : undefined
     const effectiveCodexInstructions = options.provider === "codex" ? (codexDeveloperInstructions ?? instructions) : undefined
