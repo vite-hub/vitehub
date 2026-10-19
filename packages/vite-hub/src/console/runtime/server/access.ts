@@ -184,14 +184,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // foreign implementation without accepting an arbitrary constructor
         // name as provenance.
         const hasWindowBinding = (() => {
-          let bindingPrototype: object | null = responsePrototype
-          while (bindingPrototype) {
-            const found = Object.getOwnPropertySymbols(bindingPrototype).some(symbol => {
-              if (symbol.description !== "window") return false
-              const window = Reflect.get(bindingPrototype, symbol) as {
+          return Object.getOwnPropertySymbols(responsePrototype).some(symbol => {
+            if (symbol.description !== "window") return false
+            const window = Reflect.get(responsePrototype, symbol) as {
             Response?: unknown, Headers?: unknown, window?: unknown, self?: unknown,
             document?: { defaultView?: unknown }, location?: unknown,
-              } | undefined
+            } | undefined
           // happy-dom stores its actual Window on the implementation prototype.
           // Require the Window self-references and document back-reference as
           // implementation-owned structure; a callback-created object carrying
@@ -204,11 +202,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
                 && !!window.document
                 && window.document.defaultView === window
                 && !!window.location
-            })
-            if (found) return true
-            bindingPrototype = Object.getPrototypeOf(bindingPrototype)
-          }
-          return false
+          })
         })()
         const hasIntrinsicParentLineage = typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
@@ -365,10 +359,9 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // distinction by creating and consuming an empty local body when one was
     // present on the foreign response.
     if (value.bodyUsed === true) {
-      if (value.body === null) return new Response(null, init)
-      const consumed = new Response(new Uint8Array(0), init)
-      await consumed.arrayBuffer()
-      return consumed
+      // Keep the original consumed state and body bytes. Replacing a consumed
+      // body with an empty local response changes subsequent body-read errors.
+      return value as Response
     }
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
