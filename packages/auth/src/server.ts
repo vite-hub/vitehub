@@ -397,7 +397,17 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       return true
     }
     catch {
-      // Objects inheriting Response.prototype are not necessarily branded Responses.
+      // A proxy around a genuine local Response fails the intrinsic brand check,
+      // but its clone still produces a branded response. Keep that supported
+      // proxy path while rejecting ordinary Response.prototype lookalikes.
+      try {
+        const clone = Reflect.get(value, "clone")
+        if (typeof clone === "function") {
+          const cloned = Reflect.apply(clone, value, [])
+          if (cloned !== value && cloned instanceof Response) return true
+        }
+      }
+      catch {}
     }
   }
   const UndiciResponse = await getUndiciResponse()
@@ -719,7 +729,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
       if (combinedCookies !== undefined) {
-        if (/(?:^|;)\s*(?:path|expires|domain|max-age|httponly|secure|samesite|partitioned)\s*=[^,;]*(?:,\s*[^;=,\s]+\s*=)/i.test(combinedCookies)) return
+        if (/(?:^|;)\s*(?:path|expires|domain|max-age|httponly|secure|samesite|partitioned|priority)\s*=[^,;]*(?:,\s*[^;=,\s]+\s*=)/i.test(combinedCookies)) return
         normalizedHeaders.append("set-cookie", combinedCookies)
       }
       for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
