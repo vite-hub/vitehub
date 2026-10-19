@@ -27,6 +27,12 @@ export interface McpClientConfig extends AiSdkMcpClientConfig {
   protocolVersionDiscovery?: boolean
   /** Expose only these tools, by their name on the server. Default: every tool. */
   tools?: readonly string[]
+  /**
+   * Install the Agent Skills that the server serves as `skill://<name>/<path>` resources into the
+   * Invocation's Workspace at `.agents/skills/<name>/`. The Agent's own Skill with the same name wins.
+   * Default: `true`.
+   */
+  skills?: boolean
 }
 
 /**

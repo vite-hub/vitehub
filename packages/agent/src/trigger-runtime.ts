@@ -691,8 +691,24 @@ export function resolveAgentTriggerInvocationResult<
     metadata: invocation.metadata,
     run: invocation.run,
     trigger: trigger as never,
-    webhook: invocation.webhook,
+    webhook: withSerializedWebhook(invocation.webhook, trigger),
   }
+}
+
+/** `webhook.serialize: key` is `{ concurrencyKey: key, concurrencyLimit: 1 }`. */
+function withSerializedWebhook<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "id">,
+): AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined {
+  if (webhook?.serialize === undefined) return webhook
+  const { serialize, ...ownership } = webhook
+  if (!isRuntimeString(serialize) || !serialize.trim()) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize must be a non-empty string.`)
+  }
+  if (ownership.concurrencyKey !== undefined || ownership.concurrencyLimit !== undefined) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize replaces concurrencyKey and concurrencyLimit. Set only one of them.`)
+  }
+  return { ...ownership, concurrencyKey: serialize, concurrencyLimit: 1 }
 }
 
 export async function runAgentTriggerWith<

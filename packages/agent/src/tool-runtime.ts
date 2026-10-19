@@ -19,7 +19,6 @@ import type {
 
 const approvalPreservingExecutorOwners = new WeakMap<Function, AgentToolPolicyOwner | null>()
 const budgetWrappedExecutors = new WeakMap<object, (...args: unknown[]) => unknown>()
-const budgetWrappedBudgets = new WeakMap<object, ExecutionBudget>()
 
 function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
   const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
@@ -127,7 +126,6 @@ export async function executeApprovedAgentTool(
   }
   const approvedContext: AgentToolApprovalExecutionContext = { ...context, [toolApprovalGrantContextKey]: grant }
   const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
-  budgetWrappedBudgets.get(tool)?.recordToolCall()
   return await execute.call(tool, binding.input, approvedContext)
 }
 
@@ -285,8 +283,10 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
     }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })
-    budgetWrappedExecutors.set(wrappedTool, execute as (...args: unknown[]) => unknown)
-    budgetWrappedBudgets.set(wrappedTool, budget)
+    // Keep the budget-aware seam for approved executions as well. Policy
+    // wrappers charge only after a grant is consumed, so this avoids both
+    // bypassing accounting and charging the approval probe twice.
+    budgetWrappedExecutors.set(wrappedTool, wrappedExecute)
     return [name, wrappedTool]
   })) as TTools
 }
