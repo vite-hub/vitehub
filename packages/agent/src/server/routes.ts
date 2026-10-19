@@ -39,7 +39,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -1628,6 +1628,37 @@ async function notifyQueuedWebhookFailure(
   }
 }
 
+/**
+ * Fails the Invocation of a delivery that the queue gives up on. A queue stop leaves the
+ * Invocation open for the retry, so without a retry nothing else finishes it.
+ */
+async function failOpenQueuedWebhookInvocation(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+  delivery: AgentWebhookQueueDelivery,
+  error: unknown,
+  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
+): Promise<void> {
+  // SAFETY: The queue persists run metadata from this route contract.
+  const run = (invocation?.run ?? delivery.invocation?.run) as AgentRunMetadata | undefined
+  if (!run?.runId || !isRecord(agent) || !agent.invocations) return
+  try {
+    // SAFETY: Agent Definitions own this field; the journal boundary validates it.
+    const invocations = agent.invocations as AgentInvocations
+    const identity = routeAgentIdentity(handlerOptions)
+    const agentName = routeAgentInvocationName(agent, identity)
+    const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
+    if (summary?.status !== "pending" && summary?.status !== "running") return
+    const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
+    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true, expectedCursor: summary.cursor })
+    if (!journal) return
+    await journal?.finish("failed", error)
+  }
+  catch (journalError) {
+    console.error(`[vitehub] Could not fail the open Invocation of webhook delivery "${delivery.deliveryId}".`, journalError)
+  }
+}
+
 async function deliverQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
@@ -1650,6 +1681,7 @@ async function deliverQueuedWebhookFailure(
       return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
     }
     if (!delivery.failure && !await state.markWebhookDeliveryFailure(delivery.scope, delivery.deliveryId, delivery.leaseToken, failure)) return false
+    await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
     // The dispatch marker is permanent, while queue ownership can expire.
     // Recovery finalizes the failure without repeating a paused callback.
     if (!await state.beginWebhookFailureNotification(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
@@ -1657,6 +1689,7 @@ async function deliverQueuedWebhookFailure(
     return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
   }
   if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
+  await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
   await notifyQueuedWebhookFailure(agent, handlerOptions, delivery, error, attempts, invocation)
   return true
 }

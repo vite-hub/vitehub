@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
-import { checksStillRunning, createCheckWait, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { checksStillRunning, createCheckWait, dailyPassExemption, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../../agent/src/server/github-required-checks.ts";
@@ -229,6 +229,23 @@ describe("Babysitter review push budget", () => {
     expect(reviewPushBudgetWork(await clean(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), budget, new Set())).toEqual(["unresolved-thread"]);
     // Someone else moved the head after the budget ran out.
     expect(reviewPushBudgetWork(await clean(s => { s.reviewPushBudget = { count: 2, heads: ["b".repeat(40)] } }), budget, new Set())).toEqual(["new-head"]);
+  });
+});
+
+describe("Babysitter daily pass budget", () => {
+  it("exempts a person's feedback, the first required failure on a head, and a conflict on an otherwise ready PR", async () => {
+    const clean = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => { s.checks = {}; update(s) });
+    expect(dailyPassExemption(await clean(), "passed", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 2, exemptions: [] })).toBe("human-feedback");
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
+    expect(dailyPassExemption(await clean(), "failed", undefined)).toBe(`required-failure:${head}`);
+    expect(dailyPassExemption(await clean(), "failed", { passes: [], exemptions: [`required-failure:${head}`] })).toBeUndefined();
+    const conflict = await clean(s => { s.pr!.mergeable_state = "dirty"; s.pr!.base!.sha = "c".repeat(40) });
+    expect(dailyPassExemption(conflict, "passed", undefined)).toBe(`conflict:${head}:${"c".repeat(40)}`);
+    expect(dailyPassExemption(conflict, "passed", { passes: [], exemptions: [`conflict:${head}:${"c".repeat(40)}`] })).toBeUndefined();
+    // A conflict beside a failing check or an open thread is not an otherwise ready PR.
+    expect(dailyPassExemption(await parked(s => { s.pr!.mergeable_state = "dirty" }), "pending", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] }), "passed", undefined)).toBeUndefined();
   });
 });
 
