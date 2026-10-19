@@ -2406,31 +2406,27 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    const executionBudget = executionBudgetHasConstraints(context.input) ? createExecutionBudget({
+    // Keep the budget passed to the invocation context owned by this synthetic
+    // run, including unconstrained runs where the context's default is used.
+    const executionBudget = createExecutionBudget({
       ...(context.input.executionBudget || {}),
-      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined
-        ? { deadlineAt: Date.now() + context.input.timeout }
-        : {}),
+      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
       signal: context.input.abortSignal,
-    }) : undefined
-    const budgetAbortSignal = context.input.abortSignal
-      ? (executionBudget ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : context.input.abortSignal)
-      : executionBudget?.signal
-    const callerAbortSignal = agentInvocationCallerAbortSignal(context.input)
-    const budgetedInput = { ...context.input, abortSignal: budgetAbortSignal }
-    transferParsedAgentWorkflowInput(context.input, budgetedInput)
-    markAgentInvocationCallerAbortSignal(budgetedInput, callerAbortSignal)
-    const budgetedContext = { ...context, input: budgetedInput }
-    // Build the deadline budget before waiting for a capacity slot so timeout and deadline
-    // cancellation also interrupt synthetic workspace runs queued behind another Invocation.
+    })
+    const invocationInput = {
+      ...context.input,
+      abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+    }
     let release: (() => void) | undefined
-    let deferBudget = false
+    let budgetDeferred = false
+    const disposeBudget = () => executionBudget?.dispose()
     try {
-      release = await acquireAgentCapacity(definition, budgetAbortSignal)
+      context = { ...context, input: invocationInput }
+      release = await acquireAgentCapacity(definition, invocationInput.abortSignal)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, budgetedContext)
+      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const invocationContext = await createAgentInvocationContext(definition as never, budgetedContext as never, budgetedInput, "run", undefined, undefined, executionBudget)
+      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input, "run", undefined, undefined, executionBudget)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2453,39 +2449,24 @@ function createSyntheticWorkspaceRun<
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
-        const response = await withResponseCleanup(output, async () => {
-          try {
-            finish?.()
-          }
-          finally {
-            executionBudget?.dispose()
-          }
-        }, { abortSignal: budgetedInput.abortSignal })
+        const response = await withResponseCleanup(output, async () => { disposeBudget(); finish?.() }, { abortSignal: context.input.abortSignal })
+        budgetDeferred = true
         release = undefined
-        deferBudget = true
         return response
       }
       if (isAsyncIterable(output)) {
         const finish = release
         const source = cancellableAsyncIterableSource(output)
-        const streamed = withCapabilityCleanup(source.stream, async () => {
-          try {
-            finish?.()
-          }
-          finally {
-            executionBudget?.dispose()
-          }
-        }, {
-          abortSignal: budgetedInput.abortSignal,
+        const streamed = withCapabilityCleanup(source.stream, async () => { disposeBudget(); finish?.() }, {
+          abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
+        budgetDeferred = true
+        release = undefined
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        const wrapped = hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
+        return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
           ? toReadableAsyncIterableStream(streamed)
           : streamed
-        release = undefined
-        deferBudget = true
-        return wrapped
       }
       if (output && hasRuntimeType(output, "object")) {
         const capacityRelease = release
@@ -2495,16 +2476,12 @@ function createSyntheticWorkspaceRun<
         const finish = async (reason?: unknown, completedSource?: ReturnType<typeof cancellableAsyncIterableSource>) => {
           if (finished) return
           finished = true
-          budgetedInput.abortSignal?.removeEventListener("abort", onAbort)
+          context.input.abortSignal?.removeEventListener("abort", onAbort)
           await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
-          try {
-            capacityRelease?.()
-          }
-          finally {
-            executionBudget?.dispose()
-          }
+          capacityRelease?.()
+          disposeBudget()
         }
-        const onAbort = () => void finish(budgetedInput.abortSignal?.reason).catch(() => {})
+        const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
         const wrapStream = (stream: AsyncIterable<unknown>) => {
           const existing = preservedStreams.get(stream)
           if (existing) return existing
@@ -2512,7 +2489,7 @@ function createSyntheticWorkspaceRun<
           const source = cancellableAsyncIterableSource(stream)
           sources.add(source)
           const wrapped = withCapabilityCleanup(source.stream, outcome => finish(outcome.failed ? outcome.error : undefined, source), {
-            abortSignal: budgetedInput.abortSignal,
+            abortSignal: context.input.abortSignal,
             cancelOnAbort: source.cancel,
           })
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2603,11 +2580,11 @@ function createSyntheticWorkspaceRun<
           throw error
         }
         if (hasStreamSurface) {
-          if (budgetedInput.abortSignal?.aborted) onAbort()
-          else budgetedInput.abortSignal?.addEventListener("abort", onAbort, { once: true })
+          if (context.input.abortSignal?.aborted) onAbort()
+          else context.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
           const preserved = resultWithPreservedProperties(output, descriptors)
           release = undefined
-          deferBudget = true
+          budgetDeferred = true
           return preserved
         }
       }
@@ -2615,7 +2592,7 @@ function createSyntheticWorkspaceRun<
     }
     finally {
       release?.()
-      if (!deferBudget) executionBudget?.dispose()
+      if (!budgetDeferred) disposeBudget()
     }
   }
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
@@ -3540,7 +3517,7 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  executionBudget?: ReturnType<typeof createExecutionBudget>
+  executionBudget: ReturnType<typeof createExecutionBudget>
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -3601,7 +3578,6 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
-    executionBudget: context.executionBudget,
     instructions: context.instructions,
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
@@ -4480,7 +4456,9 @@ async function parseAgentInputData<TInput extends AgentRunInput<unknown>>(
 ): Promise<TInput> {
   const schema = definition?.[baseAgentData]
   if (!schema) return input
-  return copyAgentInvocationCallerAbortSignal(input, { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") })
+  const parsed = { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") }
+  transferParsedAgentWorkflowInput(input, parsed)
+  return copyAgentInvocationCallerAbortSignal(input, parsed)
 }
 
 // Controller cancellation is internal unless the caller supplied its own signal.
@@ -4494,7 +4472,11 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget?: ReturnType<typeof createExecutionBudget>,
+  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
+    ...(input.executionBudget || {}),
+    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+    signal: input.abortSignal,
+  }),
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -8420,19 +8402,19 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = executionBudgetHasConstraints(input) ? createExecutionBudget({
+  const executionBudget = createExecutionBudget({
     ...(input.executionBudget || {}),
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
-  }) : undefined
-  const budgetAbortSignal = input.abortSignal
-    ? (executionBudget ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : input.abortSignal)
-    : executionBudget?.signal
+  })
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
-  const budgetedInput = { ...input, abortSignal: budgetAbortSignal }
+  const budgetedInput = {
+    ...input,
+    abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+  }
   transferParsedAgentWorkflowInput(input, budgetedInput)
+  markAgentInvocationCallerAbortSignal(budgetedInput, callerAbortSignal)
   input = budgetedInput
-  markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
@@ -8462,16 +8444,20 @@ async function executeAgentInvocation<
       : undefined
   }
   catch (error) {
-    executionBudget?.dispose()
-    if (preparedInvocation) {
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
-      await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+    try {
+      if (preparedInvocation) {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+        await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+      }
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      throw error
     }
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    throw error
+    finally {
+      executionBudget.dispose()
+    }
   }
   if (!release) {
     try {
@@ -8483,11 +8469,15 @@ async function executeAgentInvocation<
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
     catch (error) {
-      executionBudget?.dispose()
-      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-      await invocationJournal?.finish(status, error)
-      await activity?.update(status, error)
-      throw error
+      try {
+        const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+        await invocationJournal?.finish(status, error)
+        await activity?.update(status, error)
+        throw error
+      }
+      finally {
+        executionBudget.dispose()
+      }
     }
   }
 
@@ -8517,12 +8507,16 @@ async function executeAgentInvocation<
     }, preparedInvocation, invocationJournal, activity, executionBudget)
   }
   catch (error) {
-    executionBudget?.dispose()
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    releaseOnce()
-    throw error
+    try {
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      releaseOnce()
+      throw error
+    }
+    finally {
+      executionBudget.dispose()
+    }
   }
 }
 

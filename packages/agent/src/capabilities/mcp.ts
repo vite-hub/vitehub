@@ -181,10 +181,11 @@ function createMcpCapability<
           server: {
             type: "Section",
             props: { title: { $item: "/name" } },
-            children: ["status", "connection", "tools"],
+            children: ["status", "connection", "skills", "tools"],
           },
           status: { type: "KeyValue", props: { label: "Discovery", value: { $item: "/status" } } },
           connection: { type: "KeyValue", props: { label: "Connection", value: { $item: "/connection" } } },
+          skills: { type: "KeyValue", props: { label: "Skills", value: { $item: "/skills" } } },
           tools: { type: "Tools", props: { mcpServer: { $item: "/name" } } },
         },
       },
@@ -218,6 +219,7 @@ function createMcpCapability<
         return {
           connection: withMcpInitializationCompatibility(resolved),
           ...(bound ? { connectionBinding: bound.binding } : {}),
+          ...(isMcpClientConfig(connection) && connection.skills === false ? { skills: false } : {}),
           ...(tools ? { tools } : {}),
           integrity: options.integrity && Object.hasOwn(options.integrity, name)
             ? options.integrity[name]
