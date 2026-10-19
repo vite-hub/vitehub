@@ -10,6 +10,8 @@ import { satisfies, validRange } from "semver"
 
 import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { scanModule, walk } from "./scan-module.ts"
+import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
@@ -138,10 +140,11 @@ interface ImportSourceAnalysis {
 }
 
 function analyzeImportSource(source: string): ImportSourceAnalysis {
-  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
+  const module = scanModule(source, "output.mjs")
+  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(module))
   return {
     createRequireAliases,
-    executableSource: maskInertImportText(source, createRequireAliases),
+    executableSource: maskInertImportText(module, createRequireAliases),
   }
 }
 
@@ -440,228 +443,61 @@ function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
   return imports
 }
 
-function maskInertImportText(source: string, packageCallNames = new Set<string>()): string {
-  let output = ""
-  let recentOutput = ""
-  let index = 0
-  const packageCallPattern = packageCallNames.size
-    ? new RegExp(`(?:^|[^\\w$.#])(?:${[...packageCallNames].map(escapeRegExp).join("|")})(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`)
-    : undefined
-
-  function appendOutput(value: string): void {
-    output += value
-    const compactValue = value.replace(/\s+/g, " ")
-    recentOutput += recentOutput.endsWith(" ") ? compactValue.replace(/^ /, "") : compactValue
-    if (recentOutput.length > 320) recentOutput = recentOutput.slice(-160)
-  }
-
-  function maskLiteralText(text: string): string {
-    return text.replace(/[^\n]/g, " ")
-  }
-
-  function maskLiteralOperand(text: string): string {
-    const masked = maskLiteralText(text)
-    const lastLineCharacter = masked.search(/[^\n](?=\n*$)/)
-    return lastLineCharacter === -1
-      ? masked
-      : masked.slice(0, lastLineCharacter) + "0" + masked.slice(lastLineCharacter + 1)
-  }
-
-  function scanTemplate(): void {
-    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(recentOutput)
-      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(recentOutput)
-      || /\bnew\s+URL\s*\(\s*$/.test(recentOutput)) {
-      let literalEnd = index + 1
-      while (literalEnd < source.length) {
-        if (source[literalEnd] === "\\") literalEnd += 2
-        else if (source[literalEnd] === "$" && source[literalEnd + 1] === "{") break
-        else {
-          if (source[literalEnd++] === "`") {
-            appendOutput(source.slice(index, literalEnd))
-            index = literalEnd
-            return
-          }
-        }
-      }
-    }
-    appendOutput(" ")
-    index++
-    while (index < source.length) {
-      if (source[index] === "\\") {
-        const end = Math.min(index + 2, source.length)
-        appendOutput(maskLiteralText(source.slice(index, end)))
-        index = end
-      }
-      else if (source[index] === "`") {
-        appendOutput("0")
-        index++
-        return
-      }
-      else if (source[index] === "$" && source[index + 1] === "{") {
-        appendOutput("${")
-        index += 2
-        scanCode(true)
-      }
-      else {
-        appendOutput(source[index] === "\n" ? "\n" : " ")
-        index++
-      }
-    }
-  }
-
-  function scanCode(stopAtTemplateExpressionEnd = false): void {
-    let braceDepth = 0
-    while (index < source.length) {
-      const character = source[index]!
-      const next = source[index + 1]
-      if (stopAtTemplateExpressionEnd && character === "}" && braceDepth === 0) {
-        appendOutput(character)
-        index++
-        return
-      }
-      if (character === "/" && next === "/") {
-        const end = source.indexOf("\n", index)
-        const length = (end === -1 ? source.length : end) - index
-        appendOutput(" ".repeat(length))
-        index += length
-        continue
-      }
-      if (character === "/" && next === "*") {
-        const closing = source.indexOf("*/", index + 2)
-        const length = (closing === -1 ? source.length : closing + 2) - index
-        appendOutput(maskLiteralText(source.slice(index, index + length)))
-        index += length
-        continue
-      }
-      if (character === "/" && canStartRegexLiteral(output, recentOutput)) {
-        let end = index + 1
-        let inCharacterClass = false
-        while (end < source.length) {
-          if (source[end] === "\\") end += 2
-          else if (source[end] === "[") {
-            inCharacterClass = true
-            end++
-          }
-          else if (source[end] === "]") {
-            inCharacterClass = false
-            end++
-          }
-          else if (source[end] === "/" && !inCharacterClass) {
-            end++
-            while (/[A-Za-z]/.test(source[end] || "")) end++
-            break
-          }
-          else if (source[end] === "\n" || source[end] === "\r") break
-          else end++
-        }
-        appendOutput(maskLiteralOperand(source.slice(index, end)))
-        index = end
-        continue
-      }
-      if (character === "`") {
-        const prefix = recentOutput.slice(-160)
-        const keepPackageCall = packageCallPattern?.test(prefix) === true
-        if (keepPackageCall || /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*$/.test(prefix)) {
-          let end = index + 1
-          while (end < source.length) {
-            if (source[end] === "\\") end += 2
-            else if (source[end] === "$" && source[end + 1] === "{") break
-            else if (source[end++] === "`") {
-              appendOutput(source.slice(index, end))
-              index = end
-              break
-            }
-            else end++
-          }
-          if (index === end) continue
-        }
-        scanTemplate()
-        continue
-      }
-      if (character === '"' || character === "'") {
-        const prefix = recentOutput.slice(-120)
-        const keepPackageCall = packageCallPattern?.test(prefix) === true
-        const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
-        let end = index + 1
-        while (end < source.length) {
-          if (source[end] === "\\") end += 2
-          else if (source[end++] === character) break
-        }
-        const literal = source.slice(index, end)
-        appendOutput(keep ? literal : maskLiteralOperand(literal))
-        index = end
-        continue
-      }
-      if (character === "{") braceDepth++
-      else if (character === "}") braceDepth--
-      appendOutput(character)
-      index++
-    }
-  }
-
-  scanCode()
-  return output
+/** True for a call whose first argument names a module: `require()`, `require.resolve()`, `import.meta.resolve()`, and require aliases. */
+function isModuleRequestCall(node: CallExpression | NewExpression, packageCallNames: ReadonlySet<string>): boolean {
+  const callee = node.callee
+  if (node.type === "NewExpression") return callee.type === "Identifier" && callee.name === "URL"
+  const requireName = (value: Expression) => value.type === "Identifier" && (value.name === "require" || value.name === "__require" || packageCallNames.has(value.name))
+  if (requireName(callee)) return true
+  if (callee.type !== "MemberExpression" || callee.computed || callee.property.type !== "Identifier" || callee.property.name !== "resolve") return false
+  if (requireName(callee.object)) return true
+  return callee.object.type === "MetaProperty" && callee.object.meta.name === "import" && callee.object.property.name === "meta"
 }
 
-function canStartRegexLiteral(output: string, recentOutput: string): boolean {
-  const recentPrefix = recentOutput.trimEnd()
-  if (!recentPrefix) return true
-  if (recentPrefix.endsWith("++") || recentPrefix.endsWith("--")) return false
-  const lastCharacter = recentPrefix.at(-1)!
-  if ("([{,:;=!?&|~%^<>*+-".includes(lastCharacter)) return true
-  if (lastCharacter === ")" || lastCharacter === "}") {
-    const prefix = output.trimEnd()
-    if (endsWithDeclaration(prefix)) return true
-    if (endsWithControlCondition(prefix)) return true
-    if (endsWithStatementBlock(prefix)) return true
+/**
+ * Masks comments and literals that cannot name a module, so the import patterns below only match executable code.
+ * Module specifiers stay visible. A masked literal ends with `0`, so the code around it still reads an operand.
+ */
+function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySet<string> = new Set()): string {
+  const { source } = module
+  const output = source.split("")
+  const mask = (start: number, end: number, operand: boolean) => {
+    let last = -1
+    for (let index = start; index < end; index++) {
+      if (output[index] === "\n") continue
+      output[index] = " "
+      last = index
+    }
+    if (operand && last >= 0) output[last] = "0"
   }
-  return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(recentPrefix)
-}
-
-function matchingOpeningDelimiter(source: string, opening: string, closing: string): number | undefined {
-  if (!source.endsWith(closing)) return
-  const openings: number[] = []
-  let quote: "\"" | "'" | "`" | undefined
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index]!
-    if (quote) {
-      if (character === "\\") index++
-      else if (character === quote) quote = undefined
-      continue
+  for (const comment of module.comments) mask(comment.start, comment.end, false)
+  const specifiers = new Set<Node>()
+  walk(module.program, (node) => {
+    if ((node.type === "ImportDeclaration" || node.type === "ExportAllDeclaration" || node.type === "ExportNamedDeclaration") && node.source) specifiers.add(node.source)
+    else if (node.type === "ImportExpression") specifiers.add(node.source)
+    else if ((node.type === "CallExpression" || node.type === "NewExpression") && node.arguments[0] && isModuleRequestCall(node, packageCallNames)) specifiers.add(node.arguments[0])
+  })
+  walk(module.program, (node) => {
+    if (node.type === "TemplateLiteral") {
+      const staticModuleSpecifier = specifiers.has(node) && node.expressions.length === 0
+      // Keep a static module template fully intact so the package regex can
+      // read its specifier, including escaped characters.
+      if (staticModuleSpecifier) return false
+      // Keep the `${` and `}` delimiters and the code between them. The closing backtick reads as an operand.
+      for (const quasi of node.quasis) {
+        const textStart = quasi.start + 1
+        const textEnd = quasi.tail ? quasi.end - 1 : quasi.end - 2
+        output[quasi.start] = quasi.start === node.start ? " " : "}"
+        mask(textStart, textEnd, false)
+        if (quasi.tail) output[quasi.end - 1] = "0"
+      }
+      // Dynamic templates still need their expression children visited so
+      // nested literals are masked too.
+      return undefined
     }
-    if (character === '"' || character === "'" || character === "`") {
-      quote = character
-      continue
-    }
-    if (character === opening) openings.push(index)
-    else if (character === closing) {
-      const match = openings.pop()
-      if (index === source.length - 1) return match
-    }
-  }
-}
-
-function endsWithControlCondition(source: string): boolean {
-  const conditionStart = matchingOpeningDelimiter(source, "(", ")")
-  if (conditionStart === undefined) return false
-  return /\b(?:catch|if|for|switch|while|with)$/.test(source.slice(0, conditionStart).trimEnd())
-}
-
-function endsWithStatementBlock(source: string): boolean {
-  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
-  if (bodyStart === undefined) return false
-  const header = source.slice(0, bodyStart).trimEnd()
-  return /(?:^|[;{}\n])\s*[\w$]+\s*:$/.test(header)
-    || /\b(?:catch|do|else|finally|try)$/.test(header)
-    || endsWithControlCondition(header)
-    || /(?:^|[;{}\n])\s*$/.test(header)
-}
-
-function endsWithDeclaration(source: string): boolean {
-  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
-  if (bodyStart === undefined) return false
-  const header = source.slice(0, bodyStart).trimEnd()
-  return /(?:^|[;{}])\s*(?:(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)|export\s+default\s+(?:(?:async\s+)?function(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^;]*\)|class(?:\s+[\w$]+)?(?:\s+extends\s+[^;{}]+)?))\s*$/.test(header)
+    if (node.type === "Literal" && (typeof node.value === "string" || "regex" in node) && !specifiers.has(node)) mask(node.start, node.end, true)
+  })
+  return output.join("")
 }
 
 function packageImportPlugin(): Plugin {

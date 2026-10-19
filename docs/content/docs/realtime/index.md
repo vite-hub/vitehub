@@ -1,65 +1,99 @@
 ---
 title: Realtime collaboration
 navigation.title: Overview
-description: Collaborative TipTap documents over Yjs, saved through Workspace or your own document adapter.
+description: Let several people edit one TipTap document at the same time, and save their changes to a file.
 navigation.order: 1
 icon: i-lucide-radio
 ---
 
-::agent-only{skill="realtime"}
-Use Realtime for collaborative state that changes while clients are connected. Realtime keeps room authority, document format, and durable checkpoints explicit.
-
-Read [Get started](/docs/realtime/get-started), [Configure](/docs/realtime/configure), or [Server API](/docs/realtime/server-api). The Configure page describes host authority and persistence.
-
-Choose Cloudflare authority for multi-instance production. Memory authority is single-process. Keep authentication and checkpoint retention in application policy.
-
-Realtime is the collaboration layer for the supported document and editor
-models. It does not replace Auth, Workspace persistence, or a general WebSocket
-server.
-
-Prove two clients joining, a concurrent edit, reconnect, and checkpoint recovery. Inspect the generated registry and handler for hosted output.
-::
-
-::product-hero{tagline="Collaborative TipTap editing over Yjs, saved to Workspace Markdown or your own storage, with rooms in memory on Node or Durable Objects on Cloudflare." hosts="Cloudflare, Node, Docker"}
-  :::code-group
-  ```ts [Editor]
-  import { useEditor } from '@tiptap/vue-3'
-  import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
-
-  export function useDocumentEditor() {
-    const realtime = useRealtimeTiptap('docs', 'guides/getting-started.md')
-
-    const editor = useEditor({
-      extensions: realtime.extensions.value,
-    })
-
-    realtime.people.value // Connected people
-    realtime.status.value // connected, connecting, or disconnected
-    realtime.synced.value // Whether the initial Yjs sync has completed
-
-    return { editor, realtime }
-  }
-  ```
-
-  ```ts [Definition]
+::product-hero{tagline="Let several people edit one document at the same time, with live changes and automatic saves to a file." hosts="Cloudflare, Node, Docker"}
+  :::product-files
+  ```ts [server/realtime/docs.ts]
   import { defineRealtime } from 'vite-hub/realtime'
 
+  // This file defines the docs room.
   export default defineRealtime({
+    // Save each document to the docs Workspace
     document: { workspace: 'docs' },
+    // Let the editor save a version on request
     history: {
-      checkpoint: { message: 'Save collaborative document' },
+      checkpoint: { message: 'Save document' },
+    },
+  })
+  ```
+
+  ```vue [src/App.vue]
+  <script setup lang="ts">
+  import { EditorContent, useEditor } from '@tiptap/vue-3'
+  import {
+    useRealtimeTiptap,
+  } from 'vite-hub/realtime/vue'
+  import PeopleList from './components/PeopleList.vue'
+
+  // Everyone on this page edits the same file
+  const realtime = useRealtimeTiptap('docs', 'welcome.md')
+  const { people, history } = realtime
+  const editor = useEditor({
+    extensions: realtime.extensions.value,
+  })
+  </script>
+
+  <template>
+    <PeopleList :people="people" />
+    <EditorContent :editor="editor" />
+    <button @click="history.checkpoint()">
+      Save version
+    </button>
+  </template>
+  ```
+
+  ```vue [src/components/PeopleList.vue]
+  <script setup lang="ts">
+  import type { RealtimePerson } from 'vite-hub/realtime'
+
+  // Each person has a name and a color
+  defineProps<{ people: RealtimePerson[] }>()
+  </script>
+
+  <template>
+    <ul>
+      <li
+        v-for="person in people"
+        :key="person.clientId"
+        :style="{ color: person.color }"
+      >
+        {{ person.name }}
+      </li>
+    </ul>
+  </template>
+  ```
+
+  ```ts [server/workspaces/docs.ts]
+  import { defineWorkspace } from 'vite-hub/workspace'
+
+  // The files that the docs room saves to.
+  // Memory is for development only.
+  export default defineWorkspace({
+    store: { provider: 'memory' },
+    rules: {
+      '/**': { write: true, mediaType: 'text/markdown' },
     },
   })
   ```
 
   ```ts [vite.config.ts]
+  import vue from '@vitejs/plugin-vue'
+  import { nitro } from 'nitro/vite'
   import { vitehub } from 'vite-hub'
   import { defineConfig } from 'vite'
 
   export default defineConfig({
     plugins: [
+      vue(),
+      nitro() as never,
       vitehub({
         preset: 'node',
+        // Keep rooms in this server process
         realtime: { authority: 'memory' },
         workspace: true,
       }),
@@ -77,33 +111,28 @@ Prove two clients joining, a concurrent edit, reconnect, and checkpoint recovery
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="One composable for editor, presence, and sync" icon="i-lucide-code-2" to="/docs/realtime/get-started#connect-a-tiptap-editor"}
-  Takes a Definition name and Workspace path; returns Vue refs.
+  :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#configure-realtime"}
+  Add a file to `server/realtime`. Its name is the name your editor connects to.
   :::
 
-  :::product-feature-item{title="Presence binds to a verified identity" icon="i-lucide-user-check" to="/docs/realtime/server-api#identity-and-authorization"}
-  The ViteHub Auth session or your own `identify()`, with `authorize()` per document and mode.
+  :::product-feature-item{title="Works with your TipTap editor" icon="i-lucide-code-2" to="/docs/realtime/get-started#connect-a-tiptap-editor"}
+  `useRealtimeTiptap()` gives your editor live sync and tells you if it is connected.
   :::
 
-  :::product-feature-item{title="Memory for one process, Durable Objects on Cloudflare" icon="i-lucide-cloud-cog" to="/docs/realtime/configure#choose-a-room-authority"}
-  `memory` keeps rooms in one process; `cloudflare` uses Durable Objects.
+  :::product-feature-item{title="See who is editing" icon="i-lucide-users" to="/docs/realtime/server-api#carets"}
+  Each person gets a name and a color. Their cursor shows in the editor of everyone else.
   :::
 
-  :::product-feature-item{title="Messages and rooms have fixed size limits" icon="i-lucide-gauge" to="/docs/realtime/configure#limits"}
-  1 MiB per WebSocket message, 8 MiB of document state per room.
+  :::product-feature-item{title="Saves on its own" icon="i-lucide-save" to="/docs/realtime/configure#control-saves"}
+  Changes save to the file 2 seconds after the last edit, and when the last person leaves.
   :::
 
-  :::product-feature-item{title="Rooms save themselves through a document adapter" icon="i-lucide-database" to="/docs/realtime/server-api#custom-document-adapters"}
-  2 s after the last edit, at most 10 s, and when the last client leaves. Workspace is the default adapter.
+  :::product-feature-item{title="Decide who can join" icon="i-lucide-lock" to="/docs/realtime/server-api#identity-and-authorization"}
+  Set `auth: true` to allow only signed-in people. `authorize()` decides who can read or edit each document.
   :::
 
-  :::product-feature-item{title="Structured fields next to the body" icon="i-lucide-list" to="/docs/realtime/server-api#structured-documents"}
-  A `fields` map with last-write-wins per field, and a server-written `status` map with issues.
-  :::
-
-  :::product-feature-item{title="One writer needs only Workspace" icon="i-lucide-folder-git-2" to="/docs/workspace"}
-  Use Workspace alone when one writer changes files.
+  :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
+  On Node, one server process holds every room. On Cloudflare, each document gets its own Durable Object.
   :::
 ::

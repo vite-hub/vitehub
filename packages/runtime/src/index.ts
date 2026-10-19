@@ -132,60 +132,61 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const authority = value as Record<string, unknown>
-  const filesystem = authority.filesystem
-  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const files = filesystem as Record<string, unknown>
-  return hasRuntimeType(authority.credentials, "string")
-    && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && hasRuntimeType(authority.environment, "string")
-    && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && hasRuntimeType(files.access, "string")
-    && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && hasRuntimeType(files.scope, "string")
-    && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && hasRuntimeType(authority.isolation, "string")
-    && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && hasRuntimeType(authority.network, "string")
-    && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && hasRuntimeType(authority.processes, "string")
-    && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+  return inspectExecutionAuthority(value) !== undefined
 }
+
+interface InspectedExecutionAuthority {
+  authority: ExecutionAuthority
+  filesystem: object
+}
+
+function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority | undefined {
+  try {
+    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return undefined
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const authority = value as Record<string, unknown>
+    const filesystem = authority.filesystem
+    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return undefined
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const files = filesystem as Record<string, unknown>
+    const credentials = authority.credentials
+    const environment = authority.environment
+    const access = files.access
+    const scope = files.scope
+    const isolation = authority.isolation
+    const network = authority.network
+    const processes = authority.processes
+    if (!(hasRuntimeType(credentials, "string") && ["ambient", "none", "provisioned", "unknown"].includes(credentials)
+      && hasRuntimeType(environment, "string") && ["ambient", "none", "selected", "unknown"].includes(environment)
+      && hasRuntimeType(access, "string") && ["none", "read-only", "read-write", "unknown"].includes(access)
+      && hasRuntimeType(scope, "string") && ["host", "none", "sandbox", "unknown", "workspace"].includes(scope)
+      && hasRuntimeType(isolation, "string") && ["container", "microvm", "none", "process", "unknown"].includes(isolation)
+      && hasRuntimeType(network, "string") && ["none", "restricted", "unrestricted", "unknown"].includes(network)
+      && hasRuntimeType(processes, "string") && ["arbitrary", "none", "restricted", "unknown"].includes(processes))) return undefined
+    return {
+      authority: { credentials, environment, filesystem: { access, scope }, isolation, network, processes } as ExecutionAuthority,
+      filesystem,
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+const canonicalExecutionAuthorities = new WeakSet<object>([noExecutionAuthority, unknownExecutionAuthority])
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
-  if (!isExecutionAuthority(value)) {
+  if (isRuntimeObject(value) && canonicalExecutionAuthorities.has(value)) {
+    // SAFETY: Only module-owned frozen authority snapshots enter this registry.
+    return value as ExecutionAuthority
+  }
+  const inspected = inspectExecutionAuthority(value)
+  if (!inspected) {
     throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
-  if (
-    hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
-    && hasCanonicalFrozenProperties(value.filesystem, ["access", "scope"])
-  ) return value
-  return Object.freeze({
-    credentials: value.credentials,
-    environment: value.environment,
-    filesystem: Object.freeze({
-      access: value.filesystem.access,
-      scope: value.filesystem.scope,
-    }),
-    isolation: value.isolation,
-    network: value.network,
-    processes: value.processes,
-  })
-}
-
-function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
-  if (!isRuntimeObject(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
-  const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
-  return keys.every((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
-  })
+  const authority = Object.freeze({ ...inspected.authority, filesystem: Object.freeze({ ...inspected.authority.filesystem }) })
+  canonicalExecutionAuthorities.add(authority)
+  return authority
 }
 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
