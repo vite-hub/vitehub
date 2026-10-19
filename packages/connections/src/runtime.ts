@@ -309,7 +309,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return provider
   }
 
-  async function tokenRequest(provider: ConnectionProvider, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void): Promise<ConnectionTokenResponse> {
+  async function tokenRequest(provider: ConnectionProvider, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void, connectionName?: string): Promise<ConnectionTokenResponse> {
     const clientId = await resolveValue(provider.clientId)
     const clientSecret = await resolveValue(provider.clientSecret)
     if (!clientId) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
@@ -328,7 +328,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     if (!response.ok || error) {
       onResponse?.()
       throw error === "invalid_grant"
-        ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: provider.id, problem: "rejected" })
+        ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: connectionName ?? provider.id, problem: "rejected" })
         : connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: error, problem: "token-request", provider: provider.id, status: response.status })
     }
     const token = v.safeParse(tokenResponseSchema, body)
@@ -441,7 +441,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let dispatched = false
     let responded = false
     try {
-      response = await tokenRequest(oauthProvider(definition, name), { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true })
+      response = await tokenRequest(oauthProvider(definition, name), { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true }, name)
     }
     catch (error) {
       if (!dispatched) throw error

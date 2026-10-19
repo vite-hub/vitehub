@@ -13,7 +13,7 @@ export interface ConsoleProblem {
 }
 
 // Codes from owner packages that a retry cannot repair, even with a 5xx status.
-const configurationCodes = new Set(["CONNECTION_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
+const configurationCodes = new Set(["CONNECTIONS_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
 
 const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value : undefined
