@@ -405,7 +405,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               clientOutDir: contributionResolved.build.outDir,
               generation,
               providerOutput: contributionProviderOutput,
-              rootDir: contributionResolved.root,
+              rootDir: databaseRoot(),
               runtimeConfig: retainedRuntimeConfig,
               serverFunctionName: resolveNitroVercelFunctionName(contributionResolved, "database"),
             }, write)

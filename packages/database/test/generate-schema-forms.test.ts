@@ -147,7 +147,7 @@ describe("Database table names", () => {
     ])
     const handler = join(rootDir, "server/databases/config.ts")
 
-    await expect(loadDatabaseTableNames(handler)).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    await expect(loadDatabaseTableNames(handler)).rejects.toMatchObject({ code: "DATABASE_SCHEMA_LOAD_FAILED" })
 
     const onFallback = vi.fn()
     await expect(loadDatabaseTableNames(handler, { onFallback })).resolves.toEqual(["notes", "missing"])
