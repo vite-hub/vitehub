@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
+import { budgetParks, PullRequestInbox } from '../src/babysitter/inbox/store.ts'
 
 const repository = 'vite-hub/vitehub'
 const pr = (head = 'a') => ({ number: 7, state: 'open', head: { sha: head, ref: 'fix' }, base: { ref: 'main' } })
@@ -420,4 +420,45 @@ test('new bot feedback gives an exhausted head one more pass, once', async t => 
   await inbox.ingest('bot-review-2', 'pull_request_review', review(2))
   assert.equal((await inbox.claim(1)).length, 0)
   assert.deepEqual((await inbox.get(repository, 7))?.progressBudget?.grants, ['bot-feedback'])
+})
+
+test('counts each review-driven push once and shows the count in the summary', async t => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], budgets: { noProgress: 3, reviewPushes: 2 } })
+  t.onTestFinished(() => inbox.close())
+  await inbox.seed(repository, pr())
+  const pass = async (id: number, progress: Parameters<PullRequestInbox['finish']>[1]['progress']) => {
+    await wake(inbox, id)
+    const [claim] = await inbox.claim(1)
+    assert.ok(claim)
+    assert.ok(await inbox.finish(claim, { text: 'done', progress }))
+  }
+  await pass(1, { kind: 'verified', evidence: 'push:b', reviewDriven: true })
+  // The same push receipt recorded again, and a conflict or CI repair push, do not count.
+  await pass(2, { kind: 'verified', evidence: 'push:b', reviewDriven: true })
+  await pass(3, { kind: 'verified', evidence: 'push:c' })
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 1, heads: ['b', 'c'] })
+  await pass(4, { kind: 'verified', evidence: 'push:d', reviewDriven: true })
+  const [summary] = await inbox.summary()
+  assert.deepEqual(summary?.reviewPushBudget, { count: 2, heads: ['b', 'c', 'd'] })
+  // After the budget is spent, a model pass on the head someone else pushed handles that head once.
+  await pass(5, { kind: 'no-progress' })
+  assert.deepEqual((await inbox.get(repository, 7))?.reviewPushBudget, { count: 2, heads: ['b', 'c', 'd', 'a'] })
+})
+
+test('records no review pushes when the budget is disabled', async t => {
+  const inbox = memory(t)
+  await inbox.seed(repository, pr())
+  const [claim] = await inbox.claim(1)
+  assert.ok(await inbox.finish(claim!, { text: 'done', progress: { kind: 'verified', evidence: 'push:b', reviewDriven: true } }))
+  assert.equal((await inbox.get(repository, 7))?.reviewPushBudget, undefined)
+})
+
+test('lists budget parks with their reason for the health route', async t => {
+  const inbox = memory(t)
+  await inbox.seed(repository, pr())
+  await inbox.seed(repository, { number: 8, state: 'open', head: { sha: 'b', ref: 'other' }, base: { ref: 'main' } })
+  const [first, second] = await inbox.claim(2)
+  assert.ok(await inbox.finish(first!, { text: 'Review push budget spent.', wait: { reason: 'review-push-budget', evidenceKey: 'k' } }))
+  assert.ok(await inbox.finish(second!, { text: 'Waiting for checks.', wait: { reason: 'checks', evidenceKey: 'k' } }))
+  assert.deepEqual(budgetParks(await inbox.summary()), [{ repository, number: 7, budget: 'review-push-budget', reason: 'Review push budget spent.' }])
 })
