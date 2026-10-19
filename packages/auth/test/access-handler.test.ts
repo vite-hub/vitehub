@@ -180,4 +180,5 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/private")))?.status).toBe(401)
     expect(provider.handler).not.toHaveBeenCalled()
   })
+  })
 })

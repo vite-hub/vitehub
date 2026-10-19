@@ -32,6 +32,11 @@ export default defineConfig({
       "src/components/agent-message-parts.ts",
       "src/components/agent-session.ts",
       "src/components/agent-tool-list.ts",
+      "src/attachment.ts",
+      "src/bubble.ts",
+      "src/chat.ts",
+      "src/chat-message.ts",
+      "src/chat-session.ts",
       "src/components/agent-trace.ts",
       "src/code-block.ts",
       "src/markdown.ts",
@@ -63,7 +68,12 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        return { ...normalized, "./styles.css": "./dist/styles.css" };
+        const remapped = Object.fromEntries(
+          Object.entries(normalized).map(([key, value]) =>
+            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
+          ),
+        );
+        return { ...remapped, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

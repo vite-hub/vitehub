@@ -62,7 +62,7 @@ const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./code-block", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./attachment", "./bubble", "./chat", "./chat-message", "./chat-session", "./code-block", "./headless", "./markdown", "./marker", "./message", "./message-parts", "./nuxt", "./package.json", "./primitive-rail", "./prompt-input", "./styles.css", "./trace", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -100,6 +100,11 @@ describe("@vite-hub/ui package contract", () => {
     "./agent-session",
     "./agent-tool-list",
     "./agent-trace",
+    "./attachment",
+    "./bubble",
+    "./chat",
+    "./chat-message",
+    "./chat-session",
     "./code-block",
     "./headless",
     "./markdown",

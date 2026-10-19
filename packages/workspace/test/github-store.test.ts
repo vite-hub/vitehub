@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createFakeGitHub, fakeSha } from "./fake-github.ts";
 import { checkGlobCwd, globCwdPaths } from "./glob-cwd-checks.ts";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,190 +9,122 @@ import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts
 
 import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
 
-interface GitHubRequestBody {
-  content?: string;
-  force?: boolean;
-  ref?: string;
-  sha?: string | null;
-  tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
-}
-
-const requests: Array<{ body?: GitHubRequestBody; headers: Headers; method: string; path: string }> = [];
-let refSha = "base-sha";
-let remoteTreeSha = "base-tree";
-let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = [];
-let commitIndex = 0;
-let treeIndex = 0;
-let mirrorRefSha: string | undefined;
-let mirrorRefStatus = 404;
-let mirrorCreateStatus: number | undefined;
-let mainRefUpdateStatus: number | undefined;
-let mainRefUpdateMessage: string | undefined;
-let malformedResponsePath: string | undefined;
-let malformedResponse: unknown;
-let archiveFailures = 0;
-let archiveBytes = textBytes("archive");
-const blobs = new Map<string, Uint8Array>();
-const treesByRef = new Map<string, typeof remoteTree>();
+const requests: Array<{ body?: Record<string, unknown>; headers: Headers; method: string; operation?: string; path: string; rawPath: string }> = []
+let fake: ReturnType<typeof createFakeGitHub>
+let refSha = fakeSha("base-sha")
+let syncedRefSha = fakeSha("base-sha")
+let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = []
+let mirrorRefStatus = 404
+let mirrorCreateStatus: number | undefined
+let mainRefUpdateStatus: number | undefined
+let mainRefUpdateMessage: string | undefined
+let mainRefMoved = false
+let malformedResponsePath: string | undefined
+let malformedResponse: unknown
+let archiveBytes = textBytes("archive")
+const blobs = new Map<string, Uint8Array>()
 
 function gitBlobSha(bytes: Uint8Array): string {
-  return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
+  return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex")
 }
 
 function textBytes(content: string): Uint8Array {
-  return new TextEncoder().encode(content);
-}
-
-function isGitHubRequestBody(value: unknown): value is GitHubRequestBody {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return new TextEncoder().encode(content)
 }
 
 function textSha(content: string): string {
-  return gitBlobSha(textBytes(content));
+  return gitBlobSha(textBytes(content))
 }
 
-function seedRemote(path: string, content: string, mode?: string) {
-  const bytes = textBytes(content);
-  const sha = gitBlobSha(bytes);
-  blobs.set(sha, bytes);
-  remoteTree.push({ mode, path, sha, size: bytes.byteLength, type: "blob" });
+function seedRemote(path: string, content: string, mode = "100644") {
+  const bytes = textBytes(content)
+  const sha = gitBlobSha(bytes)
+  blobs.set(sha, bytes)
+  remoteTree.push({ mode, path, sha, size: bytes.byteLength, type: "blob" })
 }
 
-function jsonResponse(value: unknown) {
+function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json" },
-    status: 200,
-  });
+    status,
+  })
+}
+
+function syncFake() {
+  const head = fake.head("main")
+  if (head !== syncedRefSha) {
+    refSha = head ?? refSha
+    syncedRefSha = refSha
+    remoteTree = fake.tree("main").map(entry => ({ ...entry, type: "blob" as const }))
+  }
+  const tree = remoteTree.map(entry => ({ mode: entry.mode ?? "100644", path: entry.path, sha: entry.sha, size: entry.size ?? blobs.get(entry.sha)?.byteLength ?? 0 }))
+  for (const [sha, bytes] of blobs) fake.blobs.set(sha, bytes)
+  fake.state.archive = archiveBytes
+  if (refSha !== syncedRefSha || fake.head("main") === syncedRefSha && fake.tree("main").length !== tree.length) {
+    fake.setBranch("main", refSha, tree)
+    syncedRefSha = refSha
+  }
 }
 
 beforeEach(() => {
-  requests.length = 0;
-  refSha = "base-sha";
-  remoteTreeSha = "base-tree";
-  remoteTree = [];
-  commitIndex = 0;
-  treeIndex = 0;
-  mirrorRefSha = undefined;
-  mirrorRefStatus = 404;
-  mirrorCreateStatus = undefined;
-  mainRefUpdateStatus = undefined;
-  mainRefUpdateMessage = undefined;
-  malformedResponsePath = undefined;
-  malformedResponse = undefined;
-  archiveFailures = 0;
-  archiveBytes = textBytes("archive");
-  blobs.clear();
-  treesByRef.clear();
-  vi.stubEnv("WORKSPACE_GITHUB_TOKEN", "");
-  vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_TOKEN", "");
-  vi.stubEnv("GITHUB_TOKEN", "");
-  vi.stubEnv("GH_TOKEN", "");
+  requests.length = 0
+  fake = createFakeGitHub()
+  fake.respond(request => request.path === malformedResponsePath ? jsonResponse(malformedResponse) : undefined)
+  fake.respond(request => (request.path === "/repos/onmax/repo/git/ref/heads/mirror" || request.path === "/repos/onmax/repo/commits/heads/mirror") && mirrorRefStatus !== 404 && fake.head("mirror") === undefined
+    ? new Response("missing mirror branch", { status: mirrorRefStatus, statusText: "Forbidden" })
+    : undefined)
+  refSha = fakeSha("base-sha")
+  syncedRefSha = fakeSha("base-sha")
+  remoteTree = []
+  mirrorRefStatus = 404
+  mirrorCreateStatus = undefined
+  mainRefUpdateStatus = undefined
+  mainRefUpdateMessage = undefined
+  mainRefMoved = false
+  malformedResponsePath = undefined
+  malformedResponse = undefined
+  archiveBytes = textBytes("archive")
+  blobs.clear()
+  vi.stubEnv("VITEHUB_GITHUB_TOKEN", "")
+  vi.stubEnv("FORGES_GITHUB_TOKEN", "")
 
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
-      const url = new URL(input instanceof Request ? input.url : String(input));
-      const method = init.method || "GET";
-      const parsedBody: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
-      const body = isGitHubRequestBody(parsedBody) ? parsedBody : undefined;
-      requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+    syncFake()
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.pathname === "/repos/onmax/repo/git/refs" && (init.method || "GET").toUpperCase() === "POST" && mirrorCreateStatus) {
+      return new Response("Reference already exists", { status: mirrorCreateStatus, statusText: "Conflict" })
+    }
+    if (url.pathname === "/graphql" && typeof init.body === "string" && init.body.includes("CreateCommitOnBranch")) {
+      if (mainRefUpdateStatus === 409 && !mainRefMoved) {
+        mainRefMoved = true
+        fake.commit("main", {}, { sha: fakeSha("remote-move") })
+      }
+      if (mainRefUpdateStatus === 422) return new Response(JSON.stringify({ errors: [{ message: mainRefUpdateMessage || "Validation Failed" }] }), { headers: { "content-type": "application/json" }, status: 200 })
+    }
+    if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && (init.method || "GET").toUpperCase() === "PATCH" && mainRefUpdateStatus) {
+      return new Response(mainRefUpdateMessage || "branch moved", { status: mainRefUpdateStatus, statusText: mainRefUpdateStatus === 422 ? "Unprocessable Entity" : "Conflict" })
+    }
+    // The fake records the request before its first await, so the index belongs to this call when requests run in parallel.
+    const index = fake.requests.length
+    const pending = fake.fetch(input, init)
+    const request = fake.requests[index]
+    if (request) requests.push(request)
+    const response = await pending
+    const head = fake.head("main")
+    if (head && head !== syncedRefSha) {
+      syncedRefSha = head
+      refSha = head
+      remoteTree = fake.tree("main").map(entry => ({ ...entry, type: "blob" as const }))
+    }
+    return response
+  }))
+})
 
-      if (url.pathname === malformedResponsePath) return jsonResponse(malformedResponse);
-
-      if (url.hostname === "codeload.github.com") {
-        if (archiveFailures-- > 0) {
-          return new Response("retry", { headers: { "retry-after": "0" }, status: 503 });
-        }
-        return new Response(archiveBytes);
-      }
-
-      if (url.hostname === "raw.githubusercontent.com") {
-        const [, , , ref, ...path] = decodeURIComponent(url.pathname).split("/");
-        const entry = treesByRef.get(ref!)?.find(item => item.path === path.join("/"));
-        const bytes = entry ? blobs.get(entry.sha) : undefined;
-        return bytes ? new Response(bytes) : new Response("not found", { status: 404 });
-      }
-
-      if (url.pathname === "/repos/onmax/repo/git/ref/heads/mirror") {
-        if (mirrorRefSha) return jsonResponse({ object: { sha: mirrorRefSha } });
-        return new Response("missing mirror branch", {
-          status: mirrorRefStatus,
-          statusText: mirrorRefStatus === 404 ? "Not Found" : "Forbidden",
-        });
-      }
-      if (url.pathname === "/repos/onmax/repo") return jsonResponse({ default_branch: "main" });
-      if (url.pathname === "/repos/onmax/repo/git/ref/heads/main")
-        return jsonResponse({ object: { sha: refSha } });
-      if (url.pathname.startsWith("/repos/onmax/repo/git/commits/"))
-        return jsonResponse({ tree: { sha: remoteTreeSha } });
-      if (url.pathname === `/repos/onmax/repo/git/trees/${remoteTreeSha}` && method === "GET") {
-        treesByRef.set(refSha, structuredClone(remoteTree));
-        return jsonResponse({ tree: remoteTree });
-      }
-      if (url.pathname.startsWith("/repos/onmax/repo/git/blobs/") && method === "GET") {
-        const sha = url.pathname.split("/").at(-1)!;
-        const bytes = blobs.get(sha);
-        return bytes
-          ? new Response(bytes, {
-              headers: { "content-type": "application/octet-stream" },
-              status: 200,
-            })
-          : new Response("not found", { status: 404 });
-      }
-      if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
-        const bytes = new Uint8Array(Buffer.from(body.content, "base64"));
-        const sha = gitBlobSha(bytes);
-        blobs.set(sha, bytes);
-        return jsonResponse({ sha });
-      }
-      if (url.pathname === "/repos/onmax/repo/git/trees" && method === "POST") {
-        for (const entry of body?.tree || []) {
-          remoteTree = remoteTree.filter((item) => item.path !== entry.path);
-          if (entry.sha) {
-            const bytes = blobs.get(entry.sha);
-            remoteTree.push({
-              mode: entry.mode,
-              path: entry.path,
-              sha: entry.sha,
-              size: bytes?.byteLength,
-              type: "blob",
-            });
-          }
-        }
-        remoteTreeSha = `tree-sha-${++treeIndex}`;
-        return jsonResponse({ sha: remoteTreeSha });
-      }
-      if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST")
-        return jsonResponse({ sha: `commit-sha-${++commitIndex}` });
-      if (url.pathname === "/repos/onmax/repo/git/refs" && method === "POST") {
-        if (mirrorCreateStatus) {
-          return new Response("Reference already exists", {
-            status: mirrorCreateStatus,
-            statusText: "Conflict",
-          });
-        }
-        if (body?.ref === "refs/heads/mirror" && body.sha) mirrorRefSha = body.sha;
-        return jsonResponse({});
-      }
-      if (url.pathname === "/repos/onmax/repo/git/refs/heads/mirror" && method === "PATCH") {
-        if (body?.sha) mirrorRefSha = body.sha;
-        return jsonResponse({});
-      }
-      if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && method === "PATCH") {
-        if (mainRefUpdateStatus) {
-          return new Response(mainRefUpdateMessage || "branch moved", {
-            status: mainRefUpdateStatus,
-            statusText: mainRefUpdateStatus === 422 ? "Unprocessable Entity" : "Conflict",
-          });
-        }
-        if (body?.sha) refSha = body.sha;
-        return jsonResponse({});
-      }
-
-      return new Response("not found", { status: 404 });
-    }),
-  );
-});
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  clearActiveCloudflareEnv()
+})
 
 it("rejects GitHub Workspace roots that escape the repository", () => {
   expect(() => resolveGitHubWorkspaceRoot("../../outside", "docs")).toThrow("escapes the workspace root");
@@ -217,32 +150,16 @@ it.each(["owner/repo", "owner-name/.github", "Owner123/repo_name-1.2"]) (
   },
 );
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
-  clearActiveCloudflareEnv();
-});
-
 describe("GitHub workspace store", () => {
   it.each([
     {
-      message: "branch reference",
-      path: "/repos/onmax/repo/git/ref/heads/main",
-      response: null,
-    },
-    {
       message: "commit",
-      path: "/repos/onmax/repo/git/commits/base-sha",
-      response: { tree: {} },
-    },
-    {
-      message: "tree",
-      path: "/repos/onmax/repo/git/trees/base-tree",
-      response: { tree: null },
+      path: "/repos/onmax/repo/commits/heads/main",
+      response: null,
     },
     ...[undefined, null, ""].map(sha => ({
       message: "tree",
-      path: "/repos/onmax/repo/git/trees/base-tree",
+      path: `/repos/onmax/repo/git/trees/${fakeSha("base-sha")}`,
       response: { tree: [{ path: ".vitehub/workspaces/docs/file.md", sha, type: "blob" }] },
     })),
   ])("rejects malformed successful GitHub $message responses", async ({ message, path, response }) => {
@@ -257,9 +174,16 @@ describe("GitHub workspace store", () => {
 
     await expect(store.list()).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
-      message: `[vitehub] GitHub workspace returned a malformed ${message} response.`,
+      message: expect.stringContaining(`GitHub workspace returned a malformed ${message} response`),
     });
   });
+
+  it("rejects a truncated remote tree", async () => {
+    fake.state.truncated = true
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts")
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token" }, "docs")
+    await expect(store.list()).rejects.toThrow("could not compare the remote tree because GitHub returned a truncated tree")
+  })
 
   it("matches glob patterns relative to cwd", async () => {
     for (const path of globCwdPaths) seedRemote(`.vitehub/workspaces/docs/${path}`, path);
@@ -283,20 +207,20 @@ describe("GitHub workspace store", () => {
     await expect(materializer.materializeRevision()).resolves.toMatchObject({
       archive: archiveBytes,
       files: 857,
-      revision: "base-sha",
+      revision: fakeSha("base-sha"),
       root: ".vitehub/workspaces/docs",
     });
     await materializer.materializeRevision();
     await expect(materializer.materializeRevision({ paths: ["files/0.txt"] })).resolves.toMatchObject({
       files: 1,
       paths: ["files/0.txt"],
-      revision: "base-sha",
+      revision: fakeSha("base-sha"),
     });
     await expect(materializer.materializeRevision({ paths: ["files/0.txt"] })).resolves.not.toHaveProperty("archive");
     await expect(store.diff()).resolves.toMatchObject({ entries: [] });
 
-    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
-    expect(requests.filter(request => request.path.startsWith("/onmax/repo/base-sha/"))).toHaveLength(0);
+    expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
+    expect(requests.filter(request => request.path.startsWith(`/onmax/repo/${fakeSha("base-sha")}/`))).toHaveLength(0);
   });
 
   it("coalesces concurrent first materializations of one revision archive", async () => {
@@ -315,9 +239,9 @@ describe("GitHub workspace store", () => {
 
     expect(results).toHaveLength(3);
     expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ archive: archiveBytes, revision: "base-sha" }),
+      expect.objectContaining({ archive: archiveBytes, revision: fakeSha("base-sha") }),
     ]));
-    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(1);
+    expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
   });
 
   it("lets callers cancel revision resolution while the GitHub request continues", async () => {
@@ -337,7 +261,7 @@ describe("GitHub workspace store", () => {
   });
 
   it("retries transient pinned archive reads within a bounded attempt count", async () => {
-    archiveFailures = 2;
+    fake.state.archiveFailures = 2;
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       { provider: "github", repository: "onmax/repo", token: "token" },
@@ -345,9 +269,9 @@ describe("GitHub workspace store", () => {
     );
 
     await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision()).resolves.toMatchObject({
-      revision: "base-sha",
+      revision: fakeSha("base-sha"),
     });
-    expect(requests.filter(request => request.path === "/onmax/repo/tar.gz/base-sha")).toHaveLength(3);
+    expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(3);
   });
 
   it("falls back to the current Store state when it has staged writes", async () => {
@@ -359,7 +283,7 @@ describe("GitHub workspace store", () => {
     await store.writeFile("staged.txt", { content: "staged", path: "staged.txt" });
 
     await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision())
-      .resolves.toMatchObject({ files: 0, revision: "base-sha" });
+      .resolves.toMatchObject({ files: 0, revision: fakeSha("base-sha") });
     await expect(store.readFile("staged.txt")).resolves.toMatchObject({ content: textBytes("staged") });
     expect(requests.filter(request => request.path.includes("/tar.gz/"))).toHaveLength(0);
   });
@@ -384,8 +308,7 @@ describe("GitHub workspace store", () => {
     );
 
     await store.readFile("README.md");
-    refSha = "next-sha";
-    remoteTreeSha = "next-tree";
+    refSha = fakeSha("next-sha");
     requests.length = 0;
     await store.list();
     requests.length = 0;
@@ -395,29 +318,17 @@ describe("GitHub workspace store", () => {
   });
 
   it.each([
-    ["Workspace", {
-      WORKSPACE_GITHUB_BRANCH: "release",
-      WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
-      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-      WORKSPACE_GITHUB_TOKEN: "binding-token",
-    }],
-    ["ViteHub Workspace", {
+    ["VITEHUB", {
       VITEHUB_WORKSPACE_GITHUB_BRANCH: "release",
       VITEHUB_WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
       VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-      VITEHUB_WORKSPACE_GITHUB_TOKEN: "binding-token",
+      VITEHUB_GITHUB_TOKEN: "binding-token",
     }],
-    ["GitHub with GITHUB_TOKEN", {
-      GITHUB_BRANCH: "release",
-      GITHUB_REPOSITORY: "onmax/repo",
+    ["FORGES", {
+      VITEHUB_WORKSPACE_GITHUB_BRANCH: "release",
+      VITEHUB_WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
       VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-      GITHUB_TOKEN: "binding-token",
-    }],
-    ["GitHub with GH_TOKEN", {
-      GITHUB_BRANCH: "release",
-      GITHUB_REPOSITORY: "onmax/repo",
-      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-      GH_TOKEN: "binding-token",
+      FORGES_GITHUB_TOKEN: "binding-token",
     }],
   ] as const)("resolves %s active Cloudflare binding aliases", async (_label, bindings) => {
     setActiveCloudflareEnv(bindings);
@@ -440,16 +351,13 @@ describe("GitHub workspace store", () => {
     expect(resolveGitHubTokenOption(options, {})).toBe("binding-token");
   });
 
-  it("falls through blank active Cloudflare binding aliases", async () => {
+  it("trims active Cloudflare bindings and falls through a blank token", async () => {
     setActiveCloudflareEnv({
-      WORKSPACE_GITHUB_BRANCH: " ",
-      WORKSPACE_GITHUB_REPOSITORY: " ",
-      WORKSPACE_GITHUB_ROOT: " ",
-      WORKSPACE_GITHUB_TOKEN: " ",
       VITEHUB_WORKSPACE_GITHUB_BRANCH: " release ",
       VITEHUB_WORKSPACE_GITHUB_REPOSITORY: " onmax/repo ",
       VITEHUB_WORKSPACE_GITHUB_ROOT: " state/<workspace> ",
-      VITEHUB_WORKSPACE_GITHUB_TOKEN: " binding-token ",
+      VITEHUB_GITHUB_TOKEN: " ",
+      FORGES_GITHUB_TOKEN: " binding-token ",
     });
     const {
       resolveGitHubBranchOption,
@@ -473,7 +381,7 @@ describe("GitHub workspace store", () => {
   it.each(["********", "<redacted>", "[redacted]"])(
     "falls back to env credentials for masked token %s",
     async (maskedToken) => {
-      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+      process.env.FORGES_GITHUB_TOKEN = "env-token";
       const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
       const store = createGitHubWorkspaceStore(
         {
@@ -494,8 +402,8 @@ describe("GitHub workspace store", () => {
   it.each(["********", "<redacted>", "[redacted]"])(
     "falls back to env credentials for masked active binding %s",
     async (maskedToken) => {
-      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
-      setActiveCloudflareEnv({ GITHUB_TOKEN: maskedToken });
+      process.env.FORGES_GITHUB_TOKEN = "env-token";
+      setActiveCloudflareEnv({ VITEHUB_GITHUB_TOKEN: maskedToken });
       const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
       const store = createGitHubWorkspaceStore(
         {
@@ -513,10 +421,10 @@ describe("GitHub workspace store", () => {
   );
 
   it("falls through masked active binding aliases", async () => {
-    process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+    process.env.FORGES_GITHUB_TOKEN = "env-token";
     setActiveCloudflareEnv({
-      GITHUB_TOKEN: "binding-token",
-      WORKSPACE_GITHUB_TOKEN: "********",
+      VITEHUB_GITHUB_TOKEN: "binding-token",
+      FORGES_GITHUB_TOKEN: "********",
     });
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
@@ -556,10 +464,10 @@ describe("GitHub workspace store", () => {
   it("falls back from blank lazy options to active Cloudflare bindings", async () => {
     seedRemote("state/docs/data/existing.json", '{"ok":true}\n');
     setActiveCloudflareEnv({
-      WORKSPACE_GITHUB_BRANCH: "main",
-      WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
-      WORKSPACE_GITHUB_ROOT: "state/<workspace>",
-      WORKSPACE_GITHUB_TOKEN: "binding-token",
+      VITEHUB_WORKSPACE_GITHUB_BRANCH: "main",
+      VITEHUB_WORKSPACE_GITHUB_REPOSITORY: "onmax/repo",
+      VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      FORGES_GITHUB_TOKEN: "binding-token",
     });
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
@@ -613,10 +521,8 @@ describe("GitHub workspace store", () => {
       content: textBytes('{"ok":true}\n'),
       path: "data/existing.json",
     });
-    expect(
-      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET"),
-    ).toBeUndefined();
-    expect(requests.find(request => request.path.includes("/base-sha/.vitehub/workspaces/docs/data/existing.json")))
+    // The Contents API truncates large files, so file reads go by blob sha.
+    expect(requests.find(request => request.path === `/repos/onmax/repo/git/blobs/${textSha('{"ok":true}\n')}`))
       .toMatchObject({ headers: expect.any(Headers), method: "GET" });
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
@@ -644,44 +550,18 @@ describe("GitHub workspace store", () => {
     await store.setMeta!("loader", { digest: "abc" });
 
     const snapshot = await store.snapshot({ name: "sync workspace" });
-    expect(snapshot.id).toBe("commit-sha-1");
+    expect(snapshot.id).toBe(fakeSha("commit-sha-1"));
     expect(await store.getMeta!("loader")).toEqual({ digest: "abc" });
-    expect(
-      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      base_tree: "base-tree",
-      tree: expect.arrayContaining([
-        {
-          mode: "100644",
-          path: ".vitehub/workspaces/docs/tasks/todo.md",
-          sha: textSha("ship it\n"),
-          type: "blob",
-        },
-        {
-          mode: "100644",
-          path: ".vitehub/workspaces/docs/.vitehub/meta/loader.json",
-          sha: textSha('{"digest":"abc"}'),
-          type: "blob",
-        },
-      ]),
-    });
-    expect(
-      requests.find((request) => request.path.endsWith("/git/commits") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      message: "sync workspace",
-      parents: ["base-sha"],
-      tree: "tree-sha-1",
-    });
-    expect(
-      requests.find(
-        (request) => request.path.endsWith("/git/refs/heads/main") && request.method === "PATCH",
-      )?.body,
-    ).toMatchObject({
-      force: false,
-      sha: "commit-sha-1",
-    });
+    expect(fake.commitInputs()[0]).toMatchObject({
+      expectedHeadOid: fakeSha("base-sha"),
+      fileChanges: {
+        additions: expect.arrayContaining([
+          { path: ".vitehub/workspaces/docs/tasks/todo.md", contents: Buffer.from("ship it\n").toString("base64") },
+          { path: ".vitehub/workspaces/docs/.vitehub/meta/loader.json", contents: Buffer.from('{"digest":"abc"}').toString("base64") },
+        ]),
+      },
+      message: { headline: "sync workspace" },
+    })
 
     const freshStore = createGitHubWorkspaceStore(
       {
@@ -712,32 +592,19 @@ describe("GitHub workspace store", () => {
     await store.snapshot({ name: "first publish" });
 
     expect(requests.map(request => request.path)).toEqual(expect.arrayContaining([
-      "/repos/onmax/repo/git/ref/heads/mirror",
+      "/repos/onmax/repo/commits/heads/mirror",
       "/repos/onmax/repo",
-      "/repos/onmax/repo/git/ref/heads/main",
+      "/repos/onmax/repo/commits/heads/main",
+      "/repos/onmax/repo/git/refs",
+      "/graphql",
     ]));
-    expect(
-      requests.find(request => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({ base_tree: "base-tree" });
-    expect(
-      requests.find(request => request.path.endsWith("/git/commits") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({ parents: ["base-sha"] });
-    expect(
-      requests.find(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")
-        ?.body,
-    ).toEqual({ ref: "refs/heads/mirror", sha: "commit-sha-1" });
-    expect(requests.some(request => request.method === "PATCH")).toBe(false);
+    expect(fake.commitInputs()[0]).toMatchObject({ branch: { branchName: "mirror" }, expectedHeadOid: fakeSha("base-sha") });
 
     requests.length = 0;
     await store.writeFile("tasks/second.md", { path: "tasks/second.md", content: "second\n" });
     await store.snapshot({ name: "second publish" });
 
-    expect(
-      requests.find(request => request.path.endsWith("/git/refs/heads/mirror") && request.method === "PATCH")
-        ?.body,
-    ).toEqual({ force: false, sha: "commit-sha-2" });
+    expect(fake.commitInputs().at(-1)).toMatchObject({ branch: { branchName: "mirror" }, expectedHeadOid: fakeSha("commit-sha-1") });
     expect(requests.some(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")).toBe(false);
   });
 
@@ -755,7 +622,7 @@ describe("GitHub workspace store", () => {
 
     await expect(store.list()).resolves.toEqual([]);
     expect(requests[0]?.path).toBe(
-      "/repos/onmax/repo/git/ref/heads/feature%3Faudio%23draft",
+      "/repos/onmax/repo/commits/heads/feature?audio#draft",
     );
   });
 
@@ -774,14 +641,14 @@ describe("GitHub workspace store", () => {
 
     await expect(store.list()).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
-      message: "[vitehub] GitHub workspace request failed.",
+      message: expect.stringContaining("[vitehub] GitHub workspace request failed for onmax/repo"),
     });
     expect(requests.map(request => request.path)).toEqual([
-      "/repos/onmax/repo/git/ref/heads/mirror",
+      "/repos/onmax/repo/commits/heads/mirror",
     ]);
   });
 
-  it("loads many private files from one branch snapshot without GitHub REST blob requests", async () => {
+  it("loads many private files from one branch snapshot with one blob request per file", async () => {
     for (let index = 0; index < 756; index++) {
       seedRemote(`.vitehub/workspaces/docs/data/file-${index}.txt`, `file ${index}\n`);
     }
@@ -799,14 +666,14 @@ describe("GitHub workspace store", () => {
     const entries = await store.list("", { recursive: true });
     await Promise.all(entries.filter(entry => entry.type === "file").map(entry => store.readFile(entry.path)));
 
-    expect(requests.filter(request => request.path.startsWith("/repos/"))).toHaveLength(3);
-    expect(requests.filter(request => request.path.includes("/git/blobs/"))).toEqual([]);
-    expect(requests.filter(request => request.path.startsWith("/onmax/repo/base-sha/"))).toHaveLength(756);
-    expect(requests.find(request => request.path.endsWith("/data/file-0.txt"))?.headers.get("authorization"))
+    expect(requests.filter(request => request.path.startsWith("/repos/"))).toHaveLength(758);
+    expect(requests.filter(request => request.path.includes("/git/blobs/"))).toHaveLength(756);
+    expect(requests.filter(request => request.path.includes("/contents/"))).toEqual([]);
+    expect(requests.find(request => request.path.endsWith(`/git/blobs/${textSha("file 0\n")}`))?.headers.get("authorization"))
       .toBe("Bearer token");
   });
 
-  it("encodes raw file paths against the immutable loaded commit and shapes failures", async () => {
+  it("reads files by the blob sha of the loaded commit and shapes failures", async () => {
     seedRemote(".vitehub/workspaces/docs/data/a #%å.txt", "content\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
@@ -820,11 +687,8 @@ describe("GitHub workspace store", () => {
     );
 
     await expect(store.readFile("data/a #%å.txt")).resolves.toMatchObject({ content: textBytes("content\n") });
-    expect(requests.at(-1)?.path).toBe(
-      "/onmax/repo/base-sha/.vitehub/workspaces/docs/data/a%20%23%25%C3%A5.txt",
-    );
+    expect(requests.at(-1)?.rawPath).toBe(`/repos/onmax/repo/git/blobs/${textSha("content\n")}`);
 
-    remoteTree = [];
     const missingStore = createGitHubWorkspaceStore(
       { provider: "github", repository: "onmax/repo", token: "token" },
       "docs",
@@ -832,9 +696,10 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/missing.txt", "missing\n");
     await missingStore.list();
     blobs.delete(textSha("missing\n"));
+    fake.blobs.delete(textSha("missing\n"));
     await expect(missingStore.readFile("missing.txt")).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
-      message: "[vitehub] GitHub workspace request failed.",
+      message: expect.stringContaining("[vitehub] GitHub workspace request failed for onmax/repo"),
     });
   });
 
@@ -848,21 +713,16 @@ describe("GitHub workspace store", () => {
 
     await store.list();
 
-    refSha = "next-sha";
-    remoteTreeSha = "next-tree";
+    refSha = fakeSha("next-sha");
     remoteTree = [];
     seedRemote(".vitehub/workspaces/docs/README.md", "second\n");
 
     await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("first\n") });
-    expect(requests.at(-1)?.path).toBe(
-      "/onmax/repo/base-sha/.vitehub/workspaces/docs/README.md",
-    );
+    expect(requests.at(-1)?.path).toBe(`/repos/onmax/repo/git/blobs/${textSha("first\n")}`);
     await store.list();
 
     await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("second\n") });
-    expect(requests.at(-1)?.path).toBe(
-      "/onmax/repo/next-sha/.vitehub/workspaces/docs/README.md",
-    );
+    expect(requests.at(-1)?.path).toBe(`/repos/onmax/repo/git/blobs/${textSha("second\n")}`);
   });
 
   it("deletes files and directories through snapshot commits", async () => {
@@ -883,15 +743,10 @@ describe("GitHub workspace store", () => {
     await store.rm("tasks", { recursive: true });
     await store.snapshot({ name: "delete tasks" });
 
-    expect(
-      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      tree: expect.arrayContaining([
-        { mode: "100644", path: ".vitehub/workspaces/docs/tasks/a.md", sha: null, type: "blob" },
-        { mode: "100644", path: ".vitehub/workspaces/docs/tasks/b.md", sha: null, type: "blob" },
-      ]),
-    });
+    expect(fake.commitInputs()[0]?.fileChanges.deletions).toEqual(expect.arrayContaining([
+      { path: ".vitehub/workspaces/docs/tasks/a.md" },
+      { path: ".vitehub/workspaces/docs/tasks/b.md" },
+    ]));
   });
 
   it("removes a file and its descendants for recursive directory removal", async () => {
@@ -926,7 +781,7 @@ describe("GitHub workspace store", () => {
     await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
     await store.snapshot({ name: "unchanged" });
 
-    expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+    expect(requests.filter((request) => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([]);
   });
 
   it("preserves binary sizes for cross-realm writes", async () => {
@@ -950,7 +805,7 @@ describe("GitHub workspace store", () => {
     await store.writeFile("data.bin", { content, path: "data.bin" });
 
     await expect(store.stat("data.bin")).resolves.toMatchObject({ size: bytes.byteLength });
-    expect(requests.filter(request => request.method !== "GET")).toEqual([]);
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([]);
   });
 
   it("reads GitHub symlink blobs from their in-workspace target", async () => {
@@ -1016,9 +871,7 @@ describe("GitHub workspace store", () => {
       mediaType: "text/markdown",
     });
 
-    expect(
-      requests.filter((request) => request.path.endsWith("/git/blobs") && request.method === "POST"),
-    ).toHaveLength(1);
+    expect(fake.commitInputs()).toEqual([]);
     requests.length = 0;
 
     await expect(store.readFile("tasks/todo.md")).resolves.toMatchObject({ content: textBytes("ship it\n") });
@@ -1026,22 +879,9 @@ describe("GitHub workspace store", () => {
 
     await store.snapshot({ name: "sync workspace" });
 
-    expect(
-      requests.filter((request) => request.path.endsWith("/git/blobs") && request.method === "POST"),
-    ).toEqual([]);
-    expect(
-      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      tree: expect.arrayContaining([
-        {
-          mode: "100644",
-          path: ".vitehub/workspaces/docs/tasks/todo.md",
-          sha: textSha("ship it\n"),
-          type: "blob",
-        },
-      ]),
-    });
+    expect(fake.commitInputs().at(-1)?.fileChanges.additions).toEqual(expect.arrayContaining([
+      { path: ".vitehub/workspaces/docs/tasks/todo.md", contents: Buffer.from("ship it\n").toString("base64") },
+    ]));
   });
 
   it("supports streaming writes in the GitHub workspace store", async () => {
@@ -1073,19 +913,9 @@ describe("GitHub workspace store", () => {
     });
     await store.snapshot({ name: "sync workspace" });
 
-    expect(
-      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      tree: expect.arrayContaining([
-        {
-          mode: "100644",
-          path: ".vitehub/workspaces/docs/assets/blob.txt",
-          sha: textSha("hello stream\n"),
-          type: "blob",
-        },
-      ]),
-    });
+    expect(fake.commitInputs().at(-1)?.fileChanges.additions).toEqual(expect.arrayContaining([
+      { path: ".vitehub/workspaces/docs/assets/blob.txt", contents: Buffer.from("hello stream\n").toString("base64") },
+    ]));
   });
 
   it("keeps unchanged remote file content lazy after no-op writes", async () => {
@@ -1109,12 +939,7 @@ describe("GitHub workspace store", () => {
       metadata: undefined,
     });
 
-    expect(requests.filter((request) => request.path.includes("/base-sha/"))).toEqual([
-      expect.objectContaining({
-        method: "GET",
-        path: "/onmax/repo/base-sha/.vitehub/workspaces/docs/README.md",
-      }),
-    ]);
+    expect(requests.filter(request => request.path.includes("/contents/.vitehub/workspaces/docs/README.md"))).toEqual([]);
   });
 
   it("marks GitHub symlink blobs from the remote tree", async () => {
@@ -1262,14 +1087,10 @@ describe("GitHub workspace store", () => {
     await store.writeFile("notes.md", { path: "notes.md", content: "ok\n" });
     await store.snapshot({ name: "write note" });
 
-    expect(
-      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
-        ?.body,
-    ).toMatchObject({
-      tree: expect.not.arrayContaining([
-        expect.objectContaining({ path: ".vitehub/workspaces/docs/bin/tool.sh" }),
-      ]),
-    });
+    expect(fake.commitInputs().at(-1)?.fileChanges.additions).toEqual([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/notes.md" }),
+    ]);
+    expect(fake.tree("main")).toContainEqual(expect.objectContaining({ mode: "100755", path: ".vitehub/workspaces/docs/bin/tool.sh" }));
   });
 
   it("keeps writes that start during a snapshot for the next checkpoint", async () => {
@@ -1291,9 +1112,7 @@ describe("GitHub workspace store", () => {
     ]);
     await store.snapshot({ name: "second checkpoint" });
 
-    expect(
-      requests.filter(request => request.path.endsWith("/git/commits") && request.method === "POST"),
-    ).toHaveLength(2);
+    expect(fake.commitInputs()).toHaveLength(2);
     expect(remoteTree).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: ".vitehub/workspaces/docs/first.md" }),
       expect.objectContaining({ path: ".vitehub/workspaces/docs/second.md" }),
@@ -1320,9 +1139,7 @@ describe("GitHub workspace store", () => {
     );
     expect(
       requests.filter((request) =>
-        (request.path.endsWith("/git/trees") && request.method === "POST")
-        || request.path.endsWith("/git/commits")
-        || request.method === "PATCH"
+        (request.method !== "GET" && request.operation !== "RepositoryId")
       ),
     ).toEqual([]);
   });
@@ -1347,7 +1164,7 @@ describe("GitHub workspace store", () => {
       code: "WORKSPACE_CONFLICT",
       details: {
         branch: "main",
-        expectedHead: "base-sha",
+        expectedHead: fakeSha("base-sha"),
         repository: "onmax/repo",
       },
     });
@@ -1410,8 +1227,7 @@ describe("GitHub workspace store", () => {
 
     await store.writeFile("page.md", { path: "page.md", content: "# Realtime\n" });
     await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
-    refSha = "remote-sha";
-    remoteTreeSha = "remote-tree";
+    refSha = fakeSha("remote-sha");
     remoteTree = remoteTree.filter((entry) => entry.path !== ".vitehub/workspaces/docs/page.md");
     seedRemote(".vitehub/workspaces/docs/page.md", "# Remote\n");
     seedRemote(".vitehub/workspaces/docs/draft.md", "remote draft\n");
@@ -1507,8 +1323,7 @@ describe("GitHub workspace store", () => {
 
     await store.writeFile("page.md", { path: "page.md", content: "# Failed invocation\n" });
     await store.writeFile("draft.md", { path: "draft.md", content: "unrelated draft\n" });
-    refSha = "remote-sha";
-    remoteTreeSha = "remote-tree";
+    refSha = fakeSha("remote-sha");
     seedRemote(".vitehub/workspaces/docs/remote.md", "remote addition\n");
     await store.rebase?.({ takeRemote: ["page.md"] });
 

@@ -1,7 +1,7 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { normalizeAuthBasePath } from "./shared.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
@@ -28,6 +28,19 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
+
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -42,10 +55,10 @@ function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
 }
 
 function hasConfiguredPublicUrl(): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The build injects this value only when `vitehub({ publicUrl })` is set.
   return typeof __VITEHUB_PUBLIC_URL__ !== "undefined"
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
+
 
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
   getAuthRuntimeState().envResolver = resolver
@@ -207,6 +220,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
+
   return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).requestRuntimeOptions
 }
 
@@ -221,6 +235,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
+
   return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeState().envResolver }).providerOptions
 }
 
@@ -246,6 +261,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
+
   return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions) as ViteHubAuth
 }
 
@@ -300,6 +316,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
+
   return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions)
 }
 
@@ -358,7 +375,6 @@ async function createSignInResponse(
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
   const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
@@ -391,6 +407,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
+
   const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeState().envResolver })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
@@ -405,6 +422,35 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+
+/**
+ * Return whether `value` is a Response of this runtime.
+ * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
+ * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
+ */
+function isRuntimeResponse(value: unknown): value is Response {
+  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
+  try {
+    Reflect.apply(nativeResponseStatus, value, [])
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (prototype === Response.prototype) return true
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    // Foreign responses and malformed objects fail the current-realm check.
+  }
+  return false
+}
+
+/**
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ */
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -421,6 +467,28 @@ async function runAccessAuthorize(
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
 const authorizationResponsePrototypeLimit = 32
+
+const nativeReaderMethods = Object.fromEntries(([
+  "read", "cancel", "releaseLock",
+] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
+const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
+  return value === nativeReaderMethods[key]
+}
+
+const functionToString = Function.prototype.toString
+function hasNativeFunctionSource(value: unknown): value is (...args: unknown[]) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return functionToString.call(value).includes("[native code]")
+  }
+  catch {
+    return false
+  }
+}
+
+const foreignReaderMethods = new WeakMap<Function, Record<string, Function>>()
+const validatedAuthorizationReaders = new WeakMap<object, object>()
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -441,18 +509,28 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
+    let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const owner = prototype
-      if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
-      prototype = Object.getPrototypeOf(prototype)
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
+      seen.add(current)
+      current = Object.getPrototypeOf(current)
     }
     return false
   }
@@ -461,212 +539,429 @@ function hasResponsePrototype(value: unknown): boolean {
   }
 }
 
-type AuthorizationStreamOperations = {
-  getReader: (this: unknown) => ReadableStreamDefaultReader<Uint8Array>
-  isLocked: (this: unknown) => boolean
-}
 
-const authorizationReaderPrototype = typeof ReadableStreamDefaultReader === "function"
-  ? ReadableStreamDefaultReader.prototype
-  : undefined
-const authorizationReaderRead = authorizationReaderPrototype
-  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "read")?.value
-  : undefined
-const authorizationReaderCancel = authorizationReaderPrototype
-  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "cancel")?.value
-  : undefined
-const authorizationReaderReleaseLock = authorizationReaderPrototype
-  ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
-  : undefined
-const authorizationStreamPrototype = typeof ReadableStream === "function" ? ReadableStream.prototype : undefined
-const authorizationStreamGetReader = authorizationStreamPrototype
-  ? Object.getOwnPropertyDescriptor(authorizationStreamPrototype, "getReader")?.value
-  : undefined
-const authorizationStreamLocked = authorizationStreamPrototype
-  ? Object.getOwnPropertyDescriptor(authorizationStreamPrototype, "locked")?.get
-  : undefined
-const authorizationFunctionToString = Object.getOwnPropertyDescriptor(Function.prototype, "toString")?.value as
-  | ((this: Function) => string)
-  | undefined
-const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(
-  Object.getPrototypeOf(Uint8Array.prototype),
-  "subarray",
-)?.value
-const authorizationTypedArrayTag = Object.getOwnPropertyDescriptor(
-  Object.getPrototypeOf(Uint8Array.prototype),
-  Symbol.toStringTag,
-)?.get
-
-// A host can replace the prototype before this module is evaluated. Validate
-// the captured operation against a stream it owns so a replacement that merely
-// returns an unrelated reader is rejected before it can be trusted.
-const validatedAuthorizationStreamGetReader = (() => {
-  if (typeof authorizationStreamGetReader !== "function"
-    || typeof authorizationStreamLocked !== "function"
-    || typeof authorizationReaderRead !== "function"
-    || typeof authorizationReaderCancel !== "function"
-    || typeof authorizationReaderReleaseLock !== "function") return
-  // A callable installed before this module evaluated can otherwise masquerade
-  // as the host intrinsic while returning a reader for a different stream.
-  // Native Web IDL operations have an unforgeable native function source; fail
-  // closed when the captured operation is an ordinary replacement.
-  if (typeof authorizationFunctionToString !== "function") return
-  let sourceText: string
+function isSerializableAuthorizationBody(
+  body: unknown,
+  nativeReader: ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined,
+): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (typeof body !== "object" || !nativeReader) return false
   try {
-    sourceText = Reflect.apply(authorizationFunctionToString, authorizationStreamGetReader, [])
-  }
-  catch {
-    return
-  }
-  if (!sourceText.includes("[native code]")) return
-  try {
-    const source = new ReadableStream()
-    const reader = Reflect.apply(authorizationStreamGetReader, source, [])
-    if (!Reflect.apply(authorizationStreamLocked, source, [])) return
-    // Releasing the returned reader must unlock the exact stream passed to
-    // getReader. A replacement that locks `source` but returns an unrelated
-    // reader fails this association check and is rejected.
-    Reflect.apply(authorizationReaderReleaseLock, reader, [])
-    if (Reflect.apply(authorizationStreamLocked, source, [])) return
-    return authorizationStreamGetReader
-  }
-  catch {
-    return
-  }
-})()
-
-function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)
-    || typeof authorizationUint8ArraySubarray !== "function"
-    || typeof authorizationTypedArrayTag !== "function") return false
-  try {
-    // The native typed-array operation performs a brand check, while the native
-    // tag getter distinguishes Uint8Array from other typed-array views.
-    Reflect.apply(authorizationUint8ArraySubarray, value, [0, 0])
-    return Reflect.apply(authorizationTypedArrayTag, value, []) === "Uint8Array"
+    // Re-check the descriptor before bridging. This keeps the verified native
+    // operation tied to the stream shape and fails closed if a caller adds an
+    // own or intermediate reader override between inspection and invocation.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
+    let prototype: object | null = Object.getPrototypeOf(body)
+    const seen = new Set<object>()
+    let readerVerified = false
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (descriptor) {
+        readerVerified = "value" in descriptor && descriptor.value === nativeReader
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!readerVerified) return false
+    const locked = Reflect.get(body, "locked")
+    // The ownership probe intentionally retains the validated reader for the
+    // bridge, so this stream is expected to remain locked until consumption.
+    if (locked !== false && !validatedAuthorizationReaders.has(body)) return false
+    // Do not construct a Response here. The constructor acquires the source
+    // stream's reader lock, and the bridge must acquire that same stream below.
+    // The locked check above rejects streams that are already owned; native
+    // reader validation and the bridge preserve lazy ownership for valid ones.
+    return true
   }
   catch {
     return false
   }
 }
 
-function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOperations | undefined {
-  if (body === null) return
-  if (Object(body) !== body) return
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  if (ownReader) return
-  // Use the host's captured native operations. Their brand checks accept
-  // genuine streams from other realms while ignoring shadowed prototype
-  // methods supplied by the response's realm.
-  const locked = authorizationStreamLocked
-  const getReader = validatedAuthorizationStreamGetReader
-  if (typeof locked !== "function" || typeof getReader !== "function") return
+function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
   try {
-    if (Reflect.apply(locked, body, [])) return
+    const methods = ["read", "cancel", "releaseLock"] as const
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (constructor?.name !== "ReadableStreamDefaultReader") {
+        prototype = Object.getPrototypeOf(prototype)
+        continue
+      }
+      for (const key of methods) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (!descriptor || typeof descriptor.value !== "function") return false
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, key)) return false
+          parent = Object.getPrototypeOf(parent)
+        }
+      }
+      return true
+    }
+  }
+  catch { /* malformed reader prototypes fail closed */ }
+  return false
+}
+
+
+async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined> {
+  if (body === null || typeof body !== "object") return
+  try {
+    // Let the platform perform the unforgeable ReadableStream brand check.
+    // Response keeps genuine streams as the body; lookalike objects are
+    // coerced to text and therefore fail the identity check.
+    const normalized = new Response(body as ReadableStream<Uint8Array>)
+    if (normalized.body !== body) return
+    // An own reader (or a reader supplied by an intermediate prototype) is
+    // caller-controlled. Resolve the first descriptor without invoking it,
+    // and accept only a native ReadableStream prototype method. The
+    // constructor-name check is realm-independent, unlike comparing against
+    // this realm's ReadableStream.prototype.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
+    let prototype: object | null = Object.getPrototypeOf(body)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (descriptor) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        // A name-only constructor is easy to spoof and does not establish a
+        // native stream brand. Genuine stream prototypes own this link.
+        if (typeof constructor !== "function" || constructor.prototype !== prototype) return
+        const locked = Object.getOwnPropertyDescriptor(prototype, "locked")
+        const nativeShape = locked?.get
+          && Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "tee")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "pipeTo")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "pipeThrough")?.value
+        if (typeof nativeShape !== "function") return
+        const tagDescriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+        if (tagDescriptor?.value !== "ReadableStream") return
+        // A reader on an intermediate prototype can shadow the stream
+        // implementation. Genuine stream prototypes have no second reader
+        // further up their chain, so reject shadowed methods before invoking.
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, "getReader")) return
+          parent = Object.getPrototypeOf(parent)
+        }
+        // Probe and capture the source runtime's native reader methods. This
+        // supports genuine streams from another realm while rejecting
+        // caller-provided lookalikes through the native brand probes below.
+        if (typeof descriptor.value === "function" && hasNativeFunctionSource(descriptor.value)) {
+          // Probe the source runtime's reader prototype before acquiring the
+          // caller's body lock. This lets malformed foreign readers fail
+          // closed without relying on a host-realm releaseLock operation.
+          const probeStream = Reflect.construct(constructor, [{ start(controller: ReadableStreamDefaultController<Uint8Array>) { controller.close() } }]) as ReadableStream<Uint8Array>
+          const probeReader = Reflect.apply(descriptor.value, probeStream, []) as object
+          // A genuine getReader() must lock the stream it was called on.
+          // This rejects branded-looking prototypes that return a reader for
+          // an unrelated stream.
+          if (!probeStream.locked || !hasNativeAuthorizationReaderPrototype(probeReader)) return
+          const probePrototype = Object.getPrototypeOf(probeReader)
+          const probeMethods = Object.fromEntries((["read", "cancel", "releaseLock"] as const).map(key => [
+            key,
+            Object.getOwnPropertyDescriptor(probePrototype, key)?.value,
+          ])) as Record<string, Function>
+          const readerMethodShape = { read: ["read", 0], cancel: ["cancel", 1], releaseLock: ["releaseLock", 0] } as const
+          if ((Object.entries(probeMethods) as Array<[keyof typeof readerMethodShape, Function]>).some(([key, method]) =>
+            typeof method !== "function"
+            || !hasNativeFunctionSource(method)
+            || method.name !== readerMethodShape[key][0]
+            || method.length !== readerMethodShape[key][1]
+            || Object.prototype.hasOwnProperty.call(method, "prototype"))) return
+          // The local realm has immutable references captured above. A patched
+          // local prototype must not become trusted merely because its
+          // replacements return promise-shaped values during the probe.
+          if (constructor === ReadableStream
+            && (descriptor.value !== nativeStreamGetReader
+              || (["read", "cancel", "releaseLock"] as const).some(key => probeMethods[key] !== nativeReaderMethods[key]))) return
+          // Native reader operations enforce the reader brand before doing
+          // any work. A replacement that merely returns a promise can mimic
+          // the happy path on a probe reader, but it cannot pass this check
+          // without reproducing the runtime's internal-slot guard.
+          for (const key of ["read", "cancel", "releaseLock"] as const) {
+            let invalidReceiverThrew = false
+            try {
+              const invalidReceiverResult = Reflect.apply(probeMethods[key], {}, key === "cancel" ? [undefined] : [])
+              if (key === "releaseLock") {
+                // Native releaseLock performs its brand check synchronously and
+                // returns undefined for a valid reader.
+                if (invalidReceiverResult !== undefined) return
+                continue
+              }
+              if (invalidReceiverResult === null
+                || (typeof invalidReceiverResult !== "object" && typeof invalidReceiverResult !== "function")
+                || typeof (invalidReceiverResult as PromiseLike<unknown>).then !== "function") return
+              // Native read/cancel reject asynchronously for an invalid
+              // receiver. Observe that rejection so probing never leaks an
+              // unhandled promise while retaining the brand check.
+              void Promise.resolve(invalidReceiverResult).catch(() => undefined)
+            }
+            catch {
+              // Expected: the operation rejects a non-reader receiver.
+              invalidReceiverThrew = true
+            }
+            if (key === "releaseLock" && !invalidReceiverThrew) return
+          }
+          // Exercise every operation in the source runtime. This rejects
+          // callable replacements that do not preserve Web Streams behavior,
+          // without comparing implementation-specific function source text.
+          const readResult = await Promise.resolve(Reflect.apply(probeMethods.read, probeReader, []))
+          if (!readResult || typeof readResult !== "object" || readResult.done !== true || readResult.value !== undefined) return
+          const cancelStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
+          const cancelReader = Reflect.apply(descriptor.value, cancelStream, []) as object
+          const cancelResult = await Promise.resolve(Reflect.apply(probeMethods.cancel, cancelReader, []))
+          if (cancelResult !== undefined) return
+          Reflect.apply(probeMethods.releaseLock, cancelReader, [])
+          if (cancelStream.locked) return
+          const releaseStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
+          const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
+          const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
+          if (releaseResult !== undefined || releaseStream.locked) return
+
+          // Acquire the reader once and retain that exact instance for the
+          // bridge. Calling getReader again would let a stateful override
+          // return a different reader after validation.
+          const ownershipReader = Reflect.apply(descriptor.value, body, []) as object
+          if (typeof locked?.get !== "function" || Reflect.apply(locked.get, body, []) !== true) return
+          if (!hasNativeAuthorizationReaderPrototype(ownershipReader)) return
+          // Prove that this exact reader owns the supplied stream. Releasing it
+          // must clear the body's lock; a stateful or spoofed getReader() can
+          // otherwise lock the body and return a reader for another stream.
+          if (Reflect.apply(locked.get, body, []) !== true) return
+          // Retain the reader returned by the ownership probe. Releasing it
+          // and calling getReader again would let a stateful override swap in
+          // a reader for a different stream between validation and bridging.
+          validatedAuthorizationReaders.set(body, ownershipReader)
+          foreignReaderMethods.set(constructor, probeMethods)
+          return descriptor.value as (this: object) => ReadableStreamDefaultReader<Uint8Array>
+        }
+        return
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
     return
   }
-  return {
-    getReader: getReader as AuthorizationStreamOperations["getReader"],
-    isLocked: locked as AuthorizationStreamOperations["isLocked"],
-  }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: AuthorizationStreamOperations) {
-  // Establish ownership before consuming. A replacement that returns a reader
-  // for another stream cannot unlock this body, so fail closed without
-  // exposing unrelated bytes.
-  const reader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
-  if (!Reflect.apply(operations.isLocked, body, [])) {
-    throw new TypeError("Authorization reader is not associated with its body")
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, _getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
+  // Invoke the source stream's native operations so separate realms retain their brand.
+  const validatedReader = validatedAuthorizationReaders.get(body)
+  if (!validatedReader) throw new Error("Authorization response reader was not validated")
+  const reader = validatedReader as ReadableStreamDefaultReader<Uint8Array>
+  // Ensure the returned reader owns the supplied body; an override that
+  // returns a reader for another stream must never cross the boundary.
+  if (!body.locked) throw new Error("Authorization response reader does not own body")
+  const nativeReaderMethod = (key: "read" | "cancel" | "releaseLock") => {
+    if (Object.prototype.hasOwnProperty.call(reader, key)) throw new Error("Malformed authorization response reader")
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) throw new Error("Malformed authorization response reader")
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+      if (descriptor) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        const expected = foreignReaderMethods.get(Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function)?.[key]
+        if ((expected ? descriptor.value !== expected : !isNativeReaderMethod(descriptor.value, key))
+          || constructor?.name !== "ReadableStreamDefaultReader") {
+          throw new Error("Malformed authorization response reader")
+        }
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, key)) throw new Error("Malformed authorization response reader")
+          parent = Object.getPrototypeOf(parent)
+        }
+        return descriptor.value as (...args: unknown[]) => unknown
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    throw new Error("Malformed authorization response reader")
   }
-  const read = authorizationReaderRead
-  const cancel = authorizationReaderCancel
-  const releaseLock = authorizationReaderReleaseLock
-  if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
-    throw new TypeError("Invalid authorization response reader")
+  let read: ReadableStreamDefaultReader<Uint8Array>["read"]
+  let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  // Capture the source realm's release operation before validating the other
+  // methods. The host intrinsic cannot release a reader branded by a foreign
+  // runtime, so cleanup must use that reader's own native method.
+  let sourceReleaseLock: ((this: object) => unknown) | undefined
+  try {
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) break
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+      if (descriptor) {
+        const readerConstructor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function
+        const expected = foreignReaderMethods.get(readerConstructor)?.releaseLock
+        // Keep the verified source-runtime intrinsic even when the reader's
+        // visible method was replaced. Validation will reject that reader,
+        // but the intrinsic can still release its brand-held lock.
+        if (typeof expected === "function") sourceReleaseLock = expected as (this: object) => unknown
+        else if (typeof descriptor.value === "function" && isNativeReaderMethod(descriptor.value, "releaseLock")) {
+          sourceReleaseLock = descriptor.value as (this: object) => unknown
+        }
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
-  // A genuine reader must be able to release the lock it acquired. This also
-  // rejects replacements that merely lock the body with a hidden reader and
-  // return an unrelated reader to the bridge.
-  Reflect.apply(releaseLock, reader, [])
-  if (Reflect.apply(operations.isLocked, body, [])) {
-    throw new TypeError("Authorization reader is not associated with its body")
+  catch { /* validation below reports malformed readers */ }
+  try {
+    read = nativeReaderMethod("read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+    cancel = nativeReaderMethod("cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    releaseLock = nativeReaderMethod("releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   }
-  const bridgeReader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
-  if (!Reflect.apply(operations.isLocked, body, [])) {
-    throw new TypeError("Authorization reader is not associated with its body")
-  }
-  Reflect.apply(releaseLock, bridgeReader, [])
-  if (Reflect.apply(operations.isLocked, body, [])) {
-    throw new TypeError("Authorization reader is not associated with its body")
-  }
-  const activeReader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
-  if (!Reflect.apply(operations.isLocked, body, [])) {
-    throw new TypeError("Authorization reader is not associated with its body")
+  catch (error) {
+    // Validation happens after getReader acquires the source lock. Always try
+    // the captured intrinsic so malformed readers cannot leave that lock held.
+    try {
+      const release = sourceReleaseLock ?? nativeReaderMethods.releaseLock as (...args: unknown[]) => unknown
+      Reflect.apply(release, reader, [])
+    }
+    catch { /* preserve the original validation failure */ }
+    throw error
   }
   let released = false
+  const acquire = async () => reader
   const release = () => {
     if (released) return
     released = true
-    Reflect.apply(releaseLock, activeReader, [])
+    Reflect.apply(releaseLock, reader, [])
   }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, activeReader, []) as { done: boolean, value?: Uint8Array }
-        if (result.done) {
-          release()
-          controller.close()
+  try {
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+          if (typeof result?.done !== "boolean") throw new Error("Malformed authorization response reader result")
+          if (result.done) {
+            release()
+            controller.close()
+          } else if (!isIntrinsicUint8Array(result.value)) {
+            throw new Error("Malformed authorization response reader chunk")
+          } else controller.enqueue(result.value)
         }
-        else if (!isAuthorizationByteChunk(result.value)) throw new TypeError("Invalid authorization response chunk")
-        else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, activeReader, [reason])
-      }
-      finally {
-        release()
-      }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
+        catch (error) {
+          release()
+          controller.error(error)
+        }
+      },
+      async cancel(reason) {
+        try {
+          const sourceReader = reader ?? await acquire()
+          await Reflect.apply(cancel!, sourceReader, [reason])
+        } finally { release() }
+      },
+    }, { highWaterMark: 0 })
+    return { stream, release }
+  }
+  catch (error) {
+    release()
+    throw error
+  }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  let fallbackBody: object | undefined
+  let fallbackReader: object | undefined
+  let fallbackTransferred = false
+  const releaseFallback = () => {
+    if (fallbackTransferred || !fallbackBody || !fallbackReader) return
+    try {
+      const release = Object.getPrototypeOf(fallbackReader)?.releaseLock
+      if (typeof release === "function") Reflect.apply(release, fallbackReader, [])
+    }
+    catch {}
+    validatedAuthorizationReaders.delete(fallbackBody)
+    fallbackReader = undefined
+  }
   if (value === null || Object(value) !== value) return
+  // A native Response from this Fetch implementation is already safe to
+  // return, including responses whose body has been consumed or locked. The
+  // intrinsic status getter is a realm-independent internal-slot check and
+  // does not inspect body state.
+  if (isRuntimeResponse(value)) return value
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!await hasResponsePrototype(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
-    const body: unknown = Reflect.get(candidate, "body")
+    let body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
+    // Read the response's intrinsic bodyUsed getter as well as the ordinary
+    // snapshot. A consumed stream may release its reader and shadow bodyUsed
+    // with false; the source-runtime getter still reports its disturbed state
+    // without acquiring the body stream's reader.
+    let intrinsicBodyUsed: unknown
+    try {
+      const trustedBodyUsedGetters = new Set<unknown>()
+      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
+      const UndiciResponse = await getUndiciResponse()
+      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
+      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
+      let prototype: object | null = Object.getPrototypeOf(candidate)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
+        if (descriptor) {
+          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
+          intrinsicBodyUsed = Reflect.apply(descriptor.get, candidate, [])
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    catch {
+      return
+    }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    if (typeof bodyUsed !== "boolean" || bodyUsed || intrinsicBodyUsed !== false) return
+    // Response construction rejects bodies for these status codes. Check this
+    // before transferring a foreign stream so a rejected candidate retains
+    // ownership of its original body.
+    if (body !== null && (status === 204 || status === 205 || status === 304)) return
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (value instanceof Response && status === 0 && statusText === "" && body === null
+      && headers instanceof Headers
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
@@ -680,75 +975,137 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === validatedAuthorizationStreamGetReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!(value instanceof Response && nativeProperties) && bodyUsed === true) return
-    const streamOperations = body === null ? undefined : getAuthorizationStreamOperations(body)
-    if (body !== null && !streamOperations) return
+
+    // Native same-runtime Responses are already trusted; avoid acquiring a
+    // reader that would lock the caller's body before returning it.
+    if (value instanceof Response) return value
+
+    let nativeBodyReader = body === null
+      ? (() => { throw new Error("A null body has no reader") })
+      : await getNativeAuthorizationBodyReader(body)
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    // A genuine stream from an arbitrary realm cannot safely donate its
+    // reader methods across the boundary. The platform Response constructor
+    // performs the source-runtime brand check and creates a host stream whose
+    // captured intrinsics can be bridged without executing foreign methods.
+    if (!nativeBodyReader && body !== null) {
+      // Only bridge genuine ReadableStreams. A Response constructor would
+      // otherwise coerce strings and arbitrary objects into a new local body,
+      // accepting malformed authorization results.
+      const sourceResponse = new Response(body as ReadableStream<Uint8Array>)
+      if (sourceResponse.body !== body) return
+      const converted = sourceResponse
+      body = converted.body
+      const convertedReader: object | undefined = nativeStreamGetReader ? (nativeStreamGetReader.call(body) as object) : undefined
+      if (!convertedReader) return
+      nativeBodyReader = nativeStreamGetReader
+      fallbackBody = body as object
+      fallbackReader = convertedReader
+      validatedAuthorizationReaders.set(fallbackBody, convertedReader)
+    }
+    if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) {
+      if (body) {
+        const rejectedReader = validatedAuthorizationReaders.get(body)
+        if (rejectedReader) {
+          try {
+            const release = Object.getPrototypeOf(rejectedReader)?.releaseLock
+            if (typeof release === "function") Reflect.apply(release, rejectedReader, [])
+          }
+          catch {}
+          validatedAuthorizationReaders.delete(body)
+        }
+      }
+      return
+    }
+
+    // Reader validation yields to the event loop. Re-read the source
+    // response's intrinsic disturbed state immediately before acquiring the
+    // bridge reader so a body consumed during validation cannot be admitted
+    // after its reader is released and `locked` becomes false again.
+    try {
+      const trustedBodyUsedGetters = new Set<unknown>()
+      const localBodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      if (localBodyUsedGetter) trustedBodyUsedGetters.add(localBodyUsedGetter)
+      const UndiciResponse = await getUndiciResponse()
+      const foreignBodyUsedGetter = UndiciResponse && Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "bodyUsed")?.get
+      if (foreignBodyUsedGetter) trustedBodyUsedGetters.add(foreignBodyUsedGetter)
+      let prototype: object | null = Object.getPrototypeOf(candidate)
+      const seen = new Set<object>()
+      let currentBodyUsed: unknown
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) return
+        seen.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
+        if (descriptor) {
+          if (typeof descriptor.get !== "function" || !trustedBodyUsedGetters.has(descriptor.get)) return
+          currentBodyUsed = Reflect.apply(descriptor.get, candidate, [])
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (currentBodyUsed !== false) return
+    }
+    catch {
+      return
+    }
+
+
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
+    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie") {
-        normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
         return
       }
-      if (cookies.length > 0) return
-      for (const cookie of splitSetCookieHeader(value)) normalizedHeaders.append("set-cookie", cookie)
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Also reject assignment-like text after a standard
+    // cookie attribute (for example `Path=/, next=2`), which is another merged-cookie
+    // boundary. Arbitrary extension attributes may legitimately contain commas.
+    if (combinedCookies !== undefined) {
+      if (
+        /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
+      ) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
+
     // Validate status and native body state before acquiring reader ownership.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, streamOperations!)
+    // Do not construct a Response around a non-null stream here: the Response
+    // constructor acquires the stream's reader, which would prevent the bridge
+    // below from acquiring it again.
+    if (body === null) {
+      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+        ? Response.error()
+        : new Response(null, { status, statusText, headers: normalizedHeaders })
+    }
+    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      fallbackTransferred = true
+      return response
     }
     catch (error) {
       bridgedBody.release()
       throw error
     }
+
   }
   catch {
     return
   }
-}
-
-function splitSetCookieHeader(value: string): string[] {
-  const cookies: string[] = []
-  let start = 0
-  let quoted = false
-  let escaped = false
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index]
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (quoted && character === "\\") {
-      escaped = true
-      continue
-    }
-    if (character === '"') {
-      quoted = !quoted
-      continue
-    }
-    if (quoted || character !== ",") continue
-    const remainder = value.slice(index + 1)
-    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
-      cookies.push(value.slice(start, index).trim())
-      start = index + 1
-    }
+  finally {
+    releaseFallback()
   }
-  cookies.push(value.slice(start).trim())
-  return cookies.filter(Boolean)
 }
 
 async function checkAuthRequest(
@@ -770,7 +1127,6 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
       const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
@@ -866,6 +1222,7 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
+    // Request URLs keep the application base path, so match each route below it.
     path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
