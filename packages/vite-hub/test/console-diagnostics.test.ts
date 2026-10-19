@@ -117,7 +117,7 @@ describe("Console problems", () => {
   it.each([
     ["CONSOLE_MANAGER_REQUIRED", 403, "docs"],
     ["CONSOLE_ACCESS_NOT_CONFIGURED", 500, "docs"],
-    ["CONNECTION_AUTH_REQUIRED", 500, "docs"],
+    ["CONNECTIONS_AUTH_REQUIRED", 500, "docs"],
     ["ENV_BRIDGE_UNTRUSTED", 503, "docs"],
     ["CONNECTION_PROVIDER", 502, "retry"],
     ["CONSOLE_UNAVAILABLE", 503, "retry"],
