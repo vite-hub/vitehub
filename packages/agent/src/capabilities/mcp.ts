@@ -1,7 +1,7 @@
 import * as v from "valibot"
 
-import { defineMcpToolCapability, sanitizeMcpMetadata } from "../internal/mcp-tool-capability.ts"
-import { connectionNameSchema, useAgentConnectionClient } from "./connection.ts"
+import { connectionMcpServerConfig, connectionMcpTransport, defineMcpToolCapability, mcpClientConfig, sanitizeMcpMetadata, withMcpInitializationCompatibility } from "../internal/mcp-tool-capability.ts"
+import { agentConnectionsRuntime, connectionNameSchema, useAgentConnectionClient } from "./connection.ts"
 
 import type {
   AgentCapabilityContext,
@@ -10,7 +10,7 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 import type { McpToolServerConnection } from "../internal/mcp-tool-capability.ts"
-import type { McpAvailabilityWarning, McpCapabilityOptions, McpClient, McpClientConfig } from "../mcp/types.ts"
+import type { McpAvailabilityWarning, McpCapabilityOptions, McpClient, McpClientConfig, McpConnectionServerConfig } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -41,74 +41,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function isMcpClientConfig(value: McpClient | McpClientConfig): value is McpClientConfig {
-  return "transport" in value
+function isMcpClientConfig(value: McpClient | McpClientConfig | McpConnectionServerConfig): value is McpClientConfig | McpConnectionServerConfig {
+  return ("transport" in value || "connection" in value)
     && !("tools" in value && typeof value.tools === "function"
       && "close" in value && typeof value.close === "function")
 }
 
-function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
-  if (!isMcpClientConfig(connection)) return connection
-  return {
-    ...connection,
-    protocolVersionDiscovery: connection.protocolVersionDiscovery ?? false,
-  }
-}
-
-type McpHttpTransportConfig = Extract<McpClientConfig["transport"], { url: string }>
-
-function isHttpTransportConfig(transport: McpClientConfig["transport"]): transport is McpHttpTransportConfig {
-  return isRecord(transport) && "type" in transport && (transport.type === "http" || transport.type === "sse") && "url" in transport
-}
-
-async function readMcpRequestBody(request: Request): Promise<string> {
-  if (!request.signal) return request.text()
-  if (request.signal.aborted) throw request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError")
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"))
-    request.signal.addEventListener("abort", onAbort, { once: true })
-    void request.text().then(
-      body => {
-        request.signal.removeEventListener("abort", onAbort)
-        resolve(body)
-      },
-      error => {
-        request.signal.removeEventListener("abort", onAbort)
-        reject(error)
-      },
-    )
-  })
+function namesConnection(value: McpClientConfig | McpConnectionServerConfig): value is McpConnectionServerConfig | (McpClientConfig & { connection: string }) {
+  return value.connection !== undefined
 }
 
 /** A static server config that names a Connection. A resolver can also return `connection`; `useAgentConnectionClient()` checks the primitive when it runs. */
-const connectionConfigSchema = v.looseObject({ connection: v.string(), transport: v.looseObject({}) })
+const connectionConfigSchema = v.looseObject({ connection: v.string(), transport: v.optional(v.looseObject({})) })
 
-function withMcpConnection(context: AgentCapabilityContext, server: string, config: McpClientConfig): { binding: McpToolServerConnection, config: McpClientConfig } {
-  const { connection: rawName, ...rest } = config
-  const name = v.safeParse(connectionNameSchema, rawName)
+/**
+ * Bind a server config to its Connection. An `optional` server is left out, without an
+ * unavailable notice, until the Connection is connected. That case returns `null`.
+ */
+async function withMcpConnection(context: AgentCapabilityContext, server: string, config: McpClientConfig | McpConnectionServerConfig): Promise<{ binding: McpToolServerConnection, config: McpClientConfig } | null> {
+  const name = v.safeParse(connectionNameSchema, config.connection)
   if (!name.success) {
     throw agentDiagnostics.AGENT_R0083({ message: `[vitehub] mcp({ servers }) server "${server}" requires a non-empty connection name.` })
   }
-  const transport = rest.transport
-  if (!isHttpTransportConfig(transport) || transport.authProvider) {
-    throw agentDiagnostics.AGENT_R0082({ message: `[vitehub] mcp({ servers }) server "${server}" uses a connection, so it requires an http or sse transport config without authProvider.` })
+  connectionMcpTransport(server, config)
+  const runtime = agentConnectionsRuntime(context, name.output, "mcp")
+  if ("optional" in config && config.optional === true) {
+    const inspection = await Promise.resolve().then(() => runtime.inspect?.(name.output)).catch(() => undefined)
+    if (inspection?.status !== "connected") return null
   }
   const connection = useAgentConnectionClient(context, name.output, "mcp", { rejectApprovals: true })
-  const fetch: typeof globalThis.fetch = async (input, init) => {
-    // MCP needs each response in this session; durable approval replay cannot resume it.
-    const target = new Request(input, init)
-    const body = target.method === "GET" || target.method === "HEAD" ? undefined : await readMcpRequestBody(target)
-    return connection.fetch(target.url, {
-      body,
-      headers: target.headers,
-      method: target.method,
-      redirect: target.redirect,
-      signal: target.signal,
-    })
-  }
   return {
     binding: { name: name.output },
-    config: { ...rest, transport: { ...transport, fetch } },
+    config: await connectionMcpServerConfig(server, config, {
+      endpoint: async () => (await runtime.definition?.(name.output))?.provider.mcp,
+      fetch: connection.fetch,
+      name: name.output,
+    }),
   }
 }
 
@@ -174,12 +142,20 @@ export function mcp<
         const owned = typeof server === "function"
         const connection = owned ? await server(context) : server
         if (connection === false || connection === null || connection === undefined) return
-        const bound = isMcpClientConfig(connection) && connection.connection !== undefined
-          ? withMcpConnection(context, name, connection)
-          : undefined
+        let resolved: McpClient | McpClientConfig
+        let bound: Awaited<ReturnType<typeof withMcpConnection>> | undefined
+        if (!isMcpClientConfig(connection)) resolved = connection
+        else if (namesConnection(connection)) {
+          bound = await withMcpConnection(context, name, connection)
+          if (bound === null) return
+          resolved = bound.config
+        }
+        else resolved = mcpClientConfig(connection)
+        const tools = isMcpClientConfig(connection) && Array.isArray(connection.tools) ? connection.tools : undefined
         return {
-          connection: withMcpInitializationCompatibility(bound?.config ?? connection),
+          connection: withMcpInitializationCompatibility(resolved),
           ...(bound ? { connectionBinding: bound.binding } : {}),
+          ...(tools ? { tools } : {}),
           integrity: options.integrity && Object.hasOwn(options.integrity, name)
             ? options.integrity[name]
             : undefined,
@@ -195,6 +171,7 @@ export type {
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,
+  McpConnectionServerConfig,
   McpServerConfig,
   McpToolFingerprints,
   McpToolInputSchema,

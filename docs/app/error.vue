@@ -48,6 +48,5 @@ useSeoMeta({
       </section>
     </main>
 
-    <AppFooter />
   </UApp>
 </template>

@@ -34,6 +34,13 @@ reader. Revision-aware loaders receive the same pinned revision on every
 operation. Loaders without revision support can observe origin changes. Create
 another reader to resolve a new revision. No registration or global type map is needed.
 
+`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
+including before wildcards: the JavaScript string `"docs\\*.md"` means
+`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
+characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
+for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
+The same normalized patterns are used for discovery and final filtering.
+
 `glob()` keeps its cached key listing in each reader. Opening another reader
 refreshes that reader's listing without changing existing readers. File content
 and metadata are read from the current file system. Set `keyCache: false` to
@@ -74,6 +81,11 @@ and `exists()`. File readers also expose `read()` and `list()`. Built-in `file`,
 `glob`, `github`, `markdown`, and `mcpResources` loaders return `FileSource`.
 Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
+
+`github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
+callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
+`FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
+`auth: false` reads without a token.
 
 ## Reuse a definition
 
