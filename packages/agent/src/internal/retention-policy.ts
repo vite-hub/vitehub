@@ -21,7 +21,11 @@ export interface NormalizeRetentionOptions {
 
 /** Formats a normalized fraction as a percentage without binary floating-point artifacts. */
 export function formatRetentionPercentage(fraction: number): `${number}` {
-  const source = fraction.toString().match(/^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i)
+  // Parsing a decimal percentage and dividing by 100 can leave a binary
+  // approximation (for example, 99.99999% becomes 0.9999998999999999).
+  // Keep the meaningful decimal precision while removing that representation
+  // noise before expanding the value back to a percentage.
+  const source = fraction.toPrecision(15).match(/^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i)
   if (!source) return `${fraction * 100}` as `${number}`
   const digits = `${source[1]}${source[2] || ""}`
   const decimalIndex = source[1]!.length + Number(source[3] || 0) + 2
