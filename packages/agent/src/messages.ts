@@ -74,10 +74,10 @@ export function arrayBufferByteLength(value: ArrayBuffer): number {
 }
 
 export function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  if (!typedArrayTagGetter) return false
+  if (!typedArrayTagGetter || !typedArrayByteLengthGetter) return false
   try {
     return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+      && Reflect.apply(typedArrayByteLengthGetter, value, []) >= 0
   } catch {
     return false
   }
