@@ -28,7 +28,7 @@ import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { DBProvider } from "./internal/vite-build.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
-import type { CollectedDatabaseContribution, CollectedDatabaseContributions, DatabaseContributingPlugin, DatabaseContributionPluginMetadata } from "./contributions.ts"
+import type { CollectedDatabaseContributions, DatabaseContributionPluginMetadata } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -65,6 +65,7 @@ const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
+  getProjectRoot: () => string
   isEnabled: () => boolean
   refresh: () => Promise<ResolvedDBViteConfig | undefined>
 }
@@ -228,6 +229,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
   let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
+  // Files imported by contributed table modules. Keep this state for hot updates;
+  // the contribution collector itself is replaced on each resolved config.
   let contributionFiles = new Set<string>()
 
   function resolvedOptions() {
@@ -329,6 +332,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     enforce: "pre",
     api: {
       getConfig: () => runtimeConfig,
+      getProjectRoot: databaseRoot,
       isEnabled: () => resolvedOptions() !== false,
       refresh: () => refreshRuntimeConfig(),
     },
@@ -377,12 +381,14 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         ? { definitions: [], tables: [] }
         : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs(), plugins: config.plugins })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
-      contributionFiles = new Set(contributions.tables.flatMap(contribution => {
+      contributionFiles = new Set<string>()
+      await Promise.all(contributions.tables.map(async contribution => {
         try {
-          return [normalize(require.resolve(contribution.module))]
+          const file = normalize(require.resolve(contribution.module))
+          await collectSourceDependencies(file, require, contributionFiles)
         }
         catch {
-          return []
+          // Unresolved aliases are handled by Vite's module graph.
         }
       }))
       await refreshRuntimeConfig()
@@ -407,10 +413,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       const changedFile = normalizeModulePath(context.file)
       // Definitions and contributed table modules can import the changed file.
-      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionDependencyFiles].some(file =>
+      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionFiles].some(file =>
         normalizeModulePath(file) === changedFile
         || moduleGraphContainsFile(context.server, file, changedFile, context.modules),
-      ) || [...contributionDirectories].some(directory => changedFile === directory || changedFile.startsWith(`${normalizeModulePath(directory)}/`))
+      )
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()

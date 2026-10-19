@@ -96,7 +96,13 @@ function pluginByName(config: ResolvedConfig, name: string): Plugin | undefined 
 
 function databaseDiscoveryRoot(plugins: readonly unknown[] | undefined, fallback: string): string {
   const database = plugins?.find(plugin => Reflect.get(Object(plugin), "name") === databasePluginName)
-  const getConfig = Reflect.get(Object(Reflect.get(database, "api")), "getConfig")
+  const api = Reflect.get(Object(database), "api")
+  const getProjectRoot = Reflect.get(Object(api), "getProjectRoot")
+  if (typeof getProjectRoot === "function") {
+    const rootDir = Reflect.apply(getProjectRoot, undefined, [])
+    if (typeof rootDir === "string") return rootDir
+  }
+  const getConfig = Reflect.get(Object(api), "getConfig")
   if (typeof getConfig === "function") {
     const rootDir = Reflect.get(Object(Reflect.apply(getConfig, database, [])), "rootDir")
     if (typeof rootDir === "string") return rootDir
