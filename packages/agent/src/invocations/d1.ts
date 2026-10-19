@@ -2,11 +2,13 @@ import { normalizeAgentInvocationListOptions } from "./list-options.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { countRetentionDue } from "./retention.ts"
+import { normalizeRetention } from "../internal/retention-policy.ts"
 import { searchableAgentInvocationText } from "./search.ts"
 import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
-import type { AgentInvocationRecord, AgentInvocationRetentionOptions, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationSummary } from "../invocations.ts"
+import type { AgentRetentionPolicy } from "../retention.ts"
+import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationSummary } from "../invocations.ts"
 
 /** The D1 operations used by the journal. A Cloudflare D1Database satisfies this contract. */
 export interface AgentInvocationD1Database {
@@ -26,13 +28,15 @@ export interface AgentInvocationD1Result<T> {
   meta: { changes: number }
 }
 
-export interface D1AgentInvocationStoreOptions extends AgentInvocationRetentionOptions {
+export interface D1AgentInvocationStoreOptions extends AgentRetentionPolicy {
   /** Resolved once per operation. Return the binding for the current request. */
   database: AgentInvocationD1Database | (() => AgentInvocationD1Database | Promise<AgentInvocationD1Database>)
-  /** Maximum age of terminal records. Defaults to 30 days; false disables this limit. */
-  maxAgeMs?: false | number
+  /** Maximum age of terminal records, such as `"14d"` or a number of milliseconds. Defaults to 30 days; false disables this limit. */
+  maxAge?: AgentRetentionPolicy["maxAge"]
   /** Maximum count of terminal records. Defaults to 10,000; false disables this limit. Writes apply it on about 1 in `ceil(maxRecords / 100)` prunes, so the count can exceed it by about 1%. */
   maxRecords?: false | number
+  /** Not supported. D1 reports the size of the whole app database, not the size of the journal. Use maxRecords or maxAge. */
+  maxSize?: false
   /** Create the table and indexes on first use of each binding in an isolate. Defaults to true. Set false when your own migrations apply `d1AgentInvocationSchema()`. */
   migrate?: boolean
   tablePrefix?: string
@@ -76,15 +80,6 @@ export function d1AgentInvocationSchema(options: Pick<D1AgentInvocationStoreOpti
     `CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`,
     `CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`,
   ]
-}
-
-function retention(value: false | number | undefined, fallback: number, maximum = Number.MAX_SAFE_INTEGER) {
-  if (value === false) return false
-  const result = value === undefined ? fallback : value
-  if (!Number.isSafeInteger(result) || result < 1 || result > maximum) {
-    throw agentDiagnostics.AGENT_R0911({ message: "[vitehub] D1 Agent Invocation retention limits must be positive safe integers or false." })
-  }
-  return result
 }
 
 function serialize(value: unknown) {
@@ -144,8 +139,12 @@ function fitRecord(input: AgentInvocationStoreCreateInput, append = false) {
 export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOptions): AgentInvocationStore {
   const table = tableName(options.tablePrefix)
   const schema = d1AgentInvocationSchema(options)
-  const maxAgeMs = retention(options.maxAgeMs, 30 * 24 * 60 * 60 * 1000, 8_640_000_000_000_000)
-  const maxRecords = retention(options.maxRecords, 10_000)
+  const { maxAgeMs, maxRecords } = normalizeRetention({ maxAge: options.maxAge, maxRecords: options.maxRecords, maxSize: options.maxSize }, {
+    label: "D1 Agent Invocation",
+    defaults: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 10_000, maxSize: false },
+    size: "none",
+    error: message => agentDiagnostics.AGENT_R0911({ message: `[vitehub] ${message}` }),
+  })
   // Workers cannot share pending I/O between requests, so keep only completed bindings.
   const migrated = new WeakSet<AgentInvocationD1Database>()
   const database = async () => {
