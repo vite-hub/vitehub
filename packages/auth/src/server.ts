@@ -158,8 +158,8 @@ function isRequestLike(value: AuthRequest): value is Request {
       // The private-symbol fingerprint identifies Happy DOM, but still verify
       // the interface Better Auth consumes before preserving the value.
       if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
-      if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
-      if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
+      if (!value.headers || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+      if (!value.signal || typeof value.signal.aborted !== "boolean") return false
       return true
     }
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
