@@ -4,6 +4,7 @@ import type { PullRequestWait } from "./inbox/wait-state.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import { feedbackFingerprints, hasHumanComment, isAutomatedFeedback } from "./merge.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -24,6 +25,16 @@ export interface BabysitterWaitPolicy {
   wakeWhenReady: boolean;
   /** Body prefixes of reviews that report no findings. Such reviews never wake a wait. */
   noFindingsReviews: readonly string[];
+  /**
+   * Review-driven pushes after which bot feedback and failed `pendingReviewChecks` no longer wake a
+   * wait. Undefined disables the budget.
+   */
+  reviewPushBudget?: number;
+}
+
+/** The PR made `reviewPushBudget` review-driven pushes. Automated review then no longer needs a pass. */
+export function reviewPushBudgetSpent(s: Pick<Snapshot, "reviewPushBudget">, policy: Pick<BabysitterWaitPolicy, "reviewPushBudget">): boolean {
+  return policy.reviewPushBudget !== undefined && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
 }
 
 function login(value: GitHubEvidence): string {
@@ -45,7 +56,7 @@ function stableFeedback(value: unknown): unknown {
     .map(([key, item]) => [key, stableFeedback(item)]));
 }
 
-type ContextPolicy = Pick<BabysitterWaitPolicy, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews">;
+type ContextPolicy = Pick<BabysitterWaitPolicy, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "reviewPushBudget">;
 
 /**
  * A comment-only review that asks for nothing. An empty body only groups inline comments, which the
@@ -60,7 +71,10 @@ function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean
 /** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
 function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   const pr = s.pr;
-  const fromWorker = (value: GitHubEvidence) => String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
+  // After the review push budget is spent, bot feedback is not repair work, even a request for changes.
+  const settled = reviewPushBudgetSpent(s, policy);
+  const fromWorker = (value: GitHubEvidence) => settled && isAutomatedFeedback(value)
+    || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
   const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
@@ -70,7 +84,7 @@ function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
     // Hydration supplies GraphQL comment IDs and a resolution webhook supplies REST IDs. Both identify the same comment.
     const identities = items.filter(value => !fromWorker(value) && !commentIds(value).some(id => ownCommentIds.has(id))).map(commentIds).sort();
     return { ...metadata, id: node_id ?? thread.id, comments: identities };
-  });
+  }).filter(thread => !settled || thread.comments.length);
   return hash({ title: pr?.title, body: pr?.body, draft: pr?.draft, state: pr?.state, base: [pr?.base?.sha, pr?.base?.ref],
     comments: stableFeedback(external(s.comments)), reviews: stableFeedback(reviews),
     reviewComments: stableFeedback(external(s.reviewComments)), threads: stableFeedback(threads) });
@@ -131,6 +145,45 @@ export function failureKeys(s: Snapshot): string[] {
     .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
 }
 
+/** Failed current-head checks outside the configured review checks. */
+function repairFailureKeys(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): string[] {
+  return latestCheckSignals(s).filter(signal => failed.has(String(signal.conclusion ?? signal.state))
+    && !policy.pendingReviewChecks.has(String(signal.name).toLowerCase()))
+    .map(signal => `${String(signal.id ?? signal.context)}:${String(signal.conclusion ?? signal.state)}`).sort();
+}
+
+/** Failures that need repair. A spent review push budget leaves out the review checks. */
+function actionableFailureKeys(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks" | "reviewPushBudget">): string[] {
+  return reviewPushBudgetSpent(s, policy) ? repairFailureKeys(s, policy) : failureKeys(s);
+}
+
+const conflicted = (s: Snapshot) => s.pr?.mergeable === false || s.pr?.mergeable_state === "dirty";
+
+/**
+ * Whether a push from a pass on this snapshot answers review. Without a merge conflict and without a
+ * failing check outside the review checks, only review feedback, review threads and review checks
+ * were left to repair. The host decides this from GitHub state, not from the model's report.
+ */
+export function pushCause(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "pendingReviewChecks">): "review" | "repair" {
+  return conflicted(s) || repairFailureKeys(s, policy).length ? "repair" : "review";
+}
+
+/**
+ * Why a PR that spent its review push budget still needs a model pass. Empty means only automated
+ * review is left, so the PR parks until a person, a conflict, a failing check or a new head needs it.
+ * `assessedFeedback` holds the fingerprints of feedback that an earlier pass assessed.
+ */
+export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
+  const work: string[] = [];
+  if (conflicted(s)) work.push("merge-conflict");
+  if (repairFailureKeys(s, policy).length) work.push("failed-check");
+  if (feedbackFingerprints(s, { ...policy, automatedReviewSettled: true }).some(id => !assessedFeedback.has(id))) work.push("feedback");
+  if (s.threads.some(thread => thread.isResolved !== true && hasHumanComment(thread, policy.workerAuthors))) work.push("unresolved-thread");
+  const head = s.pr?.head?.sha;
+  if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
+  return work;
+}
+
 /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
 export function createCheckWait(observed: Snapshot, policy: ContextPolicy): Omit<PullRequestWait, "headSha"> {
   return { reason: "checks", evidenceKey: repairContextKey(observed, policy), knownFailures: failureKeys(observed) };
@@ -159,7 +212,7 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
     // assessment, so the PR wakes when its checks stop running.
     const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
     if (!conflict && checksStillRunning(s)) return [];
-    const failure = failureKeys(s).some(key => !known.has(key));
+    const failure = actionableFailureKeys(s, policy).some(key => !known.has(key));
     return [...conflict ? ["merge-conflict"] : [], ...failure ? ["new-failure"] : [], ...conflict || failure ? [] : ["gates-settled"]];
   }
   const reasons: string[] = [];
@@ -168,8 +221,9 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   // Maintainer feedback or PR intent/base changes still resume the work.
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
-  if (s.threads.some(thread => thread.isResolved !== true)) reasons.push("unresolved-thread");
-  if (failureKeys(s).some(key => !known.has(key))) reasons.push("new-failure");
+  const settled = reviewPushBudgetSpent(s, policy);
+  if (s.threads.some(thread => thread.isResolved !== true && (!settled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.
   if (requiredChecks === "failed") return [];

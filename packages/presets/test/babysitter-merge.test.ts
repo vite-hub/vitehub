@@ -45,6 +45,22 @@ describe("Babysitter merge evidence", () => {
     expect(directMergeReadiness(s, "passed", policy).ready).toBe(false);
   });
 
+  it("merges on required checks without automated review findings once the review push budget is spent", () => {
+    const s = snapshot();
+    s.reviews.bot = { id: 5, state: "COMMENTED", commit_id: head, body: "Consider renaming this.", user: { login: "pullfrog[bot]", type: "Bot" } };
+    s.checks.review = { id: 6, name: "pullfrog-approval", head_sha: head, status: "completed", conclusion: "failure", app: { id: 9 } };
+    s.threads = [{ id: "T1", isResolved: false, comments: [{ id: 7, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] }];
+    const policy = { pendingReviewChecks: new Set(["pullfrog-approval"]) };
+    expect(directMergeReadiness(s, "passed", policy).ready).toBe(false);
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: true, head });
+    s.threads.push({ id: "T2", isResolved: false, comments: [{ id: 8, body: "Why?", author: { login: "maintainer", __typename: "User" } }] });
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true })).toEqual({ ready: false, reason: "unresolved review threads" });
+    s.threads.pop();
+    s.comments.person = { id: 9, body: "Please also update the docs.", user: { login: "maintainer", type: "User" } };
+    expect(directMergeReadiness(s, "passed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
+    expect(directMergeReadiness(s, "failed", { ...policy, automatedReviewSettled: true }).ready).toBe(false);
+  });
+
   it("requires explicit assessment for findings in a review body without inline threads", () => {
     const s = snapshot();
     s.reviews.review = { id: 3, state: "COMMENTED", commit_id: head, body: "The fallback drops customer records." };

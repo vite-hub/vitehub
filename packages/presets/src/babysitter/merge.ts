@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
-import type { GitHubEvidence } from "./inbox/types.ts";
+import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
@@ -53,17 +53,30 @@ export interface BabysitterMergeEvidence {
   pendingReviewChecks?: ReadonlySet<string>;
   /** Host-recorded evidence from an explicit assessment of this exact head and feedback. */
   reviewedEvidenceKey?: string;
+  /**
+   * The PR spent its review push budget. Bot feedback, bot-only review threads and failed
+   * `pendingReviewChecks` no longer need an assessment, so required checks alone can merge it.
+   */
+  automatedReviewSettled?: boolean;
 }
 
-type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews">;
+type FeedbackPolicy = Pick<BabysitterMergeEvidence, "workerAuthors" | "ignoreFeedbackAuthors" | "noFindingsReviews" | "automatedReviewSettled">;
 
 function feedbackAuthor(value: GitHubEvidence): string {
   return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
 }
 
-function botAuthor(value: GitHubEvidence): boolean {
+/** Feedback from a GitHub App or another bot account. GraphQL names an App by its login and a `Bot` typename. */
+export function isAutomatedFeedback(value: GitHubEvidence): boolean {
   const user = value.user ?? value.author;
   return String(user?.type ?? user?.__typename ?? "").toLowerCase() === "bot" || feedbackAuthor(value).endsWith("[bot]");
+}
+const botAuthor = isAutomatedFeedback;
+
+/** A review thread with a comment from a person. Comments from the worker and from bots do not count. */
+export function hasHumanComment(thread: GitHubReviewThread, workerAuthors: ReadonlySet<string> = new Set()): boolean {
+  const comments = Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? [];
+  return comments.some(comment => !comment.deleted && !isAutomatedFeedback(comment) && !workerAuthors.has(feedbackAuthor(comment)));
 }
 
 /**
@@ -72,6 +85,7 @@ function botAuthor(value: GitHubEvidence): boolean {
  */
 function ignoredFeedback(value: GitHubEvidence, policy: FeedbackPolicy): boolean {
   if (value.deleted) return true;
+  if (policy.automatedReviewSettled && botAuthor(value)) return true;
   if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
   const author = feedbackAuthor(value);
   if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
@@ -200,8 +214,9 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     || evidence.statuses.some(status => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) {
     return no("a current-head review is still running");
   }
-  const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()))
-    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()));
+  const settled = assessment.automatedReviewSettled === true;
+  const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase())))
+    || evidence.statuses.some(status => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
   const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
   const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
@@ -209,7 +224,7 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");
-  if (snapshot.threads.some((thread) => thread.isResolved !== true)) return no("unresolved review threads");
+  if (snapshot.threads.some((thread) => thread.isResolved !== true && (!settled || hasHumanComment(thread, assessment.workerAuthors)))) return no("unresolved review threads");
   return { ready: true, head };
 }
 

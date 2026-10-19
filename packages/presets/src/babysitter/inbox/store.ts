@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -20,6 +20,8 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  /** Review-driven pushes on this PR. Set when `budgets.reviewPushes` is configured. */
+  reviewPushBudget?: ReviewPushBudget
   /** Generation of the last human comment or review. A wait rejected before it stays free. */
   humanFeedbackGeneration?: number
   recoveryHead?: string
@@ -42,6 +44,7 @@ export interface GitHubInboxSummary {
   mergeReady?: boolean
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  reviewPushBudget?: ReviewPushBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
@@ -84,6 +87,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
+  if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
     if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
@@ -131,14 +135,15 @@ const legacyWaitSchema = v.object({ headSha: v.pipe(v.string(), v.minLength(1)),
 const summarySchema = v.object({
   repository: v.string(), number: v.number(), head: v.optional(v.string()), mergeReady: v.optional(v.boolean()), generation: v.number(), handled: v.number(),
   status: v.picklist(['ready', 'working', 'waiting', 'terminal']), reasons: v.array(v.string()), wait: v.optional(v.unknown()),
-  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()),
+  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()), reviewPushBudget: v.optional(v.unknown()),
   stackBlocked: v.optional(v.boolean()), stackParent: v.optional(v.object({ number: v.number(), state: v.string() })),
 })
 function parseSummary(value: unknown): GitHubInboxSummary {
-  const { wait, progressBudget, ...summary } = v.parse(summarySchema, value)
+  const { wait, progressBudget, reviewPushBudget, ...summary } = v.parse(summarySchema, value)
   const parsed: GitHubInboxSummary = summary
   if (wait !== undefined) parsed.wait = parseWait(wait)
   if (progressBudget !== undefined) parsed.progressBudget = parseProgressBudget(progressBudget)
+  if (reviewPushBudget !== undefined) parsed.reviewPushBudget = parseReviewPushBudget(reviewPushBudget)
   return parsed
 }
 
@@ -191,10 +196,22 @@ export function looksMergeReady(s: Snapshot): boolean {
   return signals.length > 0 && signals.every(signal => signal.status === 'completed' && passing.has(signal.conclusion))
 }
 
+/** Wait reasons of PRs that a Babysitter budget parked. Their `lastResult` says how to resume them. */
+export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget'])
+
+/** PRs that a budget parked, with the recorded reason and, for a timed budget, when they resume. */
+export function budgetParks(queue: readonly GitHubInboxSummary[]): Array<{ repository: string; number: number; budget: string; reason: string; resumeAt?: string }> {
+  return queue.flatMap(item => item.status === 'waiting' && item.wait && budgetWaitReasons.has(item.wait.reason)
+    ? [{ repository: item.repository, number: item.number, budget: item.wait.reason, reason: item.lastResult ?? '',
+        ...item.wait.retryAt === undefined ? {} : { resumeAt: new Date(item.wait.retryAt).toISOString() } }]
+    : [])
+}
+
 function summaryOf(s: Snapshot): GitHubInboxSummary {
   return { repository: s.repository, number: s.number, head: s.pr?.head?.sha, mergeReady: looksMergeReady(s),
     generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget }
+    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget,
+    ...(s.reviewPushBudget ? { reviewPushBudget: s.reviewPushBudget } : {}) }
 }
 
 /**
@@ -1178,6 +1195,8 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
+      // A push reached GitHub even when the evidence below rejects its wait, so it always counts.
+      this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
@@ -1261,6 +1280,12 @@ export class PullRequestInbox {
     const budget = s.progressBudget
     if (!budget?.exhausted || budget.head !== s.pr?.head?.sha || budget.grants?.includes(grant)) return
     s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, resetReason: grant, grants: [...budget.grants ?? [], grant] }
+  }
+  private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
+    const limit = this.budgets.reviewPushes
+    if (limit === undefined || !progress) return
+    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha

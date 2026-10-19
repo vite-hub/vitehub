@@ -152,7 +152,13 @@ finish before a merge.
 review checks run, unless a failure or conflict already needs repair; the PR
 wakes once the gates stop. `noProgressBudget` (default `3`, `false` disables it)
 stops a head after that many passes without a push or a recorded wait, until the
-head changes or a person comments. `install` (default `true`) installs
+head changes or a person comments. `reviewPushBudget` (default `3`, `false`
+disables it) counts review-driven pushes on a PR: pushes from a pass without a
+merge conflict and without a failing check outside `reviewChecks`. After that
+many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
+person's feedback, another failing check, a conflict or a head that someone else
+pushed still do. The PR then merges on its required checks or parks with the
+reason, which health lists under `queue.parked`. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in

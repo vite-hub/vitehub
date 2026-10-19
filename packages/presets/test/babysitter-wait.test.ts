@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
-import { checksStillRunning, createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { checksStillRunning, createCheckWait, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../../agent/src/server/github-required-checks.ts";
@@ -174,6 +174,61 @@ describe("Babysitter check waits", () => {
 
   it("holds an external dependency through an unrelated green PR check", async () => {
     expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
+  });
+});
+
+describe("Babysitter review push budget", () => {
+  const budget: BabysitterWaitPolicy = { ...policy, reviewPushBudget: 2 };
+  const bot = { login: "pullfrog[bot]", type: "Bot" };
+  // A PR that spent its budget parks with the automated-review state it has seen.
+  const spent = (update: (snapshot: Snapshot) => void = () => {}, count = 2) => parked(s => {
+    s.reviewPushBudget = { count, heads: [head] };
+    s.wait = { headSha: head, ...createCheckWait(s, budget) };
+    update(s);
+  });
+
+  it("stops waking for automated review feedback and review-check failures", async () => {
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "Consider renaming this.", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.reviews["21"] = { id: 21, state: "CHANGES_REQUESTED", body: "Rename it.", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } } }), "pending", budget)).toEqual([]);
+    // GraphQL names an App author by its login and a Bot typename.
+    expect(wakeReasons(await spent(s => { s.threads = [{ id: "T2", isResolved: false, comments: [{ id: 22, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] }] }), "pending", budget)).toEqual([]);
+  });
+
+  it("keeps waking for a person, a conflict, a required failure and work before the budget is spent", async () => {
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "Consider renaming this.", user: bot } }, 1), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.pr!.mergeable_state = "dirty" }), "pending", budget)).toEqual(["merge-conflict"]);
+    expect(wakeReasons(await spent(s => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } }), "failed", budget)).toEqual(["new-failure"]);
+    expect(wakeReasons(await spent(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), "pending", budget)).toEqual(["feedback-changed", "unresolved-thread"]);
+    expect(wakeReasons(await spent(), "passed", { ...budget, wakeWhenReady: true })).toEqual(["ready-to-merge"]);
+  });
+
+  it("ends a check deferral without a review-check failure counting as new", async () => {
+    const deferred = await spent(s => {
+      s.wait = { ...s.wait!, defer: "checks" };
+      s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } };
+    });
+    expect(wakeReasons(deferred, "pending", budget)).toEqual(["gates-settled"]);
+  });
+
+  it("counts a push as review-driven only without a conflict or a failure outside the review checks", async () => {
+    const reviewed = await parked(s => { s.checks = { "check_run:3": { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } } } });
+    expect(pushCause(reviewed, policy)).toBe("review");
+    expect(pushCause(await parked(), policy)).toBe("repair");
+    expect(pushCause(await parked(s => { s.checks = {}; s.pr!.mergeable_state = "dirty" }), policy)).toBe("repair");
+  });
+
+  it("names the work that still needs a model pass after the budget is spent", async () => {
+    const clean = (update: (snapshot: Snapshot) => void = () => {}) => spent(s => { s.checks = {}; update(s) });
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "Nit", user: bot } }), budget, new Set())).toEqual([]);
+    expect(reviewPushBudgetWork(await clean(s => { s.pr!.mergeable_state = "dirty" }), budget, new Set())).toEqual(["merge-conflict"]);
+    expect(reviewPushBudgetWork(await spent(), budget, new Set())).toEqual(["failed-check"]);
+    const human = await clean(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } });
+    expect(reviewPushBudgetWork(human, budget, new Set())).toEqual(["feedback"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), budget, new Set())).toEqual(["unresolved-thread"]);
+    // Someone else moved the head after the budget ran out.
+    expect(reviewPushBudgetWork(await clean(s => { s.reviewPushBudget = { count: 2, heads: ["b".repeat(40)] } }), budget, new Set())).toEqual(["new-head"]);
   });
 });
 

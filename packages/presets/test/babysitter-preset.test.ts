@@ -1388,6 +1388,10 @@ describe("Babysitter preset runtime", () => {
     for (const noProgressBudget of [0, 1.5]) {
       expect(() => defineAgent({ extends: babysitter, options: { noProgressBudget } })).toThrow(/noProgressBudget must be a positive integer or false/);
     }
+    for (const reviewPushBudget of [0, 1.5, true as unknown as number]) {
+      expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget } })).toThrow(/reviewPushBudget must be a positive integer or false/);
+    }
+    expect(() => defineAgent({ extends: babysitter, options: { reviewPushBudget: false } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { deferWhilePending: "yes" as unknown as boolean } })).toThrow(/deferWhilePending must be a boolean/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { command: "" } } })).toThrow(/install must be a boolean or \{ command, args, cache, concurrency, required \}/);
     expect(() => defineAgent({ extends: babysitter, options: { install: { concurrency: 0 } } })).toThrow(/install must be/);
@@ -1412,6 +1416,52 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { admission: { paused: "yes" as unknown as boolean } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { placement: {} as BabysitterPlacement } })).toThrow(/placement must be/);
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["vercel[bot]"], noProgressBudget: false, deferWhilePending: false, install: { command: "pnpm", args: ["install"] } } })).not.toThrow();
+  });
+
+  it("stops waking for automated review after the review push budget is spent, then parks with a reason", async () => {
+    const f = await fixture(false, false, { options: { reviewPushBudget: 1, deferWhilePending: false } });
+    f.choose("pushRepair");
+    try {
+      // The claim had only bot feedback and passing checks, so its push is review-driven.
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      f.choose(undefined);
+      const pushed = f.pr().head.sha;
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 1, heads: [pushed] });
+      await f.runtime.inbox.ingest("head-pushed", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr() });
+      await f.runtime.inbox.ingest("bot-review", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 201, body: "Consider renaming this.", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: pushed },
+      });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      // An edit wakes the PR, but only automated review is left, so the host parks it without a pass.
+      await f.runtime.inbox.ingest("edited", "pull_request", { repository: { full_name: "acme/app" }, action: "edited", sender: { login: "developer", type: "User" },
+        pull_request: { ...f.pr(), title: "Fix value now" } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      const parked = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(parked.status).toBe("waiting");
+      expect(parked.wait?.reason).toBe("review-push-budget");
+      expect(parked.lastResult).toMatch(/1 review-driven push.*person's comment or review/);
+      expect(f.events).toHaveBeenCalledWith("babysitter.wait.kept", expect.objectContaining({ reason: "review-push-budget", avoided_invocation: true }));
+      // A person's comment still starts a pass.
+      await f.runtime.inbox.ingest("human-comment", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
+        comment: { id: 202, body: "Please rename it after all.", user: { login: "developer", type: "User" } } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not count a push that repairs a failing check against the review push budget", async () => {
+    const f = await fixture(false, false, { options: { reviewPushBudget: 1 } });
+    f.reportCheckRun({ id: 9, name: "lint", head_sha: f.pr().head.sha, status: "completed", conclusion: "failure", app: { id: 6 } });
+    f.choose("pushRepair");
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.reviewPushBudget).toEqual({ count: 0, heads: [f.pr().head.sha] });
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it("applies the no-progress budget to passes on one head", async () => {

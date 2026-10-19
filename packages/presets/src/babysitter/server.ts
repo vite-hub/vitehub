@@ -41,7 +41,8 @@ import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
-import { checksDependencyEvidence, checksStillRunning, createCheckWait, failedConclusions, failureKeys, hasPendingChecks, reviewCheckRunning, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { checksDependencyEvidence, checksStillRunning, createCheckWait, failedConclusions, failureKeys, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
+import { nextReviewPushBudget, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety } from "./stack.ts";
@@ -121,12 +122,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   // unverified names must never suppress activity feedback.
   const activityAuthors = verifiedHostIdentity ? [verifiedHostIdentity] : [];
   const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
+  const reviewPushBudget = baseAgent.reviewPushBudget ?? presetOptions.reviewPushBudget ?? 3;
   const pullRequestInbox = new PullRequestInbox({
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: options.repositories,
     filter,
     activityAuthors,
-    budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget },
+    budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget } },
     // One invalid row must not stop the claim loop or the health endpoint.
     invalidRow: ({ repository, number, error }) => options.error?.("babysitter.inbox.invalid_row", error, { repository, pullRequest: number }),
   });
@@ -168,6 +170,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     pendingReviewChecks: new Set((presetOptions.reviewChecks ?? []).map(name => name.toLowerCase())),
     wakeWhenReady: merge.mode === "direct",
     noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? [],
+    ...reviewPushBudget === false ? {} : { reviewPushBudget },
   };
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
     options.event?.(name, properties);
@@ -421,7 +424,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
     const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : undefined;
     const assessedFeedback = new Set(isRuntimeRecord(assessment) && Array.isArray(assessment.feedback) ? assessment.feedback.filter(item => hasRuntimeType(item, "string")) : []);
-    let decision = directMergeReadiness(snapshot, evaluation.state, { ...waitPolicy, assessedFeedback, reviewedEvidenceKey });
+    let decision = directMergeReadiness(snapshot, evaluation.state, { ...waitPolicy, assessedFeedback, reviewedEvidenceKey, automatedReviewSettled: reviewPushBudgetSpent(snapshot, waitPolicy) });
     if (decision.ready && merge.ready) {
       const callback = merge.ready;
       const head = decision.head;
@@ -507,10 +510,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   const postPushGraceMs = options.postPushGraceMs ?? 3 * 60_000;
 
-  async function parkOnPushedHead(claim: Claim, text: string, head: string, verifiedPushHeads: readonly string[], wait?: BabysitterPassResult["wait"]) {
+  /** The push receipt of a pass. `reviewDriven` comes from the claimed snapshot, never from the model. */
+  function pushProgress(head: string, reviewDriven: boolean): ProgressOutcome {
+    return { kind: "verified", evidence: `push:${head}`, ...reviewDriven ? { reviewDriven: true } : {} };
+  }
+
+  async function parkOnPushedHead(claim: Claim, text: string, head: string, verifiedPushHeads: readonly string[], wait: BabysitterPassResult["wait"] | undefined, reviewDriven: boolean) {
     const current = await pullRequestInbox.get(claim.snapshot.repository, claim.snapshot.number);
+    const progress = pushProgress(head, reviewDriven);
     // Include this worker's verified resolutions, but leave concurrent, unseen feedback unacknowledged.
-    const observed = { ...claim.snapshot, threads: claim.snapshot.threads.map(thread => {
+    // The wait sees the review push record after this push, so a push that spends the budget parks on
+    // the feedback that the spent budget still counts.
+    const observed = { ...claim.snapshot, ...reviewPushBudget === false ? {} : { reviewPushBudget: nextReviewPushBudget(current?.reviewPushBudget, reviewPushBudget, progress, claim.snapshot.pr?.head?.sha) }, threads: claim.snapshot.threads.map(thread => {
       const latest = current?.threads.find(value => String(value.node_id ?? value.id) === String(thread.node_id ?? thread.id));
       return latest?.resolutionSource === "worker" && latest.isResolved === true
         ? { ...thread, isResolved: true, resolutionSource: latest.resolutionSource, resolutionObservedAt: latest.resolutionObservedAt } : thread;
@@ -528,7 +539,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           reason: error instanceof Error ? error.message : String(error) });
       }
     }
-    return await pullRequestInbox.finish(claim, { text, progress: { kind: "verified", evidence: `push:${head}` }, verifiedPushHeads,
+    return await pullRequestInbox.finish(claim, { text, progress, verifiedPushHeads,
       wait: { ...waiting, headSha: head } });
   }
 
@@ -989,7 +1000,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const providerBlockedUntil = (await pullRequestInbox.metaNumber("provider-quota-blocked-until")) ?? 0;
           const providerBlocked = providerBlockedUntil > Date.now();
           const admitted = (currentAdmission?.accepting ?? modelAdmission) && !providerBlocked;
-          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return false;
+          if (babysitterModelAdmission(admitted, inboxClaim.snapshot)) return await parkSpentReviewPushBudget();
           modelWorkParked = true;
           outcome = "waiting";
           await pullRequestInbox.finish(inboxClaim, {
@@ -998,11 +1009,38 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               : admitted
                 ? "CI reconciliation completed; the same-head repair budget is exhausted."
                 : "CI reconciliation completed; model work is waiting for host admission.",
-            ...(pushedHead ? { progress: { kind: "verified" as const, evidence: `push:${pushedHead}` }, verifiedPushHeads: [...verifiedPushHeads] } : {}),
+            ...(pushedHead ? { progress: pushProgress(pushedHead, reviewDrivenPush()), verifiedPushHeads: [...verifiedPushHeads] } : {}),
             wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy),
               ...(pushedHead ? { headSha: pushedHead } : {}),
               retryAt: admitted ? undefined : Math.max(retryAt ?? 0, providerBlocked ? providerBlockedUntil : 0) },
           });
+          return true;
+        };
+        // A push answers review when the claimed PR had no conflict and no failure outside the review checks.
+        const reviewDrivenPush = () => !installDefect && pushCause(inboxClaim.snapshot, waitPolicy) === "review";
+        /**
+         * Parks the claim before its first model dispatch when the PR spent its review push budget and
+         * only automated review is left. A person, a conflict, another failing check or a new head still
+         * gets a pass.
+         */
+        const parkSpentReviewPushBudget = async () => {
+          if (modelDispatched || pushedHead || reviewPushBudget === false || !reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy)) return false;
+          const saved = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
+          const assessed = new Set(isRuntimeRecord(saved) && saved.version === 2 && Array.isArray(saved.feedback) ? saved.feedback.filter(item => hasRuntimeType(item, "string")) : []);
+          const work = reviewPushBudgetWork(inboxClaim.snapshot, waitPolicy, assessed);
+          if (work.length) {
+            schedulerEvent("babysitter.review_push_budget.pass", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, work });
+            return false;
+          }
+          modelWorkParked = true;
+          outcome = "waiting";
+          const pushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
+          const checks = waitPolicy.pendingReviewChecks.size ? `failed ${[...waitPolicy.pendingReviewChecks].join(", ")} checks` : "failed review checks";
+          await pullRequestInbox.finish(inboxClaim, {
+            text: `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
+            wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), reason: "review-push-budget" },
+          });
+          schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: inboxClaim.snapshot.pr?.head?.sha, avoided_invocation: true, reason: "review-push-budget" });
           return true;
         };
         const preparedDirectories = new Set<string>();
@@ -1672,7 +1710,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, terminal: true });
           } else if (pushedHead) {
             outcome = "waiting";
-            recorded = await parkOnPushedHead(inboxClaim, resultText, pushedHead, [...verifiedPushHeads], passResult?.wait);
+            recorded = await parkOnPushedHead(inboxClaim, resultText, pushedHead, [...verifiedPushHeads], passResult?.wait, reviewDrivenPush());
           } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
             outcome = "waiting";
             await pullRequestInbox.setMeta(`review-assessment:${repository}#${number}`, null);
@@ -1716,7 +1754,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
             // The repair reached GitHub. Its checks and reviews resume the PR.
             outcome = "waiting";
-            await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
+            await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait, reviewDrivenPush());
             await noteForgeQuota(error, "owner-pushed");
             const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || github.isRateLimitError(error);
             if (!expected) schedulerError("babysitter.owner.failed", error, owner);
