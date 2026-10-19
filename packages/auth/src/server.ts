@@ -301,6 +301,30 @@ function isRuntimeResponse(value: unknown): value is Response {
   }
 }
 
+const nativePromiseThen = Object.getOwnPropertyDescriptor(Promise.prototype, "then")?.value
+
+function hasNativePromiseBrand(value: object): boolean {
+  if (!nativePromiseThen) return false
+  // Object#toString is cross-realm safe for ordinary promises, while walking
+  // the chain also recognizes same-realm promises whose toStringTag or then
+  // method has been shadowed. Plain thenables never inherit Promise.prototype.
+  try {
+    if (Object.prototype.toString.call(value) === "[object Promise]") return true
+    let prototype = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    while (prototype && !seen.has(prototype)) {
+      seen.add(prototype)
+      if (Object.prototype.hasOwnProperty.call(prototype, "then")
+        && Object.getOwnPropertyDescriptor(prototype, "then")?.value === nativePromiseThen) return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    return false
+  }
+  return false
+}
+
 function getDirectRuntimeResponse(value: Response): Response | undefined {
   if (!nativeResponseStatus || !nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
   if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
@@ -351,7 +375,8 @@ async function runAccessAuthorize(
   }
 
   let resolved: unknown
-  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+  if (result !== null && (typeof result === "object" || typeof result === "function")
+    && hasNativePromiseBrand(result)) {
     // Promise.prototype.then performs the intrinsic Promise brand check and
     // bypasses an overridden `then` method on Promise subclasses. Plain
     // thenables fail that check and fall back to normal await semantics below.
