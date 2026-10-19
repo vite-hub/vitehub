@@ -1,3 +1,6 @@
+import type { Result } from "@vite-hub/runtime"
+
+import type { ConnectionsErrorCode } from "./errors.ts"
 import type { EnvAccessContext } from "@vite-hub/env/bridge"
 import type { EnvDatabase } from "@vite-hub/env/database"
 
@@ -137,6 +140,13 @@ export interface ConnectionAccessRule<TPattern extends string = string> {
   approve?: boolean
 }
 
+/**
+ * A named access rule. `"mcp"` lets the actor use the provider's `mcp` endpoint with every method
+ * and without approvals, because MCP sends every protocol message as a POST and cannot wait for an
+ * approval. Every other request, including typed API methods, is denied. The provider must declare `mcp`.
+ */
+export type ConnectionAccessPreset = "mcp"
+
 /** A key, a sealed Server Env secret, or nothing. */
 export type ConnectionApiKeyFallback = () =>
   | string
@@ -181,13 +191,14 @@ interface ConnectionDefinitionRules<TApis extends object, TSelection extends Con
   /** API methods to expose. Omit to expose every method of every provider API. */
   api?: TSelection
   /**
-   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`.
+   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`. A rule is an object or
+   * the `"mcp"` preset, for an actor that only uses the provider's `mcp` endpoint.
    * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
    * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
    * When omitted, server actors may read and
    * call non-high-risk writes, and Agent writes require approval.
    */
-  access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>>>>
+  access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>> | ConnectionAccessPreset>>
 }
 
 /** A Connection that an account owner grants through OAuth 2.0. */
@@ -209,10 +220,89 @@ export interface ConnectionApiKeyDefinition<
   scopes?: undefined
 }
 
+/** What a provider `login` receives. It plays the browser for one authorization request. */
+export interface ConnectionLoginContext {
+  /** The authorization URL, with PKCE, `state`, `scope`, and `resource`. Open it like a browser would. */
+  url: string
+  /** Where the provider sends the browser with the code. ViteHub never listens on it. */
+  redirectUri: string
+  /** The value of `credentials`, unsealed. Empty without `credentials`. */
+  credentials: string
+  /**
+   * Fetch as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs
+   * against `url`, and does not follow redirects unless `init.redirect` asks for it.
+   */
+  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
+  /** Aborts the login after 60 seconds. */
+  signal: AbortSignal
+}
+
+/** An OAuth 2.0 provider that signs in without a person. `oauthLogin()` creates it. */
+export interface ConnectionLoginProvider<TApis extends object = object> {
+  readonly kind: "oauth-login"
+  readonly id: string
+  /** The provider's MCP endpoint. Discovery starts at its protected resource metadata unless `issuer` is set. */
+  readonly mcp?: string
+  /** The authorization server issuer. */
+  readonly issuer?: string
+  /** The `resource` of authorization and token requests. Default: `mcp`. */
+  readonly resource?: string
+  /** Other origins that `fetch` may send the token to. API catalog root URLs and the `mcp` endpoint are also allowed. */
+  readonly origins: readonly string[]
+  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
+  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** A registered public client id. Without it, ViteHub registers a client once per process. */
+  readonly clientId?: ConnectionValue
+  /** `client_name` for client registration. */
+  readonly clientName?: string
+  /** The redirect URI of the client. ViteHub never listens on it. */
+  readonly redirectUri: string
+  /** Extra authorization request parameters. */
+  readonly authorizationParams?: Readonly<Record<string, string>>
+  /** The secret that `login` uses. While it resolves to nothing, the Connection is disconnected. */
+  readonly credentials?: ConnectionApiKeyFallback
+  /** Sign in and approve the request like a browser. Returns the URL that the provider redirects to `redirectUri`. */
+  readonly login: (context: ConnectionLoginContext) => Promise<string>
+  /** Read the account from a token response. Default: the ID token when `scopes` includes `openid`. */
+  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
+  /** Pacing, retries, and a timeout for provider requests. */
+  readonly requests?: ConnectionRequestPolicy
+  /** Type-only method map. It has no runtime value. */
+  readonly "~apis"?: TApis
+}
+
+/** A Connection that signs in by itself through its provider `login`. Tokens stay in memory. */
+export interface ConnectionLoginDefinition<
+  TApis extends object = object,
+  TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
+> extends ConnectionDefinitionRules<TApis, TSelection> {
+  provider: ConnectionLoginProvider<TApis>
+  /** Scopes to request, for example `["openid", "email"]`. */
+  scopes?: readonly string[]
+}
+
 export type ConnectionDefinition<
   TApis extends object = object,
   TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection>
+> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection>
+
+/**
+ * One definition for several Connections of the same kind, such as one per tenant. Each instance is a
+ * Connection named `<name>:<instance>`, for example `portal:acme` from `server/connections/portal.ts`.
+ */
+export interface ConnectionInstancesDefinition<
+  TInstance extends string = string,
+  TDefinition extends ConnectionDefinition = ConnectionDefinition,
+> {
+  /** Instance keys: 1 to 128 letters, digits, `.`, `_`, and `-`, without duplicates. */
+  readonly instances: readonly TInstance[]
+  /** The Connection Definition of one instance. It runs once per process, when the instance is first used. */
+  definition(instance: TInstance): TDefinition
+  // `api` and `access` belong in `definition`. Declaring them here lets `defineConnection()` report a
+  // wrong `api` or `access` entry of a plain definition at that entry.
+  readonly api?: never
+  readonly access?: never
+}
 
 /** Fetch options supported by Connections. Bodies are persisted for approval replay. */
 export type ConnectionFetchInit = Pick<RequestInit, "headers" | "method" | "redirect" | "signal"> & { body?: string }
@@ -264,8 +354,8 @@ type MethodDryRunResult<TSignature, TDryRun extends boolean> = TSignature extend
 
 /** A typed provider method. In dry run, a skipped write resolves to `undefined`. */
 export type ConnectionMethod<TSignature, TDryRun extends boolean = false> = object extends MethodInput<TSignature>
-  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
-  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>>
+  ? (input?: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<Result<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>, ConnectionsErrorCode>>
+  : (input: MethodInput<TSignature>, options?: ConnectionCallOptions) => Promise<Result<MethodResponse<TSignature> | MethodDryRunResult<TSignature, TDryRun>, ConnectionsErrorCode>>
 
 type Head<TId extends string> = TId extends `${infer THead}.${string}` ? THead : TId
 
@@ -282,8 +372,14 @@ export type ConnectionClient<TApis extends object = object, TSelection = Connect
   /**
    * Call a provider URL with the Connection token. GET is a read. Other methods are
    * writes, and an access rule must name `fetch` to allow them.
+   * Returns `[error, response]`. A provider error status is in `response.status`, not in `error`.
    */
-  fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Response>
+  fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>
+  /**
+   * The Connection status, for example "connected". It never rejects: a Connection that cannot be
+   * inspected, for example because its store cannot open, is "disconnected".
+   */
+  status: () => Promise<ConnectionStatus>
 } & {
   readonly [TApi in keyof TApis & keyof TSelection]: ConnectionClientTree<SelectedMethods<TApis[TApi], SelectionPatterns<TSelection, TApi>>, TDryRun>
 }

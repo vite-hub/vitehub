@@ -459,7 +459,7 @@ describe("agent channels", () => {
         return Response.json({ id: 7 })
       } finally { activeWrites-- }
     })
-    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
+    const host = createGitHubHost({ credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
     const channels = [github({ activity: true, app: host }), github({ activity: true, app: host })]
     const context = (channel: typeof channels[number], status: "waiting" | "running") => ({
       activity: { agentName: "shared-reviewer", links: [], runId: "shared-run", status, tasks: [], summary: "Shared status" },
@@ -1786,7 +1786,7 @@ describe("agent channels", () => {
             github: { deliveryId, event: "pull_request", installationId: 123 },
             payload,
           })
-          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit) {
+          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit || !result.webhook.deliveryId) {
             throw new Error("Expected GitHub reconciliation ownership.")
           }
           await queue.enqueueWebhookDelivery({

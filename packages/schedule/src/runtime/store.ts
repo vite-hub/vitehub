@@ -54,6 +54,17 @@ function joinKey(prefix: string, ...parts: string[]): string {
   return base ? `${base}/${suffix}` : suffix
 }
 
+/** Providers may expose hierarchical keys with either slash or colon separators. */
+function keySegments(key: string, count: number): string[] {
+  const encoded = key.match(/(\d{4}-\d{2}-\d{2}T\d{2}(?::|%3A)\d{2}(?::|%3A)\d{2}(?:\.|%2E)\d+Z)$/i)
+  if (encoded && count >= 2) {
+    const prefix = key.slice(0, encoded.index).replace(/[/:]+$/, "")
+    const segments = prefix.split(/[/:]/).slice(-(count - 1)).map(decodeURIComponent)
+    return [...segments, decodeURIComponent(encoded[1]!)]
+  }
+  return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
+}
+
 function runtimeScheduleKey(prefix: string, id: string): string {
   return joinKey(prefix, "runtime-schedules", id)
 }
@@ -71,11 +82,11 @@ function runtimeScheduleBase(prefix: string): string {
 }
 
 function scheduleRunBase(prefix: string): string {
-  return joinKey(prefix, "schedule-runs")
+  return `${joinKey(prefix, "schedule-runs")}/`
 }
 
 function scheduleRunAttemptBase(prefix: string): string {
-  return joinKey(prefix, "schedule-run-attempts")
+  return `${joinKey(prefix, "schedule-run-attempts")}/`
 }
 
 function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {
@@ -383,7 +394,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split(/[/:]/).slice(-3).map(decodeURIComponent)
+    const parts = keySegments(key, 3)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -422,7 +433,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
 
   async function readSnapshot() {
     const keys = await store.keys(scheduleRunBase(prefix))
-    const indexKeys = await store.keys(joinKey(prefix, "schedule-run-index"))
+    const indexKeys = await store.keys(`${joinKey(prefix, "schedule-run-index")}/`)
     const metadataById = new Map(indexKeys.flatMap(key => {
       const metadata = runIndexMetadata(key)
       return metadata ? [[metadata.id, metadata] as const] : []
@@ -551,13 +562,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     },
     async listAttempts(runId) {
       const [keys, indexKeys] = await Promise.all([
-        store.keys(`${scheduleRunAttemptBase(prefix)}/`),
+        store.keys(scheduleRunAttemptBase(prefix)),
         store.keys(`${joinKey(prefix, "schedule-run-attempt-index")}/`),
       ])
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split(/[/:]/).slice(-2).map(decodeURIComponent)
+          const parts = keySegments(key, 2)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}

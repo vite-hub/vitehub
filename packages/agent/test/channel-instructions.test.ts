@@ -8,6 +8,7 @@ import { bindMessageChannelInstructions, inheritMessageChannelInstructions, mark
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
+import { createExecutionBudget } from "@vite-hub/runtime"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 
@@ -49,12 +50,18 @@ const outputSchema = {
   },
 }
 
-function createModel() {
+function createModel(withUsage = true) {
   const doGenerateCalls: Array<{ prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }> = []
   return {
     doGenerate: async (options: { prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }) => {
       doGenerateCalls.push(options)
-      return generateResult
+      return withUsage ? generateResult : {
+        ...generateResult,
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 0, total: 0 },
+          outputTokens: { reasoning: 0, text: 0, total: 0 },
+        },
+      }
     },
     doGenerateCalls,
     doStream: async () => {
@@ -445,6 +452,45 @@ describe("Channel instructions", () => {
       outputInstructions,
     ])
     expect(systemMessages[0]!.content).not.toContain("Injected Channel instructions.")
+  })
+
+  it("charges model usage against the Invocation execution budget", async () => {
+    const controlBudget = createExecutionBudget()
+    const budget = createExecutionBudget()
+    try {
+      const controlModel = createModel(false)
+      const controlAdapter = createAiSdkAdapter({
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
+        model: controlModel as never,
+      })
+      const model = createModel()
+      const adapter = createAiSdkAdapter({ model: model as never })
+      const invoker = { id: "budget-test", kind: "user" }
+
+      const request = {
+        actor: invoker,
+        context: createAgentInvocationContextStore(),
+        input: {},
+        invoker,
+        messages: [createMessage({ role: "user", text: "Count this input." })],
+        runtime,
+      }
+      await controlAdapter.generate({ ...request, executionBudget: controlBudget } as never)
+      await adapter.generate({
+        ...request,
+        executionBudget: budget,
+      } as never)
+
+      // AI SDK reports tokens, so the adapter charges the documented four-byte
+      // estimate per token for both input and output, in addition to the
+      // serialized prompt and generated content charged by the middleware.
+      expect(budget.snapshot().usage.inputBytes - controlBudget.snapshot().usage.inputBytes).toBe(12)
+      expect(budget.snapshot().usage.outputBytes - controlBudget.snapshot().usage.outputBytes).toBe(4)
+    }
+    finally {
+      controlBudget.dispose()
+      budget.dispose()
+    }
   })
 
   it("does not apply final-response guidance to auxiliary model calls", async () => {

@@ -96,7 +96,7 @@ describe("vite-hub public types", () => {
     vitehub({ console: { auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
     // @ts-expect-error Access settings are strings or Env declarations.
     vitehub({ console: { auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
-    // @ts-expect-error The old access and exposure keys are removed.
+    // Legacy access remains accepted and is normalized at the Console boundary.
     vitehub({ console: { access: "auth" }, preset: "node" })
     // @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.
     vitehub({ console: { auth: "public" }, preset: "node" })

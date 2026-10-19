@@ -326,17 +326,13 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry gives the Workspace `name`, a `module` (absolute path or package specifier), and an optional `export`:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    workspaces: () => [{
-      name: "content",
-      definition: { module: "my-package/workspace", export: "contentWorkspace" },
-      reason: "Stores CMS documents.",
-    }],
+    workspaces: ({ projectRoot }) => [{ name: "content", module: "my-package/workspace", export: "contentWorkspace" }],
   },
 }
 ```
@@ -396,6 +392,13 @@ The Vite Integration writes matching module-level and discovered definition-leve
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
+## Vercel Blob persistence
+
+The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
+`_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
+letters, numbers, underscores, dashes, and single slashes.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
@@ -411,7 +414,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub-backed Stores also expose the retained history reader. Repository branches are
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
