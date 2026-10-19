@@ -8,7 +8,6 @@ import { Chat, Message, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } fr
 import {
   portableAgentWorkflowInput,
   resolveAgentTriggerInvocation,
-  resolveAgentTriggers,
   runAgent,
   runAgentInline,
   startAgentInvocation,
@@ -52,8 +51,11 @@ import {
   bindAgentChannelTriggerState,
   agentChannelOptions,
   isResolvedAgentTriggerHandledInvocation,
+  prepareAgentTriggerInvocation,
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
+  resolveAgentTriggers,
   resolveAgentTriggerInvocationResult,
+  taskAgentIdentity,
   verifyAgentWebhookRequest,
 } from "../trigger-runtime.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
@@ -1162,7 +1164,7 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
   return safe
 }
 
-function persistedWebhookInvocation(invocation: { input: AgentRunInput; run?: unknown }, rehydrate = false): { input: Record<string, unknown>; run?: unknown } {
+function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: AgentRunInput; run?: unknown; task?: string; requiresPrepare?: boolean }, rehydrate = false): { agentName?: string; input: Record<string, unknown>; run?: unknown; task?: string; requiresPrepare?: true } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
   if (rehydrate && invocation.input.context) {
     // Rehydration restores definition-owned finish callbacks. Persist the
@@ -1170,8 +1172,11 @@ function persistedWebhookInvocation(invocation: { input: AgentRunInput; run?: un
     input.context = Object.fromEntries(Object.entries(invocation.input.context).filter(([key]) => key !== channelDeliveryFinishEffectsContextKey))
   }
   return {
+    ...(invocation.agent ? { agentName: taskAgentIdentity(invocation.agent).name } : {}),
     input,
     ...(invocation.run ? { run: invocation.run } : {}),
+    ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+    ...(invocation.requiresPrepare ? { requiresPrepare: true as const } : {}),
   }
 }
 
@@ -1833,9 +1838,30 @@ async function executeQueuedWebhookDelivery(
         if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}.`)
       }
     }
+    let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
+    if (invocation && delivery.invocation && (delivery.invocation.task !== undefined || delivery.invocation.requiresPrepare)) {
+      const prepared = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
+        const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+        if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
+        const triggers = await resolveAgentTriggers(agent as never, context as never, { queuedInvocation: invocation as never })
+        const trigger = triggers[match.trigger.id]
+        if (!trigger) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook trigger "${match.trigger.id}" no longer exists.` })
+        const accepted = { ...invocation, trigger, ...(delivery.invocation.task !== undefined ? { task: delivery.invocation.task } : {}) } as never
+        return await prepareAgentTriggerInvocation(accepted)
+      }), executionTimeout])
+      if (isResolvedAgentTriggerHandledInvocation(prepared)) {
+        invocation = undefined
+        handledResponse = prepared.response
+        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook delivery returned HTTP ${handledResponse.status}.`)
+      }
+      else {
+        invocation = { input: prepared.input, run: prepared.run }
+        executionAgent = (prepared.agent ?? agent) as AgentInput<ViteAgentRouteRuntimeContext>
+      }
+    }
     if (invocation) {
       failedInvocation = invocation
-      armExecutionTimeout(webhookQueueExecutionTimeout(agent, invocation.input))
+      armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       invocationRunId = invocation.run?.runId
       if (channelDelivery) await Promise.race([
         recordChannelDeliveryEvidence(channelDelivery, {
@@ -1853,13 +1879,13 @@ async function executeQueuedWebhookDelivery(
         handlerOptions.cloudflare,
         handlerOptions.runtime,
         handlerOptions.capabilities,
-        routeAgentIdentity(handlerOptions),
+        executionAgent === agent ? routeAgentIdentity(handlerOptions) : taskAgentIdentity(executionAgent),
       )
       const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const invocationStartup = startAgentInvocation(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-          agent as never,
+          executionAgent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           runContext as never,
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
@@ -8682,7 +8708,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         const stateCommit = registration.channelId ? createAgentChannelStateCommit(channelState.state) : undefined
         try {
           const input = createAgentWebhookTriggerInput(request, registration, rawBody)
-          const invocation = await resolveAgentTriggerInvocationWithResolvedContext(
+          let invocation = await resolveAgentTriggerInvocationWithResolvedContext(
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             agent as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -8741,7 +8767,13 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               )
             }
             const backendId = await resolveWebhookStateBackendId(webhookState.state)
-            const persistedInvocation = persistedWebhookInvocation({ input: invocation.input, run: invocation.run }, Boolean(invocation.webhook.rehydrate))
+            const persistedInvocation = persistedWebhookInvocation({
+              ...(invocation.agent ? { agent: invocation.agent } : {}),
+              input: invocation.input,
+              run: invocation.run,
+              ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+              ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
+            }, Boolean(invocation.webhook.rehydrate))
             const delivery = persistedWebhookRequest(
               deliveryId,
               channelDelivery.delivery.id,
@@ -8869,6 +8901,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               return Response.json({ accepted: false, duplicate: true, ok: true })
             }
           }
+          const prepared = await prepareAgentTriggerInvocation(invocation)
+          if (isResolvedAgentTriggerHandledInvocation(prepared)) {
+            if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
+            if (prepared.response.status >= 500 && deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
+            await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted", runId: invocation.run?.runId })
+            return await observeHandledChannelDeliveryResponse(prepared.response, channelDelivery)
+          }
+          const executionAgent = (prepared.agent ?? agent) as AgentInput<ViteAgentRouteRuntimeContext>
+          invocation = prepared
           // The delivery runs inline, so it is accepted now.
           try {
             await settleAgentChannelStateCommit(stateCommit)
@@ -8885,7 +8926,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               handlerOptions.cloudflare,
               handlerOptions.runtime,
               handlerOptions.capabilities,
-              routeAgentIdentity(handlerOptions),
+              prepared.agent ? taskAgentIdentity(prepared.agent) : routeAgentIdentity(handlerOptions),
             ),
             channelDelivery,
           )
@@ -8916,7 +8957,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 try {
                   const result = await runAgent(
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                    agent as never,
+                    executionAgent as never,
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                     runContext as never,
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
