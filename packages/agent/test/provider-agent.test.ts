@@ -97,8 +97,8 @@ function runtime(threadId: string, events: unknown[], options: {
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
-  resumeCursor?: string
-  turnResumeCursor?: string
+  resumeCursor?: unknown
+  turnResumeCursor?: unknown
 } = {}) {
   let mcp: { authorizationHeader: string, endpoint: string } | undefined
   const value = {
@@ -3627,6 +3627,54 @@ cli_auth_credentials_store = "keyring"
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it.each([
+    { name: "a new native thread", started: "native-b", resumed: false },
+    { name: "the same native thread", started: "native-a", resumed: true },
+    { name: "an opaque cursor", started: undefined, resumed: true },
+  ])("chooses the prompt and usage from the resumed provider thread ($name)", async ({ started, resumed }) => {
+    const threadId = `thread-resume-check-${started ?? "opaque"}`
+    const cursor = (nativeId: string) => ({ providerThread: { id: `provider-${nativeId}`, nativeThreadRef: { driver: "codex", nativeId, strength: "strong" } }, version: 2 })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    })
+    const raw = { totalProcessedTokens: 100 }
+    const second = runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: raw }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { resumeCursor: started === undefined ? "opaque-cursor" : cursor(started) })
+    const adapter = createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const secondContext = context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = await adapter.generate({ ...secondContext, runtime: { ...secondContext.runtime, traceLog } } as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      resumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: resumed
+        ? "continue"
+        : '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
+    }))
+    expect(result).toMatchObject({ usageRecord: { raw, usage: { totalTokens: resumed ? undefined : 100 } } })
+    const failures = traceLog.entries().filter(entry => entry.name === "agent.provider.session.resume-failed")
+    expect(failures.map(entry => entry.attributes)).toEqual(resumed ? [] : [expect.objectContaining({
+      "gen_ai.provider.name": "codex",
+      "vitehub.provider.requested_thread.id": "native-a",
+      "vitehub.provider.started_thread.id": "native-b",
+    })])
   })
 
   it("replays message history instead of resuming an ephemeral credential Home", async () => {

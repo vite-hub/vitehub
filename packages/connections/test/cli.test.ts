@@ -150,7 +150,7 @@ describe("vitehub connections", () => {
   it("reports errors and unknown options", async () => {
     const harness = cli()
     expect(await harness.run("inspect", ["missing"])).toBe(1)
-    expect(harness.output.stderr).toContain("CONNECTION_INVALID")
+    expect(harness.output.stderr).toContain("CONNECTIONS_INVALID_INPUT")
     expect(await harness.run("list", ["--nope"])).toBe(1)
     expect(harness.output.stderr).toContain("Unknown option: --nope.")
   })

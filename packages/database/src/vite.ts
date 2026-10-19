@@ -156,6 +156,22 @@ function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, ent
   return false
 }
 
+function moduleGraphImportersContainEntry(server: Pick<ViteDevServer, "moduleGraph">, changedFile: string, entry: string) {
+  const roots = server.moduleGraph.getModulesByFile(changedFile)
+  if (!roots?.size) return false
+
+  const pending = [...roots]
+  const visited = new Set<ModuleNode>()
+  while (pending.length) {
+    const module = pending.pop()!
+    if (visited.has(module)) continue
+    visited.add(module)
+    if (module.id && normalizeModulePath(module.id) === normalizeModulePath(entry)) return true
+    pending.push(...module.importers)
+  }
+  return false
+}
+
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
@@ -328,7 +344,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       const isDatabaseUpdate = runtimeConfig.definitions.some(definition =>
         normalizeModulePath(definition.handler) === changedFile
         || moduleGraphContainsFile(context.server, definition.handler, changedFile),
-      ) || contributions.some(contribution => normalizeModulePath(contribution.definition.module) === changedFile)
+      ) || (await Promise.all(contributions.map(async contribution => {
+        const resolvedEntry = await context.server.pluginContainer.resolveId(contribution.definition.module)
+        const entry = normalizeModulePath(resolvedEntry && typeof resolvedEntry !== "string" ? resolvedEntry.id : resolvedEntry ?? contribution.definition.module)
+        return entry === changedFile
+          || moduleGraphContainsFile(context.server, entry, changedFile)
+          || moduleGraphImportersContainEntry(context.server, changedFile, entry)
+      }))).some(Boolean)
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
