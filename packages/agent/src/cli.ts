@@ -14,6 +14,7 @@ import { formatAgentError } from "./agent-error.ts"
 import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { isCompatibleAgentDevServerRoot, runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
+import { runAgentCodexHomeCli } from "./internal/agent-codex-home-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { runAgentChannelReplayCli } from "./internal/channel-replay-cli.ts"
@@ -1290,6 +1291,12 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       run: async (args, context) => await runAgentInvocationsCli(args, context),
       usage: "vitehub agent invocations <list|show|tail|cancel> [id] [--url <url>] [--json]",
     },
+    {
+      description: "Measure and prune a Codex home with the driver.retention rules.",
+      name: "codex-home",
+      run: async (args, context) => await runAgentCodexHomeCli(args, context),
+      usage: "vitehub agent codex-home <status|prune> --home <path> [--max-age 14d] [--max-records <n>] [--max-size 45%] [--session-store <path>]... [--dry-run] [--json]",
+    },
   ]
   if (evalFiles.length) {
     features.unshift({
@@ -1345,4 +1352,4 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   }
 }
 
-export { runAgentInfoCli, runAgentInvocationsCli }
+export { runAgentCodexHomeCli, runAgentInfoCli, runAgentInvocationsCli }
