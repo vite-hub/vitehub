@@ -8797,6 +8797,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
           return await admitWebhook()
         }
+        if (inbox.duplicate) {
+          return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
+        }
         return await acknowledgeWebhookAdmission(admitWebhook(), inbox, webhookStartedAt + ackTimeoutMs, inboxFields, waitUntil)
       }
 

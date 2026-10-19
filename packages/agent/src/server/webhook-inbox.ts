@@ -9,7 +9,6 @@ export const defaultWebhookAckTimeoutMs = 5_000
 const webhookInboxRetentionMs = 86_400_000
 /** The route admits a stored request at most this many times, the first delivery included. */
 const webhookInboxMaxAttempts = 3
-const webhookInboxIndexLength = 1_000
 
 /** Admissions that got a 202 answer and still run. `drainDeferredWebhookAdmissions()` waits for them. */
 const deferredWebhookAdmissions = new Set<Promise<void>>()
@@ -40,8 +39,12 @@ interface StoredWebhookInboxEntry extends WebhookInboxEntry {
 export interface WebhookInbox {
   attempts: number
   id: string
+  /** Another request currently owns admission for this delivery. */
+  duplicate?: boolean
   /** Removes the stored request. Admission has settled, so a restart must not replay it. */
   settle(): Promise<void>
+  /** Releases admission ownership while retaining the row for replay. */
+  release(): Promise<void>
 }
 
 export interface WebhookInboxLogFields {
@@ -133,18 +136,30 @@ function isStoredWebhookInboxEntry(value: unknown): value is StoredWebhookInboxE
 export async function openWebhookInbox(webhookState: WebhookInboxState, entry: WebhookInboxEntry): Promise<WebhookInbox> {
   const { keyPrefix, state } = webhookState
   const key = webhookInboxKey(keyPrefix, entry.id)
+  const lock = await state.acquireLock(`${key}:admission`, webhookInboxRetentionMs)
+  if (!lock) {
+    return { attempts: 0, duplicate: true, id: entry.id, settle: async () => {}, release: async () => {} }
+  }
   const previous = await state.get(key)
   const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
-  await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
-  if (!previous) {
-    await state.appendToList(webhookInboxIndexKey(keyPrefix), { id: entry.id, receivedAt: entry.receivedAt }, {
-      maxLength: webhookInboxIndexLength,
-      ttlMs: webhookInboxRetentionMs,
-    })
+  try {
+    await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
+    if (!previous) {
+      await state.appendToList(webhookInboxIndexKey(keyPrefix), { id: entry.id, receivedAt: entry.receivedAt }, {
+        ttlMs: webhookInboxRetentionMs,
+      })
+    }
+  }
+  catch (error) {
+    await state.releaseLock(lock).catch(() => undefined)
+    throw error
   }
   return {
     attempts,
     id: entry.id,
+    async release() {
+      await state.releaseLock(lock).catch(() => undefined)
+    },
     async settle() {
       try {
         await state.delete(key)
@@ -152,6 +167,7 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
       catch (error) {
         logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
       }
+      await state.releaseLock(lock).catch(() => undefined)
     },
   }
 }
@@ -179,8 +195,12 @@ export async function acknowledgeWebhookAdmission(
   ])
   clearTimeout(timer)
   if (outcome !== deferred) {
-    await inbox.settle()
-    if ("error" in outcome) throw outcome.error
+    if ("error" in outcome) {
+      await inbox.release()
+      throw outcome.error
+    }
+    if (outcome.response.status >= 500) await inbox.release()
+    else await inbox.settle()
     return outcome.response
   }
 
@@ -198,9 +218,11 @@ export async function acknowledgeWebhookAdmission(
         status: response.status,
       })
       if (!failed) await inbox.settle()
+      else await inbox.release()
     },
     (error: unknown) => {
       logWebhookInbox("admission.failed", { ...fields, deferredMs: Date.now() - deferredAt, error: errorMessage(error), inboxId: inbox.id })
+      return inbox.release()
     },
   )
   deferredWebhookAdmissions.add(background)
