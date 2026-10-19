@@ -567,17 +567,32 @@ function runInTransaction(db: DatabaseSync, work: () => number): number {
 }
 
 /** Removes rows of the given threads from one Codex database. Returns the IDs whose rows are gone. */
-function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[], transactional = true): { done: string[], rows: number } {
+type DeletedRows = { table: string, columns: string[], rows: unknown[][] }
+
+function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[], transactional = true): { done: string[], rows: number, backup: DeletedRows[] } {
   const statements: { sql: string, params: number }[] = []
+  const backup: DeletedRows[] = []
+  const json = JSON.stringify(threadIds)
   for (const table of tableNames(db)) {
     const columns = tableColumns(db, table)
-    if (columns.has("thread_id")) statements.push({ params: 1, sql: `DELETE FROM ${quoteIdentifier(table)} WHERE thread_id IN (SELECT value FROM json_each(?))` })
+    if (columns.has("thread_id")) {
+      const names = [...columns]
+      const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM ${quoteIdentifier(table)} WHERE thread_id IN (SELECT value FROM json_each(?))`).all(json)
+      backup.push({ table, columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
+      statements.push({ params: 1, sql: `DELETE FROM ${quoteIdentifier(table)} WHERE thread_id IN (SELECT value FROM json_each(?))` })
+    }
   }
   if (kind === "state") {
     const edges = tableColumns(db, "thread_spawn_edges")
     if (edges.has("parent_thread_id") && edges.has("child_thread_id")) {
+      const names = [...edges]
+      const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM thread_spawn_edges WHERE parent_thread_id IN (SELECT value FROM json_each(?)) OR child_thread_id IN (SELECT value FROM json_each(?))`).all(json, json)
+      backup.push({ table: "thread_spawn_edges", columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
       statements.push({ params: 2, sql: "DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (SELECT value FROM json_each(?)) OR child_thread_id IN (SELECT value FROM json_each(?))" })
     }
+    const names = [...tableColumns(db, "threads")]
+    const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM threads WHERE id IN (SELECT value FROM json_each(?))`).all(json)
+    backup.push({ table: "threads", columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
     statements.push({ params: 1, sql: "DELETE FROM threads WHERE id IN (SELECT value FROM json_each(?))" })
   }
   const done: string[] = []
@@ -592,7 +607,18 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
     rows += transactional ? runInTransaction(db, work) : work()
     done.push(...batch)
   }
-  return { done, rows }
+  return { done, rows, backup }
+}
+
+function restoreDeletedRows(db: DatabaseSync, backups: readonly DeletedRows[]): void {
+  for (const backup of backups) {
+    if (!backup.rows.length) continue
+    const table = quoteIdentifier(backup.table)
+    const columns = backup.columns.map(quoteIdentifier).join(", ")
+    const placeholders = backup.columns.map(() => "?").join(", ")
+    const statement = db.prepare(`INSERT OR IGNORE INTO ${table} (${columns}) VALUES (${placeholders})`)
+    for (const row of backup.rows) statement.run(...row)
+  }
 }
 
 function incrementalVacuum(db: DatabaseSync): void {
@@ -679,17 +705,31 @@ async function applyCodexHomeRetentionPlan(inventory: CodexHomeInventory, plan: 
     }
   }
   if (databasesReady) {
+    const backups: { db: DatabaseSync, rows: DeletedRows[] }[] = []
     try {
       for (const { database, db } of writable) {
         const result = deleteThreadRows(db, database.kind as "state" | "thread_history", [...rowsRemoved], false)
         removed.threadRows += result.rows
+        backups.push({ db, rows: result.backup })
         rowsRemoved = new Set(result.done)
       }
       for (const { db } of writable) db.exec("COMMIT")
     }
     catch (error) {
       for (const { db } of writable) { try { db.exec("ROLLBACK") } catch {} }
+      // SQLite has no transaction spanning these files. If a later database fails
+      // after an earlier commit, restore the rows already committed before keeping
+      // the rollout. This makes a partial cleanup recoverable on the same run.
+      for (const backup of backups) {
+        try {
+          backup.db.exec("BEGIN IMMEDIATE")
+          restoreDeletedRows(backup.db, backup.rows)
+          backup.db.exec("COMMIT")
+        }
+        catch { try { backup.db.exec("ROLLBACK") } catch {} }
+      }
       rowsRemoved = new Set()
+      removed.threadRows = 0
       context.skipped.push(`thread metadata: ${isSqliteBusy(error) ? "busy, the next run continues" : errorMessage(error)}.`)
     }
   }
