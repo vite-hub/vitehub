@@ -88,6 +88,10 @@ export async function sync(event: unknown) {
 }
 ```
 
+## Derive secrets from one root secret
+
+`deriveSecret(purpose)` from `#vitehub/env/server` derives a 32-byte hex secret from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) with HKDF-SHA256, salt `vitehub`. Console Auth and CLI dispatch derive their secrets the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
+
 ## Typed server values
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.

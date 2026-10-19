@@ -25,6 +25,8 @@ export default defineConfig({
       "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",
+      "src/presets.ts",
+      "src/source-scanner.ts",
       "src/secret.ts",
       "src/source-scanner.ts",
       "src/standard-schema.ts",

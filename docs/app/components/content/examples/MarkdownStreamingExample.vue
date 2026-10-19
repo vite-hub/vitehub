@@ -32,6 +32,6 @@ onBeforeUnmount(() => clearInterval(interval));
 
 <template>
   <div class="min-h-72">
-    <AgentMarkdown :value="value" :streaming="streaming" />
+    <Markdown :value="value" :streaming="streaming" />
   </div>
 </template>

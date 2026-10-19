@@ -7,6 +7,7 @@ export type AttachmentOrientation = "horizontal" | "vertical";
 
 export const Attachment = defineComponent({
   name: "Attachment",
+  inheritAttrs: false,
   props: {
     orientation: { default: "horizontal", type: String as PropType<AttachmentOrientation> },
     size: { default: "default", type: String as PropType<AttachmentSize> },
@@ -32,11 +33,17 @@ export const AttachmentGroup = slotPart("AttachmentGroup", "attachment-group");
 
 export const AttachmentMedia = defineComponent({
   name: "AttachmentMedia",
+  inheritAttrs: false,
   props: {
     variant: { default: "icon", type: String as PropType<"icon" | "image"> },
   },
   setup(props, { attrs, slots }) {
-    return () => h("div", { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant }, slots.default?.());
+    return () =>
+      h(
+        "div",
+        { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant },
+        slots.default?.(),
+      );
   },
 });
 
@@ -51,7 +58,11 @@ export const AttachmentAction = defineComponent({
   setup(_props, { attrs, slots }) {
     const UButton = resolveComponent("UButton");
     return () =>
-      h(UButton, { color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost", ...attrs }, slots);
+      h(
+        UButton,
+        { color: "neutral", size: "xs", square: true, variant: "ghost", ...attrs, "data-slot": "attachment-action" },
+        slots,
+      );
   },
 });
 
@@ -62,6 +73,14 @@ export const AttachmentTrigger = defineComponent({
   setup(props, { attrs, slots }) {
     // A `type` attribute from the caller still overrides this default.
     return () =>
-      h(props.as, { "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined, ...attrs }, slots.default?.());
+      h(
+        props.as,
+        {
+          ...attrs,
+          "data-slot": "attachment-trigger",
+          type: props.as === "button" ? (attrs.type ?? "button") : attrs.type,
+        },
+        slots.default?.(),
+      );
   },
 });

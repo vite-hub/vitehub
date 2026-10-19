@@ -49,7 +49,7 @@ const messageScrollerKey: InjectionKey<InternalMessageScrollerContext> =
 function useInternalMessageScroller(): InternalMessageScrollerContext {
   const context = inject(messageScrollerKey);
   if (!context)
-    throw uiErrorDiagnostics.UI_R0002({ message: "Message scroller primitives must be used inside MessageScrollerRoot." });
+    throw uiErrorDiagnostics.UI_R0002({ message: "Message scroller primitives must be used inside MessageScroller." });
   return context;
 }
 
@@ -72,8 +72,8 @@ export function calculatePrependScrollTop(
   return previousTop + (nextHeight - previousHeight);
 }
 
-export const MessageScrollerRoot = defineComponent({
-  name: "MessageScrollerRoot",
+export const MessageScroller = defineComponent({
+  name: "MessageScroller",
   inheritAttrs: false,
   props: {
     as: { default: "div", type: String },
@@ -132,7 +132,7 @@ export const MessageScrollerRoot = defineComponent({
     return () =>
       h(
         props.as,
-        { ...attrs, "data-slot": "message-scroller-root" },
+        { ...attrs, "data-slot": "message-scroller" },
         slots.default?.({
           atEnd: atEnd.value,
           isScrollable: isScrollable.value,

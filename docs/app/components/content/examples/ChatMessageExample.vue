@@ -12,9 +12,9 @@ const message: UIMessage = {
 </script>
 
 <template>
-  <AgentChatMessage :message="message">
+  <ChatMessage :message="message">
     <template #actions>
       <UButton aria-label="Copy message" icon="i-lucide-copy" color="neutral" variant="ghost" />
     </template>
-  </AgentChatMessage>
+  </ChatMessage>
 </template>

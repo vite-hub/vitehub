@@ -1,7 +1,7 @@
 import { file as createFileSource, type FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
-import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
+import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { WorkspaceSource } from "../core/types.ts"
@@ -15,17 +15,15 @@ export function file<const TKey extends string>(input: TKey): WorkspaceSource
 export function file<const TKey extends string = string, const TOptions extends FileSourceOptions<TKey> = FileSourceOptions<TKey>>(input: ExactOptions<TOptions, FileSourceOptions<TKey>>): WorkspaceSource
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = (typeof input === "string" ? { path: input } : input) as FileSourceOptions<TKey>
-  const workspacePath = Object.hasOwn(options, "workspacePath") && options.workspacePath
-    ? options.workspacePath
-    : Object.hasOwn(options, "path") && options.path ? options.path : ""
+  const workspacePath = ownSourceOption(options, "workspacePath") || ownSourceOption(options, "path") || ""
   const key = normalizeSafeWorkspacePath(workspacePath)
-  const mountInput = Object.hasOwn(options, "mount") ? options.mount : undefined
-  const mount = typeof mountInput === "object" && mountInput && !Object.hasOwn(mountInput, "path")
-    ? { ...mountInput, path: "" }
-    : mountInput ?? ""
+  const declaredMount = ownSourceOption(options, "mount")
+  const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
+    ? { ...declaredMount, path: "" }
+    : declaredMount ?? ""
   const source = createFileSource(options)
   return {
     ...withWorkspaceRuntimeOptions(source, { ...options, mount }),
-    probeKeys: Object.hasOwn(options, "probeKeys") && options.probeKeys ? options.probeKeys : [key],
+    probeKeys: ownSourceOption(options, "probeKeys") || [key],
   }
 }

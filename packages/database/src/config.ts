@@ -1114,6 +1114,7 @@ export interface DatabaseDiscoveryOptions {
    * database always has a default Database.
    */
   implicitDefault?: boolean
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
   serverDirs?: string[]
 }
 
@@ -1128,6 +1129,25 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
+        source: "vite-plugin-contribution",
+        tableNames: [],
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
@@ -1226,7 +1246,7 @@ export function resolveDBViteConfig(
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    contributions?: CollectedDatabaseContributions
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
     provisionRoot?: string
@@ -1235,12 +1255,12 @@ export function resolveDBViteConfig(
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
-  if (!definitions.length) {
-    // Contributed tables need a Database, so this fails when a plugin contributes tables.
-    resolveDatabaseContributionTargets([], context.contributions ?? [])
-    return
-  }
+  const definitions = discoverDatabaseDefinitions(rootDir, {
+    definitions: context.contributions?.definitions,
+    implicitDefault: context.implicitDefault,
+    serverDirs: context.serverDirs,
+  })
+  if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
@@ -1327,7 +1347,7 @@ export function resolveDBViteConfig(
 
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(
     definitions.map(definition => definition.name),
-    context.contributions ?? [],
+    context.contributions?.tables ?? [],
     Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
   )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
