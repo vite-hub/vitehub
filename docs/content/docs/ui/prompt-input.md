@@ -70,6 +70,7 @@ The `submit` slot receives `{ status, canSubmit, preparingFiles }`. Disable your
 | `modelValue`  | `string`                                       | `''`      | The draft text. Use `v-model`.                                   |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `status`      | `ChatStatus`                                   | `'ready'` | AI SDK chat status. Controls the submit button and the submit rule. |
+| `attachments` | `boolean`                                      | `true`    | Shows the attachment picker and accepts pasted files. Set it to `false` for a text-only prompt. |
 | `accept`      | `string`                                       |           | Accepted file types for the picker, in `<input accept>` format.  |
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
 | `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |

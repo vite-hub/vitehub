@@ -7,8 +7,8 @@ settings:
 catalogs:
   ai:
     '@agntn/web':
-      specifier: ^0.7.5
-      version: 0.7.5
+      specifier: ^0.5.5
+      version: 0.5.5
     '@ai-sdk/gateway':
       specifier: 4.0.103
       version: 4.0.103
@@ -967,6 +967,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      happy-dom:
+        specifier: 20.14.5
+        version: 20.14.5
       publint:
         specifier: catalog:tooling
         version: 0.3.25
