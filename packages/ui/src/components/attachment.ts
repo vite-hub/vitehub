@@ -7,6 +7,7 @@ export type AttachmentOrientation = "horizontal" | "vertical";
 
 export const Attachment = defineComponent({
   name: "Attachment",
+  inheritAttrs: false,
   props: {
     orientation: { default: "horizontal", type: String as PropType<AttachmentOrientation> },
     size: { default: "default", type: String as PropType<AttachmentSize> },
@@ -32,11 +33,17 @@ export const AttachmentGroup = slotPart("AttachmentGroup", "attachment-group");
 
 export const AttachmentMedia = defineComponent({
   name: "AttachmentMedia",
+  inheritAttrs: false,
   props: {
     variant: { default: "icon", type: String as PropType<"icon" | "image"> },
   },
   setup(props, { attrs, slots }) {
-    return () => h("div", { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant }, slots.default?.());
+    return () =>
+      h(
+        "div",
+        { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant },
+        slots.default?.(),
+      );
   },
 });
 
@@ -51,7 +58,11 @@ export const AttachmentAction = defineComponent({
   setup(_props, { attrs, slots }) {
     const UButton = resolveComponent("UButton");
     return () =>
-      h(UButton, { ...attrs, color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost" }, slots);
+      h(
+        UButton,
+        { color: "neutral", size: "xs", square: true, variant: "ghost", ...attrs, "data-slot": "attachment-action" },
+        slots,
+      );
   },
 });
 

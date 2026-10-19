@@ -1,12 +1,12 @@
 ---
-title: Session
+title: Chat Session
 description: Present an application-owned chat session with a title and the same AI SDK message contract.
 navigation.order: 25
 navigation.group: Chat
 icon: i-ph-chats-circle-light
 ---
 
-`AgentSession` is the small shell around a saved conversation. It gives the Console a title, an `AgentChat` that fills the available space, and an optional footer for the prompt or session actions. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.
+`ChatSession` is the small shell around a saved conversation. It gives the Console a title, an `Chat` that fills the available space, and an optional footer for the prompt or session actions. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.
 
 ::component-preview{name="SessionExample" flush}
 ::
@@ -23,7 +23,7 @@ const session: ViteHubUISession = {
 ```
 
 ```vue
-<AgentSession :session :status />
+<ChatSession :session :status />
 ```
 
 The component does not fetch, change, or save the session. Load the record in your application, extend its metadata when needed, and keep tenancy and authorization at that boundary.
@@ -39,14 +39,14 @@ Use the `header` slot to replace the title and the `footer` slot to add content 
 
 ## API reference
 
-### AgentSession
+### ChatSession
 
 #### Props
 
 | Prop      | Type                              | Default   | Description                                 |
 | --------- | --------------------------------- | --------- | ------------------------------------------- |
 | `session` | `ViteHubUISession<UIMessage>`     | Required  | The session to render.                      |
-| `status`  | `ChatStatus`                      | `'ready'` | AI SDK chat status, passed to `AgentChat`.  |
+| `status`  | `ChatStatus`                      | `'ready'` | AI SDK chat status, passed to `Chat`.  |
 
 Other attributes go to the root `<section>`. It has a `data-session-id` attribute.
 
@@ -56,7 +56,7 @@ Other attributes go to the root `<section>`. It has a `data-session-id` attribut
 | ----------- | ------------- | -------------------------------------------------------------- |
 | `header`    | `{ session }` | Replaces the default title header.                             |
 | `footer`    | `{ session }` | Content under the chat.                                        |
-| Other slots |               | Forwarded to `AgentChat`, for example `message` or `composer`. |
+| Other slots |               | Forwarded to `Chat`, for example `message` or `composer`. |
 
 #### Types
 

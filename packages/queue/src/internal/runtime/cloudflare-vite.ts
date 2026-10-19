@@ -72,7 +72,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
       const runtimeEvent = createCloudflareRuntimeEvent(env, context)
       await runWithActiveCloudflareEnv(env, async () => {
         const definitionName = definitions
-          ? definitions[batch.queue]
+          ? Object.hasOwn(definitions, batch.queue) ? definitions[batch.queue] : undefined
           : registryDefinitions?.[batch.queue]
             ?? (/-[0-9a-f]{32}$/.test(batch.queue)
             && !/(?:^|-)queue--(?:[0-9a-f]{2})+$/i.test(batch.queue)

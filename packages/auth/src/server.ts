@@ -510,7 +510,9 @@ async function runAccessAuthorize(
       })
     }
     catch (error) {
-      if (!(error instanceof TypeError)) throw error
+      // Keep species failures on the native adoption promise so the
+      // authorization boundary observes them consistently.
+      nativePromise = Promise.reject(error)
     }
     finally {
       if (constructorOverridden) {

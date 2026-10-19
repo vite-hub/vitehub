@@ -89,15 +89,21 @@ function feedback(values: Record<string, GitHubEvidence>, policy: FeedbackPolicy
       user: value.user ?? value.author, commit: value.commit_id ?? value.commit?.oid, path: value.path, line: value.line }));
 }
 
-function mergeTarget(snapshot: Snapshot) {
+/**
+ * The base branch an assessment applies to. Its commit is left out: the base advances with every
+ * merge, and conflicts and required checks already gate the merge, so a moving base must not reopen
+ * every review. `legacy` reproduces the identities stored before this change, which still match.
+ */
+function mergeTarget(snapshot: Snapshot, legacy = false) {
   const base = snapshot.pr?.base;
+  if (!base) return base;
   // Exclude transport metadata and repository counters from the target identity.
-  return base && { sha: base.sha, ref: base.ref,
-    repository: (base.repo?.full_name ?? snapshot.repository).toLowerCase() };
+  const repository = (base.repo?.full_name ?? snapshot.repository).toLowerCase();
+  return legacy ? { sha: base.sha, ref: base.ref, repository } : { ref: base.ref, repository };
 }
 
 /** Assessment is bound to full feedback bodies and failed check evidence, never prose heuristics. */
-export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}): string {
+export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string {
   const head = snapshot.pr?.head?.sha;
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
     .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
@@ -114,20 +120,25 @@ export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolic
     draft: snapshot.pr?.draft, title: snapshot.pr?.title, body: snapshot.pr?.body,
     // Repository counters and timestamps change on unrelated pushes. Only the
     // target ref, commit and repository identity define this merge input.
-    base: mergeTarget(snapshot),
+    base: mergeTarget(snapshot, legacy),
     comments: feedback(snapshot.comments, policy, false), reviews: feedback(snapshot.reviews, policy),
     reviewComments: feedback(snapshot.reviewComments, policy), threads, failures })).digest("hex");
 }
 
+/** Whether a stored evidence key covers this snapshot, including a key stored with the base commit. */
+export function matchesMergeReviewEvidence(key: unknown, snapshot: Snapshot, policy: FeedbackPolicy = {}): boolean {
+  return hasRuntimeType(key, "string") && (key === mergeReviewEvidenceKey(snapshot, policy) || key === mergeReviewEvidenceKey(snapshot, policy, true));
+}
+
 /**
  * Identities of the feedback items that need an assessment. An explicit assessment covers
- * the items it saw on the same merge target. A new base repository, ref or commit needs reassessment,
- * while a later head on the same target only needs a pass for feedback that arrived since.
+ * the items it saw on the same merge target. A new base repository or ref needs reassessment,
+ * while a later head or base commit on the same target only needs a pass for feedback that arrived since.
  */
-export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy = {}): string[] {
+export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy = {}, legacy = false): string[] {
   const kinds: Array<[string, FeedbackItem[]]> = [["comment", feedback(snapshot.comments, policy, false)],
     ["review", feedback(snapshot.reviews, policy)], ["review-comment", feedback(snapshot.reviewComments, policy)]];
-  const target = mergeTarget(snapshot);
+  const target = mergeTarget(snapshot, legacy);
   return kinds.flatMap(([kind, values]) => values.map(value =>
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
@@ -192,8 +203,9 @@ export function directMergeReadiness(snapshot: Snapshot, requiredChecks: GitHubR
   const failedChecks = evidence.checkRuns.some(check => failing.has(String(check.conclusion).toLowerCase()))
     || evidence.statuses.some(status => failing.has(status.state.toLowerCase()));
   const assessed = assessment.assessedFeedback ?? new Set<string>();
-  const unassessed = feedbackFingerprints(snapshot, assessment).filter(id => !assessed.has(id)).length;
-  if ((failedChecks || unassessed) && assessment.reviewedEvidenceKey !== mergeReviewEvidenceKey(snapshot, assessment)) {
+  const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
+  const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index] ?? "")).length;
+  if ((failedChecks || unassessed) && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) {
     return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
   }
   if (!snapshot.threadsHydrated) return no("review threads not loaded");

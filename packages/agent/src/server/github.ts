@@ -31,6 +31,7 @@ export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './github-required-checks.ts'
 export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadCheckPolicy, GitHubCheckPolicyResponse, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './github-required-checks.ts'
 
-export { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "./github-install.ts"
+export { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "./github-install.ts"
+export type { GitHubInstallOptions, GitHubInstallSlotOptions, GitHubInstallSlots } from "./github-install.ts"
 export { GitHubDependencyConflictError } from "./github-install-inputs.ts"
 export { prepareGitHubRepairBase } from "./github-repair.ts"
