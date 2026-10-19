@@ -451,7 +451,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
 
   /**
    * In one transaction: throws unless every lock is still held, queues `delivery` unless its ID is already queued,
-   * and applies `mutations` only when the delivery is newly queued. Returns whether `delivery` was newly queued (`true` without one).
+   * and applies `mutations`, which apply in both cases. Returns whether `delivery` was newly queued (`true` without one).
    */
   async commitWebhookState(writes: AgentChannelStateWrites): Promise<boolean> {
     return await retrySqliteBusy(async () => {
