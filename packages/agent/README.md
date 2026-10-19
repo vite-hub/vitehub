@@ -675,6 +675,8 @@ agent: {
 
 The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 until preparation succeeds. `requireNonEmpty` rejects an empty prepared Workspace; it is opt-in. Set `route` to change the readiness path.
 
+With libSQL or SQLite Agent State, the route also exists without `preparation`. At startup, the generated webhook queue plugin calls `handler.warm()` on every Agent's webhook handler. It builds the trigger registrations, resolves the webhook secrets, and connects and migrates webhook State with its queue backend ID, so the first delivery does not wait for this work. The route answers 503 `{ ready: false, status: "warming", agents }` until every Agent is warm, then 200 with `durationMs` for each Agent. A failed warm-up answers 503 with `status: "error"` and `error`, and is tried again every 5 seconds. The preparation route waits for the warm-up too. The process logs `scope: "vitehub.agent.ready"` once. Point a Kubernetes `readinessProbe` at the route. See [Report readiness after warm-up](../../docs/content/docs/agents/process-hosts.md#report-readiness-after-warm-up).
+
 The Nitro plugin that `vitehub({ observability })` generates owns request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
 
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.

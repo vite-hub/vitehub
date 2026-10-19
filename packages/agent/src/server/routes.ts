@@ -209,6 +209,14 @@ export interface AgentChannelWebhookRouteHandler {
   matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
+  /**
+   * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
+   * the connected and migrated webhook State, and its queue backend ID. Call it at startup so that the first
+   * delivery does not wait for this work. The generated webhook queue plugin calls it, and
+   * `/api/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
+   * would get, for example when a secret resolver or the State connection fails.
+   */
+  warm(options?: AgentChannelWebhookRouteOptions): Promise<void>
 }
 
 interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
@@ -8907,6 +8915,24 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     return [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
       .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
       .slice(0, handlerOptions.limit ?? 100)
+  }
+  handler.warm = async (handlerOptions = {}) => {
+    const context = createRuntimeContext(
+      new Request("http://vitehub.local/_vitehub/warm"),
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    await runWithRuntimeCloudflareEnv(context, async () => {
+      for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
+        await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")
+        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+        if (webhookState && hasAgentWebhookQueue(webhookState.state)) await resolveWebhookStateBackendId(webhookState.state)
+      }
+    })
   }
   handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`

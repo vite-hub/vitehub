@@ -178,6 +178,45 @@ Ephemeral hosts do not install it. Set `agent: { shutdown: false }` when the
 application installs its own stop handler. Every stop handler registers its
 drain in `process.__vitehubShutdown`, so you can inspect the drains that run.
 
+## Report readiness after warm-up
+
+A fresh process builds the trigger registrations, resolves the webhook secrets,
+and connects and migrates Agent State on its first webhook delivery. A delivery
+that arrives during startup waits for this work. Some providers do not wait
+long: GitHub closes the connection after 10 seconds and does not send the
+delivery again.
+
+With libSQL or SQLite Agent State, the generated webhook queue plugin does this
+work at startup with `handler.warm()` for every Agent. The generated
+`/api/_vitehub/ready` route reports the result:
+
+| State | Status | Body |
+| --- | --- | --- |
+| Warm-up runs | 503 | `{ ready: false, status: "warming", agents }` |
+| Warm-up failed | 503 | `{ ready: false, status: "error", error, retryMs: 5000, agents }` |
+| Every Agent is warm | 200 | `{ ready: true, status: "ready", readyAt, agents: { <name>: { durationMs } } }` |
+
+A failed warm-up is tried again every 5 seconds, because the first delivery
+would fail the same way. The route answers `HEAD` without a body. The process
+logs `{ "scope": "vitehub.agent.ready" }` once when it is ready. With
+`agent.preparation`, the preparation route waits for the warm-up too, and no
+second route is generated.
+
+Point a Kubernetes readiness probe at the route, so the Service sends traffic
+only to a warm process:
+
+```yaml [deployment.yaml]
+readinessProbe:
+  httpGet:
+    path: /api/_vitehub/ready
+    port: 3000
+  periodSeconds: 2
+  failureThreshold: 1
+```
+
+Keep the liveness probe on a route that does not wait for warm-up. A liveness
+probe that fails during a slow warm-up restarts the process.
+
 ## Inspect health and work
 
 Use `createAgentHealth()` for a cacheable operational report. It inspects the
