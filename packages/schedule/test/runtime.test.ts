@@ -686,6 +686,25 @@ describe("Schedule Run bookkeeping", () => {
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
   })
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
+    revoked.revoke()
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(await schedules.listRuns()).toEqual([])
+  })
+
 
   it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
     const handler = vi.fn(async () => {})

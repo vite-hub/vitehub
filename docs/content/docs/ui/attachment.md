@@ -82,4 +82,4 @@ A Nuxt UI `UButton` with `color="neutral"`, `variant="ghost"`, `size="xs"`, and 
 ## Related
 
 - [Attachments](/docs/ui/attachments) validates files and converts them to AI SDK file parts.
-- [Chat prompt](/docs/ui/chat-prompt) attaches files to a message.
+- [Prompt input](/docs/ui/prompt-input) attaches files to a message.

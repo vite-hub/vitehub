@@ -1,10 +1,10 @@
 import type { ChatStatus, UIMessage } from "ai";
 import { defineComponent, h, type PropType } from "vue";
 import type { ViteHubUISession } from "../types.ts";
-import { AgentChat } from "./agent-chat.ts";
+import { Chat } from "./chat.ts";
 
-export const AgentSession = defineComponent({
-  name: "AgentSession",
+export const ChatSession = defineComponent({
+  name: "ChatSession",
   inheritAttrs: false,
   props: {
     session: { required: true, type: Object as PropType<ViteHubUISession<UIMessage>> },
@@ -31,7 +31,7 @@ export const AgentSession = defineComponent({
                 ])
               : null),
           h(
-            AgentChat,
+            Chat,
             { class: "vh-session__chat", messages: props.session.messages, status: props.status },
             chatSlots,
           ),
