@@ -946,7 +946,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       // current-realm descriptor comparison above is intentionally false. The
       // intrinsic accessor probes performed by hasResponsePrototype(), together
       // with native Headers methods, establish the foreign response boundary.
-      const nativeForeignResponse = brandedHeaderMethods && nativeCookieMethod
+      let responseTag = false
+      try {
+        responseTag = Object.prototype.toString.call(value) === "[object Response]"
+      }
+      catch {
+        responseTag = false
+      }
+      const nativeForeignResponse = brandedHeaderMethods && nativeCookieMethod && responseTag
       if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignResponse) return
       return emptyError ? Response.error() : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
