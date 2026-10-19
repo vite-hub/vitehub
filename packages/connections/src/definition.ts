@@ -39,17 +39,20 @@ const rulesSchema = {
   access: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), accessRuleSchema))),
 }
 const oauthDefinitionSchema = v.looseObject({
-  provider: v.looseObject({
-    id: v.string(),
-    authorizationEndpoint: v.string(),
-    tokenEndpoint: v.string(),
-    clientId: connectionValue,
-    clientSecret: v.optional(connectionValue),
-    account: v.optional(v.function()),
-    apis: v.optional(apiCatalogsSchema),
-    mcp: mcpSchema,
-    requests: requestsSchema,
-  }),
+  provider: v.pipe(
+    v.looseObject({
+      id: v.string(),
+      authorizationEndpoint: v.string(),
+      tokenEndpoint: v.string(),
+      clientId: connectionValue,
+      clientSecret: v.optional(connectionValue),
+      account: v.optional(v.function()),
+      apis: v.optional(apiCatalogsSchema),
+      mcp: mcpSchema,
+      requests: requestsSchema,
+    }),
+    v.check(provider => !Object.hasOwn(provider, "kind")),
+  ),
   scopes: v.array(v.string()),
   ...rulesSchema,
 })
@@ -102,6 +105,7 @@ const loginDefinitionSchema = v.looseObject({
 })
 const definitionSchema = v.pipe(
   v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema]),
+  // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
   v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),
 )
 const instancesSchema = v.strictObject({

@@ -1,6 +1,5 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
-
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
 
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -69,7 +68,6 @@ function validPath(value: unknown): value is string {
   catch {
     return false
   }
-
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
@@ -101,7 +99,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS({ message: "Awareness update contains too many clients." })
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS({})
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))

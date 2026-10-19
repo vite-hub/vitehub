@@ -158,7 +158,9 @@ access: {
 },
 ```
 
-ViteHub checks access before the tool runs. A denied request fails with `CONNECTIONS_DENIED`. MCP needs protocol responses in the active session, so its Connection client rejects writes that require approval with `CONNECTIONS_DENIED` before creating an approval. Set `approve: false` on the Agent access rule; durable approval replay cannot resume MCP discovery or tool calls.
+When the provider declares the [`mcp` endpoint](/docs/connections/configure#mcp-endpoint) that the Agent uses, the `'mcp'` preset is shorter and narrower: `access: { 'agent:support': 'mcp' }` allows every method on that endpoint without approval and denies every other request, including typed API methods.
+
+ViteHub checks access before the tool runs. A denied request fails with `CONNECTIONS_DENIED`. MCP needs protocol responses in the active session, so its Connection client rejects writes that require approval with `CONNECTIONS_DENIED` before creating an approval. Set `approve: false` on the Agent access rule, or use the `'mcp'` preset; durable approval replay cannot resume MCP discovery or tool calls.
 
 ## Install a server's Skills
 
