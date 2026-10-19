@@ -359,7 +359,7 @@ export function resolveConsoleAccessBuild(
 ): ConsoleAccessBuild {
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
-  if ("local" in configured && configured.local === true) return { mode: "local" }
+  if ("local" in configured && configured.local === true) return withAuthorize({ mode: "local" })
   if ("exposure" in configured && configured.exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
   if (configured.auth === false) return withAuthorize({ mode: "open" })
   if (configured.auth === "app") {
