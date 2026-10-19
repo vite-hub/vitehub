@@ -78,7 +78,6 @@ export interface ConsoleOptions {
 
 /** Deprecated Console configuration accepted for source compatibility and normalized at the boundary. */
 export type LegacyConsoleOptions = Omit<ConsoleOptions, "auth"> & {
-  auth?: ConsoleOptions["auth"]
   access?: "auth" | "local" | "open"
   exposure?: "host-managed" | "open"
 } & ({ access: "auth" | "local" | "open" } | { exposure: "host-managed" | "open" })
@@ -320,6 +319,7 @@ function authRouteProtects(
  */
 export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
   if (configured.auth !== false) return
+  if ("exposure" in configured && configured.exposure === "host-managed") return
   if (!configured.authorize) return consoleOpenAccessWarning
   if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
 }
