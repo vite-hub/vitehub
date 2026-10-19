@@ -194,14 +194,55 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("#vitehub/kv/config")
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
-    expect(output).toContain("Cloudflare KV does not support atomic operations")
-    expect(output).toContain("KV_R0015")
-    expect(output).toContain("KV_R0016")
-    expect(output).toContain("KV_R0017")
-    expect(output).toContain("KV_R0018")
-    expect(output).toMatch(/async getAndDelete\(\)\s*{\s*resolveStoreConfig\(name\);/)
-    expect(output).toMatch(/async increment\(\)\s*{\s*resolveStoreConfig\(name\);/)
+    expect(output).toContain("needs atomic operations")
+    expect(output).toContain("KV_STORE_NOT_FOUND")
+    expect(output).toContain("KV_UNSUPPORTED_OPERATION")
+    expect(output).toContain("KV_INVALID_LIMIT")
+    expect(output).toMatch(/async getAndDelete\(\)\s*{\s*return unsupported\("getAndDelete", name\);/)
+    expect(output).toMatch(/async increment\(\)\s*{\s*return unsupported\("increment", name\);/)
     expect(output).toContain("KV_CUSTOM")
+  })
+
+  it("rejects inherited store names in the generated Cloudflare runtime", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, [
+      `import { kv } from "@vite-hub/kv"`,
+      `export async function run() {`,
+      `  return kv.store("constructor").get("missing")`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    // SAFETY: The fixture exports the generated KV runtime operation used by this regression.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      run: () => Promise<unknown>
+    }
+    await expect(worker.run()).rejects.toMatchObject({
+      code: "KV_STORE_NOT_FOUND",
+      message: 'The KV store "constructor" is not configured.',
+    })
   })
 
   it("bundles generated config into the dev inspection runtime", async () => {

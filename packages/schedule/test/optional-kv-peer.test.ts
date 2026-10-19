@@ -130,22 +130,14 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
         join(withoutKV, "src/server.mjs"),
         `
         import { defineSchedule } from "@vite-hub/schedule"
-        import { createMemoryRuntimeScheduleStore, executeStaticSchedule } from "@vite-hub/schedule/runtime"
+        import { createMemoryScheduleRunStore, executeStaticSchedule, setScheduleRunStore } from "@vite-hub/schedule/runtime"
 
+        const store = createMemoryScheduleRunStore()
+        setScheduleRunStore(store)
         const definition = defineSchedule({ cron: "* * * * *", handler: () => "static-proof" })
         const result = await executeStaticSchedule({ name: "static-proof", cron: definition.cron, definition })
         if (result.status !== "succeeded") throw new Error("Built static schedule failed")
-
-        const store = createMemoryRuntimeScheduleStore()
-        await store.create({
-          createdAt: new Date("2026-01-01T00:00:00.000Z"),
-          cron: "0 * * * *",
-          enabled: true,
-          id: "built-memory-proof",
-          target: "proof",
-          updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-        })
-        if ((await store.get("built-memory-proof"))?.id !== "built-memory-proof") throw new Error("Built memory store failed")
+        if ((await store.getRun(result.id))?.id !== result.id) throw new Error("Built memory store failed")
       `,
         "utf8",
       ),
@@ -200,24 +192,27 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
         "--eval",
         `
       import {
-        createKVRuntimeScheduleStore,
-        createMemoryRuntimeScheduleStore,
+        createKVScheduleRunStore,
+        createMemoryScheduleRunStore,
       } from "@vite-hub/schedule/runtime"
 
+      const scheduledAt = new Date("2026-01-01T00:00:00.000Z")
       const record = {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        cron: "0 * * * *",
-        enabled: true,
+        attemptCount: 0,
+        createdAt: scheduledAt,
         id: "memory-proof",
+        scheduleId: "proof",
+        scheduledAt,
+        status: "pending",
         target: "proof",
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: scheduledAt,
       }
-      const memory = createMemoryRuntimeScheduleStore()
-      await memory.create(record)
-      if ((await memory.get(record.id))?.id !== record.id) throw new Error("Memory store failed")
+      const memory = createMemoryScheduleRunStore()
+      await memory.createRun(record)
+      if ((await memory.getRun(record.id))?.id !== record.id) throw new Error("Memory store failed")
 
       const values = new Map()
-      const injected = createKVRuntimeScheduleStore({
+      const injected = createKVScheduleRunStore({
         kvStore: {
           del: key => values.delete(key),
           get: key => values.get(key),
@@ -226,8 +221,8 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
           set: (key, value) => values.set(key, value),
         },
       })
-      await injected.create({ ...record, id: "injected-proof" })
-      if ((await injected.get("injected-proof"))?.id !== "injected-proof") throw new Error("Injected store failed")
+      await injected.createRun({ ...record, id: "injected-proof" })
+      if ((await injected.getRun("injected-proof"))?.id !== "injected-proof") throw new Error("Injected store failed")
     `,
       ],
       withoutKV,
@@ -247,20 +242,23 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, asyn
         "--input-type=module",
         "--eval",
         `
-      import { createKVRuntimeScheduleStore } from "@vite-hub/schedule/runtime"
+      import { createKVScheduleRunStore } from "@vite-hub/schedule/runtime"
       import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
 
-      const store = createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage, prefix: "consumer-proof" })
+      const store = createKVScheduleRunStore({ kvStore: scheduleKVStorage, prefix: "consumer-proof" })
+      const scheduledAt = new Date("2026-01-01T00:00:00.000Z")
       const record = {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        cron: "0 * * * *",
-        enabled: true,
+        attemptCount: 0,
+        createdAt: scheduledAt,
         id: "default-kv-proof",
+        scheduleId: "proof",
+        scheduledAt,
+        status: "pending",
         target: "proof",
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: scheduledAt,
       }
-      await store.create(record)
-      if ((await store.get(record.id))?.id !== record.id) throw new Error("Default KV store failed")
+      await store.createRun(record)
+      if ((await store.getRun(record.id))?.id !== record.id) throw new Error("Default KV store failed")
     `,
       ],
       withKV,

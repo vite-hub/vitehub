@@ -11,6 +11,10 @@ import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
+export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
+  return basePath === "/" && status === 404
+}
+
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -178,9 +182,24 @@ function authRoutePattern(route: string): string {
   return `${route}/**`
 }
 
+const authApplicationBaseURLName = "__VITEHUB_AUTH_APP_BASE_URL__"
+
+/** Return Nitro `baseURL` when the host serves the app below a path. */
+function nitroApplicationBaseURL(value: unknown): string | undefined {
+  const nitro = cloneNitroConfig(value)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro config comes from user and host objects.
+  const baseURL = typeof nitro.baseURL === "string" ? nitro.baseURL : "/"
+  return baseURL.split("/").some(Boolean) ? baseURL : undefined
+}
+
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
+
+  const applicationBaseURL = nitroApplicationBaseURL(nitro)
+  if (applicationBaseURL) {
+    nitro.replace = { ...cloneNitroConfig(nitro.replace), [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+  }
 
   const kit = createNitroServerKit(nitro)
   const authHandlers: NitroHandler[] = [
@@ -207,7 +226,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
 function readForwardedProtocol(request: IncomingMessage): string {
   const value = request.headers["x-forwarded-proto"]
-  return Array.isArray(value) ? value[0] ?? "http" : value ?? "http"
+  const first = Array.isArray(value) ? value[0] : value
+  return first?.split(",", 1)[0]?.trim() || "http"
 }
 
 function createWebRequest(request: IncomingMessage): Request {
@@ -237,10 +257,66 @@ function createWebRequest(request: IncomingMessage): Request {
   return new Request(url, init)
 }
 
+function splitSetCookieHeader(value: string): string[] {
+  if (!value) return []
+  const values: string[] = []
+  let start = 0
+  let inAttributes = false
+  let unknownAttribute = false
+  let unknownAttributeHasValue = false
+  let deferredCookieBoundary: number | undefined
+  let inQuotes = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    // Only cookie-pair values have quoted-string semantics. Quotes in
+    // attributes (for example a literal quote in Path) are ordinary data and
+    // must not suppress a following cookie boundary.
+    if (!inAttributes && character === '"' && value[index - 1] !== "\\") {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (inQuotes) continue
+    if (character === ";") {
+      inAttributes = true
+      const match = value.slice(index + 1).match(/^\s*([^=;,\s]+)\s*(=|;|,|$)/)
+      const attributeName = match?.[1]?.toLowerCase() ?? ""
+      unknownAttribute = !!attributeName && !["expires", "max-age", "domain", "path", "secure", "httponly", "samesite", "partitioned", "priority"].includes(attributeName)
+      unknownAttributeHasValue = unknownAttribute && match?.[2] === "="
+      continue
+    }
+    const remainder = value.slice(index + 1)
+    const cookieBoundary = remainder.match(/^(\s*)[^;,=\s]+=/)
+    if (character !== "," || !cookieBoundary) continue
+    // Combined Set-Cookie values cannot distinguish commas in extension values
+    // from cookie boundaries, so defer one candidate before splitting.
+    if (inAttributes && unknownAttribute && unknownAttributeHasValue) {
+      // An unknown extension value may contain commas and name-like pairs.
+      // Defer the first candidate; a later candidate is the unambiguous next cookie.
+      if (deferredCookieBoundary === undefined) {
+        deferredCookieBoundary = index
+        continue
+      }
+      // Keep the deferred comma inside the extension value and split at this
+      // later candidate, which confirms that a new cookie follows.
+    }
+    values.push(value.slice(start, index).trim())
+    start = index + 1
+    inAttributes = false
+    unknownAttribute = false
+    unknownAttributeHasValue = false
+    deferredCookieBoundary = undefined
+  }
+  values.push(value.slice(start).trim())
+  return values.filter(Boolean)
+}
+
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
-  const setCookieHeaders = response.headers.getSetCookie()
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; preserve their header forwarding behavior.
+  const setCookieHeaders = typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : splitSetCookieHeader(response.headers.get("set-cookie") ?? "")
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
     target.appendHeader(key, value)
@@ -323,11 +399,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
-      if (hasNitroHandlers) {
+      const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
+      if (hasNitroHandlers || applicationBaseURL) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }
-      return {
+      const contribution: UserConfig = {
         ssr: {
           noExternal: mergeNoExternal(config.ssr?.noExternal),
         },
@@ -337,6 +414,8 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           },
         },
       }
+      if (applicationBaseURL) contribution.define = { [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+      return contribution
     },
     async configResolved(config) {
       resolved = config
@@ -382,6 +461,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)
+          // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
+          // handle those requests so a root Auth base path does not swallow the app.
+          if (shouldPassThroughAuthResponse(config.basePath, authResponse.status)) {
+            next()
+            return
+          }
           await sendWebResponse(authResponse, response)
         }
         catch (error) {

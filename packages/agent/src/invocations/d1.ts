@@ -88,7 +88,6 @@ function retention(value: false | number | undefined, fallback: number, maximum 
 }
 
 function serialize(value: unknown) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON cannot encode BigInt; this replacer converts that primitive without changing other JSON values.
   return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? String(item) : item)
 }
 
@@ -150,7 +149,6 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
   // Workers cannot share pending I/O between requests, so keep only completed bindings.
   const migrated = new WeakSet<AgentInvocationD1Database>()
   const database = async () => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public option accepts a D1 binding or a request-scoped factory; callability selects the factory member.
     const db = typeof options.database === "function" ? await options.database() : options.database
     if (options.migrate !== false && !migrated.has(db)) {
       await db.batch(schema.map(statement => db.prepare(statement)))

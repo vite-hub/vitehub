@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentChatPromptSubmit, ViteHubUISession } from "@vite-hub/ui";
+import type { PromptInputSubmit, ViteHubUISession } from "@vite-hub/ui";
 import type { ChatStatus, FileUIPart, UIMessage } from "ai";
 import { computed, onBeforeUnmount, ref } from "vue";
 
@@ -75,7 +75,7 @@ function selectSession(id: string) {
 }
 
 // Replace this function with `sendMessage({ text, files })` from `useChat()`.
-function submit({ text, files: attached }: AgentChatPromptSubmit) {
+function submit({ text, files: attached }: PromptInputSubmit) {
   const sessionId = selectedId.value;
   if (status.value !== "ready") return;
   const messageId = ++nextMessageId;
@@ -152,13 +152,13 @@ onBeforeUnmount(stop);
         />
       </nav>
 
-      <AgentSession :session="selected" :status="status" class="min-h-0">
+      <ChatSession :session="selected" :status="status" class="min-h-0">
         <template #composer>
           <p v-if="selected.messages.length === 0" class="mb-3 text-center text-sm text-muted">
             Ask a question or attach a log file.
           </p>
           <!-- Key the prompt by session so a pending file read cannot update another session. -->
-          <AgentChatPrompt
+          <PromptInput
             :key="selected.id"
             v-model="input"
             v-model:files="files"
@@ -169,7 +169,7 @@ onBeforeUnmount(stop);
             @stop="stop"
           />
         </template>
-      </AgentSession>
+      </ChatSession>
     </div>
   </div>
 </template>

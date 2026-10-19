@@ -79,7 +79,9 @@ export function createSourceContext(input: {
       tag: async () => {
         const tag = envValue(input.env, ["GIT_TAG"])
         if (tag) return tag
-        if (input.env.GITHUB_REF_TYPE === "tag") return envValue(input.env, ["GITHUB_REF_NAME"])
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "tag") {
+          return envValue(input.env, ["GITHUB_REF_NAME"])
+        }
         return await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined)
       },
     },
@@ -91,7 +93,7 @@ export function createSourceContext(input: {
 
 function envValue(env: Record<string, string | undefined>, names: string[]): string | undefined {
   for (const name of names) {
-    const value = env[name]
+    const value = Object.hasOwn(env, name) ? env[name] : undefined
     if (value) return value
   }
 }
@@ -112,7 +114,7 @@ export async function resolveBuildConfig(
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
     const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    values[key] = result.value
+    setOwnValue(values, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -189,9 +191,16 @@ export async function resolveEnvEntries(
 }
 
 export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { path?: string, prefix?: string | false } = {}): EnvRuntimeRegistry {
-  const registry = buildRegistry(declarations, options.path ?? "env", options.prefix)
-  assertUniqueCanonicalNames(registry, options.path ?? "env")
-  return registry
+  const path = options.path ?? "env"
+  try {
+    const registry = buildRegistry(declarations, path, options.prefix)
+    assertUniqueCanonicalNames(registry, path)
+    return registry
+  }
+  catch (error) {
+    if (isViteHubError(error)) throw error
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
 }
 
 // A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
@@ -302,7 +311,7 @@ async function resolveBuildConfigValue(
   const diagnostics: EnvDiagnosticEntry[] = []
   for (const [key, child] of Object.entries(declaration)) {
     const result = await resolveBuildConfigValue(child, `${path}.${key}`, { ...input, prefix: canonicalKey.test(key) ? input.prefix : false })
-    value[key] = result.value
+    setOwnValue(value, key, result.value)
     diagnostics.push(...result.diagnostics)
   }
 
@@ -323,7 +332,8 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
+  try {
+    return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
       if (isRuntimeStaticValue(value)) {
@@ -361,7 +371,18 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       secret: value.secret,
       source,
     }]
-  }))
+    }))
+  }
+  catch (error) {
+    if (isViteHubError(error)) {
+      throw error
+    }
+    throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
+}
+
+function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
@@ -375,13 +396,13 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
 }
 
 /** The default prefix of canonical variable names. */
-export const defaultEnvPrefix = "VITEHUB_"
+const defaultEnvPrefix = "VITEHUB_"
 
 /**
  * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
  * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
  */
-export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
 
@@ -423,7 +444,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await source.resolver(context) }
     case "env":
       for (const name of source.names || [source.name]) {
-        const value = context.env[name]
+        const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
         if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
           return { label: `env:${name}`, value }
         }
@@ -458,24 +479,37 @@ async function resolveBuiltInSource<T>(source: string, resolveSource: () => T | 
   }
 }
 
-function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+function validateBuildDeclarations(
+  declarations: EnvBuildConfigOptions | undefined,
+  path: string,
+  ancestors: Set<object> = new Set(),
+): void {
   if (typeof declarations === "undefined") return
   if (!isPlainRecord(declarations)) {
     throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
-  for (const [key, declaration] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (isEnvVariableDeclaration(declaration)) {
-      if (declaration.mode !== "build") {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+  if (ancestors.has(declarations)) {
+    throw invalidEnvDeclaration(path, `Invalid declaration at ${path}. Nested environment declarations cannot contain cycles.`)
+  }
+  ancestors.add(declarations)
+  try {
+    for (const [key, declaration] of Object.entries(declarations)) {
+      const valuePath = `${path}.${key}`
+      if (isEnvVariableDeclaration(declaration)) {
+        if (declaration.mode !== "build") {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} must use mode: "build".`)
+        }
+        if (declaration.secret) {
+          throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
+        }
+        continue
       }
-      if (declaration.secret) {
-        throw invalidEnvDeclaration(valuePath, `${valuePath} cannot be marked secret because Vite define values are bundled.`)
-      }
-      continue
+      if (isBuildStaticValue(declaration)) continue
+      validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath, ancestors)
     }
-    if (isBuildStaticValue(declaration)) continue
-    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
+  }
+  finally {
+    ancestors.delete(declarations)
   }
 }
 
@@ -516,43 +550,65 @@ function segmentToEnvParts(segment: string): string[] {
 }
 
 function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
-  return isPlainRecord(value) && value.kind === "env-variable"
+  try {
+    return isPlainRecord(value) && value.kind === "env-variable"
+  }
+  catch {
+    return false
+  }
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === null || prototype === Object.prototype
+  }
+  catch {
     return false
   }
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === null || prototype === Object.prototype
 }
 
 function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   return isBuildStaticValue(value)
 }
 
-function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
-  if (value === null) {
-    return true
-  }
-  switch (typeof value) {
-    case "boolean":
-    case "string":
+function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
+  try {
+    if (value === null) {
       return true
-    case "number":
-      return Number.isFinite(value)
-    case "object":
-      if (!Array.isArray(value)) {
-        return false
-      }
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index])) {
+    }
+    switch (typeof value) {
+      case "boolean":
+      case "string":
+        return true
+      case "number":
+        return Number.isFinite(value)
+      case "object":
+        if (!Array.isArray(value)) {
           return false
         }
-      }
-      return true
-    default:
-      return false
+        if (ancestors.has(value)) return false
+        ancestors.add(value)
+        try {
+          for (let index = 0; index < value.length; index += 1) {
+            if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+              return false
+            }
+          }
+          return true
+        }
+        finally {
+          ancestors.delete(value)
+        }
+      default:
+        return false
+    }
+  }
+  catch {
+    return false
   }
 }
 
@@ -574,6 +630,7 @@ function readPath(value: Record<string, unknown>, path: string): unknown {
     if (typeof current !== "object" || current === null) {
       return undefined
     }
+    if (!Object.hasOwn(current, segment)) return undefined
     return (current as Record<string, unknown>)[segment]
   }, value)
 }

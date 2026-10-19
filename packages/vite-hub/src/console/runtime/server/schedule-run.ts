@@ -40,7 +40,6 @@ function consoleScheduleRun(run: ScheduleRunRecord): ConsoleScheduleRun {
  */
 export async function runConsoleSchedule(body: unknown): Promise<ConsoleScheduleRunOutcome> {
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
   if (!Object.hasOwn(registry, name)) {
@@ -65,7 +64,7 @@ async function runScheduleOperation(event: ConsoleRequestEvent): Promise<{ run: 
 }
 
 /** Console RPC operation behind the Schedules page "Run now" button. */
-export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation)
+export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation, { section: "schedules" })
 
 function failure(message: string, status: number): Response {
   return Response.json({ message }, { headers: responseHeaders, status })
@@ -96,5 +95,5 @@ export async function handleConsoleScheduleRunRequest(request: Request): Promise
     : failure(outcome.message, outcome.status)
 }
 
-const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req), { section: "schedules" })
 export default guardedHandler

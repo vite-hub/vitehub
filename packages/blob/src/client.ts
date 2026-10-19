@@ -41,8 +41,20 @@ export interface MultipartUploadTask {
 
 const defaultPartSize = 10 * 1024 * 1024
 
+function isFile(value: unknown): value is File {
+  try {
+    // The native name getter validates File slots across realms without trusting
+    // Symbol.toStringTag or the value's prototype chain.
+    const name = Object.getOwnPropertyDescriptor(File.prototype, "name")?.get
+    return name?.call(value) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
 function toFiles(input: UploadInput): File[] {
-  if (input instanceof File) return [input]
+  if (isFile(input)) return [input]
   if ("files" in input) return Array.from(input.files ?? [])
   return Array.from(input)
 }
@@ -60,17 +72,24 @@ function multipartUrl(baseURL: string, action: string, pathname: string, query: 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function isResponseLike(value: unknown): value is Response {
+  return isRecord(value)
+    // Cross-realm Response instances do not pass an instanceof check, but
+    // expose the same fetch response contract.
+    && typeof value.ok === "boolean"
+    && typeof value.json === "function"
+    && typeof value.text === "function"
+    && typeof value.status === "number"
+}
+
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return typeof value === "string"
 }
 
 function isFiniteNonNegativeNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload response sizes cross an untrusted HTTP boundary.
   return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
@@ -121,7 +140,6 @@ function parseMultipartPart(value: unknown): { part: BlobMultipartPart } {
   if (!isRecord(value) || !isRecord(value.part) || !isString(value.part.etag)) {
     throw new Error("Upload request returned malformed JSON.")
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   if (typeof value.part.partNumber !== "number" || !Number.isSafeInteger(value.part.partNumber) || value.part.partNumber < 1) {
     throw new Error("Upload request returned malformed JSON.")
   }
@@ -159,7 +177,7 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
   const files = toFiles(input)
   if (!files.length) return []
   const form = new FormData()
-  for (const file of files) form.append(options.formKey ?? "files", file)
+  for (const file of files) form.append(options.formKey ?? "files", file, file.name)
   const request = options.fetch ?? globalThis.fetch
   const response = await request(apiBase, { body: form, headers: mergeHeaders(options.headers), method: options.method ?? "POST" })
   return await readJson(response, parseSerializedBlobObjectArray)
@@ -181,20 +199,53 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
   return (file, pathname = file.name) => {
     const controller = new AbortController()
     let upload: { pathname: string, uploadId: string } | undefined
+    let remoteAbort: Promise<void> | undefined
     let aborted = false
+    let resolveAbortedCompletion!: () => void
+    const abortedCompletion = new Promise<void>(resolve => { resolveAbortedCompletion = resolve })
 
-    const completed = (async () => {
-      upload = await readJson(await send("create", pathname, {
+    const run = (async () => {
+      // Capture the identity inside the response parser before the create
+      // promise settles. This keeps cleanup possible even when a later
+      // response-processing step rejects after the server created the upload.
+      const createRequest = send("create", pathname, {
         body: JSON.stringify({ contentType: file.type || undefined }),
         headers: { "content-type": "application/json" },
         method: "POST",
-        signal: controller.signal,
-      }), parseMultipartCreate)
+      })
+      try {
+        upload = await readJson(await createRequest, value => {
+          const created = parseMultipartCreate(value)
+          upload = created
+          return created
+        })
+      }
+      catch (error) {
+        // Some transports reject after receiving a response (for example when
+        // response processing fails). Recover the create identity when the
+        // rejection exposes that response so an aborted task can still clean up.
+        const response = isResponseLike(error)
+          ? error
+          : isRecord(error) && isResponseLike(error.response) ? error.response : undefined
+        if (response) {
+          try {
+            upload = parseMultipartCreate(await response.json())
+          }
+          catch {
+            // Preserve the original transport or parse error.
+          }
+        }
+        throw error
+      }
       const { pathname: uploadPathname, uploadId } = upload
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       // Drivers accept at most 10,000 parts. Increase the requested size for very large files.
       const effectivePartSize = Math.max(partSize, Math.ceil(file.size / 10_000))
       const partCount = Math.max(1, Math.ceil(file.size / effectivePartSize))
-      const parts: BlobMultipartPart[] = []
+      const parts = new Map<number, BlobMultipartPart>()
       let nextPart = 1
       options.onProgress?.(0)
 
@@ -206,40 +257,56 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
             method: "PUT",
             signal: controller.signal,
           }, { partNumber: String(partNumber), uploadId }), parseMultipartPart)
-          parts.push(result.part)
-          options.onProgress?.(Math.round((parts.length / partCount) * 100))
+          parts.set(partNumber, result.part)
+          options.onProgress?.(Math.round((parts.size / partCount) * 100))
         }
       }
       await Promise.all(Array.from({ length: Math.min(concurrency, partCount) }, sendParts))
       if (aborted) return undefined
 
+      const orderedParts = Array.from(parts.entries())
+        .sort(([left], [right]) => left - right)
+        .map(([, part]) => part)
       const result = await readJson(await send("complete", uploadPathname, {
-        body: JSON.stringify({ parts }),
+        body: JSON.stringify({ parts: orderedParts }),
         headers: { "content-type": "application/json" },
         method: "POST",
         signal: controller.signal,
       }, { uploadId }), parseMultipartComplete)
       return result.object
     })().catch(async (error: unknown) => {
-      if (aborted) return undefined
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       aborted = true
       controller.abort()
-      if (upload) {
-        try {
-          await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }), value => value)
-        }
-        catch {
-          // Preserve the original upload error. Cleanup is best effort here.
-        }
+      try {
+        await abortRemoteUpload()
+      }
+      catch {
+        // Preserve the original upload error. Cleanup is best effort here.
       }
       throw error
     })
+    const completed = Promise.race([run, abortedCompletion.then(() => undefined)])
+
+    async function abortRemoteUpload() {
+      if (!upload) return
+      remoteAbort ??= send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId })
+        .then(response => readJson(response, value => value))
+        .then(() => undefined)
+      return remoteAbort
+    }
 
     async function abort() {
       if (aborted) return
       aborted = true
-      controller.abort()
-      if (upload) await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }), value => value)
+      resolveAbortedCompletion()
+      // Keep the create request alive until its response gives us the upload ID.
+      // Once the upload exists, cancel any in-flight part or completion request.
+      if (upload) controller.abort()
+      await abortRemoteUpload()
     }
 
     return { abort, completed }

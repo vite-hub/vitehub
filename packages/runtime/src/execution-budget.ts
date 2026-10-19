@@ -82,7 +82,7 @@ function createBudgetNode(parent?: BudgetNode): BudgetNode {
     // timers or listeners. Its cleanup registration below runs immediately.
     disposed: parent?.disposed ?? false,
   }
-  parent?.children.add(node)
+  if (!parent?.disposed) parent?.children.add(node)
   return node
 }
 
@@ -132,7 +132,10 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, node:
     if (node.disposed || controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
     if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-    else timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+    else {
+      timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+      if (typeof timer === "object" && timer && "unref" in timer && typeof timer.unref === "function") timer.unref()
+    }
   }
   const clear = () => clearTimeout(timer)
   controller.signal.addEventListener("abort", clear, { once: true })
@@ -150,7 +153,11 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
-    if (limit !== undefined && next > limit) throw new ExecutionBudgetExceededError(counter, limit)
+    if (limit !== undefined && next > limit) {
+      const error = new ExecutionBudgetExceededError(counter, limit)
+      ;(controller === state.controller ? state.controller : controller).abort(error)
+      throw error
+    }
   }
 
   function consume(counter: ExecutionBudgetCounter, amount = 1) {
