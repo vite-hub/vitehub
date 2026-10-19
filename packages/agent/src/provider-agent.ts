@@ -1,7 +1,7 @@
 import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
-import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -397,11 +397,19 @@ const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
 
 interface ProviderSessionCursorRecord {
   [providerSessionCursorRecordKey]: "invalidated" | "ready"
+  /** Digest of the Codex developer instructions that started the provider session. */
+  instructions?: string
   value?: unknown
 }
 
-function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecord {
-  return { [providerSessionCursorRecordKey]: "ready", value }
+/** A provider session cursor and the developer instructions its session started with. */
+interface ProviderResumeState {
+  cursor: unknown
+  instructions?: string
+}
+
+function providerSessionCursorRecord(state: ProviderResumeState): ProviderSessionCursorRecord {
+  return { [providerSessionCursorRecordKey]: "ready", ...(state.instructions === undefined ? {} : { instructions: state.instructions }), value: state.cursor }
 }
 
 function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
@@ -434,8 +442,8 @@ function providerSessionStore(
 }
 
 interface PartitionedProviderSessionStore {
-  commit: (resumeCursor: unknown) => Promise<void>
-  consume: () => Promise<unknown | undefined>
+  commit: (state: ProviderResumeState) => Promise<void>
+  consume: () => Promise<ProviderResumeState | undefined>
   invalidate: () => Promise<void>
   runtime: ProviderRuntimeSessionStore
 }
@@ -457,7 +465,7 @@ function partitionProviderSessionStore(
     await store.delete(persistedThreadId)
     invalidatedSessions.delete(persistedThreadId)
   }
-  const consume = async () => {
+  const consume = async (): Promise<ProviderResumeState | undefined> => {
     if (invalidatedSessions.has(persistedThreadId)) {
       await invalidate()
       return undefined
@@ -468,19 +476,21 @@ function partitionProviderSessionStore(
       return undefined
     }
     const resumeCursor = isProviderSessionCursorRecord(storedCursor) ? storedCursor.value : storedCursor
-    if (resumeCursor !== undefined) await invalidate()
-    return resumeCursor
+    if (resumeCursor === undefined) return undefined
+    await invalidate()
+    const instructions = isProviderSessionCursorRecord(storedCursor) && hasRuntimeType(storedCursor.instructions, "string") ? storedCursor.instructions : undefined
+    return { cursor: resumeCursor, ...(instructions === undefined ? {} : { instructions }) }
   }
   return {
-    async commit(resumeCursor) {
-      await store.set(persistedThreadId, providerSessionCursorRecord(resumeCursor))
+    async commit(state) {
+      await store.set(persistedThreadId, providerSessionCursorRecord(state))
       invalidatedSessions.delete(persistedThreadId)
     },
     consume,
     invalidate,
     runtime: {
       async delete() {},
-      get: consume,
+      get: async () => (await consume())?.cursor,
       async set() {},
     },
   }
@@ -2778,7 +2788,7 @@ async function* runProvider<
   TRuntimeConfig extends AgentRuntimeConfig,
 >(
   options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
-  resumeCursors: Map<string, unknown>,
+  resumeCursors: Map<string, ProviderResumeState>,
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
@@ -2880,6 +2890,7 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
@@ -2903,7 +2914,9 @@ async function* runProvider<
     const generatedProviderFiles: GeneratedProviderFile[] = []
   let restoreGeneratedGitMetadata: (() => Promise<void>) | undefined
     let claudePromptFile: string | undefined
-  let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
+  const memoryResumeState = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
+  let pendingResumeCursor = memoryResumeState?.cursor
+  let resumeInstructions = memoryResumeState?.instructions
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
@@ -3136,7 +3149,7 @@ async function* runProvider<
           sessionKey,
         )
       : undefined
-    const durableResumeCursor = sessionStore
+    const durableResumeState = sessionStore
       ? await waitForProviderOperation(
           sessionStore.consume(),
           effectiveSignal,
@@ -3144,9 +3157,10 @@ async function* runProvider<
           deferSessionConsume,
         )
       : undefined
-    const resumeCursor = pendingResumeCursor ?? durableResumeCursor
-    if (pendingResumeCursor === undefined && durableResumeCursor !== undefined) {
-      pendingResumeCursor = durableResumeCursor
+    let resumeCursor = pendingResumeCursor ?? durableResumeState?.cursor
+    if (pendingResumeCursor === undefined && durableResumeState !== undefined) {
+      pendingResumeCursor = durableResumeState.cursor
+      resumeInstructions = durableResumeState.instructions
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
@@ -3252,6 +3266,31 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
+    // Codex renders AGENTS.md under a header that contains the absolute cwd, and
+    // an owned root is new for each invocation. Driver instructions go to Codex
+    // developer instructions instead, which come before every cwd-dependent
+    // message, so the provider can reuse the cached prompt prefix across
+    // invocations. A launch-argument override would drop them, so it keeps AGENTS.md.
+    const codexDeveloperInstructions = options.provider === "codex"
+      && !options.sandbox
+      && instructions
+      && materializeInstructions
+      && !preserveNativeInstructions
+      && Buffer.byteLength(instructions) <= codexDeveloperInstructionsMaxBytes
+      && (auxiliary || providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS === undefined)
+      && ![options.providerSettings?.launchArgs, providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS].some(args => hasRuntimeType(args, "string") && args.includes("developer_instructions"))
+      ? instructions
+      : undefined
+    developerInstructionsDigest = codexDeveloperInstructions === undefined
+      ? undefined
+      : createHash("sha256").update(codexDeveloperInstructions).digest("hex")
+    // Codex renders developer instructions only when a thread starts. Resume a
+    // thread only with the instructions it started with; otherwise start a new
+    // thread, which receives the transcript and the current instructions.
+    if (resumeCursor !== undefined && resumeInstructions !== developerInstructionsDigest) {
+      resumeCursor = undefined
+      pendingResumeCursor = undefined
+    }
     const inspectedTools = inspectAgentTools(context.tools)
     if (!isAuxiliaryAgentAdapterContext(context)) {
       await updateAgentTelemetryConfiguration(context.context, {
@@ -3284,7 +3323,8 @@ async function* runProvider<
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
       } else {
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), instructions)
+        // With developer instructions, an empty AGENTS.md still hides the native file, as before.
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
         if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
@@ -3368,6 +3408,7 @@ async function* runProvider<
       ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
+      ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot
@@ -3887,8 +3928,9 @@ async function* runProvider<
     if (preservesProviderSession && sessionKey) {
       if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
         try {
-          await sessionStore?.commit(pendingResumeCursor)
-          resumeCursors.set(sessionKey, pendingResumeCursor)
+          const resumeState = { cursor: pendingResumeCursor, ...(developerInstructionsDigest === undefined ? {} : { instructions: developerInstructionsDigest }) }
+          await sessionStore?.commit(resumeState)
+          resumeCursors.set(sessionKey, resumeState)
         }
         catch (error) {
           cleanupErrors.push(error)
@@ -3988,7 +4030,7 @@ export function createProviderAgentAdapter<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(configuredOptions: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const options = withoutReplacedCredentials(configuredOptions)
-  const resumeCursors = new Map<string, unknown>()
+  const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
   const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
