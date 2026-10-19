@@ -372,7 +372,7 @@ Built-in persistent `file:` connections use SQLite WAL so queue commits can comp
 
 Queued webhook deliveries in this state survive a restart. A persistent Nitro server resumes them when it starts, without an inbound request. Before the queue resumes, the server fails each Agent's pending or running invocations that started before this process. An invocation that a persisted queued delivery runs again under the same run ID stays active and continues with that delivery. Agents with a durable Workflow runtime are skipped. Vercel and Netlify output resumes the queue on the first webhook request and does not recover invocations.
 
-A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel.
+A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel. When a webhook route runs the trigger, an unset `webhook.deliveryId` defaults to the SHA-256 (hex) of the raw request body, so an identical retried body is the same delivery. See [Identify a webhook delivery](../../docs/content/docs/agents/triggers.md#identify-a-webhook-delivery).
 
 `webhook.serialize: key` is `{ concurrencyKey: key, concurrencyLimit: 1 }`. A result that sets it next to `concurrencyKey` or `concurrencyLimit` throws a `TypeError`. See [Run deliveries one at a time per key](../../docs/content/docs/agents/triggers.md#run-deliveries-one-at-a-time-per-key).
 

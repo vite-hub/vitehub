@@ -226,6 +226,13 @@ describe("agent public types", () => {
     expectTypeOf(withLimit).toMatchTypeOf<Webhook>()
   })
 
+  it("types webhook.deliveryId as optional", () => {
+    type Webhook = NonNullable<AgentTriggerRunInvokeResult["webhook"]>
+
+    expectTypeOf({ concurrencyLimit: 1 }).toMatchTypeOf<Webhook>()
+    expectTypeOf({ serialize: "ticket:1" }).toMatchTypeOf<Webhook>()
+  })
+
   it("types bounded driver capacity", () => {
     const queue = { maxPending: 20, timeout: 300_000 } satisfies AgentDriverCapacityQueueOptions
     const adaptive = {

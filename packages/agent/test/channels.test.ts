@@ -1786,7 +1786,7 @@ describe("agent channels", () => {
             github: { deliveryId, event: "pull_request", installationId: 123 },
             payload,
           })
-          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit) {
+          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit || !result.webhook.deliveryId) {
             throw new Error("Expected GitHub reconciliation ownership.")
           }
           await queue.enqueueWebhookDelivery({

@@ -632,8 +632,15 @@ interface AgentWebhookInvocationOwnershipBase {
    * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
    */
   debounce?: { delayMs: number, key: string }
-  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
-  deliveryId: string
+  /**
+   * Provider delivery ID. It deduplicates retried deliveries. On a Channel trigger, an unset `run.runId` defaults to it
+   * and an unset `run.channelId` to the Channel.
+   *
+   * When a webhook route runs the trigger, it defaults to the SHA-256 (hex) of the raw request body, so a retried
+   * identical body is the same delivery. Set it when the provider sends an event ID, or when two different events can
+   * have the same body.
+   */
+  deliveryId?: string
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (

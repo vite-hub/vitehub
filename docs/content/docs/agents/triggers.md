@@ -181,6 +181,22 @@ defineChannelTrigger({
 
 `serialize: key` is the same as `concurrencyKey: key` with `concurrencyLimit: 1`, so it needs a state provider. The limit counts the deliveries of one `concurrencyGroup`, so deliveries with other keys in the same group also wait. Set `serialize` or `concurrencyKey` and `concurrencyLimit`, not both: ViteHub throws a `TypeError` when the result has `serialize` and either of the others.
 
+### Identify a webhook delivery
+
+`webhook.deliveryId` identifies the delivery. ViteHub uses it to drop a retried delivery that it already accepted, and on a Channel Trigger the Invocation runs under it. When you omit it, the delivery ID is the SHA-256 (hex) of the raw request body, so a provider retry with an identical body is the same delivery.
+
+```ts
+defineChannelTrigger({
+  input: ticketOpened,
+  invoke: (context, event) => ({
+    input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
+    webhook: { serialize: event.ticketId },
+  }),
+})
+```
+
+Set `deliveryId` when the provider sends an event ID, or when two different events can have the same body. A body with a timestamp or a nonce that changes on each retry gives each retry a new delivery ID. The default applies only when a webhook route runs the Trigger. A Trigger that you call from code without a request gets no default.
+
 ### Debounce webhook deliveries
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.

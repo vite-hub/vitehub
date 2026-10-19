@@ -613,7 +613,12 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-  options?: { verifyWebhook?: boolean; queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"] },
+  options?: {
+    verifyWebhook?: boolean
+    queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+    /** Raw body of the webhook request that runs the trigger. An unset `webhook.deliveryId` defaults to its SHA-256. */
+    rawBody?: string
+  },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   const triggers = await resolveAgentTriggers(agent, context, options?.queuedInvocation)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
@@ -644,9 +649,11 @@ export async function resolveAgentTriggerInvocation<
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
+  const webhook = await withBodyDeliveryId(result.webhook, options?.rawBody)
   const invoked = withWebhookDeliveryRun({
     ...result,
     ...(invokedRun ? { run: invokedRun } : {}),
+    ...(webhook ? { webhook } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const inheritedRun = invoked.run && { ...invoked.run }
@@ -657,6 +664,31 @@ export async function resolveAgentTriggerInvocation<
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger)
+}
+
+/**
+ * A webhook delivery without `deliveryId` is identified by the SHA-256 (hex) of its raw body, so an identical retried
+ * body is the same delivery. The queue stores the body as text, so a replay hashes the same value.
+ */
+async function withBodyDeliveryId<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  rawBody: string | undefined,
+): Promise<AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined> {
+  if (!webhook || webhook.deliveryId !== undefined || rawBody === undefined) return webhook
+  return { ...webhook, deliveryId: hexBytes(await sha256(rawBody)) }
+}
+
+/** Applies the body `deliveryId` default to the result of `webhook.rehydrate()` during a queued replay. */
+export async function withRehydratedBodyDeliveryId<CALL_OPTIONS>(
+  result: AgentTriggerInvokeResult<CALL_OPTIONS>,
+  rawBody: string,
+): Promise<AgentTriggerInvokeResult<CALL_OPTIONS>> {
+  if (isResponse(result) || !result.webhook) return result
+  return { ...result, webhook: await withBodyDeliveryId(result.webhook, rawBody) }
+}
+
+function hexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /**
