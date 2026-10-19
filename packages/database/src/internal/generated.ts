@@ -20,14 +20,15 @@ function renderExportName(name: string) {
 
 /** Imports a contribution from a generated file: absolute files relative to it, package specifiers as written. */
 function contributionImportPath(file: string, contribution: ResolvedDatabaseContribution) {
-  return isAbsolute(contribution.module) ? createImportPath(file, contribution.module) : contribution.module
+  const { module } = contribution.definition
+  return isAbsolute(module) ? createImportPath(file, module) : module
 }
 
 /** Renders the import of contributed tables into a generated module. */
 export function renderContributionImport(file: string, contribution: ResolvedDatabaseContribution, variable: string, typeOnly = false) {
   const keyword = typeOnly ? "import type" : "import"
   const from = JSON.stringify(contributionImportPath(file, contribution))
-  const exportName = contribution.export ?? "default"
+  const exportName = contribution.definition.export
   return exportName === "default"
     ? `${keyword} ${variable} from ${from}`
     : `${keyword} { ${renderExportName(exportName)} as ${variable} } from ${from}`
