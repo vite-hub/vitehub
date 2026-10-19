@@ -103,7 +103,7 @@ The directory is a complete Codex Home, not a credentials-only store; treat its 
 
 Provider Drivers require a local Node.js host with credentials available to the process. Codex credentials without an explicit resolver must be available to that process. ViteHub resolves an installed `@openai/codex` or `@anthropic-ai/claude-agent-sdk` package without requiring deployment-specific copy scripts. Production self-hosted Node builds on macOS and Linux copy only the build host's native optional package into `.output/server/node_modules`, including the Linux libc variant, so build on the same host type used for deployment. If Codex is absent, ViteHub falls back to `codex` on the host `PATH`. Claude requires the Agent SDK, while a missing native SDK package at runtime retains T3's host `claude` command fallback. ViteHub does not download provider packages during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, Codex instructions or a literal Claude prompt file, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
-Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one.
+Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. If the provider cannot resume the thread, for example because its Codex session files were deleted, ViteHub sends the full message history to the new provider thread and records an `agent.provider.session.resume-failed` trace event.
 
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
@@ -272,7 +272,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `cwd` | Optional existing directory or invocation-time resolver. The provider runs there without a Workspace session, write-back, or removal. See [Run in an existing directory](#run-in-an-existing-directory). |
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`; defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
-| `requirements` | Command names that `status()` checks where the Driver runs. Missing commands are reported in `missingCommands`. |
+| `requirements` | Command names that `status()` checks where the Driver runs. Missing commands are reported in `missingCommands`. In a child Agent, a function receives the inherited list: `inherited => [...inherited, 'kubectl']`. |
 | `sessionStorePath` | Optional SQLite file for provider session cursors. Enables thread continuation after a process restart on the same persistent host volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Provisions project-pinned Node.js and package manager for the provider and its commands. See [Provision the project toolchain](#provision-the-project-toolchain). |
 | `output` | Optional structured Agent output contract. |
@@ -426,6 +426,19 @@ export default defineAgent({
 State, instructions, and criteria accept JSON values. Root numbers and booleans become text for the `advocaat` Entry contract. Numbers and booleans inside objects or arrays stay native. Score legends retain the original level descriptions.
 
 `driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
+
+Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
+
+| Observation | Attributes |
+| --- | --- |
+| `agent.tool.start` | `tool.input`: the question sent to Jev |
+| `agent.tool.finish` | `tool.output`: the answer. `ask.answer`: the label, score, chance, or boolean. `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs` |
+| `agent.tool.error` | `tool.error`, `error.status`, `error.requestId` for each question of a failed request |
+| `agent.usage.recorded` | One per Jev request: `usage.model`, `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`, `ask.durationMs` |
+
+Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` in `agent:finish` and `usage.record` on `agent.invocation.finish` sum the token counts of all requests and name the model when every request used the same one. The Console usage and cost table reads this record, as it does for a Codex run. Add [`usage({ pricing })`](/docs/agents/capabilities/usage) to the Agent to price it.
+
+The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`, `ask.batch.index`, `ask.batch.count`, and `ask.batch.size`. The shared state is `input.data` (or the prompt) on `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`. A metadata-only journal keeps `tool.input`, `tool.output`, `input.data`, and `result.output` only when `metadataContent` lists them; the Console journal lists them. No credentials or request headers are recorded.
 
 ### Provider exit evidence
 

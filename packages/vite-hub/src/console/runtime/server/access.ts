@@ -233,9 +233,18 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
             ["json", [null]],
             ["redirect", ["https://example.com"]],
           ] as const
-          hasFactoryBrand = true
+          const factoryDescriptors = factories.map(([name]) => [name, Object.getOwnPropertyDescriptor(constructor, name)] as const)
+          // Some compatible Fetch implementations (including happy-dom) do not
+          // provide the optional static factory helpers. Validate helpers when
+          // present, while allowing an implementation with none of them.
+          hasFactoryBrand = hasWindowBinding && factoryDescriptors.every(([, descriptor]) => descriptor === undefined)
           for (const [name, args] of factories) {
             const factoryDescriptor = Object.getOwnPropertyDescriptor(constructor, name)
+            if (factoryDescriptor === undefined) {
+              if (!hasWindowBinding) hasFactoryBrand = false
+              continue
+            }
+            hasFactoryBrand = true
             // Class static methods are defined as non-enumerable properties.
             // An enumerable factory is an assignment supplied by the callback,
             // so it cannot establish the implementation's Response brand.

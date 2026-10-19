@@ -21,6 +21,7 @@ import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub } from "./index.ts"
+import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
@@ -794,11 +795,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envOptions = configuredEnv && typeof configuredEnv === "object"
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
-  const options = withDataDir({
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const projectRoot = resolveViteHubProjectRoot(rootDir)
+  // The Content cms preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
+  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0])
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
@@ -807,8 +811,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
   const plan = resolveDeploymentPlan(options.preset)
-  const rootDir = nuxt.options.rootDir || process.cwd()
-  const projectRoot = resolveViteHubProjectRoot(rootDir)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,
@@ -1195,7 +1197,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     consoleWorkflowConfigResolved = true
     if (options.console) {
       const configuredConsoleAuth = consoleAuthConfig(options.console)
-      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
+      const resolvedConsoleAuthBase = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
+      const developmentSecretEnvKey = (replayConfig as typeof replayConfig & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey
+      const resolvedConsoleAuth = resolvedConsoleAuthBase && "provider" in resolvedConsoleAuthBase && resolvedConsoleAuthBase.provider === "github"
+        ? { ...resolvedConsoleAuthBase, developmentSecretEnvKey }
+        : resolvedConsoleAuthBase
       if (resolvedConsoleAuth && registeredConsoleAuthMode(configuredConsoleAuth, Boolean(nuxt.options.dev))) {
         const authConfig = resolvedConsoleAuth
         let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
