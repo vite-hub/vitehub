@@ -640,6 +640,11 @@ interface AgentWebhookInvocationOwnershipBase {
   debounce?: { delayMs: number, key: string }
   /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
+  /**
+   * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
+   * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
+   */
+  response?: Response
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
