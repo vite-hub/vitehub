@@ -198,12 +198,10 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
-      if (loadedTotal !== undefined) response = { ...response, total: loadedTotal }
-      if (loadedFacets !== undefined) response = { ...response, facets: loadedFacets }
       total.value = loadedTotal
       facets.value = loadedFacets
       loaded = true
-      return { ...response, items: loadedItems }
+      return { ...response, items: loadedItems, total: loadedTotal, facets: loadedFacets }
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return
       error.value = accessError(cause) ?? cause

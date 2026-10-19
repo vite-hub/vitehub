@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workspace": "workspace:*",

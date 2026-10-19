@@ -307,6 +307,14 @@ export type CollectionQueryInput<TInput> = TInput extends object
 
 type QueryInput<TSchema extends StandardSchemaV1> = CollectionQueryInput<StandardSchemaV1.InferInput<TSchema>>
 
+function isCollectionFacets(value: unknown): value is CollectionFacets {
+  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
+    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
+      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
+      && Number.isSafeInteger(Reflect.get(entry, "count"))
+      && Number(Reflect.get(entry, "count")) >= 0))
+}
+
 function assertPositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw sourceErrorDiagnostics.SOURCE_R0004({ message: `[vitehub] Collection ${label} must be a positive integer.` })

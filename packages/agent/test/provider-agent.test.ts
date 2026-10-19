@@ -62,6 +62,12 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
+// Launch failure tests expect one attempt. The retry test sets short delays.
+const providerLaunchRetry = vi.hoisted(() => ({ delaysMs: [] as number[] }))
+vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/provider-launch-retry.ts")>(),
+  get providerLaunchRetryDelaysMs() { return providerLaunchRetry.delaysMs },
+}))
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -745,6 +751,45 @@ describe("Provider Agent Driver", () => {
         stderr: "launcher stopped before handshake",
       },
     })
+  })
+
+  it("launches a provider again when it exits before its first event", async () => {
+    const threadId = "thread-launch-retry"
+    const failedLaunch = {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        throw new Error("Codex App Server process exited with code 1")
+      },
+    }
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "ready", streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const launches = createProviderRuntime.mock.calls.length
+    providerLaunchRetry.delaysMs = [1, 1]
+    try {
+      const result = await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", 'process.stderr.write("failed to initialize sqlite state runtime\\n");process.exit(1)'],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise a relaunch.
+      }).generate(context(threadId) as never)
+
+      expect(result).toMatchObject({ text: "ready" })
+      expect(createProviderRuntime.mock.calls.length - launches).toBe(3)
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn.mock.calls[0]?.[1]).toBe("failed to initialize sqlite state runtime")
+    }
+    finally {
+      providerLaunchRetry.delaysMs = []
+      warn.mockRestore()
+    }
   })
 
   it("bounds diagnostics while forwarding high-volume provider stderr", async () => {
