@@ -1792,24 +1792,24 @@ async function executeQueuedWebhookDelivery(
     }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     let invocation = delivery.invocation as PersistedInvocation | undefined
-    // The accepted invocation with its trigger, so the queue can run `prepare` and the selected task.
+    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State binding.
+    const replayMatch = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
+      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+      if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
+      if (match.registration.channelId) bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+      return match
+    }), executionTimeout])
     let accepted: ResolvedAgentTriggerInvocation<ViteAgentRouteRuntimeConfig> | undefined
     if (!invocation || delivery.rehydrate) {
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
-        const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-        if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
-        // The replayed trigger gets the same Channel State as the webhook route that admitted the delivery.
-        if (match.registration.channelId) {
-          bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
-        }
-        const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
+        const input = createAgentWebhookTriggerInput(request, replayMatch.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           createExecutionContext(context as never) as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          match.trigger.id,
+          replayMatch.trigger.id,
           input,
           { verifyWebhook: false, queuedInvocation: invocation },
         )

@@ -763,7 +763,7 @@ export interface AgentChannelTriggerContext<
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
-  /** The Channel's State Adapter. Present when a webhook route runs the trigger. */
+  /** The Channel's State Adapter. Present when a webhook route runs the trigger. Declare `durableState: true` on the trigger to require it. */
   channelState?: AgentChannelStateBinding
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
@@ -778,29 +778,21 @@ export interface AgentChannelTriggerContext<
   }
 }
 
+/** The context of a Channel trigger with `durableState: true`. `channelState` is always present. */
+export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> { channelState: AgentChannelStateBinding }
+
+export type AgentChannelTriggerDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown> =
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
+
 /** The accepted input and run metadata that `prepare` and a task's `run` receive. */
 export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
 
-/**
- * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
- * In the webhook queue, a 2xx or 4xx `Response` such as `ignored()` settles the delivery without an Invocation,
- * and a 5xx `Response` retries it.
- */
 export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
 
-/** One task that a trigger's `invoke` selects with `task: name`. Declare exactly one of `agent` or `run`. */
-export interface AgentTriggerTask<
-  TContext = unknown,
-  CALL_OPTIONS = unknown,
-> {
-  /** The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery. */
+export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
   agent?: AgentInput
-  /** Replaces the trigger's `prepare` for this task. A task never runs the trigger's `prepare`. */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
-  /**
-   * Runs the accepted input without an Agent Invocation. A returned `Response` is the handled answer;
-   * any other value completes the delivery. Do not set `agent` with `run`.
-   */
   run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
 
@@ -2655,7 +2647,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
-  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
+  triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
