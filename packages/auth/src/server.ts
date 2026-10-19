@@ -91,13 +91,145 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
-function toRequest(request: AuthRequest): Request {
-  if (request instanceof Request) return request
-  const init: RequestInitWithDuplex = {
-    headers: request.headers,
-    method: request.method,
-    signal: request.signal,
+function isRequestLike(value: AuthRequest): value is Request {
+  try {
+    const isBrandCheckError = (error: unknown): boolean => {
+      if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
+      // A caller-controlled object can imitate the name and message of a
+      // Web-IDL exception. Require an actual Error value as well; this remains
+      // safe across realms because Object#toString uses the Error brand.
+      try {
+        if (Object.prototype.toString.call(error) !== "[object Error]") return false
+      }
+      catch {
+        return false
+      }
+      let name: unknown
+      let message: unknown
+      try {
+        name = Reflect.get(error, "name")
+        message = Reflect.get(error, "message")
+      }
+      catch {
+        return false
+      }
+      return name === "TypeError"
+        && typeof message === "string"
+        && /illegal invocation|invalid (this|receiver)|brand|cannot read properties of (?:null|undefined)|must be (?:an? )?instance/i.test(message)
+    }
+    // Independent Fetch implementations do not share native brands or prototype
+    // layouts. This checks the API used by Better Auth, not the object's origin:
+    // host-provided implementations are trusted code, not an authenticity boundary.
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const hasPrototypeTag = (target: object, tag: string): boolean => {
+      let prototype: object | null = Object.getPrototypeOf(target)
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+        if (descriptor) {
+          if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
+          return "value" in descriptor && descriptor.value === tag
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
+    }
+    const hasBrandedAccessor = (target: object, property: string): boolean => {
+      let current: object | null = Object.getPrototypeOf(target)
+      while (current) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, property)
+        if (descriptor) {
+          if (typeof descriptor.get !== "function") return false
+          try {
+            descriptor.get.call(Object.create(null))
+            // An invalid receiver must not produce a usable value. Accepting
+            // an empty result lets a structural prototype spoof opt out of
+            // the brand check and reach Better Auth unchanged.
+            if (target !== value) return false
+            const ownSymbols = Object.getOwnPropertySymbols(value)
+            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+            // Happy DOM stores its Request state in a fixed set of private
+            // symbols. Require the complete state shape before accepting an
+            // implementation whose accessors do not expose a Web-IDL brand
+            // error. A caller-created lookalike with a few arbitrary symbols
+            // must stay on the normalization path.
+            const happyDomSymbols = [
+              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+              "contentType", "referrer", "url", "bodyBuffer",
+            ]
+            const happyDomState = happyDomSymbols.every(name =>
+              ownSymbols.some(symbol => symbol.description === name),
+            )
+              && prototypeSymbols.some(symbol => symbol.description === "window")
+            if (!happyDomState) return false
+            return true
+          }
+          catch (error) {
+            if (!isBrandCheckError(error)) return false
+            // A genuine Request implementation from another realm or loaded
+            // copy reports the same Web-IDL brand failure. Do not tie this
+            // compatibility path to Auth's particular Undici constructor.
+            return true
+          }
+        }
+        current = Object.getPrototypeOf(current)
+      }
+      return false
+    }
+    if (!hasPrototypeTag(value, "Request")) return false
+    const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
+      return typeof Reflect.get(target, method) === "function"
+    })
+    const ownSymbols = Object.getOwnPropertySymbols(value)
+    const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+    const happyDomState = [
+      "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+      "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+      "contentType", "referrer", "url", "bodyBuffer",
+    ].every(name => ownSymbols.some(symbol => symbol.description === name))
+      && prototypeSymbols.some(symbol => symbol.description === "window")
+    if (happyDomState) {
+      // The private-symbol fingerprint identifies Happy DOM, but still verify
+      // the interface Better Auth consumes before preserving the value.
+      if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
+      if (!value.headers || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+      if (!value.signal || typeof value.signal.aborted !== "boolean") return false
+      return true
+    }
+    if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
+    if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
+    // Body methods alone are insufficient: structural host inputs can expose
+    // them while lacking the Headers and AbortSignal APIs of a Web Request.
+    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+    if (["get", "has", "set", "append", "delete", "entries", "forEach"].some(method => Object.prototype.hasOwnProperty.call(value.headers, method))) return false
+    const headersGet = Reflect.get(value.headers, "get")
+    if (typeof headersGet !== "function") return false
+    try {
+      headersGet.call(Object.create(null), "")
+      return false
+    }
+    catch (error) {
+      if (!isBrandCheckError(error)) return false
+    }
+    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
+    if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
+    return true
   }
+  catch {
+    return false
+  }
+}
+
+function toRequest(request: AuthRequest): Request {
+  if (request instanceof Request || isRequestLike(request)) return request
+  const init: RequestInitWithDuplex = {
+    method: request.method,
+  }
+  // Preserve conversion failures instead of silently dropping authentication
+  // headers such as cookies, authorization, or content type.
+  init.headers = new Headers(request.headers as HeadersInit)
+  if (request.signal instanceof AbortSignal) init.signal = request.signal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
@@ -455,6 +587,12 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       if (bodyGetter && typeof bodyUsedGetter === "function" && statusGetter && headersGetter) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof constructor !== "function" || constructor.name !== "Response") continue
+        // A genuine Response prototype is the prototype exposed by its own
+        // constructor. Caller-created lookalikes commonly borrow the name and
+        // accessors without maintaining that constructor/prototype invariant.
+        let constructorPrototype: unknown
+        try { constructorPrototype = Reflect.get(constructor, "prototype") } catch { continue }
+        if (constructorPrototype !== prototype) continue
         Reflect.apply(bodyGetter, value, [])
         Reflect.apply(bodyUsedGetter, value, [])
         Reflect.apply(statusGetter, value, [])

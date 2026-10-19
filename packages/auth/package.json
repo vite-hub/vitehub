@@ -90,6 +90,7 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "happy-dom": "20.14.5",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
