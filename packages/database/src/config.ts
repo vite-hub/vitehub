@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -52,10 +52,22 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 function readDefinitionObjectBody(file: string, exact = false): ObjectExpression | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const exported = defaultExportExpression(module)
-  const call = exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase"
-    ? exported
-    : findCalls(module, ["defineDatabase"])[0]
-  const argument = call?.arguments[0]
+  const callsByIdentifier = new Map<string, Expression>()
+  walk(module.program, (node) => {
+    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+    const value = unwrapExpression(node.init)
+    if (value && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "defineDatabase") {
+      callsByIdentifier.set(node.id.name, value)
+    }
+  })
+  let call: Expression | undefined
+  if (exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase") {
+    call = exported
+  } else if (exported?.type === "Identifier") {
+    call = callsByIdentifier.get(exported.name)
+  }
+  if (!call) call = findCalls(module, ["defineDatabase"])[0]
+  const argument = call?.type === "CallExpression" ? call.arguments[0] : undefined
   if (argument === undefined || argument.type === "SpreadElement") return
   const object = exact ? argument : argumentExpression(argument)
   return object?.type === "ObjectExpression" ? object : undefined

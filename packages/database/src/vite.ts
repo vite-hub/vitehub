@@ -156,8 +156,11 @@ function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, ent
   return false
 }
 
-function moduleGraphImportersContainEntry(server: Pick<ViteDevServer, "moduleGraph">, changedFile: string, entry: string) {
-  const roots = server.moduleGraph.getModulesByFile(changedFile)
+function moduleGraphImportersContainEntry(server: Pick<ViteDevServer, "moduleGraph">, changedFile: string, entry: string, affectedModules?: Iterable<ModuleNode>) {
+  const indexedRoots = server.moduleGraph.getModulesByFile(changedFile)
+  const roots = indexedRoots?.size
+    ? indexedRoots
+    : new Set([...affectedModules ?? []].filter(module => module.id && normalizeModulePath(module.id) === changedFile))
   if (!roots?.size) return false
 
   const pending = [...roots]
@@ -349,7 +352,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const entry = normalizeModulePath(resolvedEntry && typeof resolvedEntry !== "string" ? resolvedEntry.id : resolvedEntry ?? contribution.definition.module)
         return entry === changedFile
           || moduleGraphContainsFile(context.server, entry, changedFile)
-          || moduleGraphImportersContainEntry(context.server, changedFile, entry)
+          || moduleGraphImportersContainEntry(context.server, changedFile, entry, context.modules)
       }))).some(Boolean)
       if (!isDatabaseUpdate) return
 
