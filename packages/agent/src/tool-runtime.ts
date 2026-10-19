@@ -98,6 +98,8 @@ const agentToolPolicyOwners = new WeakMap<object, AgentToolPolicyOwner>()
 const toolApprovalGrantContextKey: unique symbol = Symbol("vitehub.agent.tool-approval-grant")
 
 type AgentToolApprovalExecutionContext = AgentToolExecutionContext & { [toolApprovalGrantContextKey]?: AgentToolApprovalGrant }
+const toolExecutionBudgetKey: unique symbol = Symbol("vitehub.agent.tool-execution-budget")
+type BudgetedToolExecutionContext = AgentToolExecutionContext & { [toolExecutionBudgetKey]?: ExecutionBudget }
 
 /**
  * Create a single-use grant for an approval request that a tool policy issued.
@@ -169,6 +171,8 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const approvalExecute = async (input: unknown, context?: AgentToolExecutionContext) => {
       if (consumeToolApprovalGrant(policyOwner, tool.name, input, context)) {
         context?.abortSignal?.throwIfAborted()
+        const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
+        budget?.recordToolCall()
         return await execute.call(tool, input, context)
       }
       const decision = typeof policy === "function"
@@ -203,6 +207,8 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       }
 
       context?.abortSignal?.throwIfAborted()
+      const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
+      budget?.recordToolCall()
       return await execute.call(tool, input, context)
     }
   approvalPreservingExecutorOwners.set(approvalExecute, policyOwner)
@@ -259,22 +265,16 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
       return [name, tool]
     }
 
-    const execute = tool.execute
+    // Reuse the underlying executor when a tool was prepared under another
+    // budget. The active Invocation owns accounting for this execution.
+    const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
     const policyOwner = agentToolPolicyOwners.get(tool)
     const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
       // Approval requests are probes. Charge the call when the policy-protected
       // execution actually succeeds, including the later approved execution.
       if (policyOwner) {
-        try {
-          const result = await execute.call(tool, input, executionContext)
-          budget.recordToolCall()
-          return result
-        }
-        catch (error) {
-          if ((error as { code?: unknown })?.code === "APPROVAL_REQUIRED") throw error
-          budget.recordToolCall()
-          throw error
-        }
+        const budgetContext = { ...executionContext, [toolExecutionBudgetKey]: budget }
+        return await execute.call(tool, input, budgetContext)
       }
       budget.recordToolCall()
       return await execute.call(tool, input, executionContext)
