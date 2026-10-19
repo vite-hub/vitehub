@@ -516,6 +516,15 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
+function isLocalResponseProxy(value: unknown): boolean {
+  if (!(value instanceof Response)) return false
+  try {
+    const clone = Reflect.get(value, "clone")
+    return clone === Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
+  }
+  catch { return false }
+}
+
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
   if (value instanceof Response) {
     try {
@@ -546,7 +555,9 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
             }
             catch {
               // Proxies fail the native brand check even when their target is
-              // a genuine Response. Continue with the proxy-safe snapshot path.
+              // a genuine Response. The native clone method on the proxy is
+              // sufficient provenance for the snapshot path below.
+              return true
             }
           }
         }
@@ -823,7 +834,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (body !== null) {
       const bodyUsedGetter = responsePropertyDescriptor(candidate, "bodyUsed")?.get
       try {
-        if (typeof bodyUsedGetter !== "function" || Reflect.apply(bodyUsedGetter, candidate, [])) return
+        if (typeof bodyUsedGetter !== "function") return
+        const used = isLocalResponseProxy(candidate) ? Reflect.get(candidate, "bodyUsed") : Reflect.apply(bodyUsedGetter, candidate, [])
+        if (used) return
       }
       catch {
         return
@@ -854,8 +867,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     try {
       const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
       const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-      nativeBodyState = bodyUsed !== undefined
-        && !Reflect.apply(bodyUsed, candidate, [])
+      nativeBodyState = isLocalResponseProxy(candidate) || (bodyUsed !== undefined
+        && !Reflect.apply(bodyUsed, candidate, []))
         && (body === null || (typeof lockedGetter === "function" && !Reflect.apply(lockedGetter, Object(body), [])))
     }
     catch {

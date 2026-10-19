@@ -41,6 +41,12 @@
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js"
     },
+    "./presets/cms": {
+      "types": "./dist/presets/cms.d.ts",
+      "import": "./dist/presets/cms.js",
+      "require": "./dist/presets/cms.js",
+      "default": "./dist/presets/cms.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
