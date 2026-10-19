@@ -183,45 +183,43 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // Window binding on the prototype. This preserves that supported
         // foreign implementation without accepting an arbitrary constructor
         // name as provenance.
-        const hasWindowBinding = Object.getOwnPropertySymbols(responsePrototype).some(symbol => {
-          if (symbol.description !== "window") return false
-          const window = Reflect.get(responsePrototype, symbol) as {
+        const hasWindowBinding = (() => {
+          let bindingPrototype: object | null = responsePrototype
+          while (bindingPrototype) {
+            const found = Object.getOwnPropertySymbols(bindingPrototype).some(symbol => {
+              if (symbol.description !== "window") return false
+              const window = Reflect.get(bindingPrototype, symbol) as {
             Response?: unknown, Headers?: unknown, window?: unknown, self?: unknown,
             document?: { defaultView?: unknown }, location?: unknown,
-          } | undefined
+              } | undefined
           // happy-dom stores its actual Window on the implementation prototype.
           // Require the Window self-references and document back-reference as
           // implementation-owned structure; a callback-created object carrying
           // only Response and Headers must not establish foreign provenance.
-          return !!window
-            && window.Response === constructor
-            && typeof window.Headers === "function"
-            && window.window === window
-            && window.self === window
-            && !!window.document
-            && window.document.defaultView === window
-            && !!window.location
-        })
-        hasNativeConstructorLineage = (constructorSource.includes("[native code]")
+              return !!window
+                && window.Response === constructor
+                && typeof window.Headers === "function"
+                && window.window === window
+                && window.self === window
+                && !!window.document
+                && window.document.defaultView === window
+                && !!window.location
+            })
+            if (found) return true
+            bindingPrototype = Object.getPrototypeOf(bindingPrototype)
+          }
+          return false
+        })()
+        const hasIntrinsicParentLineage = typeof parentConstructor === "function"
+          && parentConstructor.prototype === constructorParent
+          && parentConstructor.name === "Function"
+          && Function.prototype.toString.call(parentConstructor) === "function Function() { [native code] }"
+        hasNativeConstructorLineage = constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
           // base. A callback-created standalone class can otherwise reproduce
           // the entire public Response surface and bypass this boundary.
-          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function)
+          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function && hasIntrinsicParentLineage)
           || (isClassConstructor && hasWindowBinding)
-          )
-          && typeof parentConstructor === "function"
-          // `extends Function` can be aliased by the authorization callback.
-          // It is the intrinsic Function constructor, not an implementation-owned
-          // Response base, and must never satisfy the derived provenance gate.
-          && (constructorSource.includes("[native code]")
-            || !isDerivedClassConstructor
-            || parentConstructor !== Function)
-          && parentConstructor.prototype === constructorParent
-          && parentConstructor.name === "Function"
-          // A caller-created derived constructor can supply a Function-shaped
-          // parent. Require the intrinsic constructor source as an additional
-          // signal before accepting the foreign Response prototype.
-          && Function.prototype.toString.call(parentConstructor) === "function Function() { [native code] }"
         try {
           const constructed = new constructor()
           hasConstructibleResponse = constructed && typeof constructed === "object"
