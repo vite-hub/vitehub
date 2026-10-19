@@ -19,6 +19,11 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
+/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
 /** The section whose pages fill the Start row of the catalog. */
@@ -68,13 +73,16 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
-  if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+  const ordered = [...groups].map(([label, pages]) => ({ label, pages }));
+  if (section.id === "ui") {
+    const order = ["Start", "Console", "Chat", "Agent work", "Utilities"];
+    return ordered.sort((left, right) => {
+      const leftIndex = order.indexOf(left.label || "");
+      const rightIndex = order.indexOf(right.label || "");
+      return (leftIndex === -1 ? order.length : leftIndex) - (rightIndex === -1 ? order.length : rightIndex);
+    });
   }
-  return entries
-    .sort((left, right) => left.index - right.index)
-    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+  return ordered;
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
@@ -107,11 +115,6 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 /** Pages of a product section other than its Overview, in sidebar order. The landing page lists them as cards. */
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
-}
-
-/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
-export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getDocsSectionKind(section: DocsSection): string {

@@ -39,6 +39,14 @@ function stripeRegistration(signature: "stripe-sha256" | { preset: "stripe-sha25
   return [{ id: "productlane", provider: "productlane", secretHeader: "x-signature", secretToken: "secret-token", signature }]
 }
 
+function signedRequest(header: string, body: string) {
+  return new Request("https://example.com", { body, headers: { "x-signature": header }, method: "POST" })
+}
+
+function hmacRegistration(signature: { encoding?: "base64" | "hex", preset: "hmac-sha256", prefix?: string, secretEncoding?: "base64" | "utf8" }, secretToken = "secret-token") {
+  return [{ id: "airtable", provider: "airtable", secretHeader: "x-signature", secretToken, signature }]
+}
+
 describe("agent webhook verification", () => {
   it("allows chat webhook trigger invocation when the secret header matches", async () => {
     const invoked = vi.fn(() => "ok")
@@ -335,6 +343,34 @@ describe("agent webhook verification", () => {
       .rejects
       .toMatchObject({ message: "[vitehub] Webhook secret verification failed.", statusCode: 401 })
     expect(invoked).not.toHaveBeenCalled()
+  })
+
+  it("verifies hmac-sha256 signatures with a prefix and hex digest", async () => {
+    const body = "{\"id\":\"evt_1\"}"
+    const digest = createHmac("sha256", "secret-token").update(body).digest("hex")
+    const registration = hmacRegistration({ preset: "hmac-sha256", prefix: "v1=" })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest}`, body))).resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest.toUpperCase()}`, body))).resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(digest, body))).rejects.toMatchObject({ statusCode: 401 })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest}`, "{\"id\":\"evt_2\"}"))).rejects.toMatchObject({ statusCode: 401 })
+  })
+
+  it("verifies hmac-sha256 signatures with a base64 key and base64 digest", async () => {
+    const body = "{\"base\":{\"id\":\"app1\"}}"
+    const key = Buffer.from("airtable-mac-secret")
+    const secretToken = key.toString("base64")
+    const registration = hmacRegistration({ encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" }, secretToken)
+    const header = `hmac-sha256=${createHmac("sha256", key).update(body).digest("base64")}`
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(header, body))).resolves.toMatchObject({ verified: true })
+    const utf8Key = `hmac-sha256=${createHmac("sha256", secretToken).update(body).digest("base64")}`
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(utf8Key, body))).rejects.toMatchObject({ statusCode: 401 })
+  })
+
+  it.each(["not base64!", "====", "abcde"])("fails closed for the malformed base64 key %j", async secretToken => {
+    const body = "{}"
+    const header = createHmac("sha256", secretToken).update(body).digest("hex")
+    await expect(verifyAgentWebhookRequest(hmacRegistration({ preset: "hmac-sha256", secretEncoding: "base64" }, secretToken), signedRequest(header, body)))
+      .rejects.toMatchObject({ statusCode: 401 })
   })
 
   it("verifies stripe-sha256 timestamped signatures", async () => {

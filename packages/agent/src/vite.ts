@@ -1,6 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { resolvesWorkerConditions, usesProviderAgentDriver } from "./internal/provider-driver-usage.ts"
-import { installAgentShutdownDrain } from "./internal/shutdown-drain.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -66,6 +65,9 @@ function invalidateAgentDevModules(server: ViteDevServer, ids: readonly string[]
 export { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 export { discoverAgentChannelEnv, discoverAgentGatewayEnv } from "./channel-env-discovery.ts"
 export type { AgentChannelEnv } from "./channel-env-discovery.ts"
+/** Validates a retention policy at build time, so a ViteHub integration reports a bad limit before it generates output. */
+export { normalizeRetention } from "./internal/retention-policy.ts"
+export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retention-policy.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -106,6 +108,9 @@ const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
 const generatedAgentDeclaredWebhookRouteHandler = "agent/declared-webhook-route.ts"
 const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
 const generatedAgentPreparationHandler = "agent/preparation-route.ts"
+/** Readiness route for hosts with a webhook queue and no Workspace preparation. */
+const generatedAgentReadyHandler = "agent/ready-route.ts"
+const agentReadyRoute = "/api/_vitehub/ready"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
 const generatedAgentProcessHosts = "agent/process-hosts.ts"
 const generatedAgentProcessHostsPlugin = "agent/process-hosts-plugin.ts"
@@ -115,10 +120,17 @@ const generatedAgentProcessHostsHealth = "agent/process-hosts-health.ts"
 const generatedAgentInvocationsDevHandler = "agent/invocations-dev-handler.ts"
 const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = "agent/email-runtime.js"
+const generatedAgentScheduleRegistry = "agent/schedule-registry.js"
 const generatedAgentRegistry = "agent/registry.mjs"
 const generatedAgentRegistryCatalog = "agent/registry-agents.mjs"
 const agentRegistryId = "#vitehub/agent/registry"
 const netlifyAgentFunctionName = "vitehub-agent"
+const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
+const scheduleRegistryId = "#vitehub/schedule/registry"
+const resolvedScheduleRegistryId = `\0${scheduleRegistryId}`
+const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
+const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
+const scheduleVitePluginName = "@vite-hub/schedule/vite"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
@@ -174,6 +186,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
+  scheduleRuntimeImport?: string
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -184,6 +197,9 @@ interface AgentGeneratedImportOptions {
   denoCronImport?: string
   providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
+  schedule?: boolean
+  scheduleRegistryImport?: string
+  scheduleRuntimeImport?: string
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -254,10 +270,11 @@ function generatedAgentRuntimeCapabilityImports(capabilities: GeneratedAgentRunt
     : [`import { ${capability.importName} as ${generatedAgentRuntimeCapabilityAlias(capability)} } from ${JSON.stringify(capability.packageName)}`])
 }
 
-function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[]): string {
+function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean): string {
   const entries = capabilities.map(capability =>
     `${capability.name}: ${capability.packageName === false ? "false" : generatedAgentRuntimeCapabilityAlias(capability)}`
   )
+  if (schedule) entries.push("schedule: { schedules: vitehubSchedules }")
   return `{ ${entries.join(", ")} }`
 }
 
@@ -265,9 +282,10 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Standalone Agent handlers (Deno and Netlify) do not have the host-generated Connections registry or
-  // database-backed store, so do not advertise either capability.
-  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections")
+  // The generated Deno and Netlify route modules are host runtimes too. Keep
+  // their full capability record available to standalone handlers; the
+  // schedule registry itself still does not import these providers.
+  const standaloneCapabilities = capabilities
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )
@@ -383,6 +401,10 @@ function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry.mjs")
 }
 
+function getScheduleRuntimeImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
+  return getInternalAgentOptions(options)?.scheduleRuntimeImport ?? fallback?.scheduleRuntimeImport ?? scheduleRuntimeImport
+}
+
 function getCloudflareStateImport(options: AgentModuleOptions | false | undefined, fallback?: InternalAgentModuleOptions): string {
   return getInternalAgentOptions(options)?.cloudflareStateImport ?? fallback?.cloudflareStateImport ?? "@vite-hub/agent/cloudflare/state"
 }
@@ -400,7 +422,7 @@ function getWorkspaceDependencyRuntimeImports(
 
 function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
   const runtimeCapabilities = options.runtimeCapabilities ?? []
-  if (!runtimeCapabilities.length) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
+  if (!options.schedule && !runtimeCapabilities.length) return { imports: [] as string[], requestOption: "", requestProperty: "", setup: [] as string[] }
   const workflowCapabilityLoaders = generatedAgentWorkflowCapabilityLoaders(
     runtimeCapabilities,
     options.agentImportBase ?? agentPackageName,
@@ -410,19 +432,37 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
     imports: [
       ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
       ...workflowCapabilityLoaders.imports,
+      `import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
+      ...(options.schedule
+        ? [
+            `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
+            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(options.scheduleRuntimeImport ?? scheduleRuntimeImport)}`,
+          ]
+        : []),
     ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
     requestProperty: ", capabilities: vitehubAgentRouteCapabilities",
     setup: [
-      `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities)}`,
+      ...(options.schedule ? ["vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)"] : []),
+      `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities, options.schedule === true)}`,
+      "// A standalone runAgent(), such as one in a Schedule handler, gets the same capabilities as these routes.",
+      "vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)",
       "",
       ...workflowCapabilityLoaders.setup,
     ],
   }
 }
 
-/** Discovers `*.agent.ts` files and `server/agents` definitions once per Agent name. */
-function discoverProjectAgentDefinitions(root: string, serverDirs = [join(root, "server")]): DiscoveredAgentDefinition[] {
+function hasScheduleVitePlugin(config: Pick<ResolvedConfig, "plugins">): boolean {
+  return config.plugins?.some(plugin => plugin.name === scheduleVitePluginName) === true
+}
+
+function isScheduleRegistryId(id: string): boolean {
+  if (id === resolvedScheduleRegistryId) return true
+  return id.replace(/\\/g, "/").split("?", 1)[0]!.endsWith(generatedScheduleRuntimeRegistrySuffix)
+}
+
+function discoverScheduledAgentDefinitions(root: string, serverDirs = [join(root, "server")]): DiscoveredAgentDefinition[] {
   const definitions = [
     ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
     ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs }),
@@ -431,7 +471,7 @@ function discoverProjectAgentDefinitions(root: string, serverDirs = [join(root, 
   for (const definition of definitions) {
     const existing = unique.get(definition.name)
     if (existing && existing.handler !== definition.handler) {
-      throw agentDiagnostics.AGENT_B0002({ message: `[vitehub] Duplicate Agent name "${definition.name}" in ${existing.handler} and ${definition.handler}. Give each Agent a unique name.` })
+      throw agentDiagnostics.AGENT_B0002({ message: `[vitehub] Duplicate Agent name "${definition.name}" cannot be registered as a Runtime Schedule target.` })
     }
     unique.set(definition.name, definition)
   }
@@ -440,7 +480,7 @@ function discoverProjectAgentDefinitions(root: string, serverDirs = [join(root, 
 
 async function isColocatedAgentInstructionDependency(root: string, file: string, serverDirs?: string[]): Promise<boolean> {
   const target = resolve(file)
-  for (const definition of discoverProjectAgentDefinitions(root, serverDirs)) {
+  for (const definition of discoverScheduledAgentDefinitions(root, serverDirs)) {
     const dependencies = new Set<string>()
     await readColocatedAgentInstructions(definition.handler, { dependencies })
     if (dependencies.has(target)) return true
@@ -453,6 +493,89 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
     mode: "server-agents",
     scanDirs: serverDirs,
   }).length > 0
+}
+
+async function transformScheduleRegistry(
+  code: string,
+  definitions: DiscoveredAgentDefinition[],
+  agentImportBase: string,
+  importAnchor?: string,
+  runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
+  scheduleRuntimeSpecifier = scheduleRuntimeImport,
+  generatedImportOptions: AgentGeneratedImportOptions = {},
+): Promise<string | undefined> {
+  if (!definitions.length) return
+  if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
+    throw agentDiagnostics.AGENT_B0003({ message: "[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding." })
+  }
+  const entries = (await Promise.all(definitions.map(async (definition) => {
+    const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+    const agentIdentity = { name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) }
+    const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
+    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
+    return [
+      `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw vitehubAgentRuntimeError("AGENT_R0892", ${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
+      `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
+      `  const module = await import(${JSON.stringify(handlerImport)})`,
+      `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true)} })`,
+      "}",
+    ]
+  }))).flat()
+  const workflowRuntime = generatedAgentWorkflowRuntime(generatedImportOptions, agentImportBase)
+  const workspaceRuntime = generatedAgentWorkspaceDependencyRuntime(
+    generatedImportOptions,
+    generatedImportOptions.workspaceImportBase ?? workspacePackageName,
+  )
+  return [
+    `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, inheritAgentLayerOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...workflowRuntime.imports,
+    ...workspaceRuntime.imports,
+    ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
+    `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeSpecifier)}`,
+    code,
+    "function vitehubResolveScheduledAgentModule(module) {",
+    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    ...generatedWorkspaceSourceRootHelper("vitehubWithWorkspaceSourceRoot", "vitehubWorkspaceDefinitionFromOptions"),
+    ...workflowRuntime.setup,
+    ...workspaceRuntime.setup,
+    ...entries,
+    "",
+  ].join("\n")
+}
+
+async function writeStandaloneAgentScheduleRegistry(
+  root: string,
+  definitions: DiscoveredAgentDefinition[],
+  agentImportBase: string,
+  runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
+  scheduleRuntimeSpecifier = scheduleRuntimeImport,
+  generatedImportOptions: AgentGeneratedImportOptions = {},
+): Promise<string> {
+  const registryPath = join(root, generatedAgentScheduleRegistry)
+  const base = ["const registry = {}", "", "export default registry", ""].join("\n")
+  // The standalone registry must stay provider-free. Provider capabilities are
+  // supplied by the generated host route and are registered globally there.
+  const registryCapabilities = runtimeCapabilities.filter(capability =>
+    capability.name !== "connections" && capability.name !== "db",
+  )
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, registryCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
+  await mkdir(dirname(registryPath), { recursive: true })
+  await writeFile(registryPath, contents, "utf8")
+  return registryPath
+}
+
+function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefinition[]): string | undefined {
+  if (!definitions.length) return
+  if (!/\b(?:const|let|var)\s+scheduleTargetNames\b/.test(code)) {
+    throw agentDiagnostics.AGENT_B0004({ message: "[vitehub] Unable to extend Runtime Schedule targets: expected a scheduleTargetNames binding." })
+  }
+  return [
+    code,
+    ...definitions.map(definition => `if (!scheduleTargetNames.includes(${JSON.stringify(`agent/${definition.name}`)})) scheduleTargetNames.push(${JSON.stringify(`agent/${definition.name}`)})`),
+    "",
+  ].join("\n")
 }
 
 function subpath(base: string, path: string): string {
@@ -619,12 +742,14 @@ function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentSta
 
 function mergeRollupExternals(external: RollupExternalOption | undefined, additions: readonly string[]): RollupExternalOption | undefined {
   if (external === undefined) return [...additions]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so this boundary must distinguish its string member.
   if (typeof external === "string") return additions.includes(external) ? [...additions] : [external, ...additions]
   if (external instanceof RegExp) return [external, ...additions]
   if (Array.isArray(external)) {
     const missing = additions.filter(source => !external.includes(source))
     return missing.length ? [...external, ...missing] : external
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so callability identifies its function member.
   if (typeof external === "function") {
     // SAFETY: The preceding runtime check proves this Rollup external is the function member of the union.
     const externalFunction = external as RollupExternalFunction
@@ -641,8 +766,10 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
   const build = config.build ?? {}
   const configuredExternal = build.rolldownOptions?.external
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite can merge scalar and array externals; normalize both before returning additions.
   const external = typeof configuredExternal === "string" || configuredExternal instanceof RegExp ? [configuredExternal] : configuredExternal
   if (Array.isArray(external)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
     const supportedExternal = external.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
     if (build.rolldownOptions) build.rolldownOptions.external = supportedExternal
     return {
@@ -704,6 +831,7 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: strin
 function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (isRecord(nitro.rollupConfig) && Array.isArray(nitro.rollupConfig.external)) {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and this adapter retains only string and RegExp members.
     nitro.rollupConfig.external = nitro.rollupConfig.external.filter(
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
@@ -1476,12 +1604,11 @@ const supportedEveExtensionContracts = {
   },
   2: {
     config: [1],
-    // Epochs whose tool shapes ViteHub's adapter is tested against: 20, GitHub Tools 0.8.0 (54/52),
-    // and GitHub Tools 0.8.1 built with Eve 0.72.1 (76/72).
+    // Preserve ViteHub's accepted epochs alongside GitHub Tools 0.8.0.
     // This adapter-specific list is independent of Eve's runtime support table.
-    dynamicTool: [20, 52, 72],
+    dynamicTool: [20, 52],
     extension: [1],
-    tool: [20, 54, 76],
+    tool: [20, 54],
   },
 } satisfies Record<number, Record<string, readonly number[]>>
 
@@ -1624,6 +1751,21 @@ function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: s
     `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })] : [])`,
     "  return async () => await Promise.all(stops.map(stop => stop()))",
     "}",
+    "",
+  ]
+}
+
+/** Startup warm-up of every webhook handler. The readiness route answers 503 until it finishes. */
+function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string }, runtimeRouteOption = ""): string[] {
+  return [
+    "const webhookWarmup = createAgentWebhookWarmup(Object.fromEntries(Object.entries(webhookHandlers).map(([name, handler]) => [",
+    "  name,",
+    `  () => handler.warm({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`,
+    "])))",
+    "/** Warms every webhook handler once. `/api/_vitehub/ready` answers 503 until it finishes. */",
+    "export const warmWebhookRoutes = () => webhookWarmup.warm()",
+    "export const webhookRoutesReadiness = () => webhookWarmup.readiness()",
+    "export const webhookRoutesReadyResponse = (method?: string) => webhookWarmup.response(method)",
     "",
   ]
 }
@@ -1933,6 +2075,7 @@ async function generateAgentWebhookRouteHandler(
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createAgentWebhookWarmup } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -1960,6 +2103,7 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
+    ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
     ...(options.processDiscordGateway
       ? [
           "function hasDiscordGatewayChannel(agent: unknown): boolean {",
@@ -2178,7 +2322,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", shutdown?: ResolvedAgentModuleOptions["shutdown"], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2203,13 +2347,41 @@ async function writeAgentWebhookRouteHandler(
       `  nitroApp.hooks.hook("close", () => preparation.stop())`,
       `}`,
     ].join("\n"), "utf8")
-    await writeFile(join(root, generatedAgentPreparationHandler), [
-      `import { preparation } from "./preparation"`,
-      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
-    ].join("\n"), "utf8")
+    await writeFile(join(root, generatedAgentPreparationHandler), options.libsqlState
+      ? [
+          `import { preparation } from "./preparation"`,
+          `import { warmWebhookRoutes, webhookRoutesReadiness, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
+          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
+          `  const method = event.req?.method || event.method || event.node?.req?.method`,
+          `  void warmWebhookRoutes()`,
+          `  // The Workspace is not ready to serve deliveries before the webhook handlers are warm.`,
+          `  if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(method)`,
+          `  return preparation.response(method)`,
+          `}`,
+        ].join("\n")
+      : [
+          `import { preparation } from "./preparation"`,
+          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
+        ].join("\n"), "utf8")
   }
   else {
     for (const file of ["agent/preparation.ts", generatedAgentPreparationPlugin, generatedAgentPreparationHandler]) await rm(join(root, file), { force: true })
+  }
+  const readyRoutePath = join(root, generatedAgentReadyHandler)
+  if (options.libsqlState && !options.preparation) {
+    await writeFile(readyRoutePath, [
+      `import { warmWebhookRoutes, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
+      "",
+      "/** 200 once every webhook handler is warm, 503 before. Point a readiness probe here. */",
+      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
+      `  void warmWebhookRoutes()`,
+      `  return webhookRoutesReadyResponse(event.req?.method || event.method || event.node?.req?.method)`,
+      `}`,
+      "",
+    ].join("\n"), "utf8")
+  }
+  else {
+    await rm(readyRoutePath, { force: true })
   }
   const gatewayPluginPath = join(root, generatedAgentDiscordGatewayPlugin)
   if (options.processDiscordGateway) {
@@ -2268,17 +2440,8 @@ async function writeAgentWebhookRouteHandler(
     // A persistent server resumes queued deliveries at startup. Ephemeral hosts resume on
     // the first webhook request, so its waitUntil keeps the function alive during the drain.
     const persistent = !options.libsqlState.ephemeralHosting
-    // A persistent Node server owns its exit: drain Agent work on SIGTERM and SIGINT, then exit.
-    const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
     await writeFile(queuePluginPath, [
-      `import { resumeWebhookQueues${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
-      ...(shutdown
-        ? [
-            `import { drainInlineChatInvocations, webhookQueueShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server"))}`,
-            "",
-            `const installAgentShutdownDrain = ${installAgentShutdownDrain.toString()}`,
-          ]
-        : []),
+      `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2306,20 +2469,13 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start after the server installs its shutdown listeners. Invocations that started",
             "  // before this process are interrupted unless a queued delivery runs them again.",
-            "  if (!import.meta.prerender) setTimeout(() => startWebhookQueues(startedAt), 0)",
-            ...(shutdown
-              ? [
-                  "  // Inline Chat invocations post a restart notice when the drain interrupts them, and the",
-                  "  // next process retries them once. The queue replays the deliveries that it aborts.",
-                  "  if (!import.meta.dev && !import.meta.prerender && nodeProcess) {",
-                  "    const queues = async () => {",
-                  "      await shutdownWebhookQueues()",
-                  "      await webhookQueueShutdown()",
-                  "    }",
-                  `    installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, ${shutdown.drainMs ?? "undefined"}, nodeProcess)`,
-                  "  }",
-                ]
-              : []),
+            "  // The warm-up builds registrations, secrets, and State now, so the first delivery does not wait for them.",
+            "  // /api/_vitehub/ready answers 503 until it finishes.",
+            "  if (!import.meta.prerender) setTimeout(() => {",
+            "    if (closed) return",
+            "    void warmWebhookRoutes()",
+            "    startWebhookQueues(startedAt)",
+            "  }, 0)",
           ]
         : [
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
@@ -2328,6 +2484,7 @@ async function writeAgentWebhookRouteHandler(
             "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromEvent(event)",
+            "    void warmWebhookRoutes()",
             "    startWebhookQueues()",
             "  })",
           ]),
@@ -2554,8 +2711,21 @@ async function writeAgentDenoServer(
     mode: "server-agents",
     scanDirs: serverDirs,
   })
+  const scheduleRegistryImport = options.schedule
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
+        root,
+        definitions,
+        options.agentImportBase ?? agentPackageName,
+        options.runtimeCapabilities,
+        options.scheduleRuntimeImport,
+        options,
+      ))
+    : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
-  await writeFile(handlerPath, await generateAgentDenoServer(definitions, handlerPath, options), "utf8")
+  await writeFile(handlerPath, await generateAgentDenoServer(definitions, handlerPath, {
+    ...options,
+    scheduleRegistryImport,
+  }), "utf8")
 }
 
 async function writeAgentNetlifyFunctionRouteHandler(
@@ -2569,8 +2739,21 @@ async function writeAgentNetlifyFunctionRouteHandler(
     mode: "server-agents",
     scanDirs: serverDirs,
   })
+  const scheduleRegistryImport = options.schedule
+    ? moduleImportSpecifier(handlerPath, await writeStandaloneAgentScheduleRegistry(
+        root,
+        definitions,
+        options.agentImportBase ?? agentPackageName,
+        options.runtimeCapabilities,
+        options.scheduleRuntimeImport,
+        options,
+      ))
+    : undefined
   await mkdir(dirname(handlerPath), { recursive: true })
-  await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(definitions, handlerPath, options), "utf8")
+  await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(definitions, handlerPath, {
+    ...options,
+    scheduleRegistryImport,
+  }), "utf8")
   return handlerPath
 }
 
@@ -2685,6 +2868,15 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
       published: publishedHandler,
       retained: publishedHandler,
     }), "utf8")
+    const nextScheduleRegistry = resolve(nextAgentDir, "schedule-registry.js")
+    if (existsSync(nextScheduleRegistry)) {
+      const publishedScheduleRegistry = resolve(generatedAgentDir, "schedule-registry.js")
+      const scheduleRegistryContents = await readFile(nextScheduleRegistry, "utf8")
+      await writeFile(nextScheduleRegistry, rewriteRetainedProviderSourcePaths(scheduleRegistryContents, retainedSourcesDir, publishedSourcesDir, {
+        published: publishedScheduleRegistry,
+        retained: publishedScheduleRegistry,
+      }), "utf8")
+    }
     signal?.throwIfAborted()
     await rename(generatedAgentDir, previousAgentDir)
     movedPrevious = true
@@ -2781,6 +2973,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     const normalized = normalizeAgentOptions(agent)
     if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
+    const schedule = hasScheduleVitePlugin(config)
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
@@ -2814,6 +3007,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
           runtimeCapabilities: standaloneRuntimeCapabilities,
+          schedule,
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
           workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
@@ -2831,7 +3026,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           processDiscordGateway,
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
-          shutdown: normalized.shutdown,
+          schedule,
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
           workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
@@ -2843,6 +3039,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             discordGatewayRoute: normalized.routes.discordGateway,
             ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
             runtimeCapabilities,
+            schedule,
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
@@ -2856,6 +3054,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
             runtimeCapabilities: standaloneRuntimeCapabilities,
+            schedule,
+            scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
             workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
             workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
             workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
@@ -2925,7 +3125,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agent !== false) {
         // The Dev Loop runs Agents in this process. Load the Agent runtime with the dev server, not with the Vite config.
         const { registerAgentInvocationStreamEndpoint } = await import("./vite/invocation-stream-endpoint.ts")
-        await registerAgentInvocationStreamEndpoint(server, { runtimeCapabilities })
+        await registerAgentInvocationStreamEndpoint(server, {
+          runtimeCapabilities,
+          schedule: hasScheduleVitePlugin(resolved ?? server.config),
+          scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
+        })
         // Cancel runs in the Nitro dev environment, which owns the application's journals and abort handles.
         registerViteHubNitroDevEndpoint(server, {
           ...agentInvocationsDevGuard,
@@ -2962,7 +3166,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !relativeAgentPath) return
       const colocatedResourceUpdate = instructionUpdate || Boolean(relativeAgentPath && /\/(?:home|skills)\/.*$/i.test(relativeAgentPath))
       if (resolved) await writeGeneratedAgentOutputs(resolved)
-      const moduleIds: string[] = []
+      const moduleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId].map(id => id.replace(/\\/g, "/"))
       if (resolved) {
         const root = resolveViteHubGeneratedRoot(resolved)
         moduleIds.push(join(root, generatedAgentRegistry).replace(/\\/g, "/"))
@@ -2972,18 +3176,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (id?.startsWith(registryPrefix)) moduleIds.push(id)
         }
       }
-      if (resolved?.root && colocatedResourceUpdate) {
-        moduleIds.push(...discoverProjectAgentDefinitions(resolved.root, serverDirs).map(definition => definition.handler.replace(/\\/g, "/")))
-        const root = resolveViteHubGeneratedRoot(resolved)
-        moduleIds.push(...[
-          generatedAgentDenoServer,
-          generatedAgentDiscordGatewayRouteHandler,
-          generatedAgentDiscordGatewayPlugin,
-          generatedAgentNetlifyFunction,
-          generatedAgentWebhookRouteHandler,
-          generatedAgentDeclaredWebhookRouteHandler,
-          generatedAgentWebhookQueuePlugin,
-        ].map(handler => join(root, handler).replace(/\\/g, "/")))
+      if (resolved?.root) {
+        moduleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
+        if (colocatedResourceUpdate) {
+          moduleIds.push(...discoverScheduledAgentDefinitions(resolved.root, serverDirs).map(definition => definition.handler.replace(/\\/g, "/")))
+          const root = resolveViteHubGeneratedRoot(resolved)
+          moduleIds.push(...[
+            generatedAgentDenoServer,
+            generatedAgentDiscordGatewayRouteHandler,
+            generatedAgentDiscordGatewayPlugin,
+            generatedAgentNetlifyFunction,
+            generatedAgentWebhookRouteHandler,
+            generatedAgentDeclaredWebhookRouteHandler,
+            generatedAgentWebhookQueuePlugin,
+          ].map(handler => join(root, handler).replace(/\\/g, "/")))
+        }
       }
       invalidateAgentDevModules(context.server, moduleIds)
     },
@@ -3026,7 +3233,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         ) ?? transformed
         const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
           || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
-        const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
+        const definition = agentModule && discoverScheduledAgentDefinitions(resolved.root, serverDirs)
           .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
         const skills = definition && readColocatedAgentSkills(definition.handler)
         if (skills) {
@@ -3042,13 +3249,30 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           workflowState(resolved!),
         )
       }
+      if (!isScheduleRegistryId(id) && id !== resolvedScheduleTargetsId) return
+      const definitions = discoverScheduledAgentDefinitions(resolved.root, serverDirs)
+      return isScheduleRegistryId(id)
+        ? await transformScheduleRegistry(
+            code,
+            definitions,
+            getAgentImportBase(agent, frameworkOptions),
+            undefined,
+            runtimeCapabilities,
+            getScheduleRuntimeImport(agent, frameworkOptions),
+            {
+              workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
+              workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
+              workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
+            },
+          )
+        : transformScheduleTargets(code, definitions)
     },
     vitehub: {
       providerOutput: {
         async prepareSources(sources) {
           if (agent === false || !resolved) return
           const parse = await parseTypeScript()
-          for (const definition of discoverProjectAgentDefinitions(resolved.root, serverDirs)) {
+          for (const definition of discoverScheduledAgentDefinitions(resolved.root, serverDirs)) {
             const skills = readColocatedAgentSkills(definition.handler)
             if (!skills) continue
             const handler = sources.resolve(definition.handler)
@@ -3116,7 +3340,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
-      const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
+      const hasScheduledAgents = Boolean(resolved && discoverScheduledAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
       if (resolved && Object.keys(resolved.routes.aliases || {}).length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases currently require a Nitro host." })
@@ -3150,9 +3374,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           throw agentDiagnostics.AGENT_B0023({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} stores its process host state in Agent State. Use the sqlite, libsql, or auto Agent State provider.` })
         }
       }
+      const applicationHandlers = (config as { nitro?: { handlers?: unknown } }).nitro?.handlers
+      const applicationOwnsReadyRoute = Array.isArray(applicationHandlers) && applicationHandlers.some(handler => isRecord(handler) && handler.route === agentReadyRoute)
       const nitroHandlers = [
         ...(installPreparation && resolved && resolved.preparation
-          ? [{ handler: join(generatedRoot, generatedAgentPreparationHandler), route: resolved.preparation.route || "/api/_vitehub/ready" }]
+          ? [{ handler: join(generatedRoot, generatedAgentPreparationHandler), route: resolved.preparation.route || agentReadyRoute }]
+          : []),
+        ...(installWebhookQueue && !installPreparation && !applicationOwnsReadyRoute
+          ? [{ handler: join(generatedRoot, generatedAgentReadyHandler), route: agentReadyRoute }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.inspection
           ? [{
@@ -3246,7 +3475,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...(processHostAgents.length ? [join(generatedRoot, generatedAgentProcessHostsPlugin)] : []),
         ],
       ))
-      const mergedNitro = nitroContext && hasAgentDefinitions && !denoOutput
+      const mergedNitro = nitroContext && hasScheduledAgents && !denoOutput
         ? installAgentProviderRuntimePackages(mergedAgentNitro, root)
         : mergedAgentNitro
       if (nitroContext) {
@@ -3435,6 +3664,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           })
         }
         const retainedProviderImportAliases = {
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Merge retained aliases when available.
           ...(retainedSources ? retainProviderOutputAliases(providerImportAliases, retainedSources) : providerImportAliases),
           ...(normalized ? { [agentRegistryId]: retainedSources
             ? join(retainedSources.resolve(config.root), ".vitehub", generatedAgentRegistry)
@@ -3453,6 +3683,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               libsqlState: resolveLibsqlAgentState(normalized, config),
               providerImportAliases: retainedProviderImportAliases,
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
+              schedule: hasScheduleVitePlugin(config),
+              scheduleRuntimeImport: getScheduleRuntimeImport(buildAgent, frameworkOptions),
               sourceRootDir: retainedSources?.resolve(config.root),
               workflowImportBase: getWorkflowImportBase(buildAgent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),

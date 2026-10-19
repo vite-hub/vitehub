@@ -294,7 +294,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
-          ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),
+          abortSignal: execOptions.signal,
           timeout: execOptions.timeout,
         })
         execOptions.onStdout?.(result.stdout)
@@ -334,7 +334,7 @@ async function resolveExecutionProvider(
 function isUnavailableWorkspaceSession(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes("Workspace exec requires an executable runtime")
-    || message.includes("Workspace exec requires a Box session host")
+    || message.includes("Workspace exec requires a Sandbox session host")
     || (message.includes("Workspace") && message.includes("is not registered"))
 }
 
@@ -422,7 +422,7 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], budget?: ExecutionBudget, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
+  options: { broadSearchPaths: string[], budget?: ExecutionBudget, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule

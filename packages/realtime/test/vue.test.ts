@@ -221,11 +221,14 @@ describe("useRealtimeTiptap", () => {
     expect(realtime.history.pending.value).toBe(true)
 
     responses[0]!(new Response(JSON.stringify(checkpointResponse)))
-    await expect(first).resolves.toEqual(checkpointResponse)
+    await expect(first).resolves.toEqual([undefined, checkpointResponse])
     expect(realtime.history.pending.value).toBe(true)
 
     responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
-    await expect(second).rejects.toThrow("publisher unavailable")
+    await expect(second).resolves.toMatchObject([{
+      code: "REALTIME_REQUEST_FAILED",
+      why: "The realtime `checkpoint()` request failed with HTTP 500: publisher unavailable",
+    }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -236,10 +239,10 @@ describe("useRealtimeTiptap", () => {
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
 
-    await expect(realtime.history.checkpoint()).rejects.toMatchObject({
-      code: "REALTIME_R0012",
-      message: "The realtime response was invalid.",
-    })
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject([{
+      code: "REALTIME_INVALID_RESPONSE",
+      docs: "https://vitehub.dev/docs/realtime/limits-and-errors#realtime_invalid_response",
+    }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -249,7 +252,7 @@ describe("useRealtimeTiptap", () => {
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { enabled: false }))!
 
-    await expect(realtime.history.checkpoint()).rejects.toThrow("Realtime is disabled.")
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject([{ code: "REALTIME_DISABLED" }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -268,7 +271,7 @@ describe("useRealtimeTiptap", () => {
 
     realtime.destroy()
 
-    await expect(Promise.race([checkpoint, timed])).rejects.toThrow("realtime document")
+    await expect(Promise.race([checkpoint, timed])).resolves.toMatchObject([{ code: "REALTIME_DISCONNECTED" }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -289,7 +292,7 @@ describe("useRealtimeTiptap", () => {
     realtime.destroy()
     rejectBody(new DOMException("The operation was aborted.", "AbortError"))
 
-    await expect(checkpoint).rejects.toThrow("realtime document")
+    await expect(checkpoint).resolves.toMatchObject([{ code: "REALTIME_DISCONNECTED" }, undefined])
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
   })
@@ -305,12 +308,12 @@ describe("useRealtimeTiptap", () => {
 
     documentId.value = "second.md"
     const pending = realtime.history.checkpoint()
-    await expect(pending).rejects.toThrow("The realtime document is no longer connected to this request.")
+    await expect(pending).resolves.toMatchObject([{ code: "REALTIME_DISCONNECTED" }, undefined])
     expect(fetch).not.toHaveBeenCalled()
     expect(realtime.history.pending.value).toBe(false)
 
     await nextTick()
-    await expect(realtime.history.checkpoint()).resolves.toMatchObject({ document: { body: "# Saved" } })
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject([undefined, { document: { body: "# Saved" } }])
     expect(fetch).toHaveBeenCalledOnce()
     expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/second.md?history=checkpoint")
     scope.stop()
@@ -341,7 +344,7 @@ describe("useRealtimeTiptap", () => {
       await nextTick()
     }
     await vi.advanceTimersByTimeAsync(50)
-    await expect(pending).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringContaining("realtime document") }) })
+    await expect(pending).resolves.toMatchObject({ value: [{ code: "REALTIME_DISCONNECTED" }, undefined] })
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
@@ -356,7 +359,7 @@ describe("useRealtimeTiptap", () => {
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
 
-    await expect(realtime.history.checkpoint()).resolves.toEqual(checkpointResponse)
+    await expect(realtime.history.checkpoint()).resolves.toEqual([undefined, checkpointResponse])
     expect(fetch).toHaveBeenCalledTimes(2)
     scope.stop()
   })
@@ -471,10 +474,10 @@ describe("useRealtimeTiptap", () => {
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("guides/page.md")))!
 
-    await expect(realtime.save()).resolves.toMatchObject({ digest: "saved", document: { body: "# Saved" } })
+    await expect(realtime.save()).resolves.toMatchObject([undefined, { digest: "saved", document: { body: "# Saved" } }])
     expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=save")
     expect(realtime.saving.value).toBe(false)
-    await expect(realtime.refresh()).resolves.toEqual({ digest: "saved", reseeded: false })
+    await expect(realtime.refresh()).resolves.toEqual([undefined, { digest: "saved", reseeded: false }])
     expect(fetch.mock.calls[1]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=refresh")
     expect(fetch.mock.calls[1]![1].body).toBeUndefined()
     scope.stop()

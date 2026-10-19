@@ -163,7 +163,7 @@ The Database module reads the contributions after every module has run setup, so
 Contributed tables join the target Database everywhere the Definition schema goes:
 
 - The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
-- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
 
 The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
@@ -174,10 +174,10 @@ A contribution without `database` targets the Database named `default`, or the o
 
 | Code | Cause |
 | --- | --- |
-| `DATABASE_B0010` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. The message names both sources. If the Definition already lists the contributed tables, remove them from its schema. |
-| `DATABASE_B0011` | The target Database does not exist, the app has no Database, `database` is omitted while several Named Databases exist and none is named `default`, or `dialect` does not match the target Database. The message lists the Database names to choose from. |
-| `DATABASE_B0012` | The contribution is not `{ name, definition: { module, export? }, reason?, database?, dialect? }`, its `definition.module` is relative, or its export is missing or is not an object of tables. |
-| `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
+| `DATABASE_DUPLICATE_TABLE` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. |
+| `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target Database does not exist, is ambiguous, or has a different dialect. |
+| `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid. |
+| `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub db generate` fails; dev and builds print a warning. |
 
 `collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
 
@@ -202,7 +202,7 @@ A contribution without `database` targets the Database named `default`, or the o
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 
-Owned native resources need a nonblank database ID and name at build time. For native D1 provider output, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the provider build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
+Owned native resources need a nonblank database ID and name at build time. For a native D1 binding, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the Cloudflare build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
 
 Keep an explicit `cloudflare` property when its value is opaque. For a wholly hidden Definition, declare D1 intent with `hubDb({ driver: 'd1' })` in Vite or set `database.driver` to `'d1'` in Nuxt. Without that intent, ViteHub does not project native D1 output. Opaque local SQLite Definitions remain supported.
 
@@ -244,6 +244,6 @@ export default defineDatabase({
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive configuration id. When it resolves at build time, ViteHub adds the binding to the generated Wrangler config. |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |
 
-A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_R0017` when neither is available.
+A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_MISSING_CONNECTION` when neither is available.
 
 `defineDatabase()` returns the Definition for a Postgres database. Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.

@@ -73,12 +73,6 @@
       "require": "./dist/runtime/agent.js",
       "default": "./dist/runtime/agent.js"
     },
-    "./runtime/cloudflare-vite": {
-      "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js",
-      "require": "./dist/runtime/cloudflare-vite.js",
-      "default": "./dist/runtime/cloudflare-vite.js"
-    },
     "./runtime/d1": {
       "types": "./dist/runtime/d1.d.ts",
       "import": "./dist/runtime/d1.js",
@@ -97,17 +91,17 @@
       "require": "./dist/runtime/hosted.js",
       "default": "./dist/runtime/hosted.js"
     },
+    "./runtime/postgres": {
+      "types": "./dist/runtime/postgres.d.ts",
+      "import": "./dist/runtime/postgres.js",
+      "require": "./dist/runtime/postgres.js",
+      "default": "./dist/runtime/postgres.js"
+    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/vercel-vite": {
-      "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js",
-      "require": "./dist/runtime/vercel-vite.js",
-      "default": "./dist/runtime/vercel-vite.js"
     },
     "./runtime/virtual-databases": {
       "types": "./dist/runtime/virtual-databases.d.ts",
@@ -139,12 +133,6 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/postgres": {
-      "types": "./dist/runtime/postgres.d.ts",
-      "import": "./dist/runtime/postgres.js",
-      "require": "./dist/runtime/postgres.js",
-      "default": "./dist/runtime/postgres.js"
     }
   },
   "scripts": {
@@ -155,6 +143,7 @@
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
+    "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jiti": "catalog:unjs",

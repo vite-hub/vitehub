@@ -42,6 +42,7 @@ const sidebarOpen = ref(false);
 const stores = ref<string[]>([]);
 const selectedStore = ref("default");
 const prefix = ref("");
+const showVitehubFiles = ref(false);
 const blobs = ref<BlobObjectResponse[]>([]);
 const cursor = ref<string>();
 const hasMore = ref(false);
@@ -137,6 +138,7 @@ async function loadObjects(options: { append?: boolean; keepSelection?: boolean 
       query: {
         cursor: options.append ? cursor.value : undefined,
         prefix: prefix.value || undefined,
+        showVitehub: showVitehubFiles.value || undefined,
         store: selectedStore.value,
       },
       signal: controller.signal,
@@ -177,6 +179,12 @@ async function refresh(): Promise<void> {
 }
 
 watch(selectedStore, () => {
+  selectedPath.value = undefined;
+  cursor.value = undefined;
+  void loadObjects();
+});
+
+watch(showVitehubFiles, () => {
   selectedPath.value = undefined;
   cursor.value = undefined;
   void loadObjects();
@@ -230,6 +238,7 @@ onBeforeUnmount(() => {
         <div v-if="!collapsed" class="grid gap-2 px-3 pb-3">
           <USelect v-if="stores.length > 1" v-model="selectedStore" :items="storeItems" aria-label="Blob store" size="sm" />
           <UInput v-model="prefix" aria-label="Filter objects by prefix" icon="i-lucide-search" placeholder="Filter by prefix" size="sm" />
+          <USwitch v-model="showVitehubFiles" label="Show ViteHub files" size="xs" :ui="{ label: 'text-xs font-normal text-muted' }" />
         </div>
         <div v-if="!collapsed && error" class="px-3 pb-3">
           <ConsoleState compact :error="error" title="Could not load objects" :retry="refresh" />
@@ -242,7 +251,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div v-else-if="loading && !blobs.length" class="grid gap-2 px-3"><USkeleton v-for="index in 6" :key="index" class="h-11 rounded-md" /></div>
-        <nav v-else-if="blobs.length" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Blob objects">
+        <nav v-else-if="blobs.length || hasMore" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Blob objects">
           <button v-for="object in blobs" :key="object.pathname" type="button" class="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-start outline-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-primary" :class="selectedPath === object.pathname ? 'bg-elevated text-highlighted' : 'text-toned'" @click="selectBlob(object.pathname)">
             <UIcon name="i-lucide-file" class="size-3.5 shrink-0 text-dimmed" />
             <span class="min-w-0 flex-1">

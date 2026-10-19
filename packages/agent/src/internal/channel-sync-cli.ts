@@ -8,7 +8,7 @@ import { getAgentChannelHistoryDefinition } from "./channel-history.ts"
 import { getAgentChannelSyncDefinition, agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-adapter.ts"
 
-import type { AgentChannelDefinition, DiscoveredAgentDefinition } from "../types.ts"
+import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { hasRuntimeType } from "./runtime-type.ts"
@@ -50,10 +50,13 @@ export interface LoadedChannelTarget {
     path?: string
     secretHeader?: string
     secretToken?: false | string
-    signature?: string
+    signature?: ChannelTargetSignature
     url?: string
   }
 }
+
+/** A serializable webhook signature: a preset name, or the HMAC-SHA256 preset with its options. Verifier callbacks are omitted. */
+export type ChannelTargetSignature = string | Pick<Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>, "encoding" | "prefix" | "preset" | "secretEncoding">
 
 export interface LoadedChannelSyncTarget extends LoadedChannelTarget {
   sync: AgentChannelSyncProvider
@@ -272,7 +275,7 @@ export async function channelRegistration(
     path?: string
     secretHeader?: string
     secretToken?: false | string
-    signature?: string
+    signature?: ChannelTargetSignature
     url?: string
   } = {
     id: registration.id,
@@ -281,6 +284,10 @@ export async function channelRegistration(
   if (registration.secretHeader) result.secretHeader = registration.secretHeader
   if (secretToken === false || typeof secretToken === "string") result.secretToken = secretToken
   if (typeof registration.signature === "string") result.signature = registration.signature
+  else if (registration.signature && "preset" in registration.signature && registration.signature.preset === "hmac-sha256") {
+    const { encoding, prefix, secretEncoding } = registration.signature
+    result.signature = { preset: "hmac-sha256", ...(encoding ? { encoding } : {}), ...(prefix ? { prefix } : {}), ...(secretEncoding ? { secretEncoding } : {}) }
+  }
   else if (registration.signature && "preset" in registration.signature) result.signature = registration.signature.preset
   if (registration.url) result.url = registration.url
   return result

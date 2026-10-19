@@ -10,7 +10,7 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { collectScheduleContributions } from "../src/contributions.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
-import { inspectScheduleDefinitions } from "../src/inspect.ts"
+import { inspectScheduleConsoleRecords, inspectScheduleDefinitions } from "../src/inspect.ts"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 import type { CollectedScheduleContribution, ScheduleContributingPlugin } from "../src/vite.ts"
@@ -372,5 +372,22 @@ describe("contributed Schedule inspection", () => {
     await resolvePlugin(plugin, root, plugins)
     const inspector = (plugin.vitehub!.inspect as () => { definitions: Array<{ list: () => Promise<unknown> }> })().definitions[0]!
     await expect(inspector.list()).resolves.toEqual(listed)
+  })
+
+  it("shows the declared time zone of a Static Schedule", async () => {
+    const { root } = await createRoot({ file: false })
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "brief.ts"), "export default defineSchedule({ cron: '15 6 * * 1-5', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "dynamic.ts"), "export default defineSchedule({ cron: '0 9 * * *', timeZone: zone, handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "utc.ts"), "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })\n", "utf8")
+
+    const records = await inspectScheduleConsoleRecords({ projectRoot: root, rootDir: root, serverRootDir: root })
+    const record = (name: string) => records.find(entry => entry.id === `definition:${name}`)!
+
+    expect(record("brief").cells.timing).toBe("15 6 * * 1-5 (Europe/Madrid)")
+    expect(record("brief").fields).toContainEqual({ label: "Time zone", value: "Europe/Madrid" })
+    expect(record("dynamic").fields).toContainEqual({ label: "Time zone", value: "Not a static string" })
+    expect(record("utc").cells.timing).toBe("0 9 * * *")
+    expect(record("utc").fields).toContainEqual({ label: "Time zone", value: "UTC" })
   })
 })

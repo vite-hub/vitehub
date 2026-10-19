@@ -1,4 +1,4 @@
-import { expectTypeOf } from "vitest"
+import { describe, expectTypeOf, it } from "vitest"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { vitehub } from "vite-hub"
@@ -32,262 +32,267 @@ declare module "vite-hub/database/drizzle" {
   }
 }
 
-expectTypeOf(vitehub).toBeFunction()
-vitehub({ preset: "node", rateLimit: true })
-vitehub({ email: { driver: "resend" }, preset: "node" })
-vitehub({ email: true, preset: "cloudflare" })
-vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
-vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
-// @ts-expect-error Every environment chooses Console access explicitly.
-vitehub({ console: true, preset: "node" })
-// @ts-expect-error console.auth is required.
-vitehub({ console: {}, preset: "node" })
-vitehub({ console: false, preset: "node" })
-vitehub({ console: { auth: false }, preset: "node" })
-vitehub({ auth: true, console: { auth: "app" }, preset: "node" })
-vitehub({ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }, preset: "node" })
-vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, preset: "node" })
-vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, preset: "node" })
-vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: false }, preset: "node" })
-vitehub({ console: { auth: { provider: "github", allowedEmails: ["maintainer@example.com"] }, authorize: "server/console-authorize.ts" }, preset: "node" })
-// @ts-expect-error console.authorize is a server file path, not an inline function.
-vitehub({ console: { auth: false, authorize: () => true }, preset: "node" })
-vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
-vitehub({ console: { auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
-// @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
-vitehub({ console: { auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
-// @ts-expect-error Access settings are strings or Env declarations.
-vitehub({ console: { auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
-// @ts-expect-error The old access and exposure keys are removed.
-vitehub({ console: { access: "auth" }, preset: "node" })
-// @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.
-vitehub({ console: { auth: "public" }, preset: "node" })
-expectTypeOf<ConsoleAgentInvocationInput["prompt"]>().toBeString()
-const consoleInput: ConsoleAgentInvocationInput = { prompt: "Follow up", messages: [createMessage({ role: "user", text: "Earlier question" })] }
-expectTypeOf<NonNullable<typeof consoleInput.messages>[number]["role"]>().toEqualTypeOf<"user" | "assistant">()
-expectTypeOf(createMessage({ role: "user", text: "Earlier question" }).role).toEqualTypeOf<"user">()
-expectTypeOf(defineAgent).toBeFunction()
-expectTypeOf(email).toBeFunction()
-expectTypeOf(env).toBeFunction()
-expectTypeOf(requireRateLimit).toBeFunction()
-expectTypeOf(defineWorkspace).toBeFunction()
-expectTypeOf(defineWorkflow).toBeFunction()
-
 declare const history: History<HistoryCheckpoint>
-const checkpointOptions: HistoryCheckpointOptions = { message: "save draft" }
-expectTypeOf(history.checkpoint(checkpointOptions)).toEqualTypeOf<Promise<HistoryCheckpoint>>()
-
-const { db, schema } = useDatabase("typed")
-const meals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    table: schema.meals,
-    where({ query, table }) {
-      expectTypeOf(query).toEqualTypeOf<CollectionRequestQuery>()
-      expectTypeOf(table).toEqualTypeOf<typeof databaseSchema.meals>()
-      return undefined
-    },
-  }),
-  transform(row) {
-    expectTypeOf(row).toEqualTypeOf<typeof databaseSchema.meals.$inferSelect>()
-    return { id: row.id }
-  },
-})
-expectTypeOf<CollectionItem<typeof meals>>().toEqualTypeOf<{ id: string }>()
-
-const privateMeals = defineCollection({
-  authorize: ({ user }) => {
-    expectTypeOf(user.id).toBeString()
-    return true
-  },
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    table: schema.meals,
-  }),
-  transform: row => ({ id: row.id }),
-})
-expectTypeOf<CollectionItem<typeof privateMeals>>().toEqualTypeOf<{ id: string }>()
-
 interface MealFilters {
   day?: string
 }
 
 declare const mealQuerySchema: StandardSchemaV1<MealFilters, MealFilters>
-const filteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: mealQuerySchema,
-    table: schema.meals,
-    where({ query }) {
-      expectTypeOf(query).toEqualTypeOf<{ day?: string }>()
-      return undefined
-    },
-  }),
-})
-expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<MealFilters>()
-
 declare const transformedMealQuerySchema: StandardSchemaV1<{ q: string }, { search: string }>
-const searchedMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: transformedMealQuerySchema,
-    table: schema.meals,
-    where({ query }) {
-      expectTypeOf(query).toEqualTypeOf<{ search: string }>()
-      return undefined
-    },
-  }),
-})
-expectTypeOf<CollectionQuery<typeof searchedMeals>>().toEqualTypeOf<{ q: string }>()
-
 type ReservedMealFilters = { cursor?: string } | { day?: string }
 declare const reservedMealQuerySchema: StandardSchemaV1<ReservedMealFilters, ReservedMealFilters>
-const reservedFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: reservedMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof reservedFilteredMeals>>().toEqualTypeOf<{ day?: string }>()
-
 declare const limitMealQuerySchema: StandardSchemaV1<{ limit?: string }, { limit?: string }>
-const limitFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: limitMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof limitFilteredMeals>>().toEqualTypeOf<never>()
-
 interface ReadonlyMealFilters {
   tags?: string | readonly string[]
 }
 
 declare const readonlyMealQuerySchema: StandardSchemaV1<ReadonlyMealFilters, ReadonlyMealFilters>
-const readonlyFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: readonlyMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof readonlyFilteredMeals>>().toEqualTypeOf<ReadonlyMealFilters>()
-
 interface DuplicateMealFilters {
   tags?: string | readonly [string, string, ...string[]]
 }
 
 declare const duplicateMealQuerySchema: StandardSchemaV1<DuplicateMealFilters, DuplicateMealFilters>
-const duplicateFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: duplicateMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof duplicateFilteredMeals>>().toEqualTypeOf<DuplicateMealFilters>()
-
 interface ReadonlyOnlyMealFilters {
   tags?: readonly string[]
 }
 
 declare const readonlyOnlyMealQuerySchema: StandardSchemaV1<ReadonlyOnlyMealFilters, ReadonlyOnlyMealFilters>
-const readonlyOnlyFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: readonlyOnlyMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof readonlyOnlyFilteredMeals>>().toEqualTypeOf<never>()
-
 interface TupleMealFilters {
   tags?: string | readonly [string]
 }
 
 declare const tupleMealQuerySchema: StandardSchemaV1<TupleMealFilters, TupleMealFilters>
-const tupleFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: tupleMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof tupleFilteredMeals>>().toEqualTypeOf<never>()
-
 interface FixedTupleMealFilters {
   tags?: string | readonly [string, string]
 }
 
 declare const fixedTupleMealQuerySchema: StandardSchemaV1<FixedTupleMealFilters, FixedTupleMealFilters>
-const fixedTupleFilteredMeals = defineCollection({
-  source: table({
-    db,
-    orderBy: {
-      column: schema.meals.createdAt,
-      direction: "desc",
-      tieBreaker: schema.meals.id,
-    },
-    querySchema: fixedTupleMealQuerySchema,
-    table: schema.meals,
-  }),
-})
-expectTypeOf<CollectionQuery<typeof fixedTupleFilteredMeals>>().toEqualTypeOf<never>()
 
-// Generated Collection routes pass Auth's guard. The page handler runs only inside it.
-expectTypeOf(withAuthorization).toMatchTypeOf<CollectionAuthorizationGuard>()
-defineCollectionHandler(privateMeals, { withAuthorization })
-// @ts-expect-error The old option returned `Response | undefined` and let the page load after a missed check.
-defineCollectionHandler(privateMeals, { authorizeRequest: async () => undefined })
+describe("vite-hub public types", () => {
+  it("type checks", () => {
+    expectTypeOf(vitehub).toBeFunction()
+    vitehub({ preset: "node", rateLimit: true })
+    vitehub({ email: { driver: "resend" }, preset: "node" })
+    vitehub({ email: true, preset: "cloudflare" })
+    vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
+    vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
+    // @ts-expect-error Every environment chooses Console access explicitly.
+    vitehub({ console: true, preset: "node" })
+    // @ts-expect-error console.auth is required.
+    vitehub({ console: {}, preset: "node" })
+    vitehub({ console: false, preset: "node" })
+    vitehub({ console: { auth: false }, preset: "node" })
+    vitehub({ auth: true, console: { auth: "app" }, preset: "node" })
+    vitehub({ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }, preset: "node" })
+    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, preset: "node" })
+    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, preset: "node" })
+    vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: false }, preset: "node" })
+    vitehub({ console: { auth: { provider: "github", allowedEmails: ["maintainer@example.com"] }, authorize: "server/console-authorize.ts" }, preset: "node" })
+    // @ts-expect-error console.authorize is a server file path, not an inline function.
+    vitehub({ console: { auth: false, authorize: () => true }, preset: "node" })
+    vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+    vitehub({ console: { auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
+    // @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
+    vitehub({ console: { auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
+    // @ts-expect-error Access settings are strings or Env declarations.
+    vitehub({ console: { auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
+    // @ts-expect-error The old access and exposure keys are removed.
+    vitehub({ console: { access: "auth" }, preset: "node" })
+    // @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.
+    vitehub({ console: { auth: "public" }, preset: "node" })
+    expectTypeOf<ConsoleAgentInvocationInput["prompt"]>().toBeString()
+    const consoleInput: ConsoleAgentInvocationInput = { prompt: "Follow up", messages: [createMessage({ role: "user", text: "Earlier question" })] }
+    expectTypeOf<NonNullable<typeof consoleInput.messages>[number]["role"]>().toEqualTypeOf<"user" | "assistant">()
+    expectTypeOf(createMessage({ role: "user", text: "Earlier question" }).role).toEqualTypeOf<"user">()
+    expectTypeOf(defineAgent).toBeFunction()
+    expectTypeOf(email).toBeFunction()
+    expectTypeOf(env).toBeFunction()
+    expectTypeOf(requireRateLimit).toBeFunction()
+    expectTypeOf(defineWorkspace).toBeFunction()
+    expectTypeOf(defineWorkflow).toBeFunction()
+
+    const checkpointOptions: HistoryCheckpointOptions = { message: "save draft" }
+    expectTypeOf(history.checkpoint(checkpointOptions)).toEqualTypeOf<Promise<HistoryCheckpoint>>()
+
+    const { db, schema } = useDatabase("typed")
+    const meals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        table: schema.meals,
+        where({ query, table }) {
+          expectTypeOf(query).toEqualTypeOf<CollectionRequestQuery>()
+          expectTypeOf(table).toEqualTypeOf<typeof databaseSchema.meals>()
+          return undefined
+        },
+      }),
+      transform(row) {
+        expectTypeOf(row).toEqualTypeOf<typeof databaseSchema.meals.$inferSelect>()
+        return { id: row.id }
+      },
+    })
+    expectTypeOf<CollectionItem<typeof meals>>().toEqualTypeOf<{ id: string }>()
+
+    const privateMeals = defineCollection({
+      authorize: ({ user }) => {
+        expectTypeOf(user.id).toBeString()
+        return true
+      },
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        table: schema.meals,
+      }),
+      transform: row => ({ id: row.id }),
+    })
+    expectTypeOf<CollectionItem<typeof privateMeals>>().toEqualTypeOf<{ id: string }>()
+
+    const filteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: mealQuerySchema,
+        table: schema.meals,
+        where({ query }) {
+          expectTypeOf(query).toEqualTypeOf<{ day?: string }>()
+          return undefined
+        },
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<MealFilters>()
+
+    const searchedMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: transformedMealQuerySchema,
+        table: schema.meals,
+        where({ query }) {
+          expectTypeOf(query).toEqualTypeOf<{ search: string }>()
+          return undefined
+        },
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof searchedMeals>>().toEqualTypeOf<{ q: string }>()
+
+    const reservedFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: reservedMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof reservedFilteredMeals>>().toEqualTypeOf<{ day?: string }>()
+
+    const limitFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: limitMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof limitFilteredMeals>>().toEqualTypeOf<never>()
+
+    const readonlyFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: readonlyMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof readonlyFilteredMeals>>().toEqualTypeOf<ReadonlyMealFilters>()
+
+    const duplicateFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: duplicateMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof duplicateFilteredMeals>>().toEqualTypeOf<DuplicateMealFilters>()
+
+    const readonlyOnlyFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: readonlyOnlyMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof readonlyOnlyFilteredMeals>>().toEqualTypeOf<never>()
+
+    const tupleFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: tupleMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof tupleFilteredMeals>>().toEqualTypeOf<never>()
+
+    const fixedTupleFilteredMeals = defineCollection({
+      source: table({
+        db,
+        orderBy: {
+          column: schema.meals.createdAt,
+          direction: "desc",
+          tieBreaker: schema.meals.id,
+        },
+        querySchema: fixedTupleMealQuerySchema,
+        table: schema.meals,
+      }),
+    })
+    expectTypeOf<CollectionQuery<typeof fixedTupleFilteredMeals>>().toEqualTypeOf<never>()
+
+    // Generated Collection routes pass Auth's guard. The page handler runs only inside it.
+    expectTypeOf(withAuthorization).toMatchTypeOf<CollectionAuthorizationGuard>()
+    defineCollectionHandler(privateMeals, { withAuthorization })
+    // @ts-expect-error The old option returned `Response | undefined` and let the page load after a missed check.
+    defineCollectionHandler(privateMeals, { authorizeRequest: async () => undefined })
+  })
+})

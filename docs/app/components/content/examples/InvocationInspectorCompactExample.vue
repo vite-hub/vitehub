@@ -1,53 +1,31 @@
 <script setup lang="ts">
-import type { AgentInvocationView } from "@vite-hub/ui";
-import { ref } from "vue";
+import type { AgentInvocationView } from "vite-hub/console/ui";
 
-const open = ref(true);
 const invocation: AgentInvocationView = {
-  agentName: "support",
+  agentName: "reviewer",
   configuration: {
-    agent: { name: "support" },
-    capabilities: [{ id: "orders" }],
-    driver: { kind: "model", model: { id: "gpt-5.6", provider: "openai" } },
-    runtime: { name: "cloudflare" },
+    agent: { name: "reviewer", version: "1.0.0" },
+    driver: { kind: "provider", model: { id: "gpt-5.6", provider: "openai" }, provider: "codex" },
+    runtime: { name: "node" },
+    tools: [{ name: "exec_command", label: "Run command", icon: "i-lucide-terminal" }],
+    workspace: { mode: "write", name: "vitehub", sources: ["repository"] },
   },
-  completedAt: "2026-08-23T10:00:18.000Z",
-  createdAt: "2026-08-23T10:00:00.000Z",
-  id: "ainv_refund_question",
-  observations: [],
-  startedAt: "2026-08-23T10:00:01.000Z",
+  createdAt: "2026-08-30T15:00:00.000Z",
+  id: "ainv_inspector_example",
+  observations: [
+    { attributes: { "message.content": "Review the navigation changes.", "message.role": "user" }, name: "agent.message.recorded", sequence: 1, timestamp: "2026-08-30T15:00:01.000Z", trace: { id: "trace_inspector_example" }, type: "run" },
+    { attributes: { "tool.name": "exec_command", "tool.output": { exitCode: 0, command: "pnpm test" } }, name: "agent.tool.finish", sequence: 2, timestamp: "2026-08-30T15:00:12.000Z", trace: { id: "trace_inspector_example" }, type: "run" },
+  ],
+  startedAt: "2026-08-30T15:00:01.000Z",
   status: "completed",
-  title: "Answer refund question",
-  traceId: "trace_refund_question",
-  updatedAt: "2026-08-23T10:00:18.000Z",
-  usage: { totalTokens: 3_210, cost: { display: "$0.004", estimated: true } },
+  title: "Review navigation changes",
+  traceId: "trace_inspector_example",
+  updatedAt: "2026-08-30T15:00:14.000Z",
 };
 </script>
 
 <template>
-  <div class="mx-auto h-[30rem] max-w-md bg-default">
-    <AgentInvocationInspector
-      v-if="open"
-      :invocation="invocation"
-      :show-timeline="false"
-      class="h-full border-x border-default"
-    >
-      <template #actions>
-        <UButton
-          icon="i-lucide-x"
-          aria-label="Close details"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          @click="open = false"
-        />
-      </template>
-      <template #metadata>
-        <section class="px-4 py-3 text-xs text-muted">Region: eu-west-1</section>
-      </template>
-    </AgentInvocationInspector>
-    <div v-else class="grid h-full place-items-center border-x border-default">
-      <UButton label="Show details" color="neutral" variant="outline" size="sm" @click="open = true" />
-    </div>
+  <div class="mx-auto h-[36rem] min-w-0 bg-default">
+    <AgentInvocationInspector :invocation="invocation" :show-timeline="false" show-capabilities class="h-full border-x border-default" />
   </div>
 </template>

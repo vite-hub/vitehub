@@ -10,7 +10,7 @@ icon: i-lucide-tags
 
 ```ts [server/agents/inbox.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { labeller } from 'vite-hub/agent/presets/labeller'
+import { labeller } from 'vite-hub/presets/labeller'
 
 export default defineAgent({
   extends: labeller,

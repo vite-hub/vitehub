@@ -53,15 +53,16 @@ export default defineSchedule({
 })
 ```
 
-Cron expressions use the Schedule Time Base, currently UTC. The discovered file name provides the Static Schedule Definition identity.
+Cron expressions use UTC unless the definition sets `timeZone`. The discovered file name provides the Static Schedule Definition identity.
 
 ## Schedule Definition options
 
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
-| `cron` | `string` | Yes | Five-field UTC cron expression for the Static Schedule Definition. |
+| `cron` | `string` | Yes | Five-field cron expression, evaluated in `timeZone`. |
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `manual` | `boolean` | No | Allows `vitehub schedule run` and Console invocation to run this definition outside its cron. |
+| `timeZone` | `string` | No | IANA time zone of `cron`, such as `Europe/Madrid`. Defaults to `UTC`. Requires the process driver. |
 
 Set `manual: true` to enable on-demand runs for a Static Schedule Definition:
 
@@ -74,6 +75,26 @@ export default defineSchedule({
   },
 })
 ```
+
+## Run a static schedule in a time zone
+
+Set `timeZone` when the cron must follow local clock time:
+
+```ts [server/schedules/morning-brief.ts]
+export default defineSchedule({
+  cron: '0 8 * * 1-5',
+  timeZone: 'Europe/Madrid',
+  async handler(context) {
+    await sendMorningBrief(context.scheduledAt)
+  },
+})
+```
+
+This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. Write `timeZone` as a string literal, because the build and the Console read it from the source file. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
+
+Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule sets a `timeZone` other than `UTC`. Remove `timeZone` and write the cron in UTC, or use the process driver.
+
+On daylight saving time changes, a local time that does not exist does not run that day. For example, `30 2 * * *` in `Europe/Madrid` does not run on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 
 Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`; deployments can invoke the same definition through the Console.
 

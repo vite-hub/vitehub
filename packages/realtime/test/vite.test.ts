@@ -104,7 +104,7 @@ describe("hubRealtime", () => {
     const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
 
     await expect(hook(config, { command: "build" }))
-      .rejects.toThrow("require one room authority")
+      .rejects.toMatchObject({ code: "REALTIME_MISSING_AUTHORITY" })
   })
 
   it.each(["https://cdn.example.com/assets/", "//cdn.example.com/assets/", "./"])(
@@ -138,7 +138,7 @@ describe("hubRealtime", () => {
     const config = { root, nitro: { preset: "node-server" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
 
-    await expect(hook(config)).rejects.toThrow("conflicts with the node deployment preset")
+    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the node deployment preset") })
     expect(config.nitro.preset).toBe("node-server")
   })
 
@@ -168,7 +168,7 @@ describe("hubRealtime", () => {
     const config = { root, nitro: { preset: "deno-deploy" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
 
-    await expect(hook(config)).rejects.toThrow("cannot use the deno deployment preset")
+    await expect(hook(config)).rejects.toMatchObject({ code: "REALTIME_AUTHORITY_CONFLICT", why: expect.stringContaining("the deno deployment preset") })
   })
   it.each([
     { name: "Cloudflare", nitro: { preset: "cloudflare" }, command: "build", options: {}, authority: "cloudflare" },

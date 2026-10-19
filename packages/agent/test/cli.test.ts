@@ -341,6 +341,44 @@ describe("agent CLI", () => {
     }
   })
 
+  it("signs hmac-sha256 Channel history requests with the preset options", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-hmac-"))
+    const secretToken = Buffer.from("airtable-mac-secret").toString("base64")
+    const signature = { encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" } as const
+    const registration = { id: "airtable", provider: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature }
+    let verified: unknown
+    try {
+      const exitCode = await runAgentChannelHistoryCli([
+        "--stage", "production",
+        "--url", "https://example.com",
+        "--output", "export",
+        "--thread", "airtable:123",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir: "/repo",
+        stderr: stream(),
+        stdout: stream(),
+      }, {
+        fetch: async (input, init) => {
+          if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "airtable" }, status: 204 })
+          verified = await verifyAgentWebhookRequest([registration], new Request(String(input), init))
+          return Response.json({ messages: [], schemaVersion: 1, threadId: "airtable:123" })
+        },
+        loadTargets: async () => [{ agent: "support", channel: "airtable", mode: "webhook" as const, provider: "airtable", registration }],
+      })
+
+      expect(exitCode).toBe(0)
+      expect(verified).toMatchObject({ verified: true })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(channelRegistration("support", { kind: "http", webhooks: { id: "airtable", secretHeader: "x-airtable-content-mac", secretToken, signature } } as never, {}, "airtable"))
+        .resolves.toMatchObject({ signature })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("selects a webhook registration for Channel history", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-webhook-"))
     const loadTargets = vi.fn(async () => [{

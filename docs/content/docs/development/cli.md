@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `box`, and the CLI includes the built-in `inspect` and `provision` namespaces. `box` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -43,13 +43,14 @@ Available namespaces:
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
+  secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
   schedule    Run Static Schedule Definitions and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   types       Generate ViteHub TypeScript declarations.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
-  box         Serve and check an SSH Box runner. Does not load the project config.
+  sandbox         Serve and check an SSH Sandbox runner. Does not load the project config.
 ```
 
 ## Commands
@@ -59,7 +60,7 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
-| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
+| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
 | `vitehub blob get` | Available | Blob Package | Download one blob to a file or to stdout, byte for byte. |
@@ -72,6 +73,8 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
+| `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear messages captured by a running Vite + Nitro Development Server. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template locally without sending it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
@@ -84,8 +87,8 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
-| `vitehub box check` | Available | Box Package | Start the provider Driver through the SSH runner and report readiness. |
-| `vitehub box serve` | Available | Box Package | Serve authenticated SSH commands from this machine. |
+| `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
+| `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
 | `vitehub workflow get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
@@ -156,6 +159,15 @@ pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
+
+## Generate and derive secrets
+
+```bash [Terminal]
+pnpm vitehub secret generate
+VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+```
+
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
 
 ## Inspect Definitions and Provider Output
 

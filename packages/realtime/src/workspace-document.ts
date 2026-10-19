@@ -109,7 +109,7 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       }
       // Workspace hooks may normalize the file; the room merges the stored form.
       const written = await readRealtimeWorkspaceDocument(workspace, workspace, documentId)
-      if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime saves require Workspace file digests." })
+      if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "save" })
       return { digest: written.baselineDigest, stored: { body: written.markdown } }
     },
     async checkpoint({ documentId }, { digest, message }): Promise<WorkspaceSnapshot> {

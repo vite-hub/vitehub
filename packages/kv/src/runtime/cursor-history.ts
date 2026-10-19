@@ -1,3 +1,5 @@
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+
 const MAX_CURSOR_HISTORIES = 1_024
 const MAX_CURSORS_PER_HISTORY = 1_024
 const MAX_CURSOR_LENGTH = 8 * 1_024
@@ -54,18 +56,18 @@ export function createCursorHistory(namespace = "default") {
   function take(cursor: string, requestedNamespace = namespace): Continuation {
     const continuation = continuations.get(cursor)
     if (continuation && continuation.namespace !== requestedNamespace) {
-      throw new Error("ViteHub continuation cursor belongs to a different storage backend.")
+      throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "foreign" })
     }
     if (!continuation) {
       if (consumedContinuations.has(cursor)) {
-        throw new Error("ViteHub continuation cursor is already in use.")
+        throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "in-use" })
       }
       if (invalidatedContinuations.has(cursor)) {
-        throw new Error("ViteHub continuation cursor has expired.")
+        throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
       }
       // A prefix alone does not identify a portable token: providers own opaque cursors.
       if (cursor.length > MAX_CURSOR_LENGTH) {
-        throw new Error("ViteHub continuation cursor is invalid or exceeds the maximum size.")
+        throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
       }
       return { providerCursor: cursor, history: new Set([cursor]), epoch, namespace }
     }

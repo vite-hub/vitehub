@@ -1,3 +1,5 @@
+import { ownSourceOption } from "./runtime-options.ts"
+
 import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
@@ -692,11 +694,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
         if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
-        const startBoxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-box-session"))
+        const startSandboxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-sandbox-session"))
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
-          : typeof startBoxSession === "function"
-          ? await (startBoxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
+          : typeof startSandboxSession === "function"
+          ? await (startSandboxSession as (target: Workspace, options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>)(writeWorkspace, options)
           : await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
         return withSessionSourceGuards(session)
       },
@@ -887,16 +889,17 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" 
   input: Record<string, unknown>,
   key: TKey,
 ) {
-  if (input[key] !== undefined) {
+  if (Object.hasOwn(input, key) && input[key] !== undefined) {
     target[key] = input[key] as never
   }
 }
 
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
-  if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
+  const mount = ownSourceOption(source, "mount")
+  if (ownSourceOption(source, "materialize") || mount && typeof mount === "object" && ownSourceOption(mount, "materialize")) {
     return source
   }
-  if (source.sync) return source
+  if (ownSourceOption(source, "sync")) return source
   return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
 }
 

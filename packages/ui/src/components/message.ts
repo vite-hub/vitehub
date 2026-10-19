@@ -7,6 +7,7 @@ export const MessageGroup = slotPart("MessageGroup", "message-group");
 
 export const Message = defineComponent({
   name: "Message",
+  inheritAttrs: false,
   props: {
     align: { default: "start", type: String as PropType<MessageAlign> },
   },

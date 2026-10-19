@@ -1,9 +1,74 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { createChannel, defineOutboundChannel, useChannel } from "../src/index.ts"
 import { setChannelRuntimeRegistry } from "../src/runtime/state.ts"
 
 describe("createChannel", () => {
+  it("preserves provider errors from another realm", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const failure = runInNewContext("Object.assign(new Error('provider unavailable'), { code: 'RATE_LIMIT', cause: new Error('quota reached') })")
+    expect(failure).not.toBeInstanceOf(Error)
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBe(failure)
+      expect(receipt).toBeNull()
+      expect(info).toHaveBeenLastCalledWith(expect.stringContaining('"error":"provider unavailable"'))
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
+
+  it("wraps objects that spoof the Error brand", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const failure = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBe(failure)
+      expect(receipt).toBeNull()
+    }
+    finally {
+      info.mockRestore()
+    }
+  })
+
+  it("rejects spoofed errors when native Error branding is unavailable", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    class SpoofedError {
+      message = "spoofed"
+    }
+    const failure = new SpoofedError()
+    Object.defineProperty(failure, Symbol.toStringTag, { configurable: true, value: "Error" })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const channel = createChannel("alerts", {
+        connectors: { configured: { send: async () => { throw failure } } },
+      })
+
+      const [error, receipt] = await channel.send("Build finished.", { connector: "configured" })
+      expect(error).toBeInstanceOf(Error)
+      expect(error).not.toBe(failure)
+      expect(receipt).toBeNull()
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+      info.mockRestore()
+    }
+  })
+
   it("dispatches non-array options with length through a union-shaped connector", async () => {
     const send = vi.fn((_text: string, _options: { destination: string, length: number } | readonly string[]) => ({ id: "accepted" }))
     const channel = createChannel("union", { connectors: { configured: { send } }, defaultConnector: "configured" })

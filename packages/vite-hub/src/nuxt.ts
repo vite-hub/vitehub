@@ -19,13 +19,15 @@ import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
+import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub } from "./index.ts"
+import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { installConsoleInvocations } from "./console/runtime/server/invocations.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
-import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
+import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
@@ -36,7 +38,7 @@ import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsole
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
@@ -175,7 +177,7 @@ const nitroRuntimeResolverNames = new Set([
 
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
-  "@vite-hub/sandbox/vite",
+  "@vite-hub/sandbox-task/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -320,7 +322,7 @@ async function installConsole(
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   journal?: ConsoleJournal,
   independentAuth: ConsoleAuthMode | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
@@ -335,6 +337,7 @@ async function installConsole(
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
+  assertConsoleRetention(retention, journal)
   if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined, journal && "d1Binding" in journal ? { binding: journal.d1Binding, env: async () => {
     const workers = await import("cloudflare:workers")
     // SAFETY: Cloudflare's Workers module exposes its runtime bindings through the documented env export.
@@ -667,7 +670,7 @@ async function applyNitroConfig(
     queue?: QueueModuleOptions
     rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
     schedule?: Parameters<typeof vitehub>[0]["schedule"]
-    sandbox?: Parameters<typeof vitehub>[0]["sandbox"]
+    sandboxTask?: Parameters<typeof vitehub>[0]["sandboxTask"]
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
@@ -762,16 +765,19 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOp
   return kvPlugin?.api?.getConfig?.().kv ?? (configured === undefined ? false : resolveKVViteConfig(configured).kv)
 }
 
+/** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
-  (inlineOptions: ViteHubNuxtOptions | undefined, nuxt?: NuxtLike): Promise<void>
-  getMeta: () => {
+  (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
+  getMeta: () => Promise<{
     configKey: "vitehub"
     name: "vite-hub/nuxt"
-  }
+  }>
 }
 
-const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxt): Promise<void> {
-  if (!nuxt) return
+const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
+  if (!nuxtInstance) return
+  // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
+  const nuxt = nuxtInstance as NuxtLike
   // Nuxt does not run the Vite Doctor plugin, so `vite-doctor/nuxt` receives the extension through its hook.
   if (nuxt.hook) {
     Reflect.apply(nuxt.hook, nuxt, ["doctor:extendExtensions", (entries: string[]) => {
@@ -790,11 +796,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envOptions = configuredEnv && typeof configuredEnv === "object"
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
-  const options = withDataDir({
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const projectRoot = resolveViteHubProjectRoot(rootDir)
+  // The Content cms preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
+  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0])
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
@@ -803,8 +812,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
   const plan = resolveDeploymentPlan(options.preset)
-  const rootDir = nuxt.options.rootDir || process.cwd()
-  const projectRoot = resolveViteHubProjectRoot(rootDir)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,
@@ -863,7 +870,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     preset: plan.preset,
     queue: effectiveQueue,
-    sandbox: options.sandbox === true && plan.services.sandbox.supported,
+    sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
     workflow: effectiveWorkflow,
   })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
@@ -981,6 +988,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+    // Nuxt runs its own Nitro.
+    .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
@@ -1189,7 +1198,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     consoleWorkflowConfigResolved = true
     if (options.console) {
       const configuredConsoleAuth = consoleAuthConfig(options.console)
-      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
+      const resolvedConsoleAuthBase = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
+      const developmentSecretEnvKey = (replayConfig as typeof replayConfig & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey
+      const resolvedConsoleAuth = resolvedConsoleAuthBase && "provider" in resolvedConsoleAuthBase && resolvedConsoleAuthBase.provider === "github"
+        ? { ...resolvedConsoleAuthBase, developmentSecretEnvKey }
+        : resolvedConsoleAuthBase
       if (resolvedConsoleAuth && registeredConsoleAuthMode(configuredConsoleAuth, Boolean(nuxt.options.dev))) {
         const authConfig = resolvedConsoleAuth
         let authHandlers = await writeConsoleAuthHandlers(viteRoot, authConfig, nuxt.options.app?.baseURL ?? "/")
@@ -1275,7 +1288,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : replayConfig.queue ?? effectiveQueue,
-        sandbox: Boolean(replayConfig.sandbox ?? options.sandbox) && plan.services.sandbox.supported,
+        sandboxTask: Boolean(replayConfig.sandboxTask ?? options.sandboxTask) && plan.services.sandbox.supported,
         workspace: replayConfig.workspace ?? options.workspace,
         workflow: replayConfig.workflow ?? options.workflow,
       })
@@ -1427,7 +1440,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
 }
 
-viteHubNuxtModule.getMeta = () => ({
+viteHubNuxtModule.getMeta = async () => ({
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })

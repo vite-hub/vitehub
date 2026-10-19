@@ -1,3 +1,5 @@
+import type { Result } from "@vite-hub/runtime"
+
 export type QueueProvider = "cloudflare" | "vercel"
 
 type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
@@ -167,20 +169,39 @@ export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
   payload: TPayload
 }
 
-interface QueueClientBase<P extends QueueProvider = QueueProvider, TPayload = unknown> {
+/** Codes that Queue operations return in the `[error, data]` tuple. Config errors throw instead. */
+export type QueueErrorCode =
+  | "QUEUE_PROVIDER_FAILED"
+  | "QUEUE_PROVIDER_INVALID_RESPONSE"
+  | "QUEUE_UNSUPPORTED_OPTION"
+
+/** Codes that `send()` and `sendBatch()` of a Cloudflare QueueClient return. */
+export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+
+/** Codes that `send()` of a Vercel QueueClient returns. */
+export type VercelQueueErrorCode = QueueErrorCode
+
+interface QueueClientBase<P extends QueueProvider = QueueProvider> {
   readonly native: unknown
   readonly provider: P
-  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<QueueSendResult>
 }
 
-export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBase<"cloudflare", TPayload> {
+/**
+ * `send()` and `sendBatch()` return `[error, data]`. `error.code` is one of the codes in the method type.
+ */
+export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBase<"cloudflare"> {
   readonly binding: CloudflareQueueBinding
   createBatchHandler: <TMessage = unknown>(options: CloudflareQueueBatchHandlerOptions<TMessage>) => (batch: CloudflareQueueMessageBatch<TMessage>) => Promise<void>
-  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: Omit<QueueEnqueueOptions, "id">) => Promise<QueueSendResult[]>
+  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, CloudflareQueueErrorCode>>
+  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: Omit<QueueEnqueueOptions, "id">) => Promise<Result<QueueSendResult[], CloudflareQueueErrorCode>>
 }
 
-export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"vercel", TPayload> {
+/**
+ * `send()` returns `[error, data]`. `error.code` is one of the codes in the method type.
+ */
+export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"vercel"> {
   readonly topic: string
+  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, VercelQueueErrorCode>>
   callback: <TMessage = unknown>(handler: VercelQueueMessageHandler<TMessage>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
 }
 

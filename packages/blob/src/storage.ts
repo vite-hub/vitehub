@@ -2,6 +2,7 @@ import { handleCacheHeaders, type H3Event } from "h3"
 import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
@@ -67,7 +68,7 @@ async function hashBlob(body: Blob): Promise<string> {
 }
 
 async function derivedCachePrefix(pathname: string): Promise<string> {
-  return `_vitehub/derived/${await hashCacheKey(pathname)}/`
+  return `${vitehubOwnedPrefix}derived/${await hashCacheKey(pathname)}/`
 }
 
 async function readDerived(cache: Blob | null, fingerprint: string): Promise<Blob | null> {

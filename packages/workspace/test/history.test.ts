@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -22,6 +22,7 @@ import { createCloudflareD1HttpResolver } from "../../database/src/runtime/d1-ht
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { sha256 } from "../src/core/path.ts"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -208,6 +209,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(otherRevision.metadata).toEqual({ source: ["raw-store"] })
     expect(uploads).toHaveBeenCalledTimes(3)
     expect(uploads.mock.calls.map(([key]) => key)).toEqual(expect.arrayContaining([expect.stringMatching(/\/sha256\/[a-f0-9]{64}$/)]))
+    expect(uploads.mock.calls.every(([key]) => String(key).startsWith("_vitehub/workspace-history/"))).toBe(true)
     await store.delete()
     expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
     expect(await store.history.list()).toEqual({ revisions: [] })
@@ -787,5 +789,39 @@ describe("history policy and capabilities", () => {
     const first = await commit([grant], options)
     await expect(commit([], { ifHead: first.id, files: {} })).rejects.toThrow("requires a Source write grant")
     expect(await store.history.head()).toEqual(first)
+  })
+})
+
+describe("retained history Blob prefix", () => {
+  it("continues using an existing legacy workspace identity after upgrade", async () => {
+    const { blob, database, uploads } = await setup("libsql", "legacy-doc")
+    const digest = await sha256("legacy-doc")
+    const legacy = `vitehub/workspace-history/${digest}`
+    await database.insert(workspaceHistorySchema.workspaceHistoryWorkspaces).values({ workspace: legacy })
+    const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "legacy" }) })
+    expect(uploads.mock.calls[0]?.[0]).toMatch(new RegExp(`^${legacy.replaceAll("/", "\\/")}/sha256/`))
+    const [current] = await database.select().from(workspaceHistorySchema.workspaceHistoryWorkspaces)
+      .where(eq(workspaceHistorySchema.workspaceHistoryWorkspaces.workspace, `_vitehub/workspace-history/${digest}`))
+    expect(current).toBeUndefined()
+    const restarted = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    expect(await restarted.history.head()).toMatchObject({ id: expect.any(String) })
+  })
+
+  it("nests a custom prefix under the ViteHub-owned history root", async () => {
+    const { blob, database, uploads } = await setup("libsql")
+    const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix: "handbook" })
+    await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "handbook" }) })
+    const keys = uploads.mock.calls.map(([key]) => String(key))
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
+    const [error, listed] = await blob.list()
+    expect(error).toBeNull()
+    expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)
+  })
+
+  it.each(["", "/handbook", "handbook/", "../handbook", "hand//book", "hand.book"])("rejects prefix %j", async (prefix) => {
+    const { blob, database } = await setup("libsql")
+    expect(() => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix })).toThrow("History Blob prefix")
   })
 })

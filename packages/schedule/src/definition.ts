@@ -1,9 +1,12 @@
-import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler } from "./types.ts"
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+
+import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["manual", "cron", "handler"])
-const scheduleOptionsKeys = new Set(["manual"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler", "timeZone"])
+const scheduleTargetDefinitionKeys = new Set(["handler"])
+const scheduleOptionsKeys = new Set(["allowRuntimeSchedules", "manual", "timeZone"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -27,7 +30,7 @@ function validateCron(cron: string): void {
 
   const fields = cron.split(/\s+/)
   if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field))) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0002({ message: "`defineSchedule()` cron must be a five-field UTC cron expression." })
+    throw scheduleErrorDiagnostics.SCHEDULE_C0002({ message: "`defineSchedule()` cron must be a five-field cron expression." })
   }
 }
 
@@ -66,12 +69,41 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
   }
 
+  if (input.timeZone !== undefined && !isIanaTimeZone(input.timeZone)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` timeZone must be an IANA time zone, such as \"Europe/Madrid\"." })
+  }
+
   const definition: ScheduleDefinition<TResult> = {
     cron: input.cron,
     handler: input.handler,
   }
+  if (input.timeZone !== undefined) {
+    definition.timeZone = input.timeZone
+  }
+  const definitionOptions: ScheduleDefinitionOptions = {}
+  if (typeof input.allowRuntimeSchedules !== "undefined") {
+    definitionOptions.allowRuntimeSchedules = input.allowRuntimeSchedules
+  }
   if (input.manual !== undefined) {
-    definition.options = { manual: input.manual }
+    definitionOptions.manual = input.manual
+  }
+  if (Object.keys(definitionOptions).length > 0) {
+    definition.options = definitionOptions
   }
   return definition
+}
+
+export function defineScheduleTarget<TInput = unknown, TResult = unknown>(input: ScheduleTargetDefinitionInput<TInput, TResult>): ScheduleTargetDefinition<TInput, TResult> {
+  if (!isPlainObject(input)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineScheduleTarget()` expects an object with `handler`." })
+  }
+  assertOwnDefinitionFields(input, scheduleTargetDefinitionKeys, "`defineScheduleTarget()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
+  const unknownKey = Object.keys(input).find(key => !scheduleTargetDefinitionKeys.has(key))
+  if (unknownKey) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: `\`defineScheduleTarget()\` does not support the "${unknownKey}" option.` })
+  }
+  if (typeof input.handler !== "function") {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineScheduleTarget()` requires a schedule handler." })
+  }
+  return { handler: input.handler, options: { allowRuntimeSchedules: true } }
 }

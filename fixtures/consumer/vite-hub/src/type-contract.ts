@@ -11,7 +11,7 @@ import * as agentEval from "vite-hub/agent/eval"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import * as authAgent from "vite-hub/auth/agent"
-import { resolveBox } from "vite-hub/box"
+import { resolveSandbox } from "vite-hub/sandbox"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
@@ -29,7 +29,7 @@ export const contract = {
     driver: { run: () => ({ text: "typed" }) },
   }),
   builtInAgent: defineAgent({ driver: "codex", runtime: false }),
-  box: resolveBox({ runtime: "trusted-host" }, {}),
+  sandbox: resolveSandbox({ runtime: "trusted-host" }, {}),
   env: env({ default: "typed" }),
   extensions: [
     agentCloudflare,

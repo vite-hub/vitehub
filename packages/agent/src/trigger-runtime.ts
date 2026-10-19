@@ -25,13 +25,17 @@ import type {
   AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentTriggerAcceptedInvocation,
+  AgentTriggerDefinition,
   AgentTriggerInvokeResult,
+  AgentTriggerPrepareResult,
   AgentTriggerRunInvokeResult,
   AgentWebhookInvocationOwnership,
   AgentWebhookRegistrationDefinition,
   MaybePromise,
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
+  ResolvedAgentTriggerTask,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
@@ -39,6 +43,8 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { createAgentChannelState } from "./internal/channel-state.ts"
+import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 
 export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
   if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
@@ -197,34 +203,88 @@ function capabilityWebhookTriggerForChannel<TRuntimeConfig extends AgentRuntimeC
   return triggers[`${channelId}.webhook`] || (kind !== channelId ? triggers[`${kind}.webhook`] : undefined)
 }
 
+interface AgentTriggerResolutionOptions {
+  /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
+  channelStateCommit?: AgentChannelStateCommit
+  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
+}
+/** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
+function bindAgentTriggerCallbacks<TContext>(
+  id: string,
+  trigger: Pick<AgentTriggerDefinition<AgentRuntimeConfig, WorkspaceName, unknown, unknown, never>, "prepare" | "tasks">,
+  context: TContext,
+): Pick<ResolvedAgentTriggerDefinition, "prepare" | "tasks"> {
+  // SAFETY: The trigger definition declares its callbacks for this trigger's context type.
+  const prepare = trigger.prepare as ((context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>) | undefined
+  const bound: Pick<ResolvedAgentTriggerDefinition, "prepare" | "tasks"> = {}
+  if (prepare !== undefined) {
+    if (!isRuntimeFunction(prepare)) throw new TypeError(`[vitehub] Trigger "${id}" prepare must be a function.`)
+    bound.prepare = invocation => prepare(context, invocation)
+  }
+  if (trigger.tasks === undefined) return bound
+  if (!isRuntimeRecord(trigger.tasks)) throw new TypeError(`[vitehub] Trigger "${id}" tasks must be an object of named tasks.`)
+  const tasks: Record<string, ResolvedAgentTriggerTask> = {}
+  for (const [name, task] of Object.entries(trigger.tasks)) {
+    if (!isRuntimeRecord(task)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" must be an object.`)
+    if ((task.agent === undefined) === (task.run === undefined)) {
+      throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" must declare exactly one of agent or run.`)
+    }
+    const agentName: unknown = isRuntimeRecord(task.agent) ? task.agent.name : undefined
+    if (task.agent !== undefined && !(hasAgentDefinition(task.agent) && isRuntimeString(agentName) && agentName.trim())) {
+      throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" needs an Agent with a stable non-empty name. The webhook queue stores the name with the delivery.`)
+    }
+    if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
+    if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
+    if (task.failed !== undefined && !isRuntimeFunction(task.failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
+    // SAFETY: The checks above validated the task shape that the trigger definition declares for its context type.
+    const { agent, failed, prepare: taskPrepare, run } = task as {
+      agent?: AgentInput
+      failed?: ResolvedAgentTriggerTask["failed"]
+      prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>
+      run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown>
+    }
+    tasks[name] = {
+      ...(agent ? { agent } : {}),
+      ...(failed ? { failed } : {}),
+      ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}),
+      ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}),
+    }
+  }
+  bound.tasks = tasks
+  return bound
+}
+
 export async function resolveAgentTriggers<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
-  queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"],
+  options: AgentTriggerResolutionOptions = {},
 ): Promise<Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>> {
+  const { channelStateCommit, queuedInvocation } = options
   const runtimeContext = createAgentCallbackContext(context)
   const capabilities = normalizeCapabilities(agentCapabilityOptions(agent) as never) as AgentCapabilityDefinition<TRuntimeConfig>[]
   const triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>> = {}
   for (const capability of capabilities) {
     for (const [name, trigger] of Object.entries(capability.triggers || {})) {
       const id = `${capability.id}.${name}` as const
+      const triggerContext = {
+        ...runtimeContext,
+        capability,
+        trigger: {
+          capabilityId: capability.id,
+          id,
+          name,
+          source: "capability" as const,
+        },
+      }
       triggers[id] = {
         capabilityId: capability.id,
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke({
-          ...runtimeContext,
-          capability,
-          trigger: {
-            capabilityId: capability.id,
-            id,
-            name,
-            source: "capability",
-          },
-        }, input as never),
+        invoke: input => trigger.invoke(triggerContext, input as never),
+        ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,
         source: "capability",
@@ -249,27 +309,51 @@ export async function resolveAgentTriggers<
       if (triggers[id]) {
         throw agentDiagnostics.AGENT_R0870({ message: `[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".` })
       }
+      const triggerContext = {
+        ...runtimeContext,
+        agentCapabilities: channelCapabilities,
+        agentName: agent.name || runtimeContext.agentIdentity?.name,
+        channel,
+        ...(queuedInvocation ? { queuedInvocation } : {}),
+        ...(channelState ? { channelState } : {}),
+        dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
+          dispatchAgentChannelItems(agent, context, channelId, items, options),
+        trigger: {
+          channelId,
+          id,
+          name,
+          source: "channel" as const,
+        },
+      }
       triggers[id] = {
         channelId,
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke({
-          ...runtimeContext,
-          agentCapabilities: channelCapabilities,
-          agentName: agent.name || runtimeContext.agentIdentity?.name,
-          channel,
-          ...(queuedInvocation ? { queuedInvocation } : {}),
-          ...(channelState ? { channelState } : {}),
-          dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
-            dispatchAgentChannelItems(agent, context, channelId, items, options),
-          trigger: {
-            channelId,
-            id,
-            name,
-            source: "channel",
-          },
-        } as never, input as never),
+        invoke: (input) => {
+          if (trigger.durableState === true && !channelState) throw agentDiagnostics.AGENT_R1005({ trigger: id })
+          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) =>
+            dispatchAgentChannelItems(agent, context, channelId, items, options)
+          // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
+          const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
+          const triggerContext = {
+            ...runtimeContext,
+            agentCapabilities: channelCapabilities,
+            agentName: agent.name || runtimeContext.agentIdentity?.name,
+            channel,
+            ...(queuedInvocation ? { queuedInvocation } : {}),
+            ...(triggerState ? { channelState: triggerState } : {}),
+            dispatch,
+            trigger: {
+              channelId,
+              id,
+              name,
+              source: "channel",
+            },
+          }
+          return trigger.invoke(triggerContext as never, input as never)
+        },
+        ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,
         source: "channel",
@@ -284,9 +368,13 @@ export interface ResolvedAgentTriggerInvocation<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  /** The Agent of the selected task. Unset when the Agent that owns the trigger runs the input. */
+  agent?: AgentInput
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
+  /** The key of the selected task. */
+  task?: string
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
   webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
@@ -343,16 +431,51 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
+async function hmacSha256Digest(secret: Uint8Array<ArrayBuffer>, value: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const key = await globalThis.crypto.subtle.importKey("raw", secret, { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
+  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, value))
+}
+
+function hexDigest(digest: Uint8Array): string {
+  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  const key = await globalThis.crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"],
-  )
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, value)
-  return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("")
+  return hexDigest(await hmacSha256Digest(new TextEncoder().encode(secret), value))
+}
+
+type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
+
+function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
+  if (signature === "github-sha256") return { preset: "hmac-sha256", prefix: "sha256=" }
+  if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
+  return undefined
+}
+
+/** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
+export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
+  let binary: string
+  try {
+    binary = atob(value)
+  }
+  catch {
+    return undefined
+  }
+  if (!binary.length || btoa(binary).replace(/=+$/, "") !== value.replace(/=+$/, "")) return undefined
+  return Uint8Array.from(binary, character => character.charCodeAt(0))
+}
+
+// Verifies `<prefix><digest>`, where the digest is the HMAC-SHA256 of the raw body in hex or base64.
+async function verifyHmacSignature(signature: HmacSignaturePreset, secret: string, header: string, rawBody: Uint8Array<ArrayBuffer>): Promise<boolean> {
+  const prefix = signature.prefix ?? ""
+  if (!header.startsWith(prefix)) return false
+  const key = signature.secretEncoding === "base64" ? decodeBase64Key(secret) : new TextEncoder().encode(secret)
+  if (!key) return false
+  const digest = await hmacSha256Digest(key, rawBody)
+  const received = header.slice(prefix.length)
+  if (signature.encoding === "base64") return await constantTimeEqual(btoa(String.fromCharCode(...digest)), received)
+  return await constantTimeEqual(hexDigest(digest), received.toLowerCase())
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
@@ -504,10 +627,9 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       }
       continue
     }
-    if (registration.signature === "github-sha256") {
-      const body = (await readRawBody()).buffer
-      const expected = `sha256=${await hmacSha256(secretToken, body)}`
-      if (await constantTimeEqual(expected, headerValue)) {
+    const hmacSignature = hmacSignaturePreset(registration.signature)
+    if (hmacSignature) {
+      if (await verifyHmacSignature(hmacSignature, secretToken, headerValue, await readRawBody())) {
         return { registration, verified: true }
       }
       continue
@@ -579,9 +701,9 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-  options?: { verifyWebhook?: boolean; queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"] },
+  options?: AgentTriggerResolutionOptions & { verifyWebhook?: boolean },
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
-  const triggers = await resolveAgentTriggers(agent, context, options?.queuedInvocation)
+  const triggers = await resolveAgentTriggers(agent, context, options)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })
@@ -609,20 +731,20 @@ export async function resolveAgentTriggerInvocation<
   }
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
-  const invokedRun = { ...(context.run || {}), ...(result.run || {}) }
+  const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
   const invoked = withWebhookDeliveryRun({
     ...result,
-    ...(Object.keys(invokedRun).length ? { run: invokedRun } : {}),
+    ...(invokedRun ? { run: invokedRun } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
-  const inheritedRun = { ...(invoked.run || {}) }
+  const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
-    ? { ...(Object.keys(inheritedRun).length ? inheritedRun : { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun.annotations, ...annotations } }
-    : Object.keys(inheritedRun).length ? inheritedRun : undefined
-  return resolveAgentTriggerInvocationResult({
+    ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
+    : inheritedRun
+  return resolveAgentTriggerInvocationResult(withTaskOrigin({
     ...invoked,
     ...(run ? { run } : {}),
-  }, trigger)
+  }, trigger), trigger)
 }
 
 /**
@@ -636,6 +758,16 @@ function withWebhookDeliveryRun<CALL_OPTIONS>(
   const deliveryId = invoked.webhook?.deliveryId
   if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
   return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
+}
+
+/** The Invocation of an Agent task defaults its unset `run.origin` to the task key, so the Console shows which task ran. */
+function withTaskOrigin<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  if (invoked.task === undefined || !invoked.run || invoked.run.origin !== undefined) return invoked
+  if (!agentTriggerTask(trigger, invoked.task).agent) return invoked
+  return { ...invoked, run: { ...invoked.run, origin: invoked.task } }
 }
 
 export function resolveAgentTriggerInvocationResult<
@@ -652,13 +784,77 @@ export function resolveAgentTriggerInvocationResult<
       trigger: trigger as never,
     }
   }
+  const task = invocation.task === undefined ? undefined : agentTriggerTask(trigger, invocation.task)
   return {
+    ...(task?.agent ? { agent: task.agent } : {}),
     input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
     metadata: invocation.metadata,
     run: invocation.run,
+    ...(invocation.task !== undefined ? { task: invocation.task } : {}),
     trigger: trigger as never,
-    webhook: invocation.webhook,
+    webhook: withSerializedWebhook(invocation.webhook, trigger),
   }
+}
+
+/** The declared task `name` of a trigger. Throws when the trigger does not declare it. */
+export function agentTriggerTask<CALL_OPTIONS = unknown>(
+  trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
+  name: unknown,
+): ResolvedAgentTriggerTask<CALL_OPTIONS> {
+  const task = isRuntimeString(name) && trigger.tasks && Object.hasOwn(trigger.tasks, name) ? trigger.tasks[name] : undefined
+  if (!task) throw new TypeError(`[vitehub] Task "${String(name)}" is not declared by trigger "${trigger.id}".`)
+  return task
+}
+
+/**
+ * Runs the preparation of an accepted invocation: the task's `prepare`, or the trigger's `prepare` without a task,
+ * then a task's `run`. Returns the invocation to start, or the handled `Response` that settles it.
+ */
+export async function prepareAgentTriggerInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(
+  invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
+  if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation
+  const task = invocation.task === undefined ? undefined : agentTriggerTask(invocation.trigger, invocation.task)
+  // A task owns its preparation. Only an invocation without a task runs the trigger's `prepare`.
+  const prepare = task ? task.prepare : invocation.trigger.prepare
+  let prepared = invocation
+  if (prepare) {
+    const result = await prepare({ input: invocation.input, ...(invocation.run ? { run: invocation.run } : {}) })
+    if (isResponse(result)) return { response: result, trigger: invocation.trigger }
+    if (result) prepared = { ...invocation, input: result }
+  }
+  if (!task?.run) return prepared
+  const output = await task.run({ input: prepared.input, ...(prepared.run ? { run: prepared.run } : {}) })
+  return { response: isResponse(output) ? output : new Response(null, { status: 204 }), trigger: invocation.trigger }
+}
+
+/** The host identity of a task Agent. Its Invocations belong to that Agent, not to the Agent that owns the trigger. */
+export function taskAgentIdentity(agent: AgentInput): { name: string } {
+  if (!isRuntimeString(agent.name) || !agent.name.trim()) throw new TypeError("[vitehub] A task Agent needs a stable non-empty name.")
+  return { name: agent.name }
+}
+
+function withTaskAgentIdentity<TContext extends object>(context: TContext, agent: AgentInput | undefined): TContext {
+  return agent ? { ...context, agentIdentity: taskAgentIdentity(agent) } : context
+}
+
+/** `webhook.serialize: key` is `{ concurrencyKey: key, concurrencyLimit: 1 }`. */
+function withSerializedWebhook<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "id">,
+): AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined {
+  if (webhook?.serialize === undefined) return webhook
+  const { serialize, ...ownership } = webhook
+  if (!isRuntimeString(serialize) || !serialize.trim()) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize must be a non-empty string.`)
+  }
+  if (ownership.concurrencyKey !== undefined || ownership.concurrencyLimit !== undefined) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize replaces concurrencyKey and concurrencyLimit. Set only one of them.`)
+  }
+  return { ...ownership, concurrencyKey: serialize, concurrencyLimit: 1 }
 }
 
 export async function runAgentTriggerWith<
@@ -672,9 +868,11 @@ export async function runAgentTriggerWith<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
-  return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input)
+  // SAFETY: A task Agent runs with the same runtime configuration as the Agent that owns the trigger.
+  const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+  return await executor(executionAgent, withTaskAgentIdentity({ ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.agent), invocation.input)
 }
 
 export async function streamAgentTriggerWith<
@@ -692,9 +890,11 @@ export async function streamAgentTriggerWith<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
-  return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })
+  // SAFETY: A task Agent runs with the same runtime configuration as the Agent that owns the trigger.
+  const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+  return await executor(executionAgent, withTaskAgentIdentity({ ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.agent), invocation.input, { output })
 }

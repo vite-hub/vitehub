@@ -32,7 +32,6 @@ export default defineConfig({
       "src/virtual.ts",
       "src/vite.ts",
       "src/runtime/agent.ts",
-      "src/runtime/cloudflare-vite.ts",
       "src/runtime/d1.ts",
       "src/runtime/default-database.ts",
       "src/runtime/definition-defaults.ts",
@@ -43,7 +42,6 @@ export default defineConfig({
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
-      "src/runtime/vercel-vite.ts",
     ],
     exports: {
       customExports(exports) {

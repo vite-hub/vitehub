@@ -6,7 +6,7 @@ import {
   agentInvocationExternalUrl,
   agentInvocationProject,
   agentInvocationTitle,
-} from "@vite-hub/ui";
+} from "./invocation";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -26,7 +26,7 @@ import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
   AgentInvocationView,
-} from "@vite-hub/ui";
+} from "./invocation";
 import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
@@ -58,6 +58,7 @@ import {
 } from "./console-session-bootstrap";
 import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
+import "./invocation/invocation.css";
 
 const route = useRoute();
 const router = useRouter();
@@ -1167,7 +1168,6 @@ onBeforeUnmount(() => {
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
-          :remaining-statuses="list.remainingStatuses.value"
           group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"
@@ -1219,7 +1219,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel
       v-else
-      id="agent-session"
+      id="chat-session"
       class="vitehub-console__session-panel"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >

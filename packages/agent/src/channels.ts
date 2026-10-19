@@ -7,6 +7,8 @@ import type { CodeHostTarget } from "./internal/code-host-channel.ts"
 import { codeHostChannelFetch, codeHostActivityComments, codeHostDeliveryEffects, codeHostIdentity, codeHostPullRequest, codeHostPullRequestMetadata, codeHostThreadRef, codeHostChannelRequest, codeHostChannelRead, codeHostChannelWrite } from "./internal/code-host-channel.ts"
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+export { channelEnv, channelEnvValue } from "./channel-env.ts"
+export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
@@ -39,6 +41,7 @@ import type {
   AgentChatPlatformAdapter,
   AgentChannelDefinition,
   AgentChannelTriggerContext,
+  AgentDurableChannelTriggerContext,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
@@ -188,13 +191,21 @@ export type {
   AgentChannelMessageOf,
   AgentChannelReplyCalls,
   AgentChannels,
+  AgentChannelState,
   AgentChannelStateBinding,
+  AgentChannelStateTransaction,
+  AgentChannelStateTransactionOptions,
   AgentChannelTriggerContext,
+  AgentChannelTriggerDefinition,
   AgentDeliveryArtifact,
+  AgentDurableChannelTriggerContext,
   AgentDeliveryArtifactPlacement,
   AgentGitHubMessageCalls,
   AgentMessageChannelSettings,
+  AgentTriggerAcceptedInvocation,
   AgentTriggerFailedEvent,
+  AgentTriggerPrepareResult,
+  AgentTriggerTask,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 export interface AgentChannelOptions<
@@ -2714,8 +2725,29 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && hasRuntimeType(value.resolve, "function")
 }
 
-function ignored(reason: string) {
+/**
+ * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
+ * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
+ */
+export function ignored(reason: string): Response {
   return Response.json({ accepted: false, ok: true, reason })
+}
+
+/**
+ * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
+ * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
+ * when a queued delivery's trigger returns it on replay.
+ */
+export function retryLater(reason: string): Response {
+  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
+}
+
+/**
+ * Refuses a webhook that the Channel will never handle, such as a malformed payload.
+ * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
+ */
+export function rejected(reason: string): Response {
+  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
 }
 
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
@@ -2874,7 +2906,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   activity?: NonNullable<AgentChannelDefinition<TRuntimeConfig>["activity"]>,
   activityOptions?: GitHubChannelActivityOptions<TRuntimeConfig>,
   services?: CodeHostChannelServices<TRuntimeConfig>,
-): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
+): Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, unknown, unknown, AgentChannelTriggerContext<TRuntimeConfig>>> | undefined {
   if (!pullRequest && !activity) return undefined
   const options = pullRequest === true || !pullRequest ? {} : pullRequest
   return {
@@ -3192,11 +3224,18 @@ export function defineChannel<
   return channel as AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods>
 }
 
+/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
->(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>>): typeof definition {
+>(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true }): typeof definition
+export function defineChannelTrigger<
+  TInput,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false }): typeof definition
+export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDefinition {
   return definition
 }
 
@@ -3351,7 +3390,7 @@ function codeHostChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMeth
           message: neutral,
           run,
         }
-        if (result.webhook && result.webhook.concurrencyLimit !== undefined) {
+        if (result.webhook && (result.webhook.concurrencyLimit !== undefined || result.webhook.serialize !== undefined)) {
           const ownership = { ...result.webhook, rehydrate: undefined }
           invocation.webhook = { ...ownership, rehydrate: () => ({ ...invocation, webhook: ownership }) }
         }

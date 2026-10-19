@@ -16,6 +16,67 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
+interface BlobMethods {
+  readonly body: () => ReadableStream
+  readonly type: string
+}
+
+function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  const cleanup = async (reason?: unknown, cancel = false) => {
+    const current = reader
+    reader = undefined
+    if (!current) return
+    try {
+      if (cancel) await current.cancel(reason)
+    }
+    finally {
+      current.releaseLock()
+    }
+  }
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      reader ??= read().getReader()
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          await cleanup()
+          controller.close()
+        }
+        else controller.enqueue(chunk.value)
+      }
+      catch (error) {
+        await cleanup(error, true)
+        throw error
+      }
+    },
+    async cancel(reason) {
+      await cleanup(reason, true)
+    },
+  })
+}
+
+const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
+
+function getBlobMethods(value: unknown): BlobMethods | undefined {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
+  try {
+    const readStream: (value: object) => ReadableStream = candidate => Reflect.apply(Blob.prototype.stream, candidate, []) as ReadableStream
+    if (typeof blobType !== "function") return undefined
+    try {
+      return {
+        type: String(Reflect.apply(blobType, value, [])),
+        body: () => streamBody(() => readStream(value)),
+      }
+    }
+    catch { return undefined }
+  }
+  catch {
+    return undefined
+  }
+}
+
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
@@ -23,6 +84,10 @@ export function toResponse(value: unknown): Response {
   if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
+  }
+  const blobMethods = getBlobMethods(value)
+  if (blobMethods) {
+    return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },

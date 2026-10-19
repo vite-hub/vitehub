@@ -160,7 +160,9 @@ Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define.
 
-File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
+history object.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
 uncompressed file bytes across committed revisions on every ref. Workspaces have separate
@@ -267,9 +269,9 @@ search remains literal or regular-expression filesystem search over the visible
 tree; use Comark Content through `@vite-hub/content` for parsed-document
 navigation, query, cache, and ranked full-text search.
 
-## Box sessions
+## Sandbox sessions
 
-Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
+Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 
@@ -324,17 +326,13 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry gives the Workspace `name`, a `module` (absolute path or package specifier), and an optional `export`:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    workspaces: () => [{
-      name: "content",
-      definition: { module: "my-package/workspace", export: "contentWorkspace" },
-      reason: "Stores CMS documents.",
-    }],
+    workspaces: ({ projectRoot }) => [{ name: "content", module: "my-package/workspace", export: "contentWorkspace" }],
   },
 }
 ```
@@ -393,6 +391,13 @@ export default defineConfig({
 The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
+
+## Vercel Blob persistence
+
+The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
+`_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
+letters, numbers, underscores, dashes, and single slashes.
 
 ## GitHub-backed persistence
 
