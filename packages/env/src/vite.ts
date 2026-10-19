@@ -422,65 +422,36 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
   let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
   if (!generatedSecretPattern.test(secret)) {
     await mkdir(dirname(secretPath), { recursive: true })
-    // Create the file exclusively so concurrent Vite processes cannot replace
-    // one another's generated root. A losing process re-reads the winner.
-    const candidate = randomBytes(32).toString("hex")
-    try {
-      const handle = await open(secretPath, "wx", 0o600)
+    const lockPath = `${secretPath}.lock`
+    let lock: Awaited<ReturnType<typeof open>> | undefined
+    for (let attempt = 0; attempt < 120 && !lock; attempt++) {
       try {
-        await handle.writeFile(candidate)
+        lock = await open(lockPath, "wx", 0o600)
       }
-      finally {
-        await handle.close()
-      }
-      secret = candidate
-    }
-    catch (error: any) {
-      if (error?.code !== "EEXIST") throw error
-      for (let attempt = 0; attempt < 20; attempt++) {
-        secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
-        if (generatedSecretPattern.test(secret)) break
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+        try {
+          const age = Date.now() - (await stat(lockPath)).mtimeMs
+          if (age > 30_000) await unlink(lockPath)
+        }
+        catch {}
         await new Promise(resolve => setTimeout(resolve, 5))
       }
+    }
+    if (!lock) throw new Error(`Timed out waiting for generated secret lock: ${secretPath}`)
+    const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
+    try {
+      secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
       if (!generatedSecretPattern.test(secret)) {
-        // Serialize stale-file recovery across processes. A plain rename would
-        // let two recoveries overwrite each other's roots.
-        const recoveryLockPath = `${secretPath}.recovery.lock`
-        const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
-        const replacement = randomBytes(32).toString("hex")
-        let lock: Awaited<ReturnType<typeof open>> | undefined
-        try {
-          try {
-            lock = await open(recoveryLockPath, "wx", 0o600)
-          }
-          catch (lockError) {
-            if ((lockError as NodeJS.ErrnoException).code !== "EEXIST") throw lockError
-          }
-          if (lock) {
-            secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
-            if (!generatedSecretPattern.test(secret)) {
-              await writeFile(replacementPath, replacement, { flag: "wx", mode: 0o600 })
-              await rename(replacementPath, secretPath)
-              secret = replacement
-            }
-          }
-          else {
-            for (let attempt = 0; attempt < 100; attempt++) {
-              secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
-              if (generatedSecretPattern.test(secret)) break
-              await new Promise(resolve => setTimeout(resolve, 5))
-            }
-            if (!generatedSecretPattern.test(secret)) {
-              throw new Error(`Timed out waiting for generated secret recovery lock: ${secretPath}`)
-            }
-          }
-        }
-        finally {
-          await lock?.close()
-          if (lock) await unlink(recoveryLockPath).catch(() => {})
-          await unlink(replacementPath).catch(() => {})
-        }
+        secret = randomBytes(32).toString("hex")
+        await writeFile(replacementPath, secret, { flag: "wx", mode: 0o600 })
+        await rename(replacementPath, secretPath)
       }
+    }
+    finally {
+      await lock.close()
+      await unlink(lockPath).catch(() => {})
+      await unlink(replacementPath).catch(() => {})
     }
   }
   await chmod(secretPath, 0o600)
