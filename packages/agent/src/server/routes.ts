@@ -8551,7 +8551,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
         const secret = await resolveWebhookSecret(registration.secretToken, context)
-        if (!webhookSecretHeader(registration) || !secret) {
+        const secretHeader = webhookSecretHeader(registration)
+        if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
         }
         try {
