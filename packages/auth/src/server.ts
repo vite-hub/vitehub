@@ -213,7 +213,17 @@ function toRequest(request: AuthRequest): Request {
     init.body = request.body
     init.duplex = "half"
   }
-  return new Request(request.url, init)
+  try {
+    return new Request(request.url, init)
+  }
+  catch (error) {
+    // Structural cross-realm checks cannot prove an AbortSignal brand. If a
+    // forged signal reaches a native Request constructor, retry without it so
+    // malformed host inputs follow the normal authorization path.
+    if (init.signal === undefined) throw error
+    delete init.signal
+    return new Request(request.url, init)
+  }
 }
 
 function isAbortSignalLike(value: unknown): value is AbortSignal {
