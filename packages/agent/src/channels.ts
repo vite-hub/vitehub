@@ -176,6 +176,7 @@ export type {
   AgentChannelDefinitionOf,
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
+  AgentChannelDispatchOrder,
   AgentChannelHistory,
   AgentChannelHistoryCollection,
   AgentChannelHistoryQuery,

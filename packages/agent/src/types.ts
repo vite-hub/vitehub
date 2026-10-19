@@ -728,11 +728,32 @@ export interface AgentChannelDispatchItem {
   input: unknown
   /** Stable key, such as the provider message ID. The Invocation ID derives from it. */
   key: string
+  /**
+   * Queued dispatch only. The item is skipped with reason `"stale"`, before the trigger runs, unless `version` is
+   * greater than the last version admitted or answered for `key` through the same trigger. The new version commits
+   * with the item's admission. An item whose trigger throws or answers 400 or above does not advance it.
+   */
+  order?: AgentChannelDispatchOrder
+}
+
+/** The position of a dispatch item in the stream of changes to one entity, such as one record. */
+export interface AgentChannelDispatchOrder {
+  /** The entity, such as a record ID. */
+  key: string
+  /** A finite number that grows with each change of `key`, such as a provider sequence number. */
+  version: number
 }
 
 export interface AgentChannelDispatchOptions {
-  /** Record Channel message writes in the trace instead of calling the provider. */
+  /** Record Channel message writes in the trace instead of calling the provider. Not available with `queue`. */
   dryRun?: boolean
+  /**
+   * Admit each item to the webhook queue instead of running it now, as if it arrived as its own webhook delivery.
+   * The trigger must answer with `webhook.deliveryId` and a concurrency limit (or `serialize`). Items are admitted in
+   * order, and the first item that cannot be admitted throws. Available while the Channel's webhook route runs the
+   * calling trigger with a queue-capable State, such as SQLite or libSQL.
+   */
+  queue?: boolean
   /** Trigger of the same Channel that receives each item. */
   trigger: string
 }
@@ -805,6 +826,7 @@ export interface AgentChannelTriggerContext<
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
    * Items use the same Invocation IDs as `replayChannel()`, so an item that already has an Invocation is skipped.
+   * With `queue: true`, each item is admitted to the webhook queue instead, and `order` applies.
    */
   dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
   trigger: {
