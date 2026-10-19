@@ -31,6 +31,13 @@ describe("built-in Channel discovery", () => {
     `)).toEqual([{ kind: "teams", keys: [] }])
   })
 
+  it("keeps Teams Env required for upstream adapter options", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { federated: { clientId: "managed-identity" }, token: () => "token" } })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
   it("omits Teams Env for custom adapter objects", () => {
     expect(uses(`
       import { teams } from "vite-hub/agent/channels"

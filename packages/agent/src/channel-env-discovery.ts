@@ -429,7 +429,13 @@ function isStaticAdapter(tokens: string[], start: number, kind?: string): boolea
 
 function isTeamsOptionsLiteral(tokens: string[], start: number): boolean {
   if (tokens[start] !== "{") return false
-  const optionKeys = new Set(["apiUrl", "appId", "appPassword", "appTenantId", "appType", "userName"])
+  // Keep this in sync with TeamsAdapterConfig. These options are merged with
+  // Server Env at runtime, so an object containing only them is not a custom
+  // adapter and must not suppress the credential declarations.
+  const optionKeys = new Set([
+    "apiUrl", "appId", "appPassword", "appTenantId", "appType", "certificate",
+    "dialogOpenTimeoutMs", "federated", "logger", "token", "userName", "webhookVerifier",
+  ])
   let optionsOnly = true
   if (!visitObjectProperties(tokens, start, key => { if (!optionKeys.has(key)) optionsOnly = false })) return false
   return optionsOnly
