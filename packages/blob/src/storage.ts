@@ -259,7 +259,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
       const normalizedPathname = normalizePathname(pathname)
-      if (options.method === "PUT") assertWritablePath(normalizedPathname)
+      assertWritablePath(normalizedPathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
     async serve(event, pathname: string, options = {}) {

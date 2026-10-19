@@ -280,7 +280,6 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -303,7 +302,8 @@
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "valibot": "catalog:runtime",
-    "workflow": "catalog:workflow"
+    "workflow": "catalog:workflow",
+    "@vite-hub/sandbox-task": "workspace:*"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "catalog:ui",

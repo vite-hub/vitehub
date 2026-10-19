@@ -207,13 +207,18 @@ function renderProviderEntry(
   const storageExpression = !blobConfig
     ? undefined
     : runtimeStoreResolver
-      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default", { images: blobConfig.images })`
-      : "createBlobStorage(createDriver(blobConfig.store), \"default\", { images: blobConfig.images })"
+      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default", { images: blobConfig.images, url: pathname => servedBlobUrl(pathname) })`
+      : "createBlobStorage(createDriver(blobConfig.store), \"default\", { images: blobConfig.images, url: pathname => servedBlobUrl(pathname) })"
 
   const lines = [
     ...imports,
     "",
     `const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
+    "function servedBlobUrl(pathname) {",
+    "  const serve = blobConfig?.serve",
+    "  if (!serve || serve.store !== \"default\") return undefined",
+    "  return [serve.publicBaseUrl || \"/\", serve.route, pathname.split('/').map(segment => encodeURIComponent(segment)).join('/')].join('/').replace(/\\/{2,}/g, '/')",
+    "}",
     "setBlobRuntimeConfig(blobConfig)",
     storageExpression ? `setBlobRuntimeStorage(${storageExpression})` : "setBlobRuntimeStorage(undefined)",
     userAppEntry ? `const app = (await import(${JSON.stringify(createImportPath(entryFile, userAppEntry))})).default` : "const app = undefined",
