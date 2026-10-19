@@ -436,6 +436,8 @@ Each question is a step in the Invocation trace, so the journal and the Console 
 | `agent.tool.error` | `tool.error`, `error.status`, `error.requestId` for each question of a failed request |
 | `agent.usage.recorded` | One per Jev request: `usage.model`, `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`, `ask.durationMs` |
 
+Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` in `agent:finish` and `usage.record` on `agent.invocation.finish` sum the token counts of all requests and name the model when every request used the same one. The Console usage and cost table reads this record, as it does for a Codex run. Add [`usage({ pricing })`](/docs/agents/capabilities/usage) to the Agent to price it.
+
 The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`, `ask.batch.index`, `ask.batch.count`, and `ask.batch.size`. The shared state is `input.data` (or the prompt) on `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`. A metadata-only journal keeps `tool.input`, `tool.output`, `input.data`, and `result.output` only when `metadataContent` lists them; the Console journal lists them. No credentials or request headers are recorded.
 
 ### Provider exit evidence
