@@ -238,7 +238,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
     }
     const { send, channel } = await harness(kind, settings)
     const trigger = channel.triggers?.webhook
-    if (!trigger) throw new Error("Missing webhook trigger.")
+    if (!trigger || trigger.durableState) throw new Error("Missing webhook trigger.")
     const invoke = trigger.invoke
     let invocation: unknown
     vi.spyOn(trigger, "invoke").mockImplementation(async (context, input) => {
