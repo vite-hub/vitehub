@@ -456,8 +456,10 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // cross-runtime implementations, which expose function declarations or
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
+    const delegatedReader = /^\s*getReader\s*\(\.\.\.args\)\s*\{\s*return\s+super\.getReader\(\.\.\.args\)\s*\}\s*$/.test(source)
     if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
-      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream|super\.getReader)/.test(source)) return false
+      && !delegatedReader
+      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream)/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
     if (/^\s*(?:get\s+)?\[[\s\S]*\]\s*\([^)]*\)\s*\{/.test(source)) return false
