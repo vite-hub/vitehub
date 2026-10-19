@@ -521,13 +521,19 @@ function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReade
 
 function releaseAuthorizationReader(reader: object, trustedRelease?: Function): void {
   try {
-    const release = trustedRelease ?? Reflect.get(reader, "releaseLock")
-    if (typeof release === "function") Reflect.apply(release, reader, [])
+    // Never fall back to the reader's mutable property. Validation rejects
+    // overridden operations, and invoking one here would let a malformed
+    // reader keep the source stream locked (or throw during cleanup).
+    if (typeof trustedRelease === "function") Reflect.apply(trustedRelease, reader, [])
   }
   catch { /* best effort cleanup */ }
 }
 
-function getTrustedAuthorizationReaderRelease(reader: object): Function | undefined {
+function getTrustedAuthorizationReaderRelease(
+  reader: object,
+  body: object,
+  getReader: (this: object) => unknown,
+): Function | undefined {
   try {
     let prototype: object | null = Object.getPrototypeOf(reader)
     const seen = new Set<object>()
@@ -547,7 +553,24 @@ function getTrustedAuthorizationReaderRelease(reader: object): Function | undefi
         && typeof cancel === "function"
         && typeof releaseLock === "function") {
         Reflect.apply(closed, reader, [])
-        return releaseLock
+        if (releaseLock === nativeReaderMethods.releaseLock) return releaseLock
+        // For a foreign stream, authenticate the complete operation set
+        // against a fresh reader created by that stream's own constructor.
+        const bodyPrototype = Object.getPrototypeOf(body)
+        const streamConstructor = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "constructor")?.value
+        if (typeof streamConstructor !== "function") return
+        const freshBody = Reflect.construct(streamConstructor, []) as object
+        const freshReader = Reflect.apply(getReader, freshBody, []) as object
+        const freshPrototype = Object.getPrototypeOf(freshReader)
+        const freshClosed = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "closed")?.get
+        const freshRead = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "read")?.value
+        const freshCancel = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "cancel")?.value
+        const freshRelease = freshPrototype && Object.getOwnPropertyDescriptor(freshPrototype, "releaseLock")?.value
+        if (freshClosed === closed && freshRead === read && freshCancel === cancel && freshRelease === releaseLock) {
+          if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
+          return releaseLock
+        }
+        if (typeof freshRelease === "function") Reflect.apply(freshRelease, freshReader, [])
       }
       prototype = Object.getPrototypeOf(prototype)
     }
@@ -583,7 +606,7 @@ function bridgeAuthorizationBody(
   let initialization: Promise<NonNullable<typeof methods>> | undefined
   const initialize = () => initialization ??= Promise.resolve().then(() => {
     const nextReader = Reflect.apply(getReader, body, [])
-    const trustedRelease = getTrustedAuthorizationReaderRelease(nextReader)
+    const trustedRelease = getTrustedAuthorizationReaderRelease(nextReader, body, getReader)
     try {
       const nextMethods = getNativeAuthorizationReaderMethods(nextReader)
       if (!nextMethods) throw new TypeError("Invalid ReadableStreamDefaultReader")
