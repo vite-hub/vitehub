@@ -37,6 +37,11 @@ const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.protot
 const intrinsicPromiseThen = Promise.prototype.then
 
 function isLikelyNativePromise(value: object): boolean {
+  // PromiseResolve uses the internal Promise brand and remains reliable when
+  // callers replace a genuine promise's prototype.
+  try {
+    if (intrinsicPromiseConstructor.resolve(value) === value) return true
+  } catch { /* continue with cross-realm prototype checks */ }
   if (value instanceof Promise) return true
   try {
     let prototype = Object.getPrototypeOf(value)
