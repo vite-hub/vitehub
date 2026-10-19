@@ -284,6 +284,7 @@ const nativeResponseHeaders = Object.getOwnPropertyDescriptor(Response.prototype
 const nativeResponseBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
 const nativeResponseClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
 const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
+const nativeHeadersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
 
 /**
  * Return whether `value` is a Response of this runtime.
@@ -418,7 +419,9 @@ function getDirectRuntimeResponse(value: Response): Response | undefined {
   const locked = body && Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
   if (locked && Reflect.apply(locked, body, [])) return
   const headers = Reflect.apply(nativeResponseHeaders, value, [])
-  if (!headers || !nativeHeadersForEach || Reflect.get(headers, "forEach") !== nativeHeadersForEach) return
+  if (!headers || !nativeHeadersForEach || !nativeHeadersGet
+    || Reflect.get(headers, "forEach") !== nativeHeadersForEach
+    || Reflect.get(headers, "get") !== nativeHeadersGet) return
   // A subclass or intermediate prototype can replace native accessors even
   // when the instance has no own shadowing properties. Clone any response
   // whose prototype chain defines these names before the native Response
