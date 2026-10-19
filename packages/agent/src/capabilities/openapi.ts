@@ -451,7 +451,7 @@ function createOpenAPICli<
   const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = {}
   for (const operation of operations) {
     const name = operation.name ?? operationCommandName(cli.name, operation.operationId)
-    if (commands[name]) {
+    if (Object.hasOwn(commands, name)) {
       throw agentDiagnostics.AGENT_R0136({ message: `[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".` })
     }
     const outputFormat = options.responseType === "text" ? "text" : "json"
