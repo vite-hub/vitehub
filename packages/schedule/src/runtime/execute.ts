@@ -235,30 +235,6 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   })
 }
 
-export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
-  const runtimeOptions = typeof options === "string" ? { id: options } : options
-  assertRuntimeExecuteOptionsObject(runtimeOptions)
-  assertRuntimeScheduleId(runtimeOptions.id)
-  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt)
-  const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
-  const scheduleRunStore = runtimeOptions.scheduleRunStore
-  const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", runtimeOptions.id, scheduledAt))
-  if (existingRun && runtimeOptions.intent === "provider") return existingRun
-  const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
-  if (schedule && !schedule.enabled) throw createScheduleError("SCHEDULE_DISABLED")
-  if (existingRun) return existingRun
-  if (!schedule) throw createScheduleError("SCHEDULE_NOT_FOUND")
-  if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) throw createScheduleError("SCHEDULE_NOT_DUE")
-  const definition = await loadScheduleDefinition(schedule.target)
-  if (!definition) throw createScheduleError("SCHEDULE_TARGET_NOT_FOUND")
-  if (definition.options?.allowRuntimeSchedules !== true) throw createScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
-  return await executeSchedule({ captureHandlerFailure: runtimeOptions.captureHandlerFailure, definition, input: schedule.input, runStore: scheduleRunStore, scheduleId: schedule.id, source: "runtime", scheduledAt, target: schedule.target, waitUntil: runtimeOptions.waitUntil })
-}
-
-export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
-  await executeRuntimeSchedule({ id: input.scheduleId, intent: "provider", requireDue: true, runtimeScheduleStore: options.runtimeScheduleStore, scheduledAt: input.scheduledAt, scheduleRunStore: options.scheduleRunStore, waitUntil: options.waitUntil })
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Object(value) === value && !Array.isArray(value)
 }

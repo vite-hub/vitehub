@@ -150,6 +150,8 @@ describe("UI documentation", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
     expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain("<NuxtLink");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
