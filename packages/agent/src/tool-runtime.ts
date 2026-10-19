@@ -170,7 +170,9 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       if (consumeToolApprovalGrant(policyOwner, tool.name, input, context)) {
         context?.abortSignal?.throwIfAborted()
         const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
-        budget?.recordToolCall()
+        // Budget-owned executors (Workspace and workspace_exec) account for
+        // their own execution. Generic policy tools are charged here.
+        if (!executionBudgetHandledBy(tool)) budget?.recordToolCall()
         return await execute.call(tool, input, context)
       }
       const decision = typeof policy === "function"
@@ -206,7 +208,9 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
 
       context?.abortSignal?.throwIfAborted()
       const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
-      budget?.recordToolCall()
+      // Budget-owned executors account for the call themselves, including
+      // when a reused tool receives an active-budget override.
+      if (!executionBudgetHandledBy(tool)) budget?.recordToolCall()
       return await execute.call(tool, input, context)
     }
   approvalPreservingExecutorOwners.set(approvalExecute, policyOwner)
