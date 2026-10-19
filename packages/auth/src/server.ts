@@ -654,10 +654,23 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof status !== "number" || !Number.isInteger(status) || (status !== 0 && (status < 200 || status > 599))) return
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
-    // A same-realm Response is already a trusted, usable result. Return it
-    // before probing its body: consumed and locked native bodies are still
-    // required to pass through unchanged.
-    if (value instanceof Response && headers instanceof Headers
+    // A same-realm Response is already a trusted, usable result. Validate its
+    // Header internal slots with trusted intrinsics before preserving identity;
+    // an own override such as a throwing `forEach` must not bypass validation.
+    let sameRealmHeaders = false
+    if (headers instanceof Headers) {
+      try {
+        const nativeGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
+        const nativeForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
+        if (typeof nativeGet === "function" && typeof nativeForEach === "function") {
+          Reflect.apply(nativeGet, headers, ["set-cookie"])
+          Reflect.apply(nativeForEach, headers, [() => undefined])
+          sameRealmHeaders = true
+        }
+      }
+      catch {}
+    }
+    if (value instanceof Response && sameRealmHeaders
       && !Boolean(Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
         && Reflect.apply(Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")!.get!, candidate, []))
       && authorizationResponseProperties.every(key => {
