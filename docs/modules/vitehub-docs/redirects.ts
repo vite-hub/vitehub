@@ -83,8 +83,6 @@ const agentCapabilities = {
 } satisfies Record<string, string>;
 
 const movedLearningPages = new Map(Object.entries({
-
-
   "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
@@ -115,7 +113,6 @@ export const docsPageRedirects = {
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",
   "/docs/agents/boxes": "/docs/agents/sandboxes",
   "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
-  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/docs/schedule/agent-capability": "/docs/schedule",
 
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",

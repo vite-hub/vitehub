@@ -135,8 +135,8 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     expect(page).toContain("<DocsArticle v-else-if=\"page\"");
-    expect(layout).toContain("vh-docs-main");
-    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(layout).toContain('<DocsSidebars v-if="!isSupportMatrix" class="vh-docs-desktop-nav" :panel="hasPanel" />');
+    expect(layout).toContain('class="vh-docs-content"');
     expect(readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8")).toContain("max-width: calc(");
   });
 

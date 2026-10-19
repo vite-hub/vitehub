@@ -18,7 +18,7 @@ describe("stored Connection scopes", () => {
       expect((await store.state.get("mail"))?.scopes).toEqual(["mail.read"])
       for (const scopes of ['["mail.read", 42]', '{}', 'null']) {
         await db.run(sql`UPDATE vitehub_connection_state SET scopes = ${scopes} WHERE name = 'mail'`)
-        await expect(store.state.get("mail")).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+        await expect(store.state.get("mail")).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_STORED_DATA" })
       }
     }
     finally {
@@ -135,7 +135,7 @@ describe("approval execution leases", () => {
       await store.approvals.recover("2026-09-30T00:10:00.000Z")
       expect(await store.approvals.get("a1")).toMatchObject({
         status: "failed",
-        error: "CONNECTION_EXECUTION_UNKNOWN",
+        error: "CONNECTIONS_EXECUTION_UNKNOWN",
       })
       await store.approvals.renew("a1", "2026-09-30T00:20:00.000Z")
       expect(
