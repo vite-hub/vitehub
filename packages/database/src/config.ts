@@ -639,7 +639,9 @@ function readOpaquePropertyExpression(expression: string, key: string, source: s
     }
     if (readEntryKey(normalized) !== key) continue
     found = true
-    value = readEntryValue(normalized)?.trim() ?? "undefined"
+    // A shorthand property has the identifier itself as its value. Preserve
+    // that reference so the declaration resolver can evaluate it below.
+    value = readEntryValue(normalized)?.trim() ?? readEntryKey(normalized)
   }
   return found ? value : undefined
 }
@@ -1177,9 +1179,11 @@ export function resolveDBViteConfig(
     if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource === true || definitionCloudflare.opaqueHttpOnly === true)) continue
     const effectiveCloudflare = databases[definition.name]?.cloudflare
     if (effectiveCloudflare?.http) continue
+    const canSynthesizeOpaqueBinding = definitionCloudflare.resource !== "opaque"
+      || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly === false)
     const binding = (definitionCloudflare.resource !== "opaque" ? effectiveCloudflare?.binding : undefined)
       ?? definitionCloudflare.opaqueBinding
-      ?? (definitionCloudflare.resource !== "opaque" || (definitionCloudflare.ownsOpaqueResource !== true && definitionCloudflare.opaqueHttpOnly !== true)
+      ?? (canSynthesizeOpaqueBinding
         ? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
         : undefined)
     if (!binding) continue
