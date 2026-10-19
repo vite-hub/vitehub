@@ -227,7 +227,8 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     await writeFile(record, JSON.stringify({ status: "failed", command: command ? [command, ...args] : undefined, at: new Date().toISOString(), reason })).catch(() => undefined);
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
-    throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error), isSystemError(error) ? "filesystem" : kind);
+    const lockfileDefect = isGitHubLockfileDefect(error);
+    throw new GitHubWorkspaceInstallError(error, !lockfileDefect && (retryable || isSystemError(error)), isSystemError(error) ? "filesystem" : kind);
   } finally {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }
