@@ -378,7 +378,7 @@ describe("resolveDBViteConfig", () => {
     expect(resolveDBViteConfig(undefined, rootDir)?.definitionDefaults.cloudflareProjections.default?.resource).toBe("opaque")
   })
 
-  it.each(["1", "0x1", "0b1", "1e0", "1_000"])("retains bindings when a trailing numeric computed spread cannot override cloudflare (%s)", async (key) => {
+  it.each(["1", "0x1", "0b1", "1e0", "1_000", "1n", "0x1n", "0b1n", "1_000n"])("retains bindings when a trailing numeric computed spread cannot override cloudflare (%s)", async (key) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
       const file = join(rootDir, "server/databases", name, "config.ts")

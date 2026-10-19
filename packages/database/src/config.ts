@@ -732,6 +732,14 @@ function readStaticComputedKey(expression: string, source: string, seen = new Se
   if (value !== undefined) return value
   const numeric = expression.trim()
   const decimalDigits = String.raw`\d(?:_?\d)*`
+  const bigintLiteral = new RegExp(
+    String.raw`^([+-]?)(0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|${decimalDigits})n$`,
+  ).exec(numeric)
+  if (bigintLiteral) {
+    const sign = bigintLiteral[1] === "-" ? -1n : 1n
+    const value = BigInt(bigintLiteral[2]!.replaceAll("_", "")) * sign
+    return String(value)
+  }
   const numericLiteral = new RegExp(
     String.raw`^[+-]?(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|(?:${decimalDigits}(?:\.${decimalDigits}?)?|\.${decimalDigits})(?:[eE][+-]?${decimalDigits})?)$`,
   )
