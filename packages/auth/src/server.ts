@@ -327,12 +327,15 @@ async function runAccessAuthorize(
     result = await new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
   }
   else {
-    // The intrinsic Promise method is branded across realms and ignores an
-    // overridden `then` on native Promise instances. Fall back to ordinary
-    // thenable assimilation only when the value is not a branded Promise.
+    // Try the intrinsic path for a promise from another realm. An ordinary
+    // thenable is an incompatible receiver, so probe before creating the
+    // adoption promise; otherwise the executor would turn that synchronous
+    // failure into a rejected promise and skip normal thenable assimilation.
     let adoption: Promise<unknown> | undefined
     if (Object(returned) === returned) {
       try {
+        const probe = Reflect.apply(intrinsicPromiseThen, returned, [() => {}, () => {}])
+        probe.catch(() => {})
         adoption = new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
       }
       catch {
