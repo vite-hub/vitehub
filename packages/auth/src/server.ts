@@ -38,6 +38,10 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
   Symbol.toStringTag,
 )?.get
 
+// Keep Promise adoption independent from mutable instance methods. Calling this
+// intrinsic also works for native Promise objects created in another realm.
+const intrinsicPromiseThen = Promise.prototype.then
+
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try {
@@ -328,12 +332,43 @@ async function runAccessAuthorize(
   // avoids assimilating an own `then` property on the Response object.
   let response = await normalizeAuthorizationResponse(result)
   if (!response) {
-    const resolved = await result
+    const resolved = await adoptAuthorizationPromise(result)
     if (resolved === true) return
     response = await normalizeAuthorizationResponse(resolved)
   }
   if (response) return response
   return createForbiddenResponse(context.request)
+}
+
+async function adoptAuthorizationPromise(value: unknown): Promise<unknown> {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return await value
+  let adopted: Promise<unknown> | undefined
+  try {
+    adopted = new Promise((resolve, reject) => {
+      Reflect.apply(intrinsicPromiseThen, value, [resolve, reject])
+    })
+  }
+  catch (error) {
+    // Promise subclasses can expose a throwing species getter. Retry the
+    // intrinsic adoption with the standard constructor, restoring the object
+    // immediately after the intrinsic has captured it.
+    const descriptor = Object.getOwnPropertyDescriptor(value, "constructor")
+    try {
+      Object.defineProperty(value, "constructor", { configurable: true, value: Promise })
+      adopted = new Promise((resolve, reject) => {
+        Reflect.apply(intrinsicPromiseThen, value, [resolve, reject])
+      })
+    }
+    catch {
+      return await value
+    }
+    finally {
+      if (descriptor) Object.defineProperty(value, "constructor", descriptor)
+      else Reflect.deleteProperty(value, "constructor")
+    }
+    if (!adopted) throw error
+  }
+  return adopted
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -690,7 +725,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (ownCookieDescriptor) {
       if ("value" in ownCookieDescriptor) {
         if (ownCookieDescriptor.value === undefined) cookieAccessor = undefined
-        else cookieAccessor = ownCookieDescriptor.value
+        else return
       }
       else return
     }
