@@ -1239,17 +1239,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   let textIterator: AsyncIterator<unknown> | undefined
   const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
-  if (isAsyncIterable(result?.stream)) {
-    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
-    yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
-    return
-  }
-  const fullStream = result?.fullStream
-  if (isAsyncIterable(fullStream)) {
-    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
-    yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextIterator, initialTextIterator)
-    return
-  }
   // Genuine Responses take precedence over incidental generic fields such as
   // `textStream`; spoofed response-shaped values fail the brand check below
   // and retain the generic handling path.
@@ -1263,6 +1252,17 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       }
     }
     yield { type: "finish" }
+    return
+  }
+  if (isAsyncIterable(result?.stream)) {
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
+    return
+  }
+  const fullStream = result?.fullStream
+  if (isAsyncIterable(fullStream)) {
+    const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
+    yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextIterator, initialTextIterator)
     return
   }
   const textStream = getTextStream()
