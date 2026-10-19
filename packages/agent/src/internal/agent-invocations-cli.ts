@@ -32,9 +32,11 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "delete" | "list" | "prune" | "show" | "tail"
+type Action = "delete" | "export" | "list" | "prune" | "show" | "tail"
 
-const actions = new Set<string>(["delete", "list", "prune", "show", "tail"] satisfies Action[])
+const actions = new Set<string>(["delete", "export", "list", "prune", "show", "tail"] satisfies Action[])
+/** Actions that read the whole journal instead of one record. */
+const actionsWithoutId = new Set<string | undefined>(["export", "list", "prune"])
 
 function isAction(value: string): value is Action {
   return actions.has(value)
@@ -45,6 +47,8 @@ const fileActions = new Set<string | undefined>(["list", "show", "tail"])
 
 interface ParsedArgs {
   action?: Action | "cancel"
+  /** export only prints this Agent's Invocations. */
+  agent?: string
   /** Base URL of a deployed Console. list, show, tail, and cancel then use its RPC endpoint. */
   console?: URL
   database?: string
@@ -54,11 +58,17 @@ interface ParsedArgs {
   interval: number
   json: boolean
   limit?: number
+  /** export includes every observation. */
+  observations: boolean
   /** Size limit for prune. Set by --max-size. */
   maxSize?: RetentionSizeLimit
   /** Count limit for prune. Set by --max-records. */
   maxRecords?: number
   olderThanMs?: number
+  /** export only prints Invocations with this origin. */
+  origin?: string
+  /** export only prints Invocations created at or after this ISO time. */
+  since?: string
   status?: string
   tablePrefix?: string
   timeout?: number
@@ -98,9 +108,10 @@ const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|cancel|delete|prune> [id] [options]",
+    "Usage: vitehub agent invocations <list|show|tail|export|cancel|delete|prune> [id] [options]",
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
@@ -130,6 +141,10 @@ function usage(context: AgentInvocationsCliContext): void {
     "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
     "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
     "  --dry-run                 List the records that prune would delete.",
+    "  --origin <origin>         export only Invocations with this origin, such as webhook.",
+    "  --agent <name>            export only this Agent's Invocations.",
+    "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
+    "  --observations            export every observation too.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -162,6 +177,15 @@ function size(value: string, flag: string): RetentionSizeLimit {
   return result
 }
 
+/** An age such as 7d, or an ISO date such as 2026-10-01. Returns the ISO time it selects. */
+function sinceTime(value: string): string {
+  const time = /^\d+(?:ms|s|m|h|d|w)$/.test(value.trim())
+    ? Date.now() - duration(value, "--since")
+    : /^\d{4}-\d{2}-\d{2}/.test(value.trim()) ? Date.parse(value) : Number.NaN
+  if (Number.isNaN(time)) throw agentDiagnostics.AGENT_R0503({ message: "--since requires a duration such as 7d or an ISO date such as 2026-10-01." })
+  return new Date(time).toISOString()
+}
+
 function redactCliArgument(argument: string): string {
   const separator = argument.startsWith("-") ? argument.indexOf("=") : -1
   const prefix = separator === -1 ? "" : argument.slice(0, separator + 1)
@@ -186,6 +210,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     help: false,
     interval: 1_000,
     json: false,
+    observations: false,
     server: false,
     url: env.VITEHUB_AGENT_INVOCATIONS_URL || "http://localhost:5173/api/invocations",
     urlSet: false,
@@ -206,6 +231,13 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "-h" || argument === "--help") parsed.help = true
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
+    else if (argument === "--observations") parsed.observations = true
+    else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
+    else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--agent=")) parsed.agent = argument.slice("--agent=".length)
+    else if (argument === "--since") { parsed.since = sinceTime(optionValue(args, index, argument)); index += 1 }
+    else if (argument.startsWith("--since=")) parsed.since = sinceTime(argument.slice("--since=".length))
     else if (argument === "--database") { parsed.database = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--database=")) parsed.database = argument.slice("--database=".length)
     else if (argument === "--table-prefix") { parsed.tablePrefix = optionValue(args, index, argument); index += 1 }
@@ -233,12 +265,18 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument.startsWith("--interval=")) parsed.interval = positiveInteger(argument.slice(11), "--interval")
     else if (argument.startsWith("-")) throw agentDiagnostics.AGENT_R0504({ message: `Unknown option: ${redactCliArgument(argument)}.` })
     else if (!parsed.action && (argument === "cancel" || isAction(argument))) parsed.action = argument
-    else if (!parsed.id && parsed.action && parsed.action !== "list" && parsed.action !== "prune") parsed.id = argument
+    else if (!parsed.id && parsed.action && !actionsWithoutId.has(parsed.action)) parsed.id = argument
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, or prune." })
-  if (!parsed.help && parsed.action !== "list" && parsed.action !== "prune" && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, cancel, delete, or prune." })
+  if (!parsed.help && !actionsWithoutId.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
+  const exportOnly = [["--origin", parsed.origin], ["--agent", parsed.agent], ["--since", parsed.since], ["--observations", parsed.observations || undefined]] as const
+  const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
+  if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
+  if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+    throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
+  }
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
@@ -414,19 +452,22 @@ async function consoleCall<T>(target: ConsoleTarget, method: string, input: Cons
   throw agentDiagnostics.AGENT_R0511({ message: `Console request failed with HTTP ${status}${message ? `: ${message}` : ""}.` })
 }
 
-/** List through the Console. The Console has no status filter, so the CLI filters and follows cursors until it has enough records. */
-async function listConsoleInvocations(target: ConsoleTarget, parsed: ParsedArgs): Promise<AgentInvocationListResult> {
-  const wanted = parsed.limit ?? consoleDefaultListLimit
-  const invocations: AgentInvocationListResult["invocations"][number][] = []
+type InvocationSummary = AgentInvocationListResult["invocations"][number]
+
+/** Follow list cursors until `wanted` records pass `keep` or the pages end. A repeated cursor ends the read. */
+async function collectPages(
+  readPage: (cursor: string | undefined, collected: number) => Promise<AgentInvocationListResult>,
+  keep: (record: InvocationSummary) => boolean,
+  wanted = Number.POSITIVE_INFINITY,
+): Promise<InvocationSummary[]> {
+  const invocations: InvocationSummary[] = []
   const ids = new Set<string>()
   const cursors = new Set<string>()
   let cursor: string | undefined
   do {
-    const query = { limit: String(Math.min(consolePageLimit, parsed.status ? consolePageLimit : wanted - invocations.length)) } satisfies Record<string, string>
-    if (cursor !== undefined) Object.assign(query, { cursor })
-    const page = await consoleCall(target, consoleRpcMethods.invocations, { method: "GET", query }, parseInvocationList)
+    const page = await readPage(cursor, invocations.length)
     for (const record of page.invocations) {
-      if (ids.has(record.id) || (parsed.status && record.status !== parsed.status)) continue
+      if (ids.has(record.id) || !keep(record)) continue
       ids.add(record.id)
       invocations.push(record)
     }
@@ -434,7 +475,16 @@ async function listConsoleInvocations(target: ConsoleTarget, parsed: ParsedArgs)
     if (cursor !== undefined && cursors.has(cursor)) break
     if (cursor !== undefined) cursors.add(cursor)
   } while (cursor !== undefined && invocations.length < wanted)
-  return { invocations: invocations.slice(0, wanted) }
+  return invocations.slice(0, wanted)
+}
+
+/** List through the Console. The Console has no status filter, so the CLI filters and follows cursors until it has enough records. */
+async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>): Promise<InvocationSummary[]> {
+  return await collectPages(async (cursor, collected) => {
+    const query: Record<string, string> = { limit: String(Math.min(consolePageLimit, statuses ? consolePageLimit : wanted - collected)) }
+    if (cursor !== undefined) query.cursor = cursor
+    return await consoleCall(target, consoleRpcMethods.invocations, { method: "GET", query }, parseInvocationList)
+  }, record => !statuses || statuses.has(record.status), wanted)
 }
 
 interface InvocationsTarget {
@@ -442,6 +492,8 @@ interface InvocationsTarget {
   /** Read one record. Pass the previous count and cursor to receive only new observations when the server supports it. */
   detail: (id: string, observations?: { count: number, cursor: string }) => Promise<AgentInvocationDetailResult>
   list: () => Promise<AgentInvocationListResult>
+  /** Every record with one of these statuses, following list cursors to the end. */
+  scan: (statuses: readonly string[]) => Promise<InvocationSummary[]>
 }
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
@@ -454,7 +506,11 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
         ? undefined
         : { observationCount: String(observations.count), observationCursor: observations.cursor },
     }, parseInvocationDetail),
-    list: async () => await listConsoleInvocations(target, parsed),
+    list: async () => ({
+      invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),
+    }),
+    // One pass over the Console pages serves every status.
+    scan: async statuses => await listConsoleInvocations(target, Number.POSITIVE_INFINITY, new Set(statuses)),
   }
 }
 
@@ -492,6 +548,20 @@ function localInvocationsTarget(parsed: ParsedArgs, context: AgentInvocationsCli
       return await request(url, fetchImpl, timeout, parseInvocationDetail)
     },
     list: async () => await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList),
+    scan: async (statuses) => {
+      const records = new Map<string, InvocationSummary>()
+      for (const status of statuses) {
+        const page = async (cursor: string | undefined) => {
+          const url = new URL(parsed.url)
+          url.searchParams.set("status", status)
+          if (cursor !== undefined) url.searchParams.set("cursor", cursor)
+          return await request(url, fetchImpl, timeout, parseInvocationList)
+        }
+        // A record can change status between two reads. Keep its latest summary once.
+        for (const record of await collectPages(page, record => record.status === status)) records.set(record.id, record)
+      }
+      return [...records.values()]
+    },
   }
 }
 
@@ -739,6 +809,61 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   return 0
 }
 
+type Observation = AgentInvocationRecord["observations"][number]
+
+function observationAttributes(observations: readonly Observation[], name: string): Record<string, unknown>[] {
+  return observations.flatMap(observation => observation.name === name ? [observation.attributes ?? {}] : [])
+}
+
+/**
+ * One export line: the record without observations, plus the prompt, the final assistant text, and each Channel
+ * delivery that the observations carry. `final` is the finish result text, or the final message deltas before finish.
+ */
+function exportLine(record: AgentInvocationRecord, includeObservations: boolean) {
+  const { cursor: _cursor, observations, ...invocation } = record
+  const start = observationAttributes(observations, "agent.invocation.start")[0] ?? {}
+  const finish = observationAttributes(observations, "agent.invocation.finish").at(-1)?.["result.text"]
+  const finalDeltaGroups = new Map<string, { sequence: number, text: string }>()
+  observations.forEach((observation, index) => {
+    if (observation.name !== "agent.message.delta") return
+    const delta = observation.attributes ?? {}
+    if (delta["message.phase"] !== "final" && delta["message.phase"] !== "final_answer") return
+    const id = hasRuntimeType(delta["message.id"], "string") ? delta["message.id"] : "__anonymous"
+    const group = finalDeltaGroups.get(id) ?? { sequence: index, text: "" }
+    group.sequence = index
+    if (hasRuntimeType(delta["message.content"], "string")) group.text += delta["message.content"]
+    finalDeltaGroups.set(id, group)
+  })
+  const deltas = [...finalDeltaGroups.values()].sort((left, right) => right.sequence - left.sequence)[0]?.text
+  return {
+    ...invocation,
+    runId: start["agent.run.id"],
+    prompt: start["input.prompt"],
+    final: hasRuntimeType(finish, "string") ? finish : deltas || undefined,
+    deliveries: observationAttributes(observations, "agent.channel.delivery.effect").map(effect => ({
+      channel: hasRuntimeType(effect["channel.effect.channel"], "string") ? effect["channel.effect.channel"] : "unknown",
+      content: effect["channel.effect.content"],
+      intent: effect["channel.effect.intent"],
+      kind: effect["channel.effect.kind"],
+      ...(effect["channel.effect.skipped"] === undefined ? {} : { skipped: effect["channel.effect.skipped"] }),
+    })),
+    ...(includeObservations ? { observations } : {}),
+  }
+}
+
+/** Print the matching Invocations as JSON Lines, oldest first. Filters run on the summaries before any record is read. */
+async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, target: InvocationsTarget): Promise<number> {
+  const records = (await target.scan(parsed.status ? [parsed.status] : [...invocationStatuses]))
+    .filter(record => (parsed.origin === undefined || record.origin === parsed.origin)
+      && (parsed.agent === undefined || record.agentName === parsed.agent)
+      && (parsed.since === undefined || record.createdAt >= parsed.since))
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+  for (const summary of records) {
+    context.stdout.write(`${JSON.stringify(exportLine(detailRecord(await target.detail(summary.id)), parsed.observations))}\n`)
+  }
+  return 0
+}
+
 /** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
 async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
   const retention: AgentRetentionPolicy = {
@@ -812,6 +937,7 @@ export async function runAgentInvocationsCli(
     }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
+    if (parsed.action === "export") return await exportInvocations(parsed, context, target)
     if (parsed.action === "list") {
       const result = await target.list()
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
