@@ -165,6 +165,27 @@ defineChannelTrigger({
 })
 ```
 
+Two siblings answer the other cases. Both answer `{ accepted: false, ok: false, reason }`, and no Invocation starts.
+
+| Helper | Status | Use it when | Retry |
+| --- | --- | --- | --- |
+| `ignored(reason)` | 200 | The Channel does not handle the event. | No |
+| `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. When the webhook queue replays a queued delivery and the trigger returns it, the queue retries and its error names the reason. |
+| `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
+
+```ts
+import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
+
+defineChannelTrigger({
+  input: ticketOpened,
+  async invoke(context, event) {
+    if (!event.ticketId) return rejected('missing_ticket')
+    if (!await ticketing.isReady()) return retryLater('ticketing_unavailable')
+    return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
+  },
+})
+```
+
 ### Debounce webhook deliveries
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
