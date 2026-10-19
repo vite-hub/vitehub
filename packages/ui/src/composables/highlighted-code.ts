@@ -3,6 +3,10 @@ import { h, onServerPrefetch, shallowRef, type ShallowRef, toValue, type MaybeRe
 
 type LanguageModule = { default: LanguageRegistration[] };
 
+// ANSI output is parsed by Shiki's built-in ANSI tokenizer, but it still needs
+// a registered language entry when using the core highlighter with no defaults.
+const ansiLanguage: LanguageRegistration = { name: "ansi", scopeName: "source.ansi", patterns: [] };
+
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
   bash: () => import("shiki/langs/bash.mjs"),
@@ -52,24 +56,26 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
   let generation = 0;
 
   async function highlight() {
-    const request = ++generation;
+    const request = ++generation
     const source = toValue(code);
-    const requestedLanguage = toValue(language);
-    const requested = requestedLanguage.toLowerCase();
+    const requested = toValue(language).toLowerCase();
     const lang = aliases[requested] ?? requested;
     if (lang !== "ansi" && !languages[lang]) {
-      if (request === generation && source === toValue(code) && requestedLanguage === toValue(language)) lines.value = plainLines(source);
+      lines.value = plainLines(source);
       return;
     }
     const instance = await loadHighlighter();
-    if (lang !== "ansi" && !instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage((await languages[lang]!()).default);
+    if (!instance.getLoadedLanguages().includes(lang)) {
+      await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
+    }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
-    const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
+    const highlightedSource = source;
+    const { tokens } = instance.codeToTokens(highlightedSource.replace(/\n$/, ""), {
       defaultColor: false,
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (request !== generation || source !== toValue(code) || requestedLanguage !== toValue(language)) return;
+    if (request !== generation || source !== toValue(code) || lang !== (aliases[toValue(language).toLowerCase()] ?? toValue(language).toLowerCase())) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

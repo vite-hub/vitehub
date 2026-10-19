@@ -9,5 +9,5 @@ With $n = 200$ samples, use the 190th sorted value.`;
 </script>
 
 <template>
-  <AgentMarkdown :value="answer" />
+  <Markdown :value="answer" />
 </template>

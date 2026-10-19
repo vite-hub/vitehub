@@ -1,5 +1,4 @@
 import type { UIMessage } from "ai";
-import { describe, it } from "vitest";
 import {
   AgentCodeView,
   AgentFile,
@@ -13,33 +12,26 @@ import {
 } from "../src/index.ts";
 import type { ViteHubUIMessage, ViteHubUISession } from "../src/index.ts";
 
-declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
-
-const patch = `--- a/ready.ts
+const file: FileContents = { contents: "export const ready = true\n", name: "ready.ts" };
+const fileDiff = getSingularPatch(`--- a/ready.ts
 +++ b/ready.ts
 @@ -1 +1 @@
 -false
-+true`;
++true`);
+const codeViewItems: CodeViewItem<unknown>[] = [
+  { file, id: "file", type: "file" },
+  { fileDiff, id: "diff", type: "diff" },
+];
 
-describe("UI types", () => {
-  it("accepts code view items", () => {
-    const file: FileContents = { contents: "export const ready = true\n", name: "ready.ts" };
-    const fileDiff = getSingularPatch(patch);
-    const codeViewItems: CodeViewItem<unknown>[] = [
-      { file, id: "file", type: "file" },
-      { fileDiff, id: "diff", type: "diff" },
-    ];
+void AgentCodeView;
+void AgentFile;
+void AgentFileDiff;
+void AgentMultiFileDiff;
+void AgentPatchDiff;
+void AgentUnresolvedFile;
+void codeViewItems;
 
-    void AgentCodeView;
-    void AgentFile;
-    void AgentFileDiff;
-    void AgentMultiFileDiff;
-    void AgentPatchDiff;
-    void AgentUnresolvedFile;
-    void codeViewItems;
-  });
-});
-
+declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
 const compatible: UIMessage = message;
 const session: ViteHubUISession<typeof message> = { id: "session-1", messages: [message] };
 
