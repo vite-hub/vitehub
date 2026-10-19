@@ -90,7 +90,7 @@ Available namespaces:
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
-| `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. |
+| `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
 | `vitehub workflow get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |

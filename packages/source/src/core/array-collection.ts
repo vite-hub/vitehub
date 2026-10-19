@@ -75,6 +75,10 @@ type ArrayCursor = {
   query: string
 }
 
+function compareProtocolStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
   "~standard": {
     version: 1,

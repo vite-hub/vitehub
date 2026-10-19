@@ -48,10 +48,11 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ```ts
 import { defineContent, documents } from "@vite-hub/content"
+import cms from "@vite-hub/content/presets/cms"
 import { z } from "zod"
 
 export const content = defineContent({
-  workspace: "site",
+  extends: cms,
   collections: {
     posts: documents({
       path: "posts/**/*.md",

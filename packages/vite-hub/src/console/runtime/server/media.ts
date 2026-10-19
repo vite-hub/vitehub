@@ -160,6 +160,15 @@ function isReservedPath(pathname: string): boolean {
   return root === "_vitehub" || hiddenRootFolders.has(root)
 }
 
+function normalizedMediaPath(pathname: string): string {
+  try {
+    return decodeURIComponent(pathname).replace(/^\/+/, "")
+  }
+  catch {
+    return pathname.replace(/^\/+/, "")
+  }
+}
+
 function checkedMutationPath(pathname: string): string {
   const parts: string[] = []
   for (const part of pathname.replaceAll("\\", "/").split("/")) {
@@ -293,7 +302,7 @@ async function list(context: MediaContext, input: Record<string, unknown>): Prom
 }
 
 async function get(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
-  const pathname = text(input.pathname, "pathname")
+  const pathname = normalizedMediaPath(text(input.pathname, "pathname"))
   if (isHiddenFolder(pathname)) throw failure(404, "BLOB_NOT_FOUND", "This file no longer exists.")
   const record = await blobCall(() => context.storage.media.get(pathname))
   if (!record) throw failure(404, "BLOB_NOT_FOUND", "This file no longer exists.")

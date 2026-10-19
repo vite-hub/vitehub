@@ -20,7 +20,7 @@ icon: i-lucide-code-2
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Comark databases, parser and search plugins, and native Comark Sources. |
 
-Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content` and `@vite-hub/content/client` imports.
+Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
 
 ## Runtime API
 

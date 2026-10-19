@@ -43,41 +43,33 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. Use the [Blob + Database Store](/docs/workspace/configure#blob-database-store): add its schema to a Database, then define the Workspace.
+Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
 
-```ts [server/databases/content/config.ts]
-import { defineDatabase } from 'vite-hub/database'
-import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
+```ts [server/content.ts]
+import { defineContent, documents } from 'vite-hub/content'
+import cms from 'vite-hub/content/presets/cms'
+import { z } from 'zod'
 
-export default defineDatabase({ name: 'content', schema: workspaceHistorySchema })
-```
-
-```ts [server/workspaces/site.ts]
-import { blob } from 'vite-hub/blob'
-import { defineWorkspace } from 'vite-hub/workspace'
-import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
-import contentDatabase from '../databases/content/config'
-
-export default defineWorkspace({
-  store: createBlobDatabaseWorkspaceStore({
-    blob: blob.store('content'),
-    database: contentDatabase,
-    workspace: 'site',
-  }),
+export const content = defineContent({
+  extends: cms,
+  collections: { posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }) },
 })
 ```
 
-Enable [Database](/docs/database/configure), then run `vitehub db generate` and `vitehub db migrate` before the first save. A Workspace without retained history fails on first use with `CONTENT_R0007`.
+Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
+
+To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
+import cms from 'vite-hub/content/presets/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
 export const content = defineContent({
-  workspace: 'site',
+  extends: cms,
   collections: {
     posts: documents({
       path: 'posts/**/*.md',
@@ -231,7 +223,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ```ts [server/content.ts]
 export const content = defineContent({
-  workspace: 'site',
+  extends: cms,
   collections: { posts },
   authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
 })

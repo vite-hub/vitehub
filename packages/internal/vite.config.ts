@@ -26,6 +26,8 @@ export default defineConfig({
       "src/package-exports.ts",
       "src/provision.ts",
       "src/provision-state.ts",
+      "src/presets.ts",
+      "src/source-scanner.ts",
       "src/secret.ts",
       "src/standard-schema.ts",
       "src/vite-stage.ts",
