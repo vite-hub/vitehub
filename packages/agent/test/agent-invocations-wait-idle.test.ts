@@ -29,11 +29,11 @@ function invocationEndpoint(poll: (index: number) => Summary[] | Response) {
   const fetch = vi.fn(async (input: string) => {
     const url = new URL(input)
     urls.push(url)
-    // Each poll reads pending first, then running.
-    const index = url.searchParams.get("status") === "pending" && !url.searchParams.has("cursor") ? polls++ : polls - 1
+    const index = !url.searchParams.has("cursor") ? polls++ : polls - 1
     const records = poll(index)
     if (records instanceof Response) return records
-    return Response.json({ invocations: records.filter(record => record.status === url.searchParams.get("status")) })
+    const statuses = new Set(url.searchParams.getAll("status"))
+    return Response.json({ invocations: records.filter(record => statuses.has(record.status)) })
   })
   // SAFETY: The mock implements the fetch call shape that the CLI uses.
   return { fetch: fetch as unknown as typeof globalThis.fetch, urls }
@@ -66,7 +66,8 @@ describe("vitehub agent invocations wait-idle", () => {
     const result = await waitIdle([], endpoint.fetch)
 
     expect(result).toMatchObject({ exitCode: 0, sleeps: [], stdout: "Idle: no pending or running Agent Invocations.\n" })
-    expect(endpoint.urls.map(url => url.searchParams.get("status"))).toEqual(["pending", "running"])
+    expect(endpoint.urls).toHaveLength(1)
+    expect(endpoint.urls[0]!.searchParams.getAll("status")).toEqual(["pending", "running"])
   })
 
   it("waits until the running Invocations finish and prints them once", async () => {

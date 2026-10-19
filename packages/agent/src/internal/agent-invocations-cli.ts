@@ -503,18 +503,15 @@ function localInvocationsTarget(parsed: ParsedArgs, context: AgentInvocationsCli
     },
     list: async () => await request(endpoint(parsed), fetchImpl, timeout, parseInvocationList),
     scan: async (statuses) => {
-      const records = new Map<string, InvocationSummary>()
-      for (const status of statuses) {
-        const page = async (cursor: string | undefined) => {
-          const url = new URL(parsed.url)
-          url.searchParams.set("status", status)
-          if (cursor !== undefined) url.searchParams.set("cursor", cursor)
-          return await request(url, fetchImpl, timeout, parseInvocationList)
-        }
-        // A record can change status between two reads. Keep its latest summary once.
-        for (const record of await collectPages(page, record => record.status === status)) records.set(record.id, record)
+      const requestedStatuses = new Set(statuses)
+      const page = async (cursor: string | undefined) => {
+        const url = new URL(parsed.url)
+        url.searchParams.delete("status")
+        for (const status of statuses) url.searchParams.append("status", status)
+        if (cursor !== undefined) url.searchParams.set("cursor", cursor)
+        return await request(url, fetchImpl, timeout, parseInvocationList)
       }
-      return [...records.values()]
+      return await collectPages(page, record => requestedStatuses.has(record.status))
     },
   }
 }
