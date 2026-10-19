@@ -595,24 +595,25 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
 
       try {
     const readerPrototype = Object.getPrototypeOf(reader)
+    // Capture the source realm's verified release operation immediately after
+    // acquisition. Later reader-shape validation may reject own overrides or
+    // malformed read/cancel operations, but the acquired reader must still be
+    // released on every such failure path.
+    const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+    if (!isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    verifiedRelease = releaseLock
     if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
     const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
     if (!isNativeConstructor(readerConstructor, "ReadableStreamDefaultReader")
       || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
-    verifiedRelease = readerPrototype === nativeReaderPrototype && typeof nativeReaderReleaseLock === "function"
-      ? nativeReaderReleaseLock as (...args: never[]) => unknown
-      : undefined
     // The returned reader may have a caller-controlled immediate prototype. Its
     // constructor identity and native operations are checked before invocation.
     // The first reader acquisition locks the source stream. Inspect this reader's
     // prototype directly instead of acquiring a second reader while it is locked.
     const read = readerOperation(readerPrototype, "read") as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
     const cancel = readerOperation(readerPrototype, "cancel") as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
-    const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
-    if (!isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
-    verifiedRelease = releaseLock
     // Native reader operations have stable names across realms. This rejects
     // replacements installed on a shared reader prototype before any
     // caller-controlled operation is invoked.
