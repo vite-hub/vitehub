@@ -65,6 +65,9 @@ function invalidateAgentDevModules(server: ViteDevServer, ids: readonly string[]
 export { readColocatedAgentSkills } from "./vite/colocated-agent-skills.ts"
 export { discoverAgentChannelEnv, discoverAgentGatewayEnv } from "./channel-env-discovery.ts"
 export type { AgentChannelEnv } from "./channel-env-discovery.ts"
+/** Validates a retention policy at build time, so a ViteHub integration reports a bad limit before it generates output. */
+export { normalizeRetention } from "./internal/retention-policy.ts"
+export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retention-policy.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -105,6 +108,9 @@ const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
 const generatedAgentDeclaredWebhookRouteHandler = "agent/declared-webhook-route.ts"
 const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
 const generatedAgentPreparationHandler = "agent/preparation-route.ts"
+/** Readiness route for hosts with a webhook queue and no Workspace preparation. */
+const generatedAgentReadyHandler = "agent/ready-route.ts"
+const agentReadyRoute = "/api/_vitehub/ready"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
 const generatedAgentProcessHosts = "agent/process-hosts.ts"
 const generatedAgentProcessHostsPlugin = "agent/process-hosts-plugin.ts"
@@ -1003,7 +1009,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  }",
     "  const options = resolvedAgent?.__vitehubWorkspaceAgentOptions",
     "  const workspace = options?.workspace",
-    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return resolvedAgent",
+    "  if (!workspace || typeof workspace !== 'object' || (Object.hasOwn(workspace, 'name') && typeof workspace.name === 'string')) return resolvedAgent",
     "  const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
     "  const sources = {",
     "    ...existingSources,",
@@ -1749,6 +1755,21 @@ function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: s
   ]
 }
 
+/** Startup warm-up of every webhook handler. The readiness route answers 503 until it finishes. */
+function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string }, runtimeRouteOption = ""): string[] {
+  return [
+    "const webhookWarmup = createAgentWebhookWarmup(Object.fromEntries(Object.entries(webhookHandlers).map(([name, handler]) => [",
+    "  name,",
+    `  () => handler.warm({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`,
+    "])))",
+    "/** Warms every webhook handler once. `/api/_vitehub/ready` answers 503 until it finishes. */",
+    "export const warmWebhookRoutes = () => webhookWarmup.warm()",
+    "export const webhookRoutesReadiness = () => webhookWarmup.readiness()",
+    "export const webhookRoutesReadyResponse = (method?: string) => webhookWarmup.response(method)",
+    "",
+  ]
+}
+
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -2054,6 +2075,7 @@ async function generateAgentWebhookRouteHandler(
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createAgentWebhookWarmup } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2081,6 +2103,7 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
+    ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
     ...(options.processDiscordGateway
       ? [
           "function hasDiscordGatewayChannel(agent: unknown): boolean {",
@@ -2324,13 +2347,41 @@ async function writeAgentWebhookRouteHandler(
       `  nitroApp.hooks.hook("close", () => preparation.stop())`,
       `}`,
     ].join("\n"), "utf8")
-    await writeFile(join(root, generatedAgentPreparationHandler), [
-      `import { preparation } from "./preparation"`,
-      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
-    ].join("\n"), "utf8")
+    await writeFile(join(root, generatedAgentPreparationHandler), options.libsqlState
+      ? [
+          `import { preparation } from "./preparation"`,
+          `import { warmWebhookRoutes, webhookRoutesReadiness, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
+          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
+          `  const method = event.req?.method || event.method || event.node?.req?.method`,
+          `  void warmWebhookRoutes()`,
+          `  // The Workspace is not ready to serve deliveries before the webhook handlers are warm.`,
+          `  if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(method)`,
+          `  return preparation.response(method)`,
+          `}`,
+        ].join("\n")
+      : [
+          `import { preparation } from "./preparation"`,
+          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
+        ].join("\n"), "utf8")
   }
   else {
     for (const file of ["agent/preparation.ts", generatedAgentPreparationPlugin, generatedAgentPreparationHandler]) await rm(join(root, file), { force: true })
+  }
+  const readyRoutePath = join(root, generatedAgentReadyHandler)
+  if (options.libsqlState && !options.preparation) {
+    await writeFile(readyRoutePath, [
+      `import { warmWebhookRoutes, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
+      "",
+      "/** 200 once every webhook handler is warm, 503 before. Point a readiness probe here. */",
+      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
+      `  void warmWebhookRoutes()`,
+      `  return webhookRoutesReadyResponse(event.req?.method || event.method || event.node?.req?.method)`,
+      `}`,
+      "",
+    ].join("\n"), "utf8")
+  }
+  else {
+    await rm(readyRoutePath, { force: true })
   }
   const gatewayPluginPath = join(root, generatedAgentDiscordGatewayPlugin)
   if (options.processDiscordGateway) {
@@ -2390,7 +2441,7 @@ async function writeAgentWebhookRouteHandler(
     // the first webhook request, so its waitUntil keeps the function alive during the drain.
     const persistent = !options.libsqlState.ephemeralHosting
     await writeFile(queuePluginPath, [
-      `import { resumeWebhookQueues${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2418,7 +2469,13 @@ async function writeAgentWebhookRouteHandler(
             "  const startedAt = performance.timeOrigin",
             "  // Start after the server installs its shutdown listeners. Invocations that started",
             "  // before this process are interrupted unless a queued delivery runs them again.",
-            "  if (!import.meta.prerender) setTimeout(() => startWebhookQueues(startedAt), 0)",
+            "  // The warm-up builds registrations, secrets, and State now, so the first delivery does not wait for them.",
+            "  // /api/_vitehub/ready answers 503 until it finishes.",
+            "  if (!import.meta.prerender) setTimeout(() => {",
+            "    if (closed) return",
+            "    void warmWebhookRoutes()",
+            "    startWebhookQueues(startedAt)",
+            "  }, 0)",
           ]
         : [
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
@@ -2427,6 +2484,7 @@ async function writeAgentWebhookRouteHandler(
             "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromEvent(event)",
+            "    void warmWebhookRoutes()",
             "    startWebhookQueues()",
             "  })",
           ]),
@@ -3316,9 +3374,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           throw agentDiagnostics.AGENT_B0023({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} stores its process host state in Agent State. Use the sqlite, libsql, or auto Agent State provider.` })
         }
       }
+      const applicationHandlers = (config as { nitro?: { handlers?: unknown } }).nitro?.handlers
+      const applicationOwnsReadyRoute = Array.isArray(applicationHandlers) && applicationHandlers.some(handler => isRecord(handler) && handler.route === agentReadyRoute)
       const nitroHandlers = [
         ...(installPreparation && resolved && resolved.preparation
-          ? [{ handler: join(generatedRoot, generatedAgentPreparationHandler), route: resolved.preparation.route || "/api/_vitehub/ready" }]
+          ? [{ handler: join(generatedRoot, generatedAgentPreparationHandler), route: resolved.preparation.route || agentReadyRoute }]
+          : []),
+        ...(installWebhookQueue && !installPreparation && !applicationOwnsReadyRoute
+          ? [{ handler: join(generatedRoot, generatedAgentReadyHandler), route: agentReadyRoute }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.inspection
           ? [{

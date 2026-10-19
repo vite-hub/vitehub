@@ -543,6 +543,12 @@
       "require": "./dist/console.js",
       "default": "./dist/console.js"
     },
+    "./console/ui": {
+      "types": "./dist/console/ui.d.ts",
+      "import": "./dist/console/ui.js",
+      "require": "./dist/console/ui.js",
+      "default": "./dist/console/ui.js"
+    },
     "./console/auth": {
       "types": "./dist/console/auth.d.ts",
       "import": "./dist/console/auth.js",
@@ -836,6 +842,12 @@
       "import": "./dist/source/file.js",
       "require": "./dist/source/file.js",
       "default": "./dist/source/file.js"
+    },
+    "./source/files": {
+      "types": "./dist/source/files.d.ts",
+      "import": "./dist/source/files.js",
+      "require": "./dist/source/files.js",
+      "default": "./dist/source/files.js"
     },
     "./source/github": {
       "types": "./dist/source/github.d.ts",

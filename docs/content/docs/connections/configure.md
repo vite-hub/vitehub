@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Provider origins
 
-Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTION_INVALID` for any other origin, and ViteHub does not send the credential.
+Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` for any other origin, and ViteHub does not send the credential.
 
 | Provider | Import | Origins that receive the credential |
 | --- | --- | --- |
@@ -218,6 +218,16 @@ The fallback applies only when no key was ever set for the Connection, or when t
 An Agent discovered under `server/agents/` that has no rule of its own uses the rule of the nearest Agent it [extends](/docs/agents/agent-definitions#extend-an-agent). With `agent:bot` in the map, `bot-dev` from `defineAgent({ extends: bot })` uses the `agent:bot` rule, and a grandchild uses the first rule up its chain. A rule that names the child always wins, also when it grants less. An Agent that is not discovered, such as an inline `defineAgent({ extends })` that `runAgent()` runs, gets only the rules that name it. Server, route, and schedule actors never inherit a rule. An approval replays with the rules that applied when the Agent requested it.
 
 ViteHub checks the actor rule before the operation. A write list can contain exact Operation ids or `*` patterns; high-risk writes require an explicit matching pattern.
+
+An actor that only uses the provider's [MCP endpoint](#mcp-endpoint) can have the `'mcp'` preset instead of a rule:
+
+```ts [server/connections/docs.ts]
+access: {
+  'agent:support': 'mcp',
+},
+```
+
+The preset allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Connection with the preset must declare `mcp` on its provider.
 
 | Decision | Result |
 | --- | --- |

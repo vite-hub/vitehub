@@ -295,7 +295,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
-          abortSignal: execOptions.signal,
+          ...(execOptions.signal ? { abortSignal: execOptions.signal } : undefined),
           timeout: execOptions.timeout,
         })
         execOptions.onStdout?.(result.stdout)

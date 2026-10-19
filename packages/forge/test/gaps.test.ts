@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer"
 import { fixtureFetch } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
-import { forgeArchive, forgeGitAuthHeader, forgeGitCredentials, forgeProvider } from "../src/index.ts"
+import { BranchMovedError, forgeArchive, forgeBlob, forgeCommitFiles, forgeGitAuthHeader, forgeGitCredentials, forgeProvider } from "../src/index.ts"
 
 function repo(provider: Awaited<ReturnType<typeof forgeProvider>>, owner: string, name: string) {
   return { forge: provider.forge, instance: provider.instance, owner, name }
@@ -93,5 +93,120 @@ describe("forgeGitCredentials", () => {
       value: `AUTHORIZATION: basic ${Buffer.from("x-access-token:secret").toString("base64")}`,
     })
     expect(forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository: "acme/app" }))).toBeUndefined()
+  })
+})
+
+interface RecordedCall {
+  body?: unknown
+  method: string
+  path: string
+}
+
+/** A GitHub fake that answers `routes` by `METHOD path` and records each call. */
+function githubRoutes(routes: Record<string, (call: RecordedCall) => Response>) {
+  const calls: RecordedCall[] = []
+  const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined
+    const call = { body, method: (init.method ?? "GET").toUpperCase(), path: url.pathname }
+    calls.push(call)
+    const route = routes[`${call.method} ${call.path}`]
+    return route ? route(call) : Response.json({ message: "Not Found" }, { status: 404 })
+  }
+  return { calls, fetch: fetch as typeof globalThis.fetch }
+}
+
+const parentSha = "a".repeat(40)
+const movedSha = "b".repeat(40)
+
+describe("forgeBlob", () => {
+  it("reads the bytes of a blob by its sha", async () => {
+    const fake = githubRoutes({
+      "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: Buffer.from("target.md").toString("base64"), encoding: "base64", sha: "abc" }),
+    })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    const bytes = await forgeBlob(provider, repo(provider, "acme", "app"), "abc")
+
+    expect(Buffer.from(bytes).toString()).toBe("target.md")
+  })
+
+  it("rejects a malformed blob response", async () => {
+    const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json({ sha: "abc" }) })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
+  })
+
+  it("rejects other Forges with FORGE_R0004", async () => {
+    const fake = githubRoutes({})
+    const provider = await forgeProvider({ forge: "gitlab", fetch: fake.fetch })
+
+    await expect(forgeBlob(provider, repo(provider, "group", "app"), "abc")).rejects.toThrow("not supported for gitlab")
+    expect(fake.calls).toHaveLength(0)
+  })
+})
+
+describe("forgeCommitFiles", () => {
+  function commitRoutes(update: () => Response) {
+    return githubRoutes({
+      [`GET /repos/acme/app/git/commits/${parentSha}`]: () => Response.json({ sha: parentSha, tree: { sha: "base-tree" } }),
+      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: "new-blob" }, { status: 201 }),
+      "POST /repos/acme/app/git/trees": () => Response.json({ sha: "new-tree" }, { status: 201 }),
+      "POST /repos/acme/app/git/commits": () => Response.json({ sha: "new-commit" }, { status: 201 }),
+      "PATCH /repos/acme/app/git/refs/heads/main": update,
+      "GET /repos/acme/app/git/ref/heads/main": () => Response.json({ object: { sha: movedSha } }),
+    })
+  }
+
+  it("writes Git file modes through the Git database and moves the branch without force", async () => {
+    const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    const sha = await forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main",
+      changes: [
+        { content: "target.md", mode: "120000", path: "link.md" },
+        { content: "plain", path: "plain.md" },
+        { content: null, path: "old.md" },
+      ],
+      expectedHead: parentSha,
+      message: "write files",
+    })
+
+    expect(sha).toBe("new-commit")
+    expect(fake.calls.find(call => call.method === "POST" && call.path.endsWith("/git/trees"))?.body).toEqual({
+      base_tree: "base-tree",
+      tree: [
+        { mode: "120000", path: "link.md", sha: "new-blob", type: "blob" },
+        { mode: "100644", path: "plain.md", sha: "new-blob", type: "blob" },
+        { mode: "100644", path: "old.md", sha: null, type: "blob" },
+      ],
+    })
+    expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "new-commit" })
+  })
+
+  it("rejects with BranchMovedError when the branch moved", async () => {
+    const fake = commitRoutes(() => Response.json({ message: "Update is not a fast forward" }, { status: 422 }))
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main",
+      changes: [{ content: "#!/bin/sh\n", mode: "100755", path: "tool.sh" }],
+      expectedHead: parentSha,
+      message: "write tool",
+    })).rejects.toBeInstanceOf(BranchMovedError)
+  })
+
+  it("rejects file modes on other Forges with FORGE_R0005", async () => {
+    const fake = githubRoutes({})
+    const provider = await forgeProvider({ forge: "gitlab", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeCommitFiles(provider, repo(provider, "group", "app"), {
+      branch: "main",
+      changes: [{ content: "target", mode: "120000", path: "link" }],
+      message: "write link",
+    })).rejects.toThrow("Git file modes are not supported for gitlab")
+    expect(fake.calls).toHaveLength(0)
   })
 })

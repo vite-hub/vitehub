@@ -1,3 +1,5 @@
+import type { Result } from "@vite-hub/runtime"
+import type { ConnectionsErrorCode } from "../src/index.ts"
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineConnection } from "../src/definition.ts"
@@ -7,7 +9,7 @@ import { useConnection } from "../src/runtime/state.ts"
 
 import type { GmailClassificationLabelFieldValue, GmailClassificationLabelValue, GmailLabel, GmailMethods } from "../src/google.ts"
 import type { ConnectionDefinitionName } from "../src/registry-types.ts"
-import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider } from "../src/types.ts"
+import type { ConnectionClient, ConnectionDefinition, ConnectionFetchInit, ConnectionInstancesDefinition, ConnectionLoginContext, ConnectionMethod, ConnectionProvider, ConnectionStatus } from "../src/types.ts"
 
 const connection = defineConnection({
   access: {
@@ -37,6 +39,23 @@ declare global {
     keyedTest: { default: typeof keyed }
   }
 }
+
+/** The data element of a successful result. */
+type Data<TResult> = TResult extends [undefined, infer TData] ? TData : never
+
+it("types the codes of client calls and fetch", () => {
+  expectTypeOf<ConnectionsErrorCode>().toEqualTypeOf<
+    | "CONNECTIONS_APPROVAL_REQUIRED"
+    | "CONNECTIONS_DENIED"
+    | "CONNECTIONS_INVALID_INPUT"
+    | "CONNECTIONS_NEEDS_RECONNECT"
+    | "CONNECTIONS_NOT_CONNECTED"
+    | "CONNECTIONS_ORIGIN_NOT_ALLOWED"
+    | "CONNECTIONS_PROVIDER_FAILED"
+    | "CONNECTIONS_UNAVAILABLE"
+  >()
+  expectTypeOf(useConnection("typeTest").fetch).returns.toEqualTypeOf<Promise<Result<Response, ConnectionsErrorCode>>>()
+})
 
 describe("Connection types", () => {
   it("requires the Gmail history start ID", () => {
@@ -82,7 +101,13 @@ describe("Connection types", () => {
   })
 
   it("types method input and response", async () => {
-    const labels = await client.gmail.users.labels.list({ userId: "me" })
+    const [error, labels] = await client.gmail.users.labels.list({ userId: "me" })
+    if (error) {
+      expectTypeOf(error.code).toEqualTypeOf<ConnectionsErrorCode>()
+      // @ts-expect-error A config code throws. It is not in the returned union.
+      void (error.code === "CONNECTIONS_NOT_FOUND")
+      return
+    }
     expectTypeOf(labels.labels).toEqualTypeOf<GmailLabel[] | undefined>()
     await client.gmail.users.messages.modify({ id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" })
     // @ts-expect-error userId is required.
@@ -93,14 +118,14 @@ describe("Connection types", () => {
     const normal = useConnection("typeTest")
     const dryRun = useConnection("typeTest", { dryRun: true })
     const conditional = useConnection("typeTest", { dryRun: true as boolean })
-    type NormalResult = Awaited<ReturnType<typeof normal.gmail.users.messages.modify>>
-    expectTypeOf<Awaited<ReturnType<typeof dryRun.gmail.users.messages.modify>>>().toEqualTypeOf<NormalResult | undefined>()
-    expectTypeOf<Awaited<ReturnType<typeof conditional.gmail.users.messages.modify>>>().toEqualTypeOf<NormalResult | undefined>()
+    type NormalResult = Data<Awaited<ReturnType<typeof normal.gmail.users.messages.modify>>>
+    expectTypeOf<Data<Awaited<ReturnType<typeof dryRun.gmail.users.messages.modify>>>>().toEqualTypeOf<NormalResult | undefined>()
+    expectTypeOf<Data<Awaited<ReturnType<typeof conditional.gmail.users.messages.modify>>>>().toEqualTypeOf<NormalResult | undefined>()
     expectTypeOf<Awaited<ReturnType<typeof normal.gmail.users.labels.list>>>().toEqualTypeOf<Awaited<ReturnType<typeof client.gmail.users.labels.list>>>()
     type NormalRead = Awaited<ReturnType<typeof normal.gmail.users.labels.list>>
     expectTypeOf<Awaited<ReturnType<typeof dryRun.gmail.users.labels.list>>>().toEqualTypeOf<NormalRead>()
     expectTypeOf<Awaited<ReturnType<typeof conditional.gmail.users.labels.list>>>().toEqualTypeOf<NormalRead>()
-    const result = await dryRun.gmail.users.messages.modify({ id: "m1", userId: "me" })
+    const [, result] = await dryRun.gmail.users.messages.modify({ id: "m1", userId: "me" })
     // @ts-expect-error A skipped write has no provider response.
     expectTypeOf(result.id).toBeString()
   })
@@ -110,9 +135,9 @@ describe("Connection types", () => {
     type Read = ConnectionMethod<Signature & { method: "GET" }, true>
     type Head = ConnectionMethod<Signature & { method: "HEAD" }, true>
     type Options = ConnectionMethod<Signature & { method: "OPTIONS" }, true>
-    expectTypeOf<Awaited<ReturnType<Read>>>().toEqualTypeOf<{ id: string }>()
-    expectTypeOf<Awaited<ReturnType<Head>>>().toEqualTypeOf<{ id: string }>()
-    expectTypeOf<Awaited<ReturnType<Options>>>().toEqualTypeOf<{ id: string }>()
+    expectTypeOf<Data<Awaited<ReturnType<Read>>>>().toEqualTypeOf<{ id: string }>()
+    expectTypeOf<Data<Awaited<ReturnType<Head>>>>().toEqualTypeOf<{ id: string }>()
+    expectTypeOf<Data<Awaited<ReturnType<Options>>>>().toEqualTypeOf<{ id: string }>()
   })
 
   it("checks access patterns", () => {
@@ -156,12 +181,28 @@ describe("Connection types", () => {
     })
     expectTypeOf(oidc).toMatchTypeOf<ConnectionDefinition>()
   })
+  it("accepts the mcp access preset and returns the status", () => {
+    const mcp = defineConnection({
+      access: { "agent:support": "mcp", "server": { read: true } },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", mcp: "https://mcp.example.com/mcp", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(mcp).toMatchTypeOf<ConnectionDefinition>()
+    defineConnection({
+      // @ts-expect-error The only access preset is `"mcp"`.
+      access: { "agent:support": "all" },
+      provider: { authorizationEndpoint: "https://auth.example.com/authorize", clientId: "client-id", id: "example", tokenEndpoint: "https://auth.example.com/token" },
+      scopes: [],
+    })
+    expectTypeOf(client.status).returns.toEqualTypeOf<Promise<ConnectionStatus>>()
+  })
+
   it("names each instance of a keyed Connection", () => {
     expectTypeOf(keyed).toMatchTypeOf<ConnectionInstancesDefinition<"acme" | "beta">>()
     expectTypeOf<Extract<ConnectionDefinitionName, `keyedTest${string}`>>().toEqualTypeOf<"keyedTest:acme" | "keyedTest:beta">()
     expectTypeOf(keyed.instances).toEqualTypeOf<readonly ("acme" | "beta")[]>()
     expectTypeOf<"keyedTest">().not.toMatchTypeOf<ConnectionDefinitionName>()
-    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Response>>()
+    expectTypeOf(useConnection("keyedTest:acme").fetch).toEqualTypeOf<(input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>>()
   })
 
   it("types the login context", () => {

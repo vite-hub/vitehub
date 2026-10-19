@@ -97,8 +97,8 @@ Each Gmail request runs through the Connections client. Its [access rules](/docs
 | Agent rule | `gmail_draft` result |
 | --- | --- |
 | `write: ['gmail.users.drafts.create'], approve: false` | Creates the unsent draft. |
-| `write: ['gmail.users.drafts.create']` | Persists an approval and fails with `CONNECTION_APPROVAL_REQUIRED`. Approve it in the Console or with `vitehub connections approvals approve <id>`. Connections then executes the stored request once. |
-| No matching write | Fails with `CONNECTION_DENIED`. |
+| `write: ['gmail.users.drafts.create']` | Persists an approval and fails with `CONNECTIONS_APPROVAL_REQUIRED`. Approve it in the Console or with `vitehub connections approvals approve <id>`. Connections then executes the stored request once. |
+| No matching write | Fails with `CONNECTIONS_DENIED`. |
 
 A reply draft first reads the original message, so it also requires read access. Setting `read: false` denies reads before a provider request starts.
 

@@ -42,7 +42,7 @@ function invocation(id: string, status: AgentInvocationStoreCreateInput["status"
 /** A journal written by the SQLite store. The running record keeps its appended observation in the observations table. */
 async function storeJournal() {
   const path = join(await temporaryDirectory(), "console.sqlite")
-  const store = createLibsqlAgentInvocationStore({ maxAgeMs: false, maxRecords: false, url: `file:${path}` })
+  const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
   await store.create(invocation("first", "completed"))
   await store.create(invocation("second", "running"))
   await store.update("second", { appendObservation: { attributes: { "vitehub.observation.id": "obs-2" }, name: "agent.message.delta", timestamp: "2026-10-06T10:00:02.000Z", type: "run" }, timestamp: "2026-10-06T10:01:00.000Z" })
@@ -93,6 +93,24 @@ describe("vitehub agent invocations --database", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
   })
 
+  it("waits against the journal file without requesting the local endpoint", async () => {
+    const path = await storeJournal()
+    const result = await run(["wait-idle", "--database", path, "--json"])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({ event: "invocations.idle", stale: [{ id: "second" }] })
+  })
+
+  it("follows journal pages when waiting for an older active record", async () => {
+    const path = join(await temporaryDirectory(), "paged.sqlite")
+    const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
+    await store.create({ ...invocation("active", "running"), updatedAt: new Date().toISOString() })
+    for (let index = 0; index < 100; index++) await store.create(invocation(`done-${index}`, "completed"))
+
+    const result = await run(["wait-idle", "--database", path, "--timeout", "1ms", "--json"])
+    expect(result.exitCode).toBe(1)
+    expect(JSON.parse(result.stdout)).toMatchObject({ event: "invocations.timeout", active: [{ id: "active", status: "running" }] })
+  })
+
   it("reads an older read-only journal without migrating it", async () => {
     const path = join(await temporaryDirectory(), "journal.sqlite")
     const db = new DatabaseSync(path)
@@ -110,7 +128,7 @@ describe("vitehub agent invocations --database", () => {
 
   it.each([
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
-    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app."],
+    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
     [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
