@@ -240,12 +240,14 @@ export function liveMergeReadiness(live: unknown, head: string, reviewPolicy: { 
   if (live.mergeable === false) return no("merge conflict");
   const reviewDecision = String(live.reviewDecision ?? "").toUpperCase();
   if (reviewDecision === "CHANGES_REQUESTED" || reviewDecision === "REVIEW_REQUIRED") {
-    // Once the review push budget is spent, GitHub may still expose a stale aggregate
-    // decision from automated reviewers. Keep human-required decisions blocking.
+    // Once the review push budget is spent, a bot-only change request may be stale.
+    // REVIEW_REQUIRED is GitHub's aggregate branch-protection decision, however, and
+    // the REST review list cannot prove that its required human approval is stale.
     const reviews = reviewPolicy.reviews ?? [];
     const humanChangesRequested = reviews.some(review => !isAutomatedFeedback(review) && String(review.state ?? "").toUpperCase() === "CHANGES_REQUESTED");
-    const humanReviewRequired = reviewDecision === "REVIEW_REQUIRED" && reviews.some(review => !isAutomatedFeedback(review));
-    if (!reviewPolicy.automatedReviewSettled || humanChangesRequested || humanReviewRequired || reviews.length === 0) return no("required review not satisfied");
+    if (reviewDecision === "REVIEW_REQUIRED" || !reviewPolicy.automatedReviewSettled || humanChangesRequested || reviews.length === 0) {
+      return no("required review not satisfied");
+    }
   }
   // A stacked PR keeps its old base after the parent merges when merged branches are kept.
   // Merging it there would strand the change outside the default branch.

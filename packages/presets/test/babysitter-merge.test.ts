@@ -215,6 +215,10 @@ describe("Babysitter merge evidence", () => {
     const live = { ...s.pr, mergeable: true, mergeable_state: "unstable" };
     expect(liveMergeReadiness(live, head)).toEqual({ ready: true, head });
     expect(liveMergeReadiness({ ...live, reviewDecision: "REVIEW_REQUIRED" }, head).ready).toBe(false);
+    expect(liveMergeReadiness({ ...live, reviewDecision: "REVIEW_REQUIRED" }, head, {
+      automatedReviewSettled: true,
+      reviews: [{ user: { login: "pullfrog[bot]", type: "Bot" }, state: "CHANGES_REQUESTED" }],
+    }).ready).toBe(false);
     expect(liveMergeReadiness({ ...live, reviewDecision: "CHANGES_REQUESTED" }, head, {
       automatedReviewSettled: true,
       reviews: [{ user: { login: "pullfrog[bot]", type: "Bot" }, state: "CHANGES_REQUESTED" }],
