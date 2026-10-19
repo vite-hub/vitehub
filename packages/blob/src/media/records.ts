@@ -423,8 +423,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       }
       const path = await cropPath(moved.pathname, name, crop.replacement.hash, probeFormat(crop.replacement.contentType))
       const body = await driver.get(crop.replacement.pathname)
-      if (body) await driver.put(path, body, { contentType: crop.replacement.contentType })
-      crops[name] = { ...crop, replacement: { ...crop.replacement, pathname: path } }
+      if (body) {
+        await driver.put(path, body, { contentType: crop.replacement.contentType })
+        crops[name] = { ...crop, replacement: { ...crop.replacement, pathname: path } }
+      } else {
+        crops[name] = crop
+      }
     }
     const next: MediaRecord = { ...record, pathname: moved.pathname, size: moved.size ?? record.size, updatedAt: new Date().toISOString() }
     if (moved.httpEtag) next.etag = moved.httpEtag
