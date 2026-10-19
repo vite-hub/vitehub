@@ -221,6 +221,14 @@ export interface AgentChannelWebhookRouteHandler {
   matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
+  /**
+   * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
+   * the connected and migrated webhook State, and its queue backend ID. Call it at startup so that the first
+   * delivery does not wait for this work. The generated webhook queue plugin calls it, and
+   * `/api/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
+   * would get, for example when a secret resolver or the State connection fails.
+   */
+  warm(options?: AgentChannelWebhookRouteOptions): Promise<void>
 }
 
 interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
@@ -757,8 +765,9 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
+  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
+  if (registration.secretToken !== undefined) return secret !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
@@ -1090,8 +1099,18 @@ function positiveWebhookConcurrencyLimit(value: number | undefined): number | un
  * The answer to an accepted or duplicate webhook delivery: the trigger's `webhook.response`, or the JSON receipt.
  * The queue never stores `webhook.response`, so a replayed delivery has no answer to send.
  */
+function cloneWebhookResponse(response: Response | undefined): Response | undefined {
+  if (!response) return
+  try {
+    return response.clone()
+  }
+  catch {
+    return
+  }
+}
+
 function webhookReceipt(ownership: { response?: Response } | undefined, receipt: Record<string, unknown>): Response {
-  return ownership?.response?.clone() ?? Response.json(receipt)
+  return cloneWebhookResponse(ownership?.response) ?? Response.json(receipt)
 }
 
 function persistedWebhookRequest(
@@ -8794,9 +8813,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   })
                 if (outcome.queued || outcome.settlement) detachAgentChannelDelivery(channelDelivery)
                 // A steered, queued or duplicate delivery gets `webhook.response`; busy and failed answers keep theirs.
-                return !outcome.invalidState && outcome.response.ok && invocation.webhook.response
-                  ? invocation.webhook.response.clone()
-                  : outcome.response
+                const webhookResponse = !outcome.invalidState && outcome.response.ok
+                  ? cloneWebhookResponse(invocation.webhook.response)
+                  : undefined
+                return webhookResponse ?? outcome.response
               }
             }
             const queued = await admitAgentChannelStateCommit(stateCommit, webhookQueue, {
@@ -9125,6 +9145,40 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     return [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
       .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
       .slice(0, handlerOptions.limit ?? 100)
+  }
+  handler.warm = async (handlerOptions = {}) => {
+    const context = createRuntimeContext(
+      new Request("http://vitehub.local/_vitehub/warm"),
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    await runWithRuntimeCloudflareEnv(context, async () => {
+      const connectedStates = new Set<StateAdapter>()
+      for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
+        await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")
+        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+        if (webhookState) {
+          await webhookState.state.connect()
+          connectedStates.add(webhookState.state)
+          if (hasAgentWebhookQueue(webhookState.state)) await resolveWebhookStateBackendId(webhookState.state)
+        }
+        const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
+        const chatState = await resolveChatState(chatOptions, context, registration, handlerOptions)
+        if (!connectedStates.has(chatState.state)) {
+          await chatState.state.connect()
+          connectedStates.add(chatState.state)
+        }
+        const workflowChatState = await resolveChatState(chatOptions, context, registration, {})
+        if (!connectedStates.has(workflowChatState.state)) {
+          await workflowChatState.state.connect()
+          connectedStates.add(workflowChatState.state)
+        }
+      }
+    })
   }
   handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
