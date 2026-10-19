@@ -7,6 +7,9 @@ import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
+export { cachedSource } from "./cached-source.ts"
+export type { SourceReaderCacheOptions } from "./cached-source.ts"
+
 export interface CollectionHandler {
   (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
@@ -138,7 +141,12 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
     try {
       return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: event.req.signal }))
     } catch (cause) {
-      if (cause instanceof CollectionCursorError) invalidRequest(cause)
+      if (cause instanceof CollectionCursorError) {
+        if (cause.reason === "stale") {
+          throw createError({ cause, statusCode: 409, statusMessage: cause.message })
+        }
+        invalidRequest(cause)
+      }
       throw cause
     }
   }

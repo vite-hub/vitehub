@@ -2047,20 +2047,20 @@ describe("workspace host sessions", () => {
 
   it("maps the portable /workspace cwd alias to a custom target", async () => {
     const host = memoryHost()
-    const session = await workspace().startSession({ host, target: "/boxes/live" })
+    const session = await workspace().startSession({ host, target: "/sandboxes/live" })
 
     await session.exec("write", ["result.txt", "done"], { cwd: "/workspace" })
-    expect(host.readText("/boxes/live/result.txt")).toBe("done")
+    expect(host.readText("/sandboxes/live/result.txt")).toBe("done")
     await session.close()
   })
 
   it.each(["/workspace/portal", "/workspace/portal/src"])("maps nested portable cwd %s to a custom target", async (cwd) => {
     const host = memoryHost()
-    const session = await workspace().startSession({ host, target: "/boxes/live" })
+    const session = await workspace().startSession({ host, target: "/sandboxes/live" })
     await session.mkdir("portal/src", { recursive: true })
 
     await expect(session.exec("write", ["result.txt", "done"], { cwd })).resolves.toMatchObject({ exitCode: 0 })
-    expect(host.readText(cwd.replace("/workspace/", "/boxes/live/") + "/result.txt")).toBe("done")
+    expect(host.readText(cwd.replace("/workspace/", "/sandboxes/live/") + "/result.txt")).toBe("done")
     await session.close()
   })
 

@@ -10,6 +10,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
+import ConsoleState from "./console-state.vue";
 
 const descriptionSchema = v.object({
   entries: v.array(
@@ -48,7 +49,7 @@ const search = ref("");
 const source = ref("all");
 const selected = ref<ServerEnvDescriptionEntry>();
 const loading = ref(true);
-const failed = ref(false);
+const failed = ref<unknown>();
 // Status is loaded on request because inspection can call providers.
 const statuses = ref<ReadonlyMap<ServerEnvDescriptionEntry, EnvStatus>>();
 const statusFailed = ref(false);
@@ -110,7 +111,7 @@ async function refresh(includeStatus = false) {
   const current = new AbortController();
   request = current;
   loading.value = true;
-  failed.value = false;
+  failed.value = undefined;
   statusFailed.value = false;
   try {
     const result = v.parse(
@@ -129,13 +130,13 @@ async function refresh(includeStatus = false) {
     selected.value = selected.value
       ? entries.value.find((entry) => entry.path === selected.value?.path)
       : undefined;
-  } catch {
+  } catch (cause) {
     if (current.signal.aborted) return;
     if (includeStatus && entries.value.length) {
       statuses.value = undefined;
       statusFailed.value = true;
     }
-    else failed.value = true;
+    else failed.value = cause;
   } finally {
     if (!current.signal.aborted) loading.value = false;
   }
@@ -205,19 +206,23 @@ onBeforeUnmount(() => request?.abort());
       </template>
       <template #body>
         <main class="min-h-0 flex-1 overflow-auto">
-          <div v-if="failed" role="alert" class="flex items-center gap-3 p-4 text-sm">
-            <span>Could not load environment declarations.</span
-            ><UButton label="Try again" color="neutral" variant="ghost" @click="refresh()" />
-          </div>
+          <ConsoleState v-if="failed" :error="failed" title="Could not load Env declarations" :retry="() => refresh()" />
           <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">
             Loading environment…
           </p>
+          <ConsoleState
+            v-else-if="!entries.length"
+            section="env"
+            icon="i-ph-key-light"
+            title="No Server Env declared"
+            description="Declare a value under env.server in the Vite config to inspect it here."
+          />
           <UTable
             v-else
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
-            :empty="entries.length ? 'No matching variables.' : 'No Server Env variables declared.'"
+            empty="No matching variables."
             :ui="{
               tr: 'outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
             }"

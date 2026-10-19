@@ -1,3 +1,5 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -121,21 +123,29 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
   return provisionState?.cloudflare?.d1?.[name]
 }
 
-export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+function resolveNonEmptyConfigValue(value: DatabaseConfigValue | undefined) {
+  const resolved = resolveConfigValue(value)
+  return resolved?.trim() ? resolved : undefined
+}
+
+function resolveBindingName(prefix: string, database: string, binding: string | undefined) {
   const trimmed = typeof binding === "string" ? binding.trim() : ""
   if (trimmed) return trimmed
-  if (database === "default") return "DB"
+  if (database === "default") return prefix
   const suffix = database
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_")
     .toUpperCase()
-  return `DB_${suffix || "DATABASE"}`
+  return `${prefix}_${suffix || "DATABASE"}`
 }
 
-function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
-  return resolveConfigValue(config.databases[name]?.cloudflare?.databaseId)
-    ?? resolveProvisionedD1Id(provisionState, name)
+export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+  return resolveBindingName("DB", database, binding)
+}
+
+export function resolveCloudflareHyperdriveBindingName(database: string, binding: string | undefined) {
+  return resolveBindingName("HYPERDRIVE", database, binding)
 }
 
 function createUnresolvedBinding(
@@ -144,8 +154,8 @@ function createUnresolvedBinding(
   database: CloudflareD1BindingInput,
   reason: CloudflareD1UnresolvedBindingReason,
 ): CloudflareD1UnresolvedBinding {
-  const databaseName = resolveConfigValue(database.databaseName)
-  const previewDatabaseId = resolveConfigValue(database.previewDatabaseId)
+  const databaseName = resolveNonEmptyConfigValue(database.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(database.previewDatabaseId)
   const unresolved: CloudflareD1UnresolvedBinding = {
     binding,
     database: name,
@@ -164,9 +174,12 @@ export function resolveCloudflareD1Binding(
 ): ResolvedCloudflareD1Binding {
   const database = input.database?.trim() || "default"
   const bindingName = resolveCloudflareD1BindingName(database, input.binding)
-  const databaseId = resolveConfigValue(input.databaseId) ?? resolveProvisionedD1Id(options.provisionState, database)
-  const databaseName = resolveConfigValue(input.databaseName)
-  const previewDatabaseId = resolveConfigValue(input.previewDatabaseId)
+  const configuredId = resolveConfigValue(input.databaseId)
+  const databaseId = typeof configuredId !== "undefined"
+    ? (configuredId.trim() ? configuredId : undefined)
+    : resolveProvisionedD1Id(options.provisionState, database)
+  const databaseName = resolveNonEmptyConfigValue(input.databaseName)
+  const previewDatabaseId = resolveNonEmptyConfigValue(input.previewDatabaseId)
 
   if (!databaseId?.trim()) {
     return {
@@ -209,16 +222,16 @@ export function resolveCloudflareD1Bindings(
     const projection = resolveCloudflareD1Binding({
       database: name,
       binding: database.binding,
-      databaseId: resolveDatabaseId(config, name, options.provisionState),
+      databaseId: database.databaseId,
       databaseName: database.databaseName,
       migrationsDir: database.migrationsDir,
       migrationsTable: database.migrationsTable,
       previewDatabaseId: database.previewDatabaseId,
-    })
+    }, { provisionState: options.provisionState })
     if (projection.d1Database) {
       const previous = bindingDatabases.get(projection.bindingName)
       if (previous) {
-        throw databaseErrorDiagnostics.DATABASE_B0006({ message: `[vitehub] Database Definitions ${JSON.stringify(previous)} and ${JSON.stringify(name)} use the same Cloudflare D1 binding ${JSON.stringify(projection.bindingName)}. Set cloudflare.binding to a distinct name for each Definition.` })
+        throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: projection.bindingName, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${name}"` })
       }
       bindingDatabases.set(projection.bindingName, name)
       d1Databases.push(projection.d1Database)
@@ -262,4 +275,35 @@ function isCloudflareD1WranglerBinding(value: unknown): value is CloudflareD1Wra
   return typeof binding.binding === "string"
     && typeof binding.database_id === "string"
     && typeof binding.database_name === "string"
+}
+
+export interface CloudflareHyperdriveWranglerBinding {
+  binding: string
+  id: string
+}
+
+/** Lists the Wrangler Hyperdrive bindings of Postgres Definitions that resolve a Hyperdrive id at build time. */
+export function resolveCloudflareHyperdriveBindings(config: ResolvedDBViteConfig): CloudflareHyperdriveWranglerBinding[] {
+  const bindings: CloudflareHyperdriveWranglerBinding[] = []
+  const owners = new Map<string, { database: string, id: string }>()
+  for (const name of config.databaseNames) {
+    const hyperdrive = config.databases[name]?.hyperdrive
+    const id = resolveConfigValue(hyperdrive?.hyperdriveId)?.trim()
+    if (!hyperdrive || !id) continue
+    const previous = owners.get(hyperdrive.binding)
+    if (previous?.id === id) continue
+    if (previous) {
+      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: hyperdrive.binding, first: `The Database Definitions "${previous.database}"`, kind: "Hyperdrive", second: `"${name}"` })
+    }
+    owners.set(hyperdrive.binding, { database: name, id })
+    bindings.push({ binding: hyperdrive.binding, id })
+  }
+  return bindings
+}
+
+/** Adds generated Hyperdrive bindings to Wrangler config. A generated binding replaces one with the same name. */
+export function mergeCloudflareHyperdriveBindings(current: unknown, generated: CloudflareHyperdriveWranglerBinding[]): unknown[] {
+  const generatedNames = new Set(generated.map(binding => binding.binding))
+  const kept = Array.isArray(current) ? current.filter(binding => !isPlainObject(binding) || !generatedNames.has(String(binding.binding))) : []
+  return [...kept, ...generated]
 }

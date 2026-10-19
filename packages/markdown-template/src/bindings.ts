@@ -7,7 +7,6 @@ import type { NodeRenderData } from "comark/render"
 function pathValue(value: unknown, parts: string[]): { value: unknown } | undefined {
   // A matched undefined value still owns the path and must prevent fallback.
   if (!parts.length) return { value }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only object-like data can own path segments.
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   for (let length = parts.length; length > 0; length--) {
     const key = parts.slice(0, length).join(".")
@@ -26,7 +25,6 @@ export function resolveTemplateAttributes(
   const values: Record<string, unknown> = Object.create(null)
   const rewritten = { ...attributes }
   for (const [key, value] of Object.entries(attributes)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only string bindings can contain data paths.
     if (!key.startsWith(":") || typeof value !== "string") continue
     try { JSON.parse(value); continue }
     catch { /* Let Comark retain JSON literal parsing and attribute filtering. */ }
@@ -53,7 +51,6 @@ function requireScalar(value: unknown, path: string): string {
   if (value === undefined || value === null) {
     throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${path}" is not defined.` })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This binding boundary accepts exactly the three scalar representations and rejects objects.
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw diagnostics.MARKDOWN_TEMPLATE_R0018({ message: `[vitehub] Markdown template binding "${path}" must resolve to a scalar value.` })
 }
@@ -70,7 +67,6 @@ export function resolveScalarTemplateAttributes(attributes: Record<string, unkno
 // Comark resolves inherited properties; expose only the explicit data for this render.
 export function snapshotTemplateData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // Comark resolves inherited properties; expose a stable snapshot of explicit data.
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return value
   // SAFETY: `value` is an object tracked in this map, so the stored clone has type T.
   // SAFETY: every value inserted into `seen` is the clone of the corresponding input object.

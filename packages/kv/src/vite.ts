@@ -116,7 +116,7 @@ function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisi
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
-    `import { invalidKVListLimitError, kvResult, unknownKVStoreError, unsupportedCloudflareKVGetAndDeleteError, unsupportedCloudflareKVIncrementError } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
+    `import { kvInvalidLimitError, kvResult, kvStoreNotFoundError, kvUnsupportedOperationError } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
@@ -124,8 +124,8 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "",
     "function resolveStoreConfig(name) {",
     "  const stores = kvConfig.stores || { default: kvConfig.store };",
+    "  if (!Object.hasOwn(stores, name)) throw kvStoreNotFoundError(name);",
     "  const store = stores[name];",
-    "  if (!store) throw unknownKVStoreError(name);",
     "  return store;",
     "}",
     "",
@@ -138,22 +138,23 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "  return storage;",
     "}",
     "",
-    "async function resolveStorageResult(name, operation) {",
+    "function unsupported(operation, name) {",
     "  resolveStoreConfig(name);",
-    "  return kvResult(operation, name, async () => resolveStorage(name));",
+    "  return [kvUnsupportedOperationError(operation, name), undefined];",
     "}",
     "",
+    "// kvResult throws config errors, for example an unknown store, and returns the other errors.",
     "function createKVStorage(name = \"default\") {",
     "  return {",
-    "    async clear(base, options) { const [error, storage] = await resolveStorageResult(name, \"clear\"); return error ? [error, undefined] : kvResult(\"clear\", name, async () => { await storage.clear(base, options); }); },",
-    "    async del(key, options) { const [error, storage] = await resolveStorageResult(name, \"del\"); return error ? [error, undefined] : kvResult(\"del\", name, async () => { await storage.removeItem(key, options); }); },",
-    "    async get(key, options) { const [error, storage] = await resolveStorageResult(name, \"get\"); return error ? [error, undefined] : kvResult(\"get\", name, () => storage.getItem(key, options)); },",
-    "    async getAndDelete() { resolveStoreConfig(name); throw unsupportedCloudflareKVGetAndDeleteError(); },",
-    "    async has(key, options) { const [error, storage] = await resolveStorageResult(name, \"has\"); return error ? [error, undefined] : kvResult(\"has\", name, () => storage.hasItem(key, options)); },",
-    "    async increment() { resolveStoreConfig(name); throw unsupportedCloudflareKVIncrementError(); },",
-    "    async keys(base, options) { const [error, storage] = await resolveStorageResult(name, \"keys\"); return error ? [error, undefined] : kvResult(\"keys\", name, () => storage.getKeys(base, options)); },",
-    "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) throw invalidKVListLimitError(); const [error, storage] = await resolveStorageResult(name, \"list\"); return error ? [error, undefined] : kvResult(\"list\", name, () => storage.listKeys(options)); },",
-    "    async set(key, value, options) { const [error, storage] = await resolveStorageResult(name, \"set\"); return error ? [error, undefined] : kvResult(\"set\", name, async () => { await storage.setItem(key, value, options); }); },",
+    "    async clear(base, options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(base, options); }); },",
+    "    async del(key, options) { return kvResult(\"del\", name, async () => { await resolveStorage(name).removeItem(key, options); }); },",
+    "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options)); },",
+    "    async getAndDelete() { return unsupported(\"getAndDelete\", name); },",
+    "    async has(key, options) { return kvResult(\"has\", name, () => resolveStorage(name).hasItem(key, options)); },",
+    "    async increment() { return unsupported(\"increment\", name); },",
+    "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
+    "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
+    "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }); },",
     "    store(storeName) { return createKVStorage(storeName); },",
     "  };",
     "}",
@@ -192,13 +193,9 @@ function getNitroCloudflareKVNamespaces(target: unknown): ProviderJsonRecord[] {
     const id: unknown = Reflect.get(normalized, "id")
     const previewId: unknown = Reflect.get(normalized, "preview_id")
     const experimentalRemote: unknown = Reflect.get(normalized, "experimental_remote")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro extension data crosses an untyped Vite boundary and binding must be a string.
     if (typeof binding !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional namespace IDs must remain strings after serialization.
     if (id !== undefined && typeof id !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional preview ID must remain a string after serialization.
     if (previewId !== undefined && typeof previewId !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional remote flag must remain a boolean after serialization.
     if (experimentalRemote !== undefined && typeof experimentalRemote !== "boolean") return []
     return [normalized]
   })

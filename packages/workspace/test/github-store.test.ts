@@ -205,7 +205,7 @@ it.each([
 ]) (
   "rejects malformed GitHub repository %j",
   repository => {
-    expect(() => splitGitHubRepository(repository, "store")).toThrow("requires a repository in owner/repo format");
+    expect(() => splitGitHubRepository(repository)).toThrow("requires a repository in owner/repo format");
   },
 );
 
@@ -213,7 +213,7 @@ it.each(["owner/repo", "owner-name/.github", "Owner123/repo_name-1.2"]) (
   "accepts valid GitHub repository %j",
   repository => {
     const [owner, repo] = repository.split("/");
-    expect(splitGitHubRepository(repository, "store")).toEqual({ owner, repo });
+    expect(splitGitHubRepository(repository)).toEqual({ owner, repo });
   },
 );
 

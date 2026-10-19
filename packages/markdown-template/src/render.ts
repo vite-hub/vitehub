@@ -109,7 +109,6 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         const props = resolveScalarTemplateAttributes(attrs, renderData(state))
         const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
         const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String XML attributes need escaping; Comark serializes boolean and numeric attributes.
           [key, typeof value === "string" ? escapeHtml(value) : value]))
         const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
         try {
@@ -126,9 +125,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
           const props = resolveScalarTemplateAttributes(attrs, renderData(state))
           const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
           const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String XML attributes need escaping; Comark serializes boolean and numeric attributes.
             [key, typeof value === "string" ? escapeHtml(value) : value]))
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only raw text children of block HTML need Markdown parsing; parsed nodes are rendered directly.
           const content = attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
             ? (await parseMarkdown(children.join(""), parseOptions)).nodes
             : children
@@ -152,13 +149,21 @@ function rejectBoundEventHandlers(source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
     if (!key.startsWith(":")) continue
     const attribute = key.slice(1).toLowerCase()
-    if (attribute.startsWith("on")) {
+    if (attribute.startsWith("on") && attribute !== "once") {
       throw diagnostics.MARKDOWN_TEMPLATE_R0031({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target an HTML event-handler attribute.` })
     }
   }
 }
 
 async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
+  // `srcdoc` is an HTML parser sink. Escaping its value only moves the markup
+  // into the iframe document, where the browser parses and executes it. Keep
+  // template data out of this sink while preserving authored static markup.
+  for (const key of Object.keys(source)) {
+    if (key.startsWith(":") && key.slice(1).toLowerCase() === "srcdoc") {
+      throw diagnostics.MARKDOWN_TEMPLATE_R0030({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target the HTML srcdoc sink.` })
+    }
+  }
   rejectBoundEventHandlers(source)
   rejectBoundStyle(source)
   const sanitized = { ...props }
@@ -167,7 +172,6 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
     const isUrl = urlAttributesByTag.get(tag.toLowerCase())?.has(attribute)
       || (attribute === "href" || attribute === "xlink:href")
         && (svgUrlAttributes.has(tag.toLowerCase()) || tag.toLowerCase() === "img" && svgContext)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark attributes include booleans and numbers; only string URL values need destination validation.
     if (typeof value !== "string" || !isUrl) continue
     const binding = source[`:${key}`]
     sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })

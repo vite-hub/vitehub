@@ -24,7 +24,9 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
     await writeQueueTypes(root, [{ handler, name: "welcome" }], importBase)
     await writeFile(join(root, "consumer.ts"), [
       `import { runQueue, getQueue, dynamicQueue } from ${JSON.stringify(importBase)}`,
-      'await runQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 5 })',
+      'const [error, result] = await runQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 5 })',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
+      'else result.status satisfies "queued"',
       'const queue = await getQueue("welcome")',
       'await queue.send({ email: "ada@example.test" })',
       '// @ts-expect-error Wrong payload for generated definition.',

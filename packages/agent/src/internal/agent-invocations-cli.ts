@@ -12,6 +12,11 @@ import type { AgentInvocationsDevRequestBody } from "../invocations-dev.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
+import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
+import type { RetentionSizeLimit } from "./retention-policy.ts"
+import type { AgentRetentionPolicy } from "../retention.ts"
 
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
@@ -35,6 +40,9 @@ function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
+/** Actions that can read a journal file with --database instead of asking the app. */
+const fileActions = new Set<string | undefined>(["list", "show", "tail"])
+
 interface ParsedArgs {
   action?: Action | "cancel"
   /** Base URL of a deployed Console. list, show, tail, and cancel then use its RPC endpoint. */
@@ -46,6 +54,10 @@ interface ParsedArgs {
   interval: number
   json: boolean
   limit?: number
+  /** Size limit for prune. Set by --max-size. */
+  maxSize?: RetentionSizeLimit
+  /** Count limit for prune. Set by --max-records. */
+  maxRecords?: number
   olderThanMs?: number
   status?: string
   tablePrefix?: string
@@ -83,7 +95,6 @@ const devTargetErrors = {
 }
 
 const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
-const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, ms: 1, s: 1_000, w: 604_800_000 }
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
@@ -93,6 +104,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
+    "With --database, list, show, and tail read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
     "Options:",
@@ -108,8 +120,15 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --limit <count>           Limit list results.",
     "  --interval <ms>           Tail polling interval. Defaults to 1000.",
     "  --database <url>          Journal database for delete and prune. Defaults to the Console journal.",
+    "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
+    "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
     "  --older-than <duration>   Prune records last updated before this age, such as 12h or 7d. Defaults to 30d.",
+    "  --max-records <count>     Prune the oldest records past this count. With --max-size, --older-than is",
+    "                            optional and applies only when given.",
+    "  --max-size <size>         Prune the oldest records until the live data of the database file fits this size,",
+    "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
+    "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
     "  --dry-run                 List the records that prune would delete.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
@@ -130,9 +149,16 @@ function positiveInteger(value: string, flag: string): number {
 }
 
 function duration(value: string, flag: string): number {
-  const match = /^(\d+)(ms|s|m|h|d|w)$/.exec(value.trim())
-  const result = match ? Number(match[1]) * durationUnits[match[2]!]! : Number.NaN
-  if (!Number.isSafeInteger(result)) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  const result = parseRetentionDuration(value)
+  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a duration such as 90m, 12h, or 30d.` })
+  return result
+}
+
+function size(value: string, flag: string): RetentionSizeLimit {
+  // A bare integer is a number of bytes, as in the maxSize option.
+  const bytes = /^\d+$/.test(value.trim()) ? Number(value) : undefined
+  const result = bytes !== undefined && Number.isSafeInteger(bytes) && bytes >= 1 ? { bytes } : parseRetentionSize(value)
+  if (result === undefined) throw agentDiagnostics.AGENT_R0930({ message: `${flag} requires a size such as 500MB or 3GB, a number of bytes, or a percent of the volume such as 30%.` })
   return result
 }
 
@@ -186,6 +212,10 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument.startsWith("--table-prefix=")) parsed.tablePrefix = argument.slice("--table-prefix=".length)
     else if (argument === "--older-than") { parsed.olderThanMs = duration(optionValue(args, index, argument), argument); index += 1 }
     else if (argument.startsWith("--older-than=")) parsed.olderThanMs = duration(argument.slice("--older-than=".length), "--older-than")
+    else if (argument === "--max-size") { parsed.maxSize = size(optionValue(args, index, argument), argument); index += 1 }
+    else if (argument.startsWith("--max-size=")) parsed.maxSize = size(argument.slice("--max-size=".length), "--max-size")
+    else if (argument === "--max-records") { parsed.maxRecords = positiveInteger(optionValue(args, index, argument), argument); index += 1 }
+    else if (argument.startsWith("--max-records=")) parsed.maxRecords = positiveInteger(argument.slice("--max-records=".length), "--max-records")
     else if (argument === "--status") {
       parsed.status = optionValue(args, index, argument)
       index += 1
@@ -209,10 +239,18 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, or prune." })
   if (!parsed.help && parsed.action !== "list" && parsed.action !== "prune" && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
+  if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
+    throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
+  }
   if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune") {
     parsed.console = consoleBaseUrl(parsed.url)
   }
-  if (parsed.console && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
+  if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
+    throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+  }
+  const readsFile = parsed.database !== undefined && fileActions.has(parsed.action)
+  if (!parsed.help && readsFile && parsed.urlSet) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
+  if ((parsed.console || readsFile) && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
   // cancel targets the Vite Development Server, not the application inspection route.
@@ -420,6 +458,28 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
   }
 }
 
+/** Read a journal file through the same response parsers as an endpoint, so every target prints the same records. */
+async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
+  const database = journalDatabase(parsed, context)
+  if (database.path === undefined) {
+    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, and tail reads a local SQLite file. Use --url for a deployed app." })
+  }
+  if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
+  const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)
+  return {
+    cancel: async () => {
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url or --server instead of --database." })
+    },
+    close: file.close,
+    detail: async (id) => {
+      const detail = file.get(id)
+      if (!detail) throw agentDiagnostics.AGENT_R0931({ message: `Agent Invocation ${id} was not found in ${database.label}.` })
+      return parseInvocationDetail(detail)
+    },
+    list: async () => parseInvocationList(file.list({ limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit), ...(parsed.status === undefined ? {} : { status: parsed.status }) })),
+  }
+}
+
 function localInvocationsTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext, fetchImpl: typeof fetch, timeout: number): InvocationsTarget {
   return {
     cancel: async id => await requestCancel(parsed, id, context, fetchImpl, timeout),
@@ -605,7 +665,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
   return { ...token, label: path, path, secrets, url: `${pathToFileURL(path).href}${query}` }
 }
 
-async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>): Promise<T> {
+async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocationsCliContext, use: (store: AgentInvocationStore) => Promise<T>, retention: AgentRetentionPolicy = {}): Promise<T> {
   const database = journalDatabase(parsed, context)
   if (database.path !== undefined && !existsSync(database.path)) {
     throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal URL.` })
@@ -623,7 +683,7 @@ async function withJournalStore<T>(parsed: ParsedArgs, context: AgentInvocations
   }
   try {
     const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
-    const store = createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, ...retention, ...(parsed.tablePrefix === undefined ? {} : { tablePrefix: parsed.tablePrefix }) })
     const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
     if (!existing.rows.length) {
       throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
@@ -661,6 +721,7 @@ async function deleteInvocation(parsed: ParsedArgs, context: AgentInvocationsCli
 }
 
 async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
+  if (parsed.maxSize || parsed.maxRecords !== undefined) return await pruneByLimits(parsed, context)
   const olderThanMs = parsed.olderThanMs ?? defaultPruneAgeMs
   const cutoff = new Date(Date.now() - olderThanMs)
   if (Number.isNaN(cutoff.getTime())) {
@@ -676,6 +737,40 @@ async function pruneInvocations(parsed: ParsedArgs, context: AgentInvocationsCli
   const count = `${result.ids.length} terminal Agent Invocation${result.ids.length === 1 ? "" : "s"}`
   context.stdout.write(`${result.dryRun ? "Would delete" : "Deleted"} ${count} last updated before ${updatedBefore}.\n`)
   return 0
+}
+
+/** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
+async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
+  const retention: AgentRetentionPolicy = {
+    maxAge: parsed.olderThanMs ?? false,
+    maxRecords: parsed.maxRecords ?? false,
+    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${parsed.maxSize.fraction * 100}%`,
+  }
+  const result = await withJournalStore(parsed, context, async store => await store.prune!(parsed.dryRun ? { dryRun: true } : {}), retention)
+  if (parsed.json) {
+    context.stdout.write(`${JSON.stringify({ dryRun: result.dryRun, ids: result.ids, limits: retention, ...(result.size ? { size: result.size } : {}) }, null, 2)}\n`)
+    return 0
+  }
+  for (const id of result.ids) context.stdout.write(`${id}\n`)
+  const count = `${result.ids.length} terminal Agent Invocation${result.ids.length === 1 ? "" : "s"}`
+  context.stdout.write(`${result.dryRun ? "Would delete" : "Deleted"} ${count}.\n`)
+  if (result.size) {
+    const { afterBytes, beforeBytes, budgetBytes } = result.size
+    context.stdout.write(`Live data: ${formatBytes(beforeBytes)} before, ${formatBytes(afterBytes)} after, budget ${formatBytes(budgetBytes)}.\n`)
+    if (afterBytes > budgetBytes) context.stdout.write("The journal is still above the budget. Only pending and running records remain.\n")
+  }
+  return 0
+}
+
+function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
 }
 
 function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecord {
@@ -702,10 +797,13 @@ export async function runAgentInvocationsCli(
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000
-  const target = parsed.console
-    ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed)
-    : localInvocationsTarget(parsed, context, fetchImpl, timeout)
+  let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
   try {
+    const target = parsed.database !== undefined && fileActions.has(parsed.action)
+      ? file = await journalFileTarget(parsed, context)
+      : parsed.console
+        ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed)
+        : localInvocationsTarget(parsed, context, fetchImpl, timeout)
     if (parsed.action === "cancel") {
       const result = await target.cancel(parsed.id!)
       if (!result) return 1
@@ -748,5 +846,8 @@ export async function runAgentInvocationsCli(
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     return 1
+  }
+  finally {
+    file?.close()
   }
 }

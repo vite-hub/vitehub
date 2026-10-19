@@ -1,244 +1,340 @@
-import { createRequire } from 'node:module'
-import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { dirname, join, relative, resolve } from 'pathe'
-import type { Plugin } from 'rollup'
-import type {
-  MutableCloudflareTarget,
-  MutableNitroCloudflareTarget,
-  MutableRollupTarget,
-  WranglerContainer,
-  WranglerDurableObjectBinding,
-  WranglerMigration,
-} from './internal/shared/cloudflare-target'
-import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
+import { listCommandFiles } from "./internal/file-listing.ts";
+import type { SandboxRuntime } from "./index.ts";
+import type { ExecutionAuthority } from "@vite-hub/runtime";
+import {
+  openRemoteSandbox,
+  remoteSandboxPlan,
+  resolveRemoteEnvironment,
+  shellQuote,
+  snapshotStream,
+} from "./internal/remote.ts";
+import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
+import {
+  cloudflareControlPlaneTimeout,
+  cloudflareExecTimeout,
+  cloudflareReadTimeout,
+  cloudflareStopTimeout,
+  withCloudflareRequest,
+} from "./internal/cloudflare-transport.ts";
+import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
-export const defaultCloudflareSandboxBinding = 'SANDBOX'
-export const defaultCloudflareSandboxClassName = 'Sandbox'
-export const defaultCloudflareSandboxMigrationTag = 'v1'
-const defaultCloudflareSandboxMaxInstances = 12
-const require = createRequire(import.meta.url)
+const cloudflareSandboxPackage = "@cloudflare/sandbox";
 
-function resolveCloudflareSandboxEntrypoint() {
+export interface CloudflareSandboxOptions {
+  cloudflare?: {
+    keepAlive?: boolean;
+    normalizeId?: boolean;
+    sleepAfter?: number | string;
+  };
+  getSandbox?: (
+    namespace: CloudflareDurableObjectNamespace,
+    id: string,
+    options?: CloudflareSandboxOptions["cloudflare"],
+  ) => CloudflareSandboxStub;
+  hostname?: string;
+  namespace: CloudflareDurableObjectNamespace;
+  sandboxId?: string;
+}
+
+export interface CloudflareDurableObjectNamespace {
+  get(id: unknown): unknown;
+  idFromName(name: string): unknown;
+}
+
+export interface CloudflareSandboxStub {
+  deleteFile?(path: string): Promise<{ success: boolean } | void>;
+  destroy(): Promise<void>;
+  exec(
+    command: string,
+    options?: {
+      cwd?: string;
+      env?: Record<string, string | undefined>;
+      timeout?: number;
+    },
+  ): Promise<{
+    exitCode: number;
+    stderr: string;
+    stdout: string;
+    success: boolean;
+  }>;
+  exists?(path: string): Promise<{ exists: boolean }>;
+  exposePort?(port: number, options: { hostname: string; protocol?: "http" | "https" }): Promise<{ url: string }>;
+  listFiles?(path: string, options?: { recursive?: boolean }): Promise<{
+    files: Array<{
+      absolutePath: string;
+      name: string;
+      size: number;
+      type: "directory" | "file" | "other" | "symlink";
+    }>;
+  }>;
+  mkdir?(path: string, options?: { recursive?: boolean }): Promise<{ success: boolean } | void>;
+  moveFile?(source: string, destination: string): Promise<{ success: boolean } | void>;
+  readFile(path: string, options?: { encoding?: string }): Promise<{
+    content: string;
+    success?: boolean;
+  }>;
+  startProcess?(
+    command: string,
+    options?: { cwd?: string; env?: Record<string, string> },
+  ): Promise<{
+    getLogs(): Promise<{ stderr: string; stdout: string }>;
+    id: string;
+    kill(signal?: string): Promise<void>;
+    waitForExit(): Promise<{ exitCode: number }>;
+  }>;
+  writeFile(
+    path: string,
+    contents: string,
+    options?: { encoding?: string },
+  ): Promise<{ success: boolean } | void>;
+}
+
+const cloudflareExecutionAuthority = {
+  credentials: "unknown",
+  environment: "selected",
+  filesystem: { access: "read-write", scope: "sandbox" },
+  isolation: "container",
+  network: "unknown",
+  processes: "arbitrary",
+} as const satisfies ExecutionAuthority;
+
+export function createCloudflareRuntime(options: CloudflareSandboxOptions): SandboxRuntime {
+  if (!options?.namespace)
+    throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: "[vitehub] The cloudflare Sandbox runtime requires a Durable Objects namespace." });
+  return markBuiltInSandboxRuntime({
+    name: "cloudflare",
+    async prepare(input) {
+      return remoteSandboxPlan(input, {
+        executionAuthority: cloudflareExecutionAuthority,
+        runtime: "cloudflare",
+      });
+    },
+    async open(input, openOptions) {
+      const env = await resolveRemoteEnvironment(input, {});
+      const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
+      const getSandbox = options.getSandbox ?? await loadCloudflareSandbox();
+      const stub = getSandbox(options.namespace, id, options.cloudflare);
+      const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
+      return await openRemoteSandbox(input, runtimeSession, {
+        executionAuthority: openOptions.executionAuthority,
+        initialize: openOptions?.initialize,
+        runtime: "cloudflare",
+        signal: openOptions?.signal,
+      }, env);
+    },
+  });
+}
+
+async function loadCloudflareSandbox() {
   try {
-    return require.resolve('@cloudflare/sandbox')
+    const { getSandbox } = await import(/* @vite-ignore */ cloudflareSandboxPackage);
+    // SAFETY: the optional package's public getSandbox export implements this adapter contract.
+    return getSandbox as NonNullable<CloudflareSandboxOptions["getSandbox"]>;
+  } catch (error) {
+    throw sandboxErrorDiagnostics.SANDBOX_R0021({ message: `[vitehub] The cloudflare Sandbox runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}` });
   }
-  catch {
-    throw sandboxErrorDiagnostics.SANDBOX_R0003({ message: '[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.' })
-  }
 }
 
-function resolveCloudflareSandboxVersion() {
-  const entry = resolveCloudflareSandboxEntrypoint()
-  const pkg = require(join(entry, '..', '..', 'package.json'))
-  if (typeof pkg?.version !== 'string')
-    throw sandboxErrorDiagnostics.SANDBOX_R0004({ message: '[vitehub] Could not resolve the installed @cloudflare/sandbox version.' })
-  return pkg.version
-}
-
-export type CloudflareSandboxEntrypointOptions = {
-  binding?: string
-  className?: string
-  migrationTag?: string
-  name?: string
-}
-
-function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEntrypointOptions = {}) {
-  if (options.className === 'ContainerProxy')
-    throw sandboxErrorDiagnostics.SANDBOX_R0005({ message: '[vitehub] Cloudflare Sandbox className "ContainerProxy" is reserved by @cloudflare/sandbox. Configure a different className.' })
+function createCloudflareSession(
+  id: string,
+  stub: CloudflareSandboxStub,
+  baseEnv: Record<string, string>,
+  hostname: string | undefined,
+): RuntimeSession {
+  let destroyPromise: Promise<void> | undefined;
+  const destroy = async () => {
+    if (destroyPromise) return await destroyPromise;
+    destroyPromise = withCloudflareRequest("destroy", cloudflareStopTimeout, async () => await stub.destroy());
+    try {
+      await destroyPromise;
+    } catch (error) {
+      destroyPromise = undefined;
+      throw error;
+    }
+  };
+  const request = <T>(operation: string, run: () => Promise<T>, timeout = cloudflareControlPlaneTimeout) =>
+    withCloudflareRequest(operation, timeout, run);
+  const run = async (options: {
+    abortSignal?: AbortSignal;
+    command: string;
+    env?: Record<string, string>;
+    timeout?: number;
+    workingDirectory?: string;
+  }) => {
+    const timeout = options.timeout ?? cloudflareExecTimeout;
+    const result = await abortable(
+      request("exec", async () => await stub.exec(options.command, {
+        cwd: options.workingDirectory ?? "/workspace",
+        env: { ...baseEnv, ...options.env },
+        timeout,
+      }), timeout),
+      options.abortSignal,
+      destroy,
+    );
+    return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+  };
   return {
-    binding: options.binding || defaultCloudflareSandboxBinding,
-    className: options.className || defaultCloudflareSandboxClassName,
-    migrationTag: options.migrationTag || defaultCloudflareSandboxMigrationTag,
-    name: options.name || undefined,
-  }
+    defaultWorkingDirectory: "/workspace",
+    id,
+    async destroy() {
+      await destroy();
+    },
+    async existsFile({ abortSignal, path }) {
+      abortSignal?.throwIfAborted();
+      if (stub.exists) return (await request("exists", async () => await stub.exists!(path))).exists;
+      return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` })).exitCode === 0;
+    },
+    ...(hostname && stub.exposePort
+      ? {
+          async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
+            const result = await request("exposePort", async () => await stub.exposePort!(port, {
+              hostname,
+              protocol: protocol === "ws" ? "http" : protocol,
+            }));
+            return protocol === "ws" ? result.url.replace(/^http/, "ws") : result.url;
+          },
+        }
+      : {}),
+    async listFiles({ abortSignal, path, recursive }) {
+      abortSignal?.throwIfAborted();
+      if (stub.listFiles) {
+        const result = await request("listFiles", async () => await stub.listFiles!(path, { recursive }));
+        return result.files
+          .filter((file): file is typeof file & { type: "directory" | "file" | "symlink" } =>
+            file.type === "directory" || file.type === "file" || file.type === "symlink"
+          )
+          .map((file) => ({ path: file.absolutePath, size: file.size, type: file.type }))
+          .sort((left, right) => left.path.localeCompare(right.path));
+      }
+      return await listCommandFiles(run, { abortSignal, path, recursive }, result => sandboxErrorDiagnostics.SANDBOX_R0029({ message: result.stderr }));
+    },
+    async makeDirectory({ abortSignal, path, recursive }) {
+      abortSignal?.throwIfAborted();
+      if (stub.mkdir) {
+        const result = await request("mkdir", async () => await stub.mkdir!(path, { recursive }));
+        if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0022({ message: `[vitehub] Cloudflare failed to create ${path}.` });
+        return;
+      }
+      const result = await run({
+        abortSignal,
+        command: `mkdir ${recursive ? "-p " : ""}-- ${shellQuote(path)}`,
+      });
+      if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0023({ message: result.stderr });
+    },
+    ...(stub.moveFile
+      ? {
+          async moveFile({ abortSignal, destination, source }: { abortSignal?: AbortSignal; destination: string; source: string }) {
+            abortSignal?.throwIfAborted();
+            const result = await request("moveFile", async () => await stub.moveFile!(source, destination));
+            if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0024({ message: `[vitehub] Cloudflare failed to move ${source}.` });
+          },
+        }
+      : undefined),
+    async readBinaryFile({ abortSignal, path }) {
+      abortSignal?.throwIfAborted();
+      const result = await request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout);
+      if (result.success === false) {
+        const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
+        if (!exists) return null;
+        throw sandboxErrorDiagnostics.SANDBOX_R0025({ message: `[vitehub] Cloudflare failed to read ${path}.` });
+      }
+      return decodeBase64(result.content);
+    },
+    async removeFile({ abortSignal, path, recursive }) {
+      abortSignal?.throwIfAborted();
+      if (!recursive && stub.deleteFile) {
+        const result = await request("deleteFile", async () => await stub.deleteFile!(path));
+        if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0026({ message: `[vitehub] Cloudflare failed to remove ${path}.` });
+        return;
+      }
+      const result = await run({
+        abortSignal,
+        command: recursive
+          ? `rm -rf -- ${shellQuote(path)}`
+          : `if test -d ${shellQuote(path)}; then rmdir -- ${shellQuote(path)}; else rm -f -- ${shellQuote(path)}; fi`,
+      });
+      if (result.exitCode !== 0) throw sandboxErrorDiagnostics.SANDBOX_R0027({ message: result.stderr });
+    },
+    run,
+    ...(stub.startProcess
+      ? {
+          async spawn(commandOptions: {
+            abortSignal?: AbortSignal;
+            command: string;
+            env?: Record<string, string>;
+            workingDirectory?: string;
+          }) {
+            commandOptions.abortSignal?.throwIfAborted();
+            const process = await request("startProcess", async () => await stub.startProcess!(commandOptions.command, {
+              cwd: commandOptions.workingDirectory ?? "/workspace",
+              env: { ...baseEnv, ...commandOptions.env },
+            }));
+            return cloudflareProcess(process);
+          },
+        }
+      : {}),
+    async stop() {},
+    async writeBinaryFile({ abortSignal, content, path }) {
+      abortSignal?.throwIfAborted();
+      const result = await request("writeFile", async () => await stub.writeFile(path, encodeBase64(content), {
+        encoding: "base64",
+      }));
+      if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0028({ message: `[vitehub] Cloudflare failed to write ${path}.` });
+    },
+  };
 }
 
-function mergeRollupExternal(value: unknown, addition: string): unknown {
-  if (typeof value === 'undefined')
-    return [addition]
-  if (Array.isArray(value))
-    return value.includes(addition) ? [...value] : [...value, addition]
-  if (typeof value === 'string' || value instanceof RegExp)
-    return [value, addition]
-  if (typeof value === 'function') {
-    return (source: string, importer?: string, isResolved?: boolean) =>
-      source === addition || Boolean(value(source, importer, isResolved))
-  }
-  return value
+function decodeBase64(value: string) {
+  const decoded = atob(value);
+  return Uint8Array.from(decoded, character => character.charCodeAt(0));
 }
 
-export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
-  const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
-  if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
-    throw sandboxErrorDiagnostics.SANDBOX_R0006({ message: '[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.' })
+function encodeBase64(value: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < value.length; offset += 8192) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + 8192));
   }
-  const existingMigrations = target.cloudflare?.wrangler?.migrations
-  const classIsMigrated = existingMigrations?.some(entry => entry.new_sqlite_classes?.includes(className))
-  if (!classIsMigrated && existingMigrations?.some(entry => entry.tag === migrationTag)) {
-    throw sandboxErrorDiagnostics.SANDBOX_R0007({ message: `[vitehub] Cloudflare migration tag ${JSON.stringify(migrationTag)} is already in use. Configure a unique sandbox migrationTag.` })
-  }
-  const existingBindings = target.cloudflare?.wrangler?.durable_objects?.bindings
-  if (existingBindings?.some(entry => entry.name === binding && entry.class_name !== className)) {
-    throw sandboxErrorDiagnostics.SANDBOX_R0008({ message: `[vitehub] Cloudflare Durable Object binding ${JSON.stringify(binding)} is already in use. Configure a unique sandbox binding.` })
-  }
-
-  target.cloudflare ||= {}
-  target.cloudflare.wrangler ||= {}
-  target.cloudflare.wrangler.containers ||= []
-  target.cloudflare.wrangler.durable_objects ||= {}
-  target.cloudflare.wrangler.durable_objects.bindings ||= []
-  target.cloudflare.wrangler.migrations ||= []
-
-  const containers = target.cloudflare.wrangler.containers as WranglerContainer[]
-  const image = './Dockerfile'
-  if (!containers.some(entry => entry.class_name === className)) {
-    containers.push({
-      class_name: className,
-      image,
-      instance_type: 'lite',
-      max_instances: defaultCloudflareSandboxMaxInstances,
-      ...(name ? { name } : {}),
-    })
-  }
-  else {
-    const container = containers.find(entry => entry.class_name === className)!
-    container.image ??= image
-    if (typeof container.max_instances !== 'number')
-      container.max_instances = defaultCloudflareSandboxMaxInstances
-    if (name)
-      container.name ??= name
-  }
-
-  const bindings = target.cloudflare.wrangler.durable_objects.bindings as WranglerDurableObjectBinding[]
-  if (!bindings.some(entry => entry.name === binding && entry.class_name === className)) {
-    bindings.push({
-      name: binding,
-      class_name: className,
-    })
-  }
-
-  const migrations = target.cloudflare.wrangler.migrations as WranglerMigration[]
-  if (!migrations.some(entry => Array.isArray(entry.new_sqlite_classes) && entry.new_sqlite_classes.includes(className))) {
-    migrations.push({ tag: migrationTag, new_sqlite_classes: [className] })
-  }
+  return btoa(binary);
 }
 
-function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypointOptions = {}): Plugin {
-  const { className } = resolveCloudflareSandboxEntrypointOptions(options)
-  const cloudflareSandboxEntrypoint = resolveCloudflareSandboxEntrypoint()
-  const moduleId = 'virtual:vitehub-sandbox-cloudflare-exports'
-  const resolvedModuleId = '\0virtual:vitehub-sandbox-cloudflare-exports'
-
+function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>): RuntimeProcess {
+  const wait = process.waitForExit();
   return {
-    name: 'vitehub-sandbox-cloudflare-exports',
-    buildStart() {
-      this.emitFile({
-        type: 'chunk',
-        id: moduleId,
-        fileName: 'sandbox-cloudflare-exports.mjs',
-      })
+    stderr: snapshotStream(async () => (await process.getLogs()).stderr),
+    stdout: snapshotStream(async () => (await process.getLogs()).stdout),
+    async kill(signal?: string) {
+      await process.kill(signal);
     },
-    resolveId(id) {
-      if (id === moduleId)
-        return resolvedModuleId
-      if (id === '@cloudflare/sandbox')
-        return cloudflareSandboxEntrypoint
+    async wait() {
+      return await wait;
     },
-    load(id) {
-      if (id === resolvedModuleId) {
-        return [
-          `import { Sandbox as CloudflareSandbox } from '@cloudflare/sandbox'`,
-          `export { ContainerProxy } from '@cloudflare/sandbox'`,
-          ``,
-          `export class ${className} extends CloudflareSandbox {}`,
-          ``,
-        ].join('\n')
-      }
-    },
-    renderChunk(code, chunk) {
-      if (!chunk.isEntry)
-        return null
-      const exportedNames = new Set(chunk.exports)
-      const missingExports = [className, 'ContainerProxy'].filter(name => !exportedNames.has(name))
-      if (!missingExports.length)
-        return null
-      const exportsPath = relative(dirname(chunk.fileName), 'sandbox-cloudflare-exports.mjs').replace(/\\/g, '/')
-      const importPath = exportsPath.startsWith('.') ? exportsPath : `./${exportsPath}`
-
-      return {
-        code: `${code}\nexport { ${missingExports.join(', ')} } from ${JSON.stringify(importPath)}\n`,
-        map: null,
-      }
-    },
-  }
+  };
 }
 
-export function installCloudflareSandboxEntrypoint(target: MutableRollupTarget, options: CloudflareSandboxEntrypointOptions = {}) {
-  const { className } = resolveCloudflareSandboxEntrypointOptions(options)
-  target.rollupConfig ||= {}
-  const plugins = Array.isArray(target.rollupConfig.plugins)
-    ? target.rollupConfig.plugins
-    : target.rollupConfig.plugins ? [target.rollupConfig.plugins] : []
-  target.rollupConfig.plugins = plugins
-  if (plugins.some((plugin: unknown) => typeof plugin === 'object' && plugin !== null && 'name' in plugin && (plugin as { name?: string }).name === `vitehub-sandbox-cloudflare-exports:${className}`))
-    return
-
-  const plugin = createCloudflareSandboxRollupPlugin({ className })
-  plugin.name = `vitehub-sandbox-cloudflare-exports:${className}`
-  plugins.push(plugin)
-}
-
-export async function writeCloudflareSandboxDockerfile(serverDir: string) {
-  const dockerfilePath = join(serverDir, 'Dockerfile')
-  await writeFileIfChanged(
-    dockerfilePath,
-    [
-      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}`,
-      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn',
-      '',
-    ].join('\n'),
-  )
-  return dockerfilePath
-}
-
-function relativeWranglerPath(from: string, to: string) {
-  const path = relative(from, to).replace(/\\/g, '/')
-  return path.startsWith('.') ? path : `./${path}`
-}
-
-export async function configureCloudflareSandboxNitro(
-  targetValue: MutableNitroCloudflareTarget | undefined,
-  rootDir: string,
-  options: CloudflareSandboxEntrypointOptions = {},
-  finalizeWrangler = true,
+async function abortable<T>(
+  operation: Promise<T>,
+  signal: AbortSignal | undefined,
+  abort: () => Promise<void>,
 ) {
-  const target = targetValue || {}
-  const serverDir = resolve(rootDir, target.output?.serverDir || '.output/server')
-  const resolvedOptions = resolveCloudflareSandboxEntrypointOptions(options)
-  const existingContainer = target.cloudflare?.wrangler?.containers
-    ?.find(entry => entry.class_name === resolvedOptions.className)
-  const existingImage = existingContainer?.image?.replace(/\\/g, '/')
-  configureCloudflareSandbox(target, resolvedOptions)
-  const container = target.cloudflare!.wrangler!.containers!
-    .find(entry => entry.class_name === resolvedOptions.className)!
-  if (typeof existingImage !== 'string' || existingImage.endsWith('/.vitehub/sandbox/Dockerfile')) {
-    const dockerfile = await writeCloudflareSandboxDockerfile(resolve(rootDir, '.vitehub/sandbox'))
-    container.image = relativeWranglerPath(serverDir, dockerfile)
-    container.image_build_context = relativeWranglerPath(serverDir, rootDir)
-  }
-
-  const wrangler = target.cloudflare!.wrangler!
-  wrangler.compatibility_flags = Array.isArray(wrangler.compatibility_flags)
-    ? [...wrangler.compatibility_flags]
-    : []
-  if (!wrangler.compatibility_flags.includes('nodejs_compat'))
-    wrangler.compatibility_flags.push('nodejs_compat')
-
-  target.rollupConfig ||= {}
-  target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
-  installCloudflareSandboxEntrypoint(target, resolvedOptions)
-  if (finalizeWrangler)
-    finalizeCloudflareWranglerConfig(target)
-  return target
+  if (!signal) return await operation;
+  signal.throwIfAborted();
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+      void abort().catch(() => undefined);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }

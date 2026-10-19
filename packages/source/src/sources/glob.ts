@@ -10,7 +10,9 @@ export interface GlobSourceOptions {
   cwd?: string
   dot?: boolean
   followSymlinks?: boolean
+  /** Portable glob patterns: backslashes are separators, never escapes. Use [*], [?], [[] for literals. */
   include: string | string[]
+  /** Uses the same portable separator and literal syntax as include. */
   ignore?: string | readonly string[]
   keyCache?: boolean
   prefix?: string
@@ -41,8 +43,9 @@ export function glob(options: GlobSourceOptions): FileSource<string> {
 
   async function loadKeys(ctx: SourceContext) {
     const paths = await resolveGlobPaths(resolveSourceRoot(ctx), options.cwd)
-    const ignore = normalizePatterns(options.ignore)
-    const files = await tinyglobby(options.include, {
+    const include = normalizePatterns(options.include).map(normalizeGlobPattern)
+    const ignore = normalizePatterns(options.ignore).map(normalizeGlobPattern)
+    const files = await tinyglobby(include, {
       cwd: paths.cwd,
       dot: options.dot ?? false,
       followSymbolicLinks: options.followSymlinks ?? false,
@@ -51,7 +54,7 @@ export function glob(options: GlobSourceOptions): FileSource<string> {
     })
     let keys = files
       .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
-      .filter(file => matchesAny(file, options.include) && !matchesAny(file, ignore))
+      .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
     if (options.followSymlinks) {
       const rooted: string[] = []
       for (const key of keys) {
@@ -151,6 +154,10 @@ function missingKeyError(key: string) {
 function normalizePatterns(patterns: string | readonly string[] | undefined): readonly string[] {
   if (!patterns) return []
   return Array.isArray(patterns) ? patterns : [String(patterns)]
+}
+
+function normalizeGlobPattern(pattern: string): string {
+  return pattern.replaceAll("\\", "/")
 }
 
 function resolveSourceRoot(ctx: SourceContext) {

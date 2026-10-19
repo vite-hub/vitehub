@@ -23,7 +23,6 @@ function decodeMultipartState(uploadId: string): VercelMultipartState {
     const value: unknown = JSON.parse(atob(uploadId.replaceAll("-", "+").replaceAll("_", "/")))
     if (isPlainObject(value)) {
       const { contentType, key, uploadId: id } = value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The upload ID comes from the client and is checked before use.
       if (typeof key === "string" && typeof id === "string" && (contentType === undefined || typeof contentType === "string")) {
         return { contentType, key, uploadId: id }
       }

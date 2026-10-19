@@ -142,6 +142,15 @@ describe("server auth helpers", () => {
     })
   })
 
+  it("keeps the runtime env resolver when a dev reload re-runs the server module", async () => {
+    setAuthRuntimeEnvResolver(() => ({ secret: "env-secret" }))
+    vi.resetModules()
+    const reloaded = await import("../src/server.ts")
+    const definition = defineAuth({ runtime: ({ env }) => ({ secret: env.secret as string }) })
+
+    expect(reloaded.createBetterAuthOptions(definition)).toMatchObject({ secret: "env-secret" })
+  })
+
   it("passes ViteHub runtime env into Auth Definition runtime callbacks", () => {
     setAuthRuntimeEnvResolver(() => ({ secret: "env-secret" }))
     const definition = defineAuth({

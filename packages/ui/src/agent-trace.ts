@@ -1,1 +1,1 @@
-export { AgentTrace } from "./components/agent-trace.ts";
+export * from "./components/agent-trace.ts";

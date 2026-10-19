@@ -82,6 +82,7 @@ import type {
   ReadonlyWorkspaceFacade,
   WorkspaceEntry,
   WorkspaceDefinition,
+  WorkspaceMaterializeMode,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
@@ -93,7 +94,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
-export const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -103,7 +104,6 @@ const workspaceDefinitionKeys = new Set([
   "hooks",
   "loaders",
   "plugins",
-  "publish",
   "rootDir",
   "rules",
   "runtime",
@@ -366,13 +366,39 @@ export function workspaceDefinitionFromOptions<
       staticAgentCapabilities(options.capabilities),
     )
   }
-  const { commit: _commit, ...workspace } = normalizeWorkspaceOptions(options.workspace)
+  const { commit: _commit, materialize, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    workspace,
+    withDefaultMaterialize(workspace, materialize),
     staticAgentCapabilities(options.capabilities),
   ))
+}
+
+const workspaceMaterializeModes = new Set<unknown>(["build", "startup", "lazy", "none"] satisfies WorkspaceMaterializeMode[])
+
+function declaresMaterialize(source: unknown): boolean {
+  if (!isRuntimeRecord(source)) return false
+  if (Object.hasOwn(source, "materialize") && source.materialize !== undefined) return true
+  const mount = Object.hasOwn(source, "mount") ? source.mount : undefined
+  if (isRuntimeRecord(mount) && Object.hasOwn(mount, "materialize") && mount.materialize !== undefined) return true
+  // A Source binding holds another Source input in `source`.
+  return Object.hasOwn(source, "source") && declaresMaterialize(source.source)
+}
+
+/** Apply `workspace.materialize` to every Source in `workspace.sources` that does not set its own mode. */
+function withDefaultMaterialize(workspace: NormalizedWorkspaceOptions, materialize: WorkspaceMaterializeMode | undefined): NormalizedWorkspaceOptions {
+  if (materialize === undefined) return workspace
+  if (!workspaceMaterializeModes.has(materialize)) {
+    throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] Workspace materialize must be one of: ${[...workspaceMaterializeModes].join(", ")}.` })
+  }
+  if (!workspace.sources) return workspace
+  const sources: NonNullable<NormalizedWorkspaceOptions["sources"]> = {}
+  for (const [key, source] of Object.entries(workspace.sources)) {
+    // A Source binding sets materialize without copying the Source definition.
+    sources[key] = declaresMaterialize(source) ? source : { source, materialize }
+  }
+  return { ...workspace, sources }
 }
 
 function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: boolean | string): WorkspaceRules {
@@ -1949,30 +1975,6 @@ export function createAgentInspectionMetadata<
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
-  }
-}
-
-export function createInvocationInspectionMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(
-  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  capabilities: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[],
-  tools: readonly string[],
-  resolvedModel?: AgentModelInput,
-  resolvedInstructions?: string,
-): AgentInspectionMetadata {
-  const capabilityMetadata = new Map(capabilityInspectionMetadata(capabilities).map(capability => [capability.id, capability]))
-  const inspection = createAgentInspectionMetadata(definition)
-  const driver = inspection.config?.driver
-  return {
-    ...inspection,
-    capabilities: normalizeCapabilities(capabilities).map(capability => capabilityMetadata.get(capability.id) || { id: capability.id, metadata: {} }),
-    ...(driver && resolvedModel !== undefined
-      ? { config: { ...inspection.config, driver: { ...driver, model: modelMetadata(resolvedModel, true) } } }
-      : {}),
-    ...(resolvedInstructions !== undefined ? { instructions: resolvedInstructions ? [resolvedInstructions] : [] } : {}),
-    tools: tools.map(name => ({ name })),
   }
 }
 

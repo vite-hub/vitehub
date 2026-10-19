@@ -19,18 +19,21 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
+  timeZone?: string
 }
 
 export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
+  timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
   options?: ScheduleDefinitionOptions
+  timeZone?: string
 }
 
 export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {
@@ -179,13 +182,9 @@ export interface ScheduleRunStore {
 export interface DiscoveredScheduleDefinition {
   manual?: boolean
   allowRuntimeSchedules?: boolean
-  /** Plugin that contributed the Definition through `vitehub.schedules`. Only set for contributed Definitions. */
-  contributor?: string
   handler: string
   name: string
-  /** Why the plugin contributed the Definition. Only set for contributed Definitions. */
-  reason?: string
   runtimeOnly?: boolean
-  source?: "server-schedules" | "vite-plugin-contribution" | "vite-suffix"
+  source?: "server-schedules" | "vite-suffix"
 }
 import type { SerializedResponse } from "@vite-hub/runtime"

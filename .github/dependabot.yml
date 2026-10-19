@@ -7,6 +7,10 @@ updates:
       - /.github/actions/setup-deno
     schedule:
       interval: weekly
+    # Wait one week after a release so a compromised version can be found
+    # and pulled before it reaches CI.
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
@@ -15,6 +19,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     allow:
       - dependency-name: pkg-pr-new
       - dependency-name: wrangler

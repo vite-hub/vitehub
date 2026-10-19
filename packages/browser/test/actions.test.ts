@@ -32,6 +32,18 @@ describe("Browser Run actions", () => {
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
+  it("does not recurse forever while inspecting cyclic action input", async () => {
+    const input: Record<string, unknown> = { url: "https://example.com" }
+    input.options = input
+    const quickAction = vi.fn(async () => new Response("complete"))
+    runtime.__env__ = { BROWSER: { quickAction } }
+
+    const response = await runBrowserAction("content", input)
+
+    expect(response.status).toBe(200)
+    expect(quickAction).toHaveBeenCalledWith("content", input)
+  })
+
   it("returns raw quick action responses for binary actions", async () => {
     const response = new Response(new Uint8Array([1, 2, 3]), {
       headers: { "content-type": "image/png" },
@@ -153,6 +165,25 @@ describe("Browser Run actions", () => {
 
       const action = runBrowserContent({ actionTimeout: 300_000, goToOptions: { timeout: 60_000 }, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(331_000)
+
+      await expect(action).resolves.toBe("complete")
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("preserves timeout accumulation for shared nested options", async () => {
+    vi.useFakeTimers()
+    try {
+      runtime.__env__ = { BROWSER: { quickAction: async () => {
+        await new Promise(resolve => setTimeout(resolve, 45_000))
+        return new Response("complete")
+      } } }
+      const shared = { timeout: 20_000 }
+
+      const action = runBrowserContent({ firstOptions: shared, secondOptions: shared, url: "https://example.com" })
+      await vi.advanceTimersByTimeAsync(45_000)
 
       await expect(action).resolves.toBe("complete")
     }

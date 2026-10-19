@@ -9,6 +9,7 @@ import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
 import { createMemoryWorkspaceStore } from "./memory.ts"
+import { ownedBlobPrefix } from "./owned-blob-prefix.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -39,7 +40,6 @@ function workspaceRepoName(name: string | undefined) {
 export function isWorkspaceStore(value: WorkspaceStoreOptions | undefined): value is WorkspaceStore {
   if (!value) return false
   if (Object.hasOwn(value, "readFile")) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the callable marker at the custom Workspace Store configuration boundary.
     return "readFile" in value && typeof value.readFile === "function"
   }
   let prototype = Object.getPrototypeOf(value)
@@ -47,7 +47,6 @@ export function isWorkspaceStore(value: WorkspaceStoreOptions | undefined): valu
     if (Object.hasOwn(prototype, "readFile")) {
       return Object.hasOwn(prototype, "constructor")
         && prototype.constructor !== Object
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the resolved method after checking its declaring class prototype.
         && "readFile" in value && typeof value.readFile === "function"
     }
     prototype = Object.getPrototypeOf(prototype)
@@ -89,9 +88,11 @@ export function resolveVercelBlobWorkspaceStore(
   config: Partial<VercelBlobWorkspaceStoreOptions> = {},
   env: Record<string, string | undefined> = process.env,
 ): VercelBlobWorkspaceStoreOptions {
+  const prefix = config.prefix ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX")
+  ownedBlobPrefix("workspaces", prefix, "Workspace")
   return {
     access: config.access ?? "private",
-    prefix: trimmed(config.prefix) ?? readEnv(env, "WORKSPACE_BLOB_PREFIX", "VITEHUB_WORKSPACE_BLOB_PREFIX") ?? ".vitehub/workspaces",
+    ...(prefix === undefined ? {} : { prefix }),
     provider: "vercel-blob",
     token: MASKED_WORKSPACE_RUNTIME_VALUE,
   }

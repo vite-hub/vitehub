@@ -94,6 +94,7 @@ describe("landing page", () => {
 
     for (const option of installOptions.packages) {
       expect(option.command).toContain("vite-hub");
+      expect(option.command).toContain("nitro");
       expect(option.command).not.toContain("@vite-hub/");
     }
 

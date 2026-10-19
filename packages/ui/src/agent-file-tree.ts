@@ -1,1 +1,1 @@
-export { AgentFileTree } from "./components/agent-file-tree.ts";
+export * from "./components/agent-file-tree.ts";

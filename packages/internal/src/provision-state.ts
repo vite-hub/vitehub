@@ -68,7 +68,8 @@ export function mergeProvisionState(base: ProvisionState, next: ProvisionState):
     if (!categories) continue
     const target = (merged[provider] ??= {})
     for (const [category, ids] of Object.entries(categories)) {
-      setOwn(target, category, { ...(Object.hasOwn(target, category) ? target[category] : {}), ...ids })
+      const existing = Object.hasOwn(target, category) ? target[category] : undefined
+      setOwn(target, category, { ...(existing ?? undefined), ...ids })
     }
   }
   return merged
@@ -87,7 +88,6 @@ function parseProvisionState(raw: string): ProvisionState {
       if (!isPlainObject(ids)) continue
       const validIds: Record<string, string> = {}
       for (const [key, id] of Object.entries(ids)) {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provisioned identifiers are untrusted JSON strings at the file boundary.
         if (typeof id === "string") setOwn(validIds, key, id)
       }
       if (Object.keys(validIds).length) setOwn(validCategories, category, validIds)

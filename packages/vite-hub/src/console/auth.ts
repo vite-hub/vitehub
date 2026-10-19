@@ -148,7 +148,6 @@ export interface ConsoleAuthDefinition {
 }
 
 function isConsoleAuthResolver<T>(option: T | ((context: AuthRuntimeContext) => T)): option is (context: AuthRuntimeContext) => T {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
   return typeof option === "function"
 }
 
@@ -175,7 +174,6 @@ export async function prepareConsoleAuth(
 }
 
 export function defineConsoleAuth(definition: ConsoleAuthDefinition): ConsoleAuthDefinition {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A user-owned definition crosses the runtime module boundary, so reject a missing authorization callback.
   if (!definition || typeof definition.authorize !== "function" || !definition.auth || !definition.signIn?.provider) {
     throw new TypeError("[vitehub] Console Auth requires an Auth Definition, an authorize callback, and a sign-in provider.")
   }
@@ -194,7 +192,6 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       const resolvedRuntime = isConsoleAuthResolver(runtime) ? runtime(context) : runtime
       const resolved = { ...options, ...resolvedRuntime }
       const database = resolved.database
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts adapter objects, while ViteHub Auth also accepts metadata objects that do not create a database.
       const databaseMetadata = database === true
         || (database !== null && typeof database === "object" && "name" in database && Object.keys(database).every(key => key === "name" || key === "dedicated"))
       if (!database || databaseMetadata) {
@@ -250,7 +247,8 @@ export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuth
 
 /** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- User-owned authorize callbacks may cross JavaScript realms; typeof validates the required function contract without realm-sensitive instanceof.
+  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
 

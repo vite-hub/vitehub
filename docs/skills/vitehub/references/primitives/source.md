@@ -1,8 +1,12 @@
 # Source
 
+<!-- Generated from docs/content/docs/source/index.md. Edit the agent-only block there. -->
+
+Source page: https://vitehub.dev/raw/docs/source.md
+
 Use Source to read files, records, or external resources through a typed, read-only loader. Sources provide context; they do not grant write authority.
 
-Read the [Source guide](https://vitehub.dev/raw/docs/source.md), then [Get started](https://vitehub.dev/raw/docs/source/get-started.md), [Configure](https://vitehub.dev/raw/docs/source/configure.md), [Server API](https://vitehub.dev/raw/docs/source/server-api.md), or [Hosts](https://vitehub.dev/raw/docs/source/hosts.md).
+Read [Get started](https://vitehub.dev/raw/docs/source/get-started.md), [Configure](https://vitehub.dev/raw/docs/source/configure.md), [Server API](https://vitehub.dev/raw/docs/source/server-api.md), or [Hosts](https://vitehub.dev/raw/docs/source/hosts.md).
 
 Choose the narrowest loader and scope its root, branch, or query. Validate source provenance and access before passing content to an Agent or route.
 

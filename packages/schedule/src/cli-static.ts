@@ -1,11 +1,12 @@
-import { discoverViteHubDevServer } from "@vite-hub/internal/cli"
+import { discoverViteHubDevServer, fetchViteHubDevEndpoint } from "@vite-hub/internal/cli"
 import { readViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { scheduleDevRunHeader, scheduleDevRunRoute, scheduleConsoleRunRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
+import { scheduleConsoleRunRoute, scheduleDevHeader, scheduleDevHeaderValue, scheduleDevRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
 
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ScheduleDevRequestBody } from "./dev.ts"
 
 interface ParsedScheduleRunArgs {
   help: boolean
@@ -17,7 +18,9 @@ interface ParsedScheduleRunArgs {
 }
 
 interface ScheduleDevDiscovery {
+  message?: unknown
   root?: unknown
+  runtime?: unknown
   scheduleDevTokenServerId?: unknown
 }
 
@@ -26,6 +29,8 @@ interface ScheduleRunTarget {
   remote: boolean
   url: string
 }
+
+const scheduleDevEndpoint = { header: scheduleDevHeader, headerValue: scheduleDevHeaderValue, route: scheduleDevRoute }
 
 const usage = "vitehub schedule run <name> [--url <console-url>] [--server <dev-server-url>] [--json]"
 
@@ -38,7 +43,7 @@ function writeUsage(context: Pick<ViteHubCliContext, "stdout">): void {
     `Usage: ${usage}`,
     "",
     "Run a Static Schedule Definition now. The definition must set manual: true.",
-    "Without --url, the command uses the running Vite Development Server.",
+    "Without --url, the command runs the definition in the Nitro runtime of the running Vite Development Server.",
     "",
     "Options:",
     "  --url <url>     Deployed Console URL. Requires console.invoke. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to authenticate.",
@@ -120,9 +125,8 @@ function runTarget(parsed: ParsedScheduleRunArgs, env: NodeJS.ProcessEnv): Sched
       url: new URL(scheduleConsoleRunRoute, base.href.endsWith("/") ? base.href : `${base.href}/`).href,
     }
   }
-  const server = baseUrl(parsed.server || env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server")
-  headers.set(scheduleDevRunHeader, "1")
-  return { headers, remote: false, url: new URL(scheduleDevRunRoute.slice(1), server.href.endsWith("/") ? server.href : `${server.href}/`).href }
+  // Discovery replaces the URL with the dev endpoint of the server.
+  return { headers, remote: false, url: baseUrl(parsed.server || env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server").href }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -147,13 +151,11 @@ function formatDuration(run: Record<string, unknown>): string | undefined {
 async function sendRun(target: ScheduleRunTarget, name: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<Record<string, unknown>> {
   let response: Response
   try {
-    response = await fetchImpl(target.url, {
-      body: JSON.stringify({ name }),
-      headers: target.headers,
-      method: "POST",
-      redirect: "manual",
-      signal,
-    })
+    const devBody: ScheduleDevRequestBody = { id: name, operation: "run-static" }
+    const init: RequestInit = { body: JSON.stringify(target.remote ? { name } : devBody), headers: target.headers, method: "POST", signal }
+    response = target.remote
+      ? await fetchImpl(target.url, { ...init, redirect: "manual" })
+      : await fetchViteHubDevEndpoint(fetchImpl, target.url, scheduleDevEndpoint, init)
   }
   catch {
     throw cliError(target.remote ? `Schedule run request to ${target.url} failed.` : `No Vite Development Server with Schedule found at ${new URL(target.url).origin}.`)
@@ -166,7 +168,8 @@ async function sendRun(target: ScheduleRunTarget, name: string, fetchImpl: typeo
   const text = await response.text()
   const json = record(parseJSON(text))
   if (!response.ok) {
-    const message = stringField(json, "message") ?? text.slice(0, 500)
+    // The Console returns `{ message }`. The dev endpoint returns `{ error: { message } }`, or plain text from its guard.
+    const message = stringField(json, "message") ?? stringField(record(json?.error), "message") ?? text.slice(0, 500)
     throw cliError(`Schedule run failed with HTTP ${response.status}${message ? `: ${message}` : "."}`)
   }
   const run = record(json?.run)
@@ -209,8 +212,12 @@ export async function runScheduleRunCli(
         // SAFETY: The endpoint parser has narrowed the discovery payload to an object before applying the owner contract.
         return value as ScheduleDevDiscovery
       }
-      const server = await discoverViteHubDevServer<ScheduleDevDiscovery>({ endpoint: { header: scheduleDevRunHeader, headerValue: "1", route: scheduleDevRunRoute }, fetch: fetchImpl, parseDiscovery, rootDir, serverUrl: baseUrl(parsed.server || context.env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server").href, signal, stderr: { write: chunk => { discoveryFailure += String(chunk) } } })
+      const server = await discoverViteHubDevServer<ScheduleDevDiscovery>({ endpoint: scheduleDevEndpoint, fetch: fetchImpl, parseDiscovery, rootDir, serverUrl: target.url, signal, stderr: { write: chunk => { discoveryFailure += String(chunk) } } })
       if (!server) throw cliError(discoveryFailure.trim() || "No Compatible Vite Development Server for manual Schedule runs.")
+      if (server.discovery.runtime !== "nitro") {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate primitive fields from the untrusted discovery response.
+        throw cliError(typeof server.discovery.message === "string" ? server.discovery.message : "This Vite Development Server cannot reach the Schedule runtime.")
+      }
       const serverId = server.discovery.scheduleDevTokenServerId
       const serverRoot = server.discovery.root
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate public discovery fields before selecting a local private credential.

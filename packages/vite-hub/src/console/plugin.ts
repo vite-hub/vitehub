@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { readColocatedAgentSkills } from "@vite-hub/agent/vite"
+import { normalizeRetention, readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleJournal } from "../storage-config.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -13,14 +13,26 @@ import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleRuntimeReaders } from "./contributions.ts"
+import { consoleD1MaxSizeError } from "./retention.ts"
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-function renderRetentionLimit(value: number | false | undefined): string {
-  if (value === undefined) return "undefined"
-  if (Number.isNaN(value)) return "NaN"
-  if (value === Number.POSITIVE_INFINITY) return "Infinity"
-  if (value === Number.NEGATIVE_INFINITY) return "-Infinity"
-  // Keep invalid non-serializable limits subject to runtime validation.
-  return JSON.stringify(value) ?? "null"
+function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPolicy]): string {
+  return value === undefined ? "undefined" : JSON.stringify(value)
+}
+
+/**
+ * Validates `console.retention` before code generation. The libSQL journal accepts every limit.
+ * The D1 journal rejects maxSize, because D1 reports the size of the whole app database.
+ */
+export function assertConsoleRetention(retention: AgentRetentionPolicy | undefined, journal: ConsoleJournal | undefined): void {
+  if (retention === undefined) return
+  const { maxSize } = normalizeRetention(retention, {
+    label: "console.retention",
+    defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
+    size: "any",
+    error: message => viteHubErrorDiagnostics.VITE_HUB_B0015({ message: `[vitehub] ${message}` }),
+  })
+  if (maxSize !== false && journal && "d1Binding" in journal) throw consoleD1MaxSizeError()
 }
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
@@ -29,9 +41,39 @@ function renderRetentionLimit(value: number | false | undefined): string {
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access"
+  mode: "open" | "auth" | "cloudflare-access" | "host-managed" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+}
+
+interface ConsoleRuntimeCapabilityImport {
+  exportName: string
+  name: string
+}
+
+const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[] = [
+  { exportName: "blob", name: "blob" },
+  { exportName: "connections", name: "connections" },
+  { exportName: "content", name: "content" },
+  { exportName: "console", name: "console" },
+  { exportName: "agentDb", name: "db" },
+  { exportName: "email", name: "email" },
+  { exportName: "kv", name: "kv" },
+]
+
+function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): { imports: string[], install?: string } {
+  if (!imports) return { imports: [] }
+  const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
+    const module = imports[name]
+    if (!module) return []
+    const alias = `vitehubConsoleAgent${name[0]!.toUpperCase()}${name.slice(1)}`
+    return [{ alias, exportName, module, name }]
+  })
+  if (!capabilities.length) return { imports: [] }
+  return {
+    imports: capabilities.map(({ alias, exportName, module }) => `import { ${exportName} as ${alias} } from ${JSON.stringify(module)}`),
+    install: `capabilities: { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} }`,
+  }
 }
 
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
@@ -88,10 +130,13 @@ function renderConsoleNitroPlugin(
   observations?: AgentInvocationsOptions["observations"],
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): string {
+  assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
+  const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
@@ -117,6 +162,7 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
+    ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
       ? [
           `import { installConsoleBlob } from "vite-hub/console/blob"`,
@@ -160,9 +206,9 @@ function renderConsoleNitroPlugin(
       ? fixture
         ? [
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations })`,
+            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`,
           ]
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAgeMs: ${renderRetentionLimit(retention.maxAgeMs)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)} }` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAge: ${renderRetentionLimit(retention.maxAge)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)}, maxSize: ${renderRetentionLimit(retention.maxSize)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -187,8 +233,9 @@ export async function writeConsoleNitroPlugin(
   active: () => boolean = () => true,
   journal?: ConsoleJournal,
   independentAuth: true | "cloudflare-access" | false = false,
-  retention?: AgentInvocationRetentionOptions,
+  retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -198,7 +245,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

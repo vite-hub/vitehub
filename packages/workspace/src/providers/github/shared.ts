@@ -58,6 +58,10 @@ interface GitHubCommitResponse {
   tree: { sha: string }
 }
 
+interface GitHubBlobResponse {
+  sha: string
+}
+
 const githubReadAttempts = 3
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,6 +84,10 @@ function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryRe
 
 function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
   return isRecord(value) && isRecord(value.tree) && isNonEmptyString(value.tree.sha)
+}
+
+function isGitHubBlobResponse(value: unknown): value is GitHubBlobResponse {
+  return isRecord(value) && isNonEmptyString(value.sha)
 }
 
 function isGitHubTreeEntry(value: unknown): value is GitHubTreeEntry {
@@ -167,7 +175,7 @@ class GitHubRequestError extends Diagnostic {
   }
 }
 
-function githubRequestStatus(error: unknown): number | undefined {
+export function githubRequestStatus(error: unknown): number | undefined {
   const cause = error instanceof GitHubRequestError
     ? error
     : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
@@ -240,7 +248,7 @@ export function requireGitHubOption(
 
 export function splitGitHubRepository(
   repository: string,
-  kind: "publisher" | "store",
+  kind: "publisher" | "store" = "store",
 ): { owner: string; repo: string } {
   const parts = repository.split("/");
   const owner = parts[0];
@@ -387,6 +395,17 @@ export async function requestGitHubJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  return (await requestGitHubJsonResponse<T>(repository, token, path, init)).value
+}
+
+/** Read a JSON response and retain headers for APIs that expose pagination in Link. */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Callers provide the response contract for this GitHub endpoint.
+export async function requestGitHubJsonResponse<T>(
+  repository: string,
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ value: T, headers: Headers }> {
   const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -406,7 +425,7 @@ export async function requestGitHubJson<T>(
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
-  return (await response.json()) as T;
+  return { value: (await response.json()) as T, headers: response.headers };
 }
 
 export async function readGitHubRawFile(input: {
@@ -667,7 +686,7 @@ export async function createGitHubBlob(input: {
 }): Promise<{ sha: string }> {
   const kind = input.kind || "store";
   const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  return await requestGitHubJson<{ sha: string }>(
+  const response = await requestGitHubJson<unknown>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/blobs`,
@@ -675,7 +694,8 @@ export async function createGitHubBlob(input: {
       body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
       method: "POST",
     },
-  );
+  )
+  return requireGitHubResponse(response, isGitHubBlobResponse, "blob")
 }
 
 export async function createGitHubFileUpdate(

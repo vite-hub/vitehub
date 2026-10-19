@@ -9,11 +9,12 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { findDefaultExportCall, findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareHyperdriveBindingName } from "./internal/cloudflare.ts"
 
 import type {
   CloudflareD1BindingConfig,
@@ -21,16 +22,22 @@ import type {
   CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
+  DatabaseDialect,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
+  ResolvedCloudflareHyperdriveConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveDatabaseContributionTargets } from "./contributions.ts"
+
+import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
 export function serializeGeneratedRegistry(value: unknown): string {
@@ -42,10 +49,23 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 function readDefinitionObjectBody(file: string, exact = false) {
   const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-    || calls[0]
-  const argument = call?.arguments[0]?.trim()
+  let exported = findDefaultExportCall(source, ["defineDatabase"])
+  // Support an indirect default export: `const database = defineDatabase(...); export default database`.
+  if (!exported) {
+    const defaultName = /\bexport\s+default\s+([A-Za-z_$][\w$]*)/.exec(source)?.[1]
+    if (defaultName) {
+      const call = findIdentifierCalls(source, "defineDatabase").find(candidate =>
+        new RegExp(`\\b(?:const|let|var)\\s+${defaultName}\\s*=\\s*$`).test(source.slice(0, candidate.start)),
+      )
+      if (call) exported = { ...call, argument: call.arguments[0] || "" }
+    }
+  }
+  let argument = exported?.argument?.trim()
+  while (argument?.startsWith("(")) {
+    const end = findMatching(argument, 0, "(", ")")
+    if (end === undefined || argument.slice(end + 1).trim()) break
+    argument = argument.slice(1, end).trim()
+  }
   if (!argument?.startsWith("{")) return
   const closeIndex = findMatching(argument, 0, "{", "}")
   return closeIndex === undefined || (exact && argument.slice(closeIndex + 1).trim()) ? undefined : argument.slice(1, closeIndex)
@@ -62,13 +82,45 @@ function stripLeadingEntryComments(entry: string) {
   return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
 }
 
+function stripEntryComments(entry: string): string {
+  let result = ""
+  let quote: string | undefined
+  let escaped = false
+  for (let index = 0; index < entry.length; index++) {
+    const char = entry[index]!
+    const next = entry[index + 1]
+    if (quote) {
+      result += char
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      result += char
+    }
+    else if (char === "/" && next === "/") {
+      while (index < entry.length && entry[index] !== "\n") index++
+      result += "\n"
+    }
+    else if (char === "/" && next === "*") {
+      index += 2
+      while (index < entry.length && !(entry[index] === "*" && entry[index + 1] === "/")) index++
+      index++
+    }
+    else result += char
+  }
+  return result
+}
+
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
   return match?.[1] || match?.[2] || match?.[3]
 }
 
 function readEntryValue(entry: string): string | undefined {
-  const normalized = stripLeadingEntryComments(entry)
+  const normalized = stripLeadingEntryComments(stripEntryComments(entry))
   const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
   return match ? normalized.slice(match[0].length).trim() : undefined
 }
@@ -86,8 +138,21 @@ function readObjectKeys(body: string | undefined) {
   return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
-function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
+export interface StaticDatabaseSchema {
+  /** False when the schema has entries the source cannot show, such as an imported schema or a spread. */
+  complete: boolean
+  tableNames: string[]
+}
+
+/** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
+export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  if (body === undefined) return { complete: false, tableNames: [] }
+  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
+  return {
+    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
+    tableNames: readObjectKeys(body),
+  }
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
@@ -97,7 +162,7 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
+  const fallbackParts = splitLogicalExpression(expression)
   if (fallbackParts.length === 1) {
     const envName = readProcessEnvName(fallbackParts[0]!)
     if (envName) return createRuntimeEnvConfigValue([envName])
@@ -113,6 +178,70 @@ function readConfigValue(body: string | undefined, property: string): DatabaseCo
   }
 }
 
+function splitLogicalExpression(expression: string): string[] {
+  const parts: string[] = []
+  let start = 0
+  let quote: string | undefined
+  let escaped = false
+  let depth = 0
+  for (let index = 0; index < expression.length - 1; index++) {
+    const char = expression[index]!
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === "\\") escaped = true
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "(") {
+      depth++
+      continue
+    }
+    if (char === ")") {
+      if (depth > 0) depth--
+      continue
+    }
+    const next = expression[index + 1]!
+    if (depth === 0 && ((char === "|" && next === "|") || (char === "?" && next === "?"))) {
+      parts.push(stripBoundaryParentheses(expression.slice(start, index).trim()))
+      start = index + 2
+      index++
+    }
+  }
+  parts.push(stripBoundaryParentheses(expression.slice(start).trim()))
+  return parts
+}
+
+function stripBoundaryParentheses(value: string): string {
+  let result = value.trim()
+  while (result.startsWith("(")) {
+    const end = findMatching(result, 0, "(", ")")
+    if (end === undefined || result.slice(end + 1).trim()) break
+    result = result.slice(1, end).trim()
+  }
+  return stripLeadingComments(result).trim()
+}
+
+function stripLeadingComments(value: string): string {
+  let result = value.trim()
+  while (true) {
+    const block = /^\/\*[\s\S]*?\*\//.exec(result)
+    if (block) {
+      result = result.slice(block[0].length).trim()
+      continue
+    }
+    const line = /^\/\/[^\r\n]*(?:\r?\n|$)/.exec(result)
+    if (line) {
+      result = result.slice(line[0].length).trim()
+      continue
+    }
+    return result
+  }
+}
+
 function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
   const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
   const body = objectLiteralBody(match?.[1])
@@ -125,8 +254,11 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
   const names = typeof singleName !== "undefined"
     ? [singleName]
     : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ?.split(",")
-        .map(value => readStaticStringLiteral(value.trim()))
+        ? splitTopLevel(/^\[(.*)\]$/s.exec(sourceValue)![1]!)
+            .map(value => stripEntryComments(value).trim())
+            .filter(value => value)
+            .map(value => readStaticStringLiteral(value))
+        : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
   const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
   return createRuntimeEnvConfigValue(names as string[], defaultValue)
@@ -284,19 +416,36 @@ function readDefinitionConnectionConfig(file: string) {
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
 }
 
+/** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
+export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")?.trim()
+  if (expression === undefined) return "sqlite"
+  const dialect = readStaticStringLiteral(expression)
+  if (dialect === "sqlite" || dialect === "postgresql") return dialect
+  throw databaseErrorDiagnostics.DATABASE_INVALID_DIALECT({ file })
+}
+
+function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
+  const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
+  const hyperdriveId = readConfigValue(body, "hyperdriveId")
+  if (hyperdriveId !== undefined) config.hyperdriveId = hyperdriveId
+  return config
+}
+
 type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources">
 
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): FoundDatabaseDefinition {
   const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
   if (configuredName !== name) {
-    throw databaseErrorDiagnostics.DATABASE_C0001({ message: `[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.` })
+    throw databaseErrorDiagnostics.DATABASE_NAME_MISMATCH({ file, name })
   }
   return {
     handler: file,
     mode,
     name,
     source,
-    tableNames: readDatabaseTableNames(file),
+    tableNames: readStaticDatabaseSchema(file).tableNames,
   }
 }
 
@@ -359,8 +508,8 @@ function configuresDatabase(file: string) {
   return keys === undefined || keys.size > 0
 }
 
-function listDefinitionFiles(definitions: Array<{ handler: string }>) {
-  return definitions.map(definition => `  - ${definition.handler}`)
+function definitionFiles(definitions: Array<{ handler: string }>) {
+  return definitions.map(definition => definition.handler)
 }
 
 /**
@@ -373,12 +522,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const sameLayer = ordered.find((entry, index) => index > 0 && entry.layer === ordered[index - 1]!.layer)
   if (sameLayer) {
     const duplicates = ordered.filter(entry => entry.layer === sameLayer.layer).map(entry => entry.definition)
-    throw databaseErrorDiagnostics.DATABASE_C0003({ message: [
-      name === "default"
-        ? "[vitehub] Only one default database definition is allowed."
-        : `[vitehub] Only one definition is allowed for database "${name}".`,
-      ...listDefinitionFiles(duplicates),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: name, files: definitionFiles(duplicates) })
   }
 
   const app = ordered[0]!.layer === 0 ? ordered[0]!.definition : undefined
@@ -391,43 +535,25 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
     for (const layer of configuringLayers) {
       const layerOptions = readDefinitionOptionKeys(layer.handler)
       if (!appOptions || !layerOptions) {
-        throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-          `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-          "ViteHub cannot read the options of these definitions:",
-          ...listDefinitionFiles([app, layer]),
-          "Pass an object literal to defineDatabase() in both files, or keep every option in one of them.",
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), reason: "unreadable" })
       }
       const missing = [...layerOptions].filter(key => !appOptions.has(key))
       if (!missing.length) continue
       const options = missing.map(key => `\`${key}\``).join(", ")
-      throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-        `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
-        `It does not set ${options}, which a layer sets:`,
-        ...listDefinitionFiles([app, layer]),
-        `Set ${options} in the application definition too, or move all options to the layer.`,
-      ].join("\n") })
+      throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles([app, layer]), options, reason: "missing" })
     }
   }
   if (!appConfigures && configuringLayers.length > 1) {
-    throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
-      `[vitehub] More than one Nuxt layer sets options for database "${name}":`,
-      ...listDefinitionFiles(configuringLayers),
-      `Keep the options in one layer, or set them in the application definition of database "${name}".`,
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_LAYER_OPTIONS_CONFLICT({ database: name, files: definitionFiles(configuringLayers), reason: "layers" })
   }
 
   const appTables = new Set(app?.tableNames)
   const tableOwners = new Map<string, FoundDatabaseDefinition>()
   for (const definition of layers) {
-    for (const tableName of definition.tableNames) {
+    for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
-        throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
-          `[vitehub] More than one Nuxt layer declares table "${tableName}" in database "${name}":`,
-          ...listDefinitionFiles([owner, definition]),
-          `Rename one table, or declare "${tableName}" in the application definition to replace both.`,
-        ].join("\n") })
+        throw databaseErrorDiagnostics.DATABASE_LAYER_TABLE_CONFLICT({ database: name, files: definitionFiles([owner, definition]), table: tableName })
       }
       tableOwners.set(tableName, definition)
     }
@@ -435,27 +561,74 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
 
   const owner = (appConfigures ? app : configuringLayers[0]) ?? app ?? layers[0]!
   // Later sources take precedence, so the application comes last.
-  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: definition.tableNames }))
+  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: (definition.tableNames ?? []) }))
   return {
     ...owner,
     schemaSources,
-    tableNames: [...new Set(ordered.flatMap(({ definition }) => definition.tableNames))],
+    tableNames: [...new Set(ordered.flatMap(({ definition }) => (definition.tableNames ?? [])))],
   }
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+const implicitDefaultSource = "implicit-default"
+
+/**
+ * The empty default Database of an app that enables `database` without a Database Definition, for example for the
+ * tables of Connections. It is `defineDatabase({ schema: {} })` from a module that this package ships.
+ */
+function implicitDefaultDatabase(): DiscoveredDatabaseDefinition {
+  const handler = resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/default-database")
+  return { handler, mode: "default", name: "default", schemaSources: [{ handler, tableNames: [] }], source: implicitDefaultSource, tableNames: [] }
+}
+
+/** Reports whether a discovered Definition is the implicit default Database, which the app does not own. */
+export function isImplicitDefaultDatabase(definition: Pick<DiscoveredDatabaseDefinition, "source">): boolean {
+  return definition.source === implicitDefaultSource
+}
+
+export interface DatabaseDiscoveryOptions {
+  /**
+   * Without a Database Definition, return the implicit default Database. The Vite plugin sets it: an enabled
+   * database always has a default Database.
+   */
+  implicitDefault?: boolean
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
+  serverDirs?: string[]
+}
+
+export function discoverDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions = {}): DiscoveredDatabaseDefinition[] {
+  const definitions = discoverAppDatabaseDefinitions(rootDir, options)
+  return definitions.length || !options.implicitDefault ? definitions : [implicitDefaultDatabase()]
+}
+
+function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions): DiscoveredDatabaseDefinition[] {
   const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
+        source: "vite-plugin-contribution",
+        tableNames: [],
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
-    throw databaseErrorDiagnostics.DATABASE_C0002({ message: [
-      "[vitehub] Database definitions must use either one default database or all named databases, not both.",
-      ...listDefinitionFiles(found.map(entry => entry.definition)),
-    ].join("\n") })
+    throw databaseErrorDiagnostics.DATABASE_MIXED_DEFINITIONS({ files: definitionFiles(found.map(entry => entry.definition)) })
   }
   const byName = new Map<string, typeof found>()
   for (const entry of found) {
@@ -472,9 +645,13 @@ function isWithinDirectory(directory: string, file: string) {
   return Boolean(path) && !path.startsWith("..") && !isAbsolute(path)
 }
 
-/** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
+/**
+ * Keeps migrations in the application, also when a Nuxt layer owns the database options. The implicit default
+ * Database uses the directory that `server/databases/config.ts` would use.
+ */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
+  if (isImplicitDefaultDatabase(definition)) return relative(rootDir, resolve(appServerDir ?? resolve(rootDir, "server"), "databases", "migrations"))
   const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
     && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
   const directory = ownedByLayer
@@ -544,11 +721,22 @@ function createGeneratedDrizzleConfigFile(rootDir: string, name: string) {
 export function resolveDBViteConfig(
   options?: DBModulePublicOptions,
   rootDir = process.cwd(),
-  context: { provisionRoot?: string, serverDirs?: string[] } = {},
+  context: {
+    /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
+    contributions?: CollectedDatabaseContributions
+    /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
+    implicitDefault?: boolean
+    provisionRoot?: string
+    serverDirs?: string[]
+  } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
+  const definitions = discoverDatabaseDefinitions(rootDir, {
+    definitions: context.contributions?.definitions,
+    implicitDefault: context.implicitDefault,
+    serverDirs: context.serverDirs,
+  })
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
@@ -558,12 +746,28 @@ export function resolveDBViteConfig(
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
-    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
-    cloudflareProjections[definition.name] = projection
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
     generatedDrizzleConfigFilesByDatabase[definition.name] = createGeneratedDrizzleConfigFile(rootDir, definition.name)
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
+    // Postgres Definitions own their connection. SQLite, libSQL, and D1 integration defaults do not apply.
+    if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") {
+      const url = readDefinitionConnectionConfig(definition.handler)?.url
+      databases[definition.name] = {
+        connection: url === undefined ? {} : { url },
+        dialect: "postgresql",
+        drizzle: {},
+        generatedSchemaFile,
+        hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
+        migrationsDir,
+        mode: definition.mode,
+        name: definition.name,
+        orm: "drizzle",
+      }
+      continue
+    }
+    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
+    cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
     if (cloudflare) {
       if (definitionCloudflare.resource !== "opaque" && definition.name !== "default" && !definitionCloudflare.value?.binding) {
@@ -589,6 +793,11 @@ export function resolveDBViteConfig(
     }
   }
 
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(
+    definitions.map(definition => definition.name),
+    context.contributions?.tables ?? [],
+    Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
+  )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
@@ -604,5 +813,6 @@ export function resolveDBViteConfig(
     generatedDrizzleConfigFilesByDatabase,
     generatedSchemaFilesByDatabase,
     rootDir,
+    tableContributionsByDatabase,
   }
 }

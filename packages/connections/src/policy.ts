@@ -1,8 +1,8 @@
-import { envAccessActor } from "@vite-hub/env/internal/connections"
+import { envAccessActor, envAccessAgentParents } from "@vite-hub/env/internal/connections"
 
 import type { EnvActor } from "@vite-hub/env/bridge"
 
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import { matchesPattern } from "./catalog.ts"
 import type { ConnectionAccessRule, ConnectionDefinition, UseConnectionOptions } from "./types.ts"
@@ -17,7 +17,7 @@ export function envActor(actor: string): EnvActor {
       ? { id: actor.slice(5), kind: "user" }
       : { id: actor, kind: "service" }
   if (!mapped.id || mapped.id.length > 512 || /[\u0000-\u001f]/.test(mapped.id)) {
-    throw new ConnectionError("invalid", "Connection actor IDs must contain 1 to 512 characters and no control characters.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "id" })
   }
   return mapped
 }
@@ -27,14 +27,29 @@ export function callerActor(options: Pick<UseConnectionOptions, "access" | "acto
   if (options.access) {
     const actor = envAccessActor(options.access)
     if (actor.kind !== "agent" || options.actor !== undefined) {
-      throw new ConnectionError("invalid", "Connection `access` must be the Env access context of an Agent, without `actor`.")
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "access" })
     }
     return `agent:${actor.id}`
   }
   if (options.actor?.startsWith("agent:")) {
-    throw new ConnectionError("invalid", "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "agent" })
   }
   return options.actor ?? "server"
+}
+
+/**
+ * The registered Agents that the calling Agent extends, nearest first, as `agent:` actors.
+ * Only the Agent runtime vouches for them, through the Env access context. Other callers inherit nothing.
+ */
+export function callerInheritedActors(options: Pick<UseConnectionOptions, "access">): string[] {
+  return options.access ? envAccessAgentParents(options.access).map(name => `agent:${name}`) : []
+}
+
+/** The rule of an actor. An `agent:` actor without its own rule uses the rule of the nearest Agent it extends. */
+function accessRule(access: Readonly<Record<string, ConnectionAccessRule>>, actor: string, inherited: readonly string[] = []): ConnectionAccessRule | undefined {
+  const candidates = actor.startsWith("agent:") ? [actor, ...inherited.filter(parent => parent.startsWith("agent:"))] : [actor]
+  const match = candidates.find(candidate => Object.hasOwn(access, candidate))
+  return match ? access[match] : undefined
 }
 
 function allowsWrite(rule: ConnectionAccessRule, action: string, highRisk: boolean): boolean {
@@ -46,7 +61,8 @@ function allowsWrite(rule: ConnectionAccessRule, action: string, highRisk: boole
 
 /**
  * Decide one call. `approved` is set when a stored approval replays the call, so
- * the policy can still deny it but does not ask for approval again.
+ * the policy can still deny it but does not ask for approval again. `inherited` lists
+ * the `agent:` actors that an Agent actor extends, nearest first.
  */
 export function decide(input: {
   action: string
@@ -54,6 +70,7 @@ export function decide(input: {
   approved?: boolean
   definition: ConnectionDefinition
   highRisk: boolean
+  inherited?: readonly string[]
   write: boolean
 }): ConnectionDecision {
   const agent = input.actor.startsWith("agent:")
@@ -63,7 +80,7 @@ export function decide(input: {
     if (input.highRisk || input.action === "fetch") return "deny"
     return agent && !input.approved ? "approve" : "allow"
   }
-  const rule = Object.hasOwn(access, input.actor) ? access[input.actor] : undefined
+  const rule = accessRule(access, input.actor, input.inherited)
   if (!rule) return "deny"
   if (!input.write) return rule.read ? "allow" : "deny"
   if (!allowsWrite(rule, input.action, input.highRisk)) return "deny"

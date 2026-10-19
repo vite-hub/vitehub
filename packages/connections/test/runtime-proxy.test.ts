@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-vi.mock("#vitehub/connections/registry", () => ({ default: {}, database: undefined }))
+vi.mock("#vitehub/connections/registry", () => ({ default: {}, activityRetention: undefined, database: undefined }))
 
 import { setConnectionsRuntime, useConnection } from "../src/runtime/state.ts"
 import { defineConnection } from "../src/definition.ts"

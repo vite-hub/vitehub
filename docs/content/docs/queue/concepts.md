@@ -2,7 +2,7 @@
 title: Queue concepts
 description: Understand what queue acceptance, delivery, retries, and provider output mean for a Queue Definition.
 navigation.title: Concepts
-navigation.order: 3
+navigation.order: 8
 navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---

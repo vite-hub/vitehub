@@ -4,15 +4,25 @@ import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, i
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
+  /** Earliest time the delivery may run. Defaults to `enqueuedAt`. */
+  availableAt?: number
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
   channelDeliveryId?: string
+  /** A later queued delivery with the same key in the same scope supersedes this one. */
+  debounceKey?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {
+    /** The name of the Agent that the selected task runs. Unset when the Agent that owns the trigger runs it. */
+    agentName?: string
     input: unknown
     run?: unknown
+    /** The key of the trigger task that `invoke` selected. */
+    task?: string
+    /** Whether the trigger had preparation that must run before execution. */
+    requiresPrepare?: true
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -46,6 +56,8 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   /** Lists the deliveries in one scope that are not complete, in queue order. */
   webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
+  /** Lists only queued deliveries in one scope, in queue order. */
+  queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   webhookDeliveryScopes(): Promise<string[]>
 }
 
@@ -67,6 +79,8 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.deliveryId) ||
     !("enqueuedAt" in value) ||
     !isRuntimeNumber(value.enqueuedAt) ||
+    ("availableAt" in value && !isRuntimeUndefined(value.availableAt) && !isRuntimeNumber(value.availableAt)) ||
+    ("debounceKey" in value && !isRuntimeUndefined(value.debounceKey) && !isRuntimeString(value.debounceKey)) ||
     !("leaseTtlMs" in value) ||
     !isRuntimeNumber(value.leaseTtlMs) ||
     !("scope" in value) ||
@@ -83,7 +97,7 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.request.method) ||
     !("url" in value.request) ||
     !isRuntimeString(value.request.url) ||
-    ("invocation" in value && !isRuntimeUndefined(value.invocation) && !isRuntimeObject(value.invocation)) ||
+    ("invocation" in value && !isRuntimeUndefined(value.invocation) && (!isRuntimeObject(value.invocation) || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
     ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
   ) {
     throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })
@@ -103,6 +117,7 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
     isRuntimeFunction(candidate.retryWebhookDelivery) &&
     isRuntimeFunction(candidate.webhookDeliveries) &&
+    isRuntimeFunction(candidate.queuedWebhookDeliveries) &&
     isRuntimeFunction(candidate.webhookDeliveryScopes)
   )
 }
@@ -114,18 +129,26 @@ export interface AgentWebhookQueueRegistration<Options> {
   state: AgentWebhookQueueStateAdapter
 }
 
-export interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
+interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
   delivery: AgentWebhookQueueLease
   lifecycleSignal: AbortSignal
 }
 
-export interface AgentWebhookQueueRegistrar<Options> {
+interface AgentWebhookQueueRegistrar<Options> {
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   track: (state: StateAdapter, options: Options, scopePrefix?: string) => void
 }
 
 export interface AgentWebhookQueue<Options> {
-  admit: (registration: AgentWebhookQueueRegistration<Options>, delivery: AgentWebhookQueueDelivery) => Promise<boolean>
+  /**
+   * Queues `delivery` and registers its scope. `enqueue` replaces `state.enqueueWebhookDelivery()`, such as to commit
+   * Channel State writes in the same transaction. It returns whether the delivery was newly queued.
+   */
+  admit: (
+    registration: AgentWebhookQueueRegistration<Options>,
+    delivery: AgentWebhookQueueDelivery,
+    enqueue?: (delivery: AgentWebhookQueueDelivery) => Promise<boolean>,
+  ) => Promise<boolean>
   idle: () => Promise<void>
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   resume: (
@@ -337,8 +360,8 @@ export function createAgentWebhookQueue<Options>(
   }
 
   return {
-    async admit(registration, delivery) {
-      const admitted = await registration.state.enqueueWebhookDelivery(delivery)
+    async admit(registration, delivery, enqueue) {
+      const admitted = enqueue ? await enqueue(delivery) : await registration.state.enqueueWebhookDelivery(delivery)
       await register(registration)
       return admitted
     },
