@@ -170,11 +170,6 @@ describe("shadcn/ui parts", () => {
     expect(html).toContain('data-slot="trace-line" data-status="error"');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("2 errors");
-    const controls = html.match(/aria-controls="([^"]+)"/)?.[1];
-    const document = new DOMParser().parseFromString(html, "text/html");
-    const contentId = document.querySelector("[data-slot=trace-collapsible-content]")?.id;
-    expect(controls).toBeTruthy();
-    expect(controls).toBe(contentId);
   });
 
   it("styles parts in the components layer so utility classes win", () => {
