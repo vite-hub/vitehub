@@ -465,8 +465,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // cross-runtime implementations, which expose function declarations or
     // native source, these methods can be padded with arbitrary executable
     // code while retaining an intrinsic-looking name.
-    if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)
-      && !/(?:isReadableStream|ReadableStreamDefaultReader|webidl\.brandCheck|ERR_INVALID_THIS|readableStream)/.test(source)) return false
+    if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)) return false
     // Computed concise methods stringify with a bracketed property key but are
     // still caller-defined executable methods.
     if (/^\s*(?:get\s+)?\[[\s\S]*\]\s*\([^)]*\)\s*\{/.test(source)) return false
@@ -591,7 +590,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     if (readerPromise) return readerPromise
     readerPromise = (async () => {
       const reader = Reflect.apply(getReader, body, [])
-      const acquiredReleaseLock = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader) ?? {}, "releaseLock")?.value
+
       try {
     const readerPrototype = Object.getPrototypeOf(reader)
     if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
@@ -616,7 +615,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
         return { reader, read, cancel, release: releaseLock }
       }
       catch (error) {
-        try { if (typeof acquiredReleaseLock === "function") Reflect.apply(acquiredReleaseLock, reader, []) } catch { /* best effort */ }
+        try { Reflect.apply(nativeReaderReleaseLock, reader, []) } catch { /* best effort */ }
         throw error
       }
     })()
