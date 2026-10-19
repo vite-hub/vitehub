@@ -38,7 +38,7 @@ it.each([
     if (framework === "nuxt") {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
       await viteHubNuxtModule(options, {
-        hook(name, callback) {
+        hook(name: string, callback: (config: Record<string, unknown>) => Promise<void>) {
           if (name === "nitro:config") hooks.push(callback)
         },
         options: { buildDir: join(root, ".nuxt"), rootDir: root, serverDir: join(root, "src") },

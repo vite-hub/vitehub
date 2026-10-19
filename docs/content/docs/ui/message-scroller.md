@@ -6,7 +6,7 @@ navigation.group: Utilities
 icon: i-ph-scroll-light
 ---
 
-The message scroller is the scrolling layer under `AgentChat`. It follows new content only while the reader stays at the live edge, keeps the position when older messages are added above, and can jump to a message ID. The parts have the same names and `data-slot` attributes as the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller). Import them from `@vite-hub/ui/headless`, which does not load styles or need Nuxt UI. `@vite-hub/ui/styles.css` gives them the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered button at the bottom.
+The message scroller is the scrolling layer under `Chat`. It follows new content only while the reader stays at the live edge, keeps the position when older messages are added above, and can jump to a message ID. The parts have the same names and `data-slot` attributes as the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller). Import them from `@vite-hub/ui/headless`, which does not load styles or need Nuxt UI. `@vite-hub/ui/styles.css` gives them the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered button at the bottom.
 
 ::component-preview{name="MessageScrollerExample"}
 ::
@@ -108,7 +108,7 @@ const { scrollToMessage } = useMessageScroller();
 | -------------- | --------- | -------- | ----------------------------------------------------------------- |
 | `messageId`    | `string`  | Required | Stable ID for `scrollToMessage()`.                                |
 | `as`           | `string`  | `'div'`  | Rendered element.                                                 |
-| `scrollAnchor` | `boolean` | `false`  | On mount, scrolls this item to the top, minus `previousItemPeek`, and stops following. `AgentChat` sets it on the last user message. |
+| `scrollAnchor` | `boolean` | `false`  | On mount, scrolls this item to the top, minus `previousItemPeek`, and stops following. `Chat` sets it on the last user message. |
 
 ### MessageScrollerButton
 
@@ -146,11 +146,11 @@ Call it under `MessageScroller`. Outside a root, it throws `UI_R0002`.
 ## Accessibility
 
 - The viewport is a keyboard-focusable `role="region"` named **Messages**. Pass `aria-label` for another name.
-- The content has `role="log"` and announces additions. Set `aria-busy` on it while content streams, as `AgentChat` does.
+- The content has `role="log"` and announces additions. Set `aria-busy` on it while content streams, as `Chat` does.
 - The button has the accessible name **Scroll to latest message** and is a native button by default. At the live edge it is hidden and inert. When selected, it moves focus back to the viewport.
 - When the reader asks for reduced motion, smooth scrolling becomes instant.
 
 ## Related
 
 - [Chat](/docs/ui/chat) is the styled component built on these primitives.
-- [Installation](/docs/ui/installation#defaults) sets the default `edgeThreshold` and `previousItemPeek` for `AgentChat`.
+- [Installation](/docs/ui/installation#defaults) sets the default `edgeThreshold` and `previousItemPeek` for `Chat`.

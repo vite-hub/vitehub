@@ -392,6 +392,13 @@ The Vite Integration writes matching module-level and discovered definition-leve
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
+## Vercel Blob persistence
+
+The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
+`_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
+letters, numbers, underscores, dashes, and single slashes.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
