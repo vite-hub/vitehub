@@ -104,6 +104,8 @@ Jev reads Invocation `data` when a caller sets it, else the prompt text, else th
 
 Each question is recorded in the Invocation trace as `agent.tool.start`, then `agent.tool.finish` or `agent.tool.error`, with `tool.id` `ask:<key>`, the answer in `ask.answer`, and `ask.probabilities`, `ask.confidence`, and `ask.model`. Each Jev request adds `agent.usage.recorded` with its token counts. The answers are `result.output` on `agent.invocation.finish`.
 
+Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
+
 Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
 
 ## Direct invocations
