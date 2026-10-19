@@ -1163,6 +1163,21 @@ function queuedWebhookTask(
   return task
 }
 
+/**
+ * The task key of a queued delivery: the stored key, else the declared task that `run.origin` names.
+ * Rows stored without a task key, such as rows from before the trigger declared tasks, find their task this way.
+ */
+function queuedWebhookTaskKey(
+  trigger: Pick<ResolvedAgentTriggerDefinition, "tasks">,
+  saved: AgentWebhookQueueDelivery["invocation"],
+  run?: AgentRunMetadata,
+): string | undefined {
+  if (saved?.task !== undefined) return saved.task
+  const savedRun: unknown = saved?.run
+  const origin = isRecord(savedRun) && isRuntimeString(savedRun.origin) ? savedRun.origin : run?.origin
+  return origin !== undefined && trigger.tasks && Object.hasOwn(trigger.tasks, origin) ? origin : undefined
+}
+
 function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
   return new Request(delivery.request.url, {
     body: delivery.request.body || undefined,
@@ -1527,7 +1542,10 @@ async function notifyQueuedWebhookFailure(
     const identity = routeAgentIdentity(handlerOptions)
     const context = createRuntimeContext(request, invocation?.run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
     const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, delivery.webhookId))
-    const failed = match?.trigger.definition.failed
+    // A task's own `failed` replaces the trigger's for its deliveries.
+    const taskKey = match ? queuedWebhookTaskKey(match.trigger, delivery.invocation, invocation?.run) : undefined
+    const taskFailed = match && taskKey !== undefined ? match.trigger.tasks?.[taskKey]?.failed : undefined
+    const failed = isRuntimeFunction(taskFailed) ? taskFailed : match?.trigger.definition.failed
     if (!isRuntimeFunction(failed)) return
     // The Invocation of a task Agent belongs to that Agent.
     const reference = await runInvocationReference(delivery.invocation?.agentName || invocation?.agentName || routeAgentInvocationName(agent, identity), invocation?.run)

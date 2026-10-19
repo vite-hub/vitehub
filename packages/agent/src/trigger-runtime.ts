@@ -228,14 +228,17 @@ function bindAgentTriggerCallbacks<TContext>(
     }
     if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
     if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
+    if (task.failed !== undefined && !isRuntimeFunction(task.failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
     // SAFETY: The checks above validated the task shape that the trigger definition declares for its context type.
-    const { agent, prepare: taskPrepare, run } = task as {
+    const { agent, failed, prepare: taskPrepare, run } = task as {
       agent?: AgentInput
+      failed?: ResolvedAgentTriggerTask["failed"]
       prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>
       run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown>
     }
     tasks[name] = {
       ...(agent ? { agent } : {}),
+      ...(failed ? { failed } : {}),
       ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}),
       ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}),
     }
@@ -708,10 +711,10 @@ export async function resolveAgentTriggerInvocation<
   const run = annotations
     ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
     : inheritedRun
-  return resolveAgentTriggerInvocationResult({
+  return resolveAgentTriggerInvocationResult(withTaskOrigin({
     ...invoked,
     ...(run ? { run } : {}),
-  }, trigger)
+  }, trigger), trigger)
 }
 
 /**
@@ -725,6 +728,16 @@ function withWebhookDeliveryRun<CALL_OPTIONS>(
   const deliveryId = invoked.webhook?.deliveryId
   if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
   return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
+}
+
+/** The Invocation of an Agent task defaults its unset `run.origin` to the task key, so the Console shows which task ran. */
+function withTaskOrigin<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: { id: string, tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>> },
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  if (invoked.task === undefined || !invoked.run || invoked.run.origin) return invoked
+  if (!agentTriggerTask(trigger, invoked.task).agent) return invoked
+  return { ...invoked, run: { ...invoked.run, origin: invoked.task } }
 }
 
 export function resolveAgentTriggerInvocationResult<
