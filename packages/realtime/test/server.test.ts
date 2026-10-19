@@ -1,3 +1,5 @@
+import * as vm from "node:vm"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
@@ -60,11 +62,37 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
   return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
 }
 
+function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
+  function SqlStorage() {}
+  const sql = Object.create(null) as Record<string, unknown>
+  const prototype = {
+    // Use a native constructor in the carrier shape. The production detector
+    // treats the constructor as part of the platform object contract.
+    constructor: SqlStorage,
+    exec,
+    get databaseSize() {
+      return 1
+    },
+  }
+  SqlStorage.prototype = prototype
+  Object.setPrototypeOf(sql, prototype)
+  Object.defineProperty(prototype, "databaseSize", {
+    configurable: true,
+    get: new Proxy(Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!, {
+      apply(_target, thisArg) {
+        if (thisArg === sql) return 1
+        throw new TypeError("Illegal invocation")
+      },
+    }),
+  })
+  return sql
+}
+
 function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
     headers: { upgrade: "websocket" },
   }) as Request & { runtime?: unknown }
-  request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+  request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
   return request
 }
 
@@ -840,7 +868,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+    request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
 
     const response = await handler.fetch(request as never) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
 
@@ -879,7 +907,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/missing.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
+    request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
 
     const response = await handler.fetch(request as never)
 
@@ -890,6 +918,28 @@ describe("realtime server handler", () => {
       null,
       expect.any(ArrayBuffer),
     )
+  })
+
+  it("rejects an inherited data SQL descriptor", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/inherited.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = {
+      cloudflare: {
+        context: { storage: Object.create({ sql: nativeSqlCarrier(exec) }) },
+      },
+    }
+
+    await handler.fetch(request as never)
+
+    expect(exec).not.toHaveBeenCalled()
   })
 
   it("retries room initialization after a Workspace read fails", async () => {
@@ -1222,13 +1272,13 @@ describe("realtime transport boundaries", () => {
 })
 
 describe("realtime Workspace documents", () => {
-  it("destroys a document when stored durable state cannot be restored", () => {
+  it("destroys a document when stored durable state cannot be restored", async () => {
     const destroy = vi.spyOn(Y.Doc.prototype, "destroy")
 
-    expect(() => restoreRealtimeDocument("", "baseline", {
+    await expect(restoreRealtimeDocument("", "baseline", {
       baseline_digest: "baseline",
       update_blob: new Uint8Array([255]).buffer,
-    })).toThrow()
+    })).rejects.toThrow()
     expect(destroy).toHaveBeenCalledOnce()
   })
 
@@ -1460,17 +1510,59 @@ describe("tiptap-markdown documents", () => {
     document.destroy()
   })
 
-  it("restores durable Yjs identities only for the matching Workspace version", () => {
-    const original = markdownToYDoc("# Shared draft")
+  it("restores durable state from a cross-realm ArrayBuffer", async () => {
+    const original = await markdownToYDoc("# Shared draft")
+    const bytes = Y.encodeStateAsUpdate(original)
+    const update: unknown = vm.runInNewContext("Uint8Array.from(bytes).buffer", { bytes: [...bytes] })
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: update,
+    })
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(await yDocToMarkdown(restored)).toBe("# Shared draft")
+    original.destroy()
+    restored.destroy()
+  })
+
+  it("falls back to Markdown for spoofed durable buffers", async () => {
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: { [Symbol.toStringTag]: "ArrayBuffer" },
+    })
+
+    expect(await yDocToMarkdown(restored)).toBe("# Fallback")
+    restored.destroy()
+  })
+
+  it("ignores shadowed metadata on durable views", async () => {
+    const original = await markdownToYDoc("# Durable")
+    const view = new Uint8Array(Y.encodeStateAsUpdate(original)) as Uint8Array & Record<string, unknown>
+    Object.defineProperties(view, {
+      buffer: { value: new ArrayBuffer(0) },
+      byteOffset: { value: 0 },
+      byteLength: { value: 0 },
+    })
+    const restored = await restoreRealtimeDocument("# Fallback", "baseline", {
+      baseline_digest: "baseline",
+      update_blob: view,
+    })
+    expect(await yDocToMarkdown(restored)).toBe("# Durable")
+    original.destroy()
+    restored.destroy()
+  })
+
+  it("restores durable Yjs identities only for the matching Workspace version", async () => {
+    const original = await markdownToYDoc("# Shared draft")
     const stored = {
       baseline_digest: "baseline",
       update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
     }
-    const restored = restoreRealtimeDocument("# Shared draft", "baseline", stored)
-    const replaced = restoreRealtimeDocument("# Workspace replacement", "changed", stored)
+    const restored = await restoreRealtimeDocument("# Shared draft", "baseline", stored)
+    const replaced = await restoreRealtimeDocument("# Workspace replacement", "changed", stored)
 
     expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
-    expect(yDocToMarkdown(replaced)).toBe("# Workspace replacement")
+    expect(await yDocToMarkdown(replaced)).toBe("# Workspace replacement")
 
     original.destroy()
     restored.destroy()
@@ -1498,26 +1590,11 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
+    for (const path of ["docs/git~1/config", "vitehu~1/config", "docs/.git./config", "docs/.git /config", ".vitehub./config", ".vitehub /config", ".VITEHUB/config", "docs/.git::$INDEX_ALLOCATION/config", "docs/.git. /config", "docs/..:stream/config", "docs/.:stream/config", "docs/.git:stream", "docs/.git:stream/config", "docs//file", "C:/outside/file", "C:outside", "docs/.. ", "docs/.git "]) {
+      expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
+      expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/page.md", to: path }))).toBeUndefined()
+    }
 
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1/config" }))).toBeUndefined()
-
-
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git./config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git. /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs//file" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:/outside/file" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:outside" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.. " }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/..:stream/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.:stream/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git " }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "vitehu~1/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
     for (const path of ["docs/git~1", "vitehu~1/config", "docs/.git ", "docs/.git:stream", ".VITEHUB/config"]) {
       expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()

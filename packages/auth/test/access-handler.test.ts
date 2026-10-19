@@ -144,7 +144,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects incomplete spoofed authorization responses", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+    const foreignResponse = vm.runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return { get() { return null } } }
@@ -158,7 +158,7 @@ describe("Auth access handlers", () => {
   })
 
   it("does not expose a tag-only response shape to adapters", async () => {
-    const spoof = runInNewContext(`({
+    const spoof = vm.runInNewContext(`({
       [Symbol.toStringTag]: "Response",
       status: 409,
       statusText: "Conflict",

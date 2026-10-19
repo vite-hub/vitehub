@@ -37,8 +37,20 @@ interface ViteHubPluginConfig {
   [VITEHUB_SERVER_DIRS]?: string[]
 }
 
+function errorCode(error: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Filesystem errors cross host realms, so inspect their structural code field.
+  if (error === null || (typeof error !== "object" && typeof error !== "function")) return
+  try {
+    const code = Reflect.get(error, "code")
+    return typeof code === "string" ? code : undefined
+  }
+  catch {
+    return
+  }
+}
+
 function isUnresolvableDirectory(error: unknown): boolean {
-  return error instanceof Error && ["ELOOP", "ENOENT"].includes(String(Reflect.get(error, "code")))
+  return ["ELOOP", "ENOENT"].includes(errorCode(error) ?? "")
 }
 
 async function collectGeneratedTypeFiles(
@@ -57,7 +69,7 @@ async function collectGeneratedTypeFiles(
     entries = await readdir(directory, { withFileTypes: true })
   }
   catch (error) {
-    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
+    if (errorCode(error) === "ENOENT") return []
     throw error
   }
   visitedDirectories.add(realDirectory)
@@ -86,7 +98,7 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
     current = await readFile(path, "utf8")
   }
   catch (error) {
-    if (!(error instanceof Error) || Reflect.get(error, "code") !== "ENOENT") throw error
+    if (errorCode(error) !== "ENOENT") throw error
   }
   if (current === contents) return
   await mkdir(dirname(path), { recursive: true })
