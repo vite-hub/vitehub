@@ -180,10 +180,9 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // not establish provenance for the Fetch implementation.
         const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
-          // Standalone class implementations are valid Fetch implementations
-          // (for example happy-dom). Apply the intrinsic-Function exclusion
-          // only to derived classes, where an aliased Function base is a spoof.
-          || (isClassConstructor && !isDerivedClassConstructor)
+          // Independently implemented classes must identify their implementation
+          // base. A callback-created standalone class can otherwise reproduce
+          // the entire public Response surface and bypass this boundary.
           || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function))
           && typeof parentConstructor === "function"
           // `extends Function` can be aliased by the authorization callback.
@@ -333,6 +332,9 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       if (value.body !== null) return invalidAuthorizationResponse
       return new Response(null, init)
     }
+    // Response.error() is the Fetch representation for a network error and
+    // intentionally carries status 0, which the Response constructor rejects.
+    if (value.status === 0) return Response.error()
     // A consumed foreign response is still a valid authorization result, but
     // its clone algorithm must reject the already-used body. Preserve the
     // response metadata without turning that normal state into a 403. The
