@@ -307,10 +307,14 @@ function hasTrustedResponseDescriptors(prototype: object): boolean {
 }
 
 const trustedReadableStreamGetReader = ReadableStream.prototype.getReader
-const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "subarray")?.value
+const authorizationTypedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+const authorizationUint8ArraySubarray = authorizationTypedArrayPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationTypedArrayPrototype, "subarray")?.value
+  : undefined
 
 function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value) || typeof authorizationUint8ArraySubarray !== "function") return false
+  if (Object.prototype.toString.call(value) !== "[object Uint8Array]") return false
   try {
     Reflect.apply(authorizationUint8ArraySubarray, value, [0, 0])
     return true
