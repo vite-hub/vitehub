@@ -125,8 +125,4 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 ## Console views
 
-`AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
-
-`AgentInvocationInspector` shows the run summary, timeline, Agent setup, and all recorded tool contracts by default. Capability detail stays in `AgentCapabilityInspector`, as in the Console. Set `showCapabilities` to `true` to embed a grouped Capability summary in a standalone inspector. Load the package stylesheet for both components.
-
-`AgentInvocationTimeline` lists the timed steps of a run with their owner, offset, and duration; the Invocation inspector embeds it. Both inspectors emit `selectActivity` with a tool's first call when the viewer selects its call count. `AgentToolList` emits `select` with the tool name and renders the count as a button only when a `select` listener is present. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.
+`AgentToolList` renders recorded tool calls and emits `select` with the tool name when a viewer chooses one. `AgentTrace` renders recorded trace events. These components are available from `@vite-hub/ui` and their dedicated entry points. The model maker and provider marks come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.
