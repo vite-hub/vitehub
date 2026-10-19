@@ -8,11 +8,15 @@ import {
   getDocsRelatedSections,
   getDocsSectionForPath,
   getDocsSidebarGroups,
+  docsRootSectionId,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path)
+  ?? (['/tutorials', '/projects', '/templates'].some(path => normalizeDocsPath(route.path) === path)
+    ? docsManifest.sections.find(candidate => candidate.id === docsRootSectionId) ?? null
+    : null));
 const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
@@ -28,7 +32,10 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
+    <template
+      v-for="(pageGroup, pageGroupIndex) in pageGroups"
+      :key="pageGroup.label || `pages-${pageGroupIndex}`"
+    >
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink

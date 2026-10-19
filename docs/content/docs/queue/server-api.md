@@ -140,7 +140,7 @@ Promise<Result<QueueSendResult, QueueErrorCode>>
 
 Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
 
-`status: 'queued'` is the portable acceptance signal. Vercel returns the message id from its enqueue response. Cloudflare returns the ViteHub `id`. Cloudflare does not receive that id, and its later delivery has a different Cloudflare message id.
+`status: 'queued'` is the portable acceptance signal. Vercel returns the message id from its enqueue response. When Vercel accepts the job for deferred processing, it has no id yet and `messageId` is `undefined`. Cloudflare returns the ViteHub `id`. Cloudflare does not receive that id, and its later delivery has a different Cloudflare message id.
 
 ### `deferQueue(name, payload, options?)`
 
