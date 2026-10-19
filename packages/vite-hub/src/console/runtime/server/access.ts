@@ -185,8 +185,22 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // name as provenance.
         const hasWindowBinding = Object.getOwnPropertySymbols(responsePrototype).some(symbol => {
           if (symbol.description !== "window") return false
-          const window = Reflect.get(responsePrototype, symbol) as { Response?: unknown, Headers?: unknown } | undefined
-          return !!window && window.Response === constructor && typeof window.Headers === "function"
+          const window = Reflect.get(responsePrototype, symbol) as {
+            Response?: unknown, Headers?: unknown, window?: unknown, self?: unknown,
+            document?: { defaultView?: unknown }, location?: unknown,
+          } | undefined
+          // happy-dom stores its actual Window on the implementation prototype.
+          // Require the Window self-references and document back-reference as
+          // implementation-owned structure; a callback-created object carrying
+          // only Response and Headers must not establish foreign provenance.
+          return !!window
+            && window.Response === constructor
+            && typeof window.Headers === "function"
+            && window.window === window
+            && window.self === window
+            && !!window.document
+            && window.document.defaultView === window
+            && !!window.location
         })
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
           // Independently implemented classes must identify their implementation
