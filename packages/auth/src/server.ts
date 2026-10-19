@@ -302,9 +302,30 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result: unknown = await authorize(context)
-  if (result === true) return
-  const normalized = await normalizeAuthorizationResponse(result)
+  const result: unknown = authorize(context)
+  // Normalize response values before any thenable handling. A Response may
+  // expose an own `then` property, but it must still be treated as a response
+  // rather than assimilated as a promise.
+  const directResponse = await normalizeAuthorizationResponse(result)
+  if (directResponse) return directResponse
+
+  let resolved: unknown
+  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+    // Promise.prototype.then performs the intrinsic Promise brand check and
+    // bypasses an overridden `then` method on Promise subclasses. Plain
+    // thenables fall back to normal await semantics below.
+    let nativePromise: Promise<unknown> | undefined
+    try { nativePromise = Promise.prototype.then.call(result, value => value) }
+    catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+    resolved = nativePromise ? await nativePromise : await result
+  }
+  else {
+    resolved = result
+  }
+  if (resolved === true) return
+  const normalized = await normalizeAuthorizationResponse(resolved)
   if (normalized) return normalized
   return createForbiddenResponse(context.request)
 }
