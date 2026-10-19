@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
@@ -13,6 +13,8 @@ import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import type { RuntimeDiagnosticError } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file.ts"
+import { compactJournalFile } from "./agent-invocations-compact.ts"
+import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
 import { parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
@@ -27,14 +29,21 @@ interface AgentInvocationsCliContext {
 }
 
 export interface AgentInvocationsCliOptions {
+  /** How long compact waits for the write lock before it fails. Defaults to 5000 ms. */
+  compactBusyTimeoutMs?: number
   fetch?: typeof fetch
+  /** Bytes that compact can write in a directory. Defaults to statfs. */
+  freeSpace?: (directory: string) => Promise<number>
   sleep?: (milliseconds: number) => Promise<void>
   timeout?: number
 }
 
-type Action = "delete" | "list" | "prune" | "show" | "tail"
+type Action = "compact" | "delete" | "list" | "prune" | "show" | "tail"
 
-const actions = new Set<string>(["delete", "list", "prune", "show", "tail"] satisfies Action[])
+const actions = new Set<string>(["compact", "delete", "list", "prune", "show", "tail"] satisfies Action[])
+
+/** Actions that take no invocation id. */
+const journalActions = new Set<string | undefined>(["compact", "list", "prune"])
 
 function isAction(value: string): value is Action {
   return actions.has(value)
@@ -98,10 +107,12 @@ const defaultPruneAgeMs = 30 * 24 * 60 * 60 * 1000
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|cancel|delete|prune> [id] [options]",
+    "Usage: vitehub agent invocations <list|show|tail|cancel|delete|prune|compact> [id] [options]",
     "",
     "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
+    "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
+    "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
     "With a deployed --url, list, show, tail, and cancel use that deployment's Console. Otherwise",
     "cancel asks a running Vite + Nitro Development Server to cancel a pending or running Invocation.",
     "With --database, list, show, and tail read a local SQLite journal file read-only, without the app.",
@@ -119,7 +130,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --status <status>         Filter list results by pending, running, completed, failed, or cancelled.",
     "  --limit <count>           Limit list results.",
     "  --interval <ms>           Tail polling interval. Defaults to 1000.",
-    "  --database <url>          Journal database for delete and prune. Defaults to the Console journal.",
+    "  --database <url>          Journal database for delete, prune, and compact. Defaults to the Console journal.",
     "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
     "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
@@ -129,7 +140,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --max-size <size>         Prune the oldest records until the live data of the database file fits this size,",
     "                            such as 500MB or a number of bytes, or this percent of its volume, such as 30%.",
     "                            The file shrinks only when it uses auto_vacuum = INCREMENTAL.",
-    "  --dry-run                 List the records that prune would delete.",
+    "  --dry-run                 List the records that prune would delete. For compact, print the file size, the",
+    "                            projected size, and the free space check, and change nothing.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -233,16 +245,21 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument.startsWith("--interval=")) parsed.interval = positiveInteger(argument.slice(11), "--interval")
     else if (argument.startsWith("-")) throw agentDiagnostics.AGENT_R0504({ message: `Unknown option: ${redactCliArgument(argument)}.` })
     else if (!parsed.action && (argument === "cancel" || isAction(argument))) parsed.action = argument
-    else if (!parsed.id && parsed.action && parsed.action !== "list" && parsed.action !== "prune") parsed.id = argument
+    else if (!parsed.id && parsed.action && !journalActions.has(parsed.action)) parsed.id = argument
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, or prune." })
-  if (!parsed.help && parsed.action !== "list" && parsed.action !== "prune" && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
-  if (!parsed.help && parsed.dryRun && parsed.action !== "prune") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, cancel, delete, prune, or compact." })
+  if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
+  if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") {
+    throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
+  }
+  if (!parsed.help && parsed.urlSet && parsed.action === "compact") {
+    throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
+  }
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
-  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune") {
+  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune" && parsed.action !== "compact") {
     parsed.console = consoleBaseUrl(parsed.url)
   }
   if (!parsed.help && parsed.database !== undefined && parsed.action === "cancel") {
@@ -762,6 +779,70 @@ async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliCon
   return 0
 }
 
+const defaultCompactBusyTimeoutMs = 5_000
+
+/** Rebuilds a local SQLite journal file with VACUUM. Remote and in-memory databases have no file to compact. */
+async function compactInvocations(parsed: ParsedArgs, context: AgentInvocationsCliContext, options: AgentInvocationsCliOptions): Promise<number> {
+  const database = journalDatabase(parsed, context)
+  if (database.path === undefined) {
+    throw agentDiagnostics.AGENT_R0931({ message: `compact rebuilds a local SQLite file. ${database.label} is a remote libSQL database, which manages its own storage. Pass --database with a local file path.` })
+  }
+  if (basename(database.path) === ":memory:" || /[?&]mode=memory(?:&|$)/i.test(database.url)) {
+    throw agentDiagnostics.AGENT_R0931({ message: "compact rebuilds a local SQLite file. An in-memory database has no file to compact. Pass --database with a local file path." })
+  }
+  if (!existsSync(database.path)) {
+    throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}. Pass --database with the journal file.` })
+  }
+  const { createClient } = await import("@libsql/client")
+  const client = createClient({ url: database.url })
+  let result: JournalCompactResult
+  try {
+    const table = `${parsed.tablePrefix ?? "vitehub_agent_"}invocations`
+    const existing = await client.execute({ args: [table], sql: "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?" })
+    if (!existing.rows.length) {
+      throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal table ${table} exists in ${database.label}.` })
+    }
+    result = await compactJournalFile({
+      busyTimeoutMs: options.compactBusyTimeoutMs ?? defaultCompactBusyTimeoutMs,
+      client,
+      dryRun: parsed.dryRun,
+      ...(options.freeSpace ? { freeSpace: options.freeSpace } : {}),
+      label: database.label,
+      path: database.path,
+    })
+  }
+  catch (error) {
+    throw redactedJournalError(error, database)
+  }
+  finally {
+    client.close()
+  }
+  if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  else writeCompactResult(context, result)
+  return result.space.ok ? 0 : 1
+}
+
+function describeMeasurement(measurement: JournalFileMeasurement): string {
+  return `${formatBytes(measurement.fileBytes)} file, ${formatBytes(measurement.walBytes)} WAL, ${measurement.pageCount} pages of ${measurement.pageSize} B, ${measurement.freelistCount} free, auto_vacuum ${measurement.autoVacuum}.`
+}
+
+function writeCompactResult(context: AgentInvocationsCliContext, result: JournalCompactResult): void {
+  context.stdout.write(`Database: ${result.database}\n`)
+  context.stdout.write(`Before: ${describeMeasurement(result.before)}\n`)
+  context.stdout.write(`Live data: ${formatBytes(result.before.liveBytes)}. VACUUM shrinks the file to about this size.\n`)
+  for (const volume of result.space.volumes) {
+    const status = volume.availableBytes >= volume.requiredBytes ? "enough" : "not enough"
+    context.stdout.write(`Free space in ${volume.directory} (${volume.uses.join(" and ")}): ${formatBytes(volume.availableBytes)} available, ${formatBytes(volume.requiredBytes)} required, ${status}.\n`)
+  }
+  if (!result.after) {
+    context.stdout.write(result.space.ok ? "Dry run: compact can run. Nothing changed.\n" : "Dry run: compact would refuse to run. Nothing changed.\n")
+    return
+  }
+  context.stdout.write(`After: ${describeMeasurement(result.after)}\n`)
+  context.stdout.write(`Reclaimed ${formatBytes(Math.max(0, result.reclaimedBytes ?? 0))}. auto_vacuum is now ${result.after.autoVacuum}.\n`)
+  if (result.walTruncated === false) context.stdout.write("A reader kept the WAL from truncating. SQLite reuses the WAL from its start after the reader finishes.\n")
+}
+
 function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"]
   let value = bytes
@@ -812,6 +893,7 @@ export async function runAgentInvocationsCli(
     }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)
+    if (parsed.action === "compact") return await compactInvocations(parsed, context, options)
     if (parsed.action === "list") {
       const result = await target.list()
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
