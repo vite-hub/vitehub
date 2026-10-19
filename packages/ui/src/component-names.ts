@@ -13,6 +13,16 @@ const partFamilies = {
     "AttachmentTrigger",
   ],
   bubble: ["Bubble", "BubbleContent", "BubbleGroup", "BubbleReactions"],
+  "code-block": [
+    "CodeBlock",
+    "CodeBlockActions",
+    "CodeBlockContent",
+    "CodeBlockCopyButton",
+    "CodeBlockFooter",
+    "CodeBlockHeader",
+    "CodeBlockLine",
+    "CodeBlockTitle",
+  ],
   marker: ["Marker", "MarkerContent", "MarkerIcon"],
   message: ["Message", "MessageAvatar", "MessageContent", "MessageFooter", "MessageGroup", "MessageHeader"],
   trace: [
@@ -28,7 +38,6 @@ const partFamilies = {
 } as const;
 
 export const componentNames = [
-  "AgentCapabilityInspector",
   "AgentChat",
   "AgentChatMessage",
   "AgentChatPrompt",
@@ -36,10 +45,6 @@ export const componentNames = [
   "AgentFile",
   "AgentFileDiff",
   "AgentFileTree",
-  "AgentInvocation",
-  "AgentInvocationInspector",
-  "AgentInvocationList",
-  "AgentInvocationTimeline",
   "AgentMarkdown",
   "AgentMessageParts",
   "AgentMultiFileDiff",
@@ -50,6 +55,7 @@ export const componentNames = [
   "AgentUnresolvedFile",
   ...partFamilies.attachment,
   ...partFamilies.bubble,
+  ...partFamilies["code-block"],
   ...partFamilies.marker,
   ...partFamilies.message,
   ...partFamilies.trace,

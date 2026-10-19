@@ -1,0 +1,102 @@
+{
+  "name": "@vite-hub/box",
+  "version": "0.0.4",
+  "description": "Portable execution environments for ViteHub agents.",
+  "keywords": [
+    "agent",
+    "runtime",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/box"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./_internal/cloudflare": {
+      "types": "./dist/internal/cloudflare.d.ts",
+      "import": "./dist/internal/cloudflare.js",
+      "require": "./dist/internal/cloudflare.js",
+      "default": "./dist/internal/cloudflare.js"
+    },
+    "./_internal/toolchain": {
+      "types": "./dist/internal/host-toolchain.d.ts",
+      "import": "./dist/internal/host-toolchain.js",
+      "require": "./dist/internal/host-toolchain.js",
+      "default": "./dist/internal/host-toolchain.js"
+    },
+    "./_internal/vercel": {
+      "types": "./dist/internal/vercel.d.ts",
+      "import": "./dist/internal/vercel.js",
+      "require": "./dist/internal/vercel.js",
+      "default": "./dist/internal/vercel.js"
+    },
+    "./ssh": {
+      "types": "./dist/ssh.d.ts",
+      "import": "./dist/ssh.js",
+      "require": "./dist/ssh.js",
+      "default": "./dist/ssh.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/box#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime",
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@types/node": "catalog:tooling",
+    "@vercel/sandbox": "catalog:sandbox",
+    "publint": "catalog:tooling",
+    "ssh2": "^1.17.0",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "@types/ssh2": "^1.15.6",
+    "@types/semver": "^7.8.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "ssh2": "^1.17.0",
+    "@vercel/sandbox": "catalog:sandbox"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/sandbox": {
+      "optional": true
+    },
+    "ssh2": {
+      "optional": true
+    },
+    "@vercel/sandbox": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

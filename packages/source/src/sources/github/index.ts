@@ -1,53 +1,16 @@
-import { Buffer } from "node:buffer"
+import { forgeGitCredentials } from "@vite-hub/forge"
 import { defineCachedFunction } from "ocache"
 
-import { isSourceError, sourceError } from "../../core/errors.ts"
+import { sourceError } from "../../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../../core/path.ts"
 import { matchesAny } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
-import { fetchGitHubArchive, requestGitHubJson } from "./client.ts"
+import { createGitHubClient, githubEnvToken, githubErrorStatus } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
 import type { FileSource, SourceContext, SourceRevision } from "../../core/types.ts"
-import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0
-}
-
-function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
-  return isRecord(value) && isNonEmptyString(value.default_branch)
-}
-
-function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
-  return isRecord(value) && isNonEmptyString(value.sha)
-}
-
-function isGitHubContentResponse(value: unknown): value is GitHubContentResponse {
-  return isRecord(value)
-    && isNonEmptyString(value.type)
-    && isNonEmptyString(value.sha)
-    && (value.content === undefined || typeof value.content === "string")
-    && (value.encoding === undefined || typeof value.encoding === "string")
-    && (value.path === undefined || typeof value.path === "string")
-    && (value.sha === undefined || typeof value.sha === "string")
-}
-
-function isGitHubContentResult(value: unknown): value is GitHubContentResponse | GitHubContentResponse[] {
-  return Array.isArray(value) ? value.every(isGitHubContentResponse) : isGitHubContentResponse(value)
-}
-
-function requireGitHubResponse<T>(value: unknown, valid: (value: unknown) => value is T, repo: string, description: string): T {
-  if (!valid(value)) {
-    throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) returned a malformed ${description} response.`)
-  }
-  return value
-}
+import type { GitHubFile, GitHubSourceOptions } from "./types.ts"
 
 function normalizeGitHubRoot(path = "") {
   const root = path.replace(/\\/g, "/").split("/").filter(part => part !== ".").join("/")
@@ -86,8 +49,10 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   let auth: string | undefined
   const authByContext = new WeakMap<SourceContext, string | undefined>()
   const providerCache = normalizeGitHubCache(options)
+  const client = createGitHubClient(options.repo)
 
   async function resolveAuth(): Promise<string | undefined> {
+    if (options.auth === undefined) return githubEnvToken()
     const token = typeof options.auth === "function" ? await options.auth() : options.auth
     return typeof token === "string" && token.length > 0 ? token : undefined
   }
@@ -124,10 +89,6 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return root ? `${root}/${normalized}` : normalized
   }
 
-  function contentsUrl(repoPath: string, ref: string) {
-    return `https://api.github.com/repos/${options.repo}/contents/${encodeURIComponent(repoPath).replace(/%2F/g, "/")}?ref=${encodeURIComponent(ref)}`
-  }
-
   function shouldInclude(key: string) {
     if (options.include && !matchesAny(key, options.include)) return false
     if (options.ignore && matchesAny(key, options.ignore)) return false
@@ -142,22 +103,8 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   async function resolveSourceRevision(token = auth, signal?: AbortSignal): Promise<SourceRevision> {
     if (!configuredRef) {
       try {
-        const repo = requireGitHubResponse(await requestGitHubJson<unknown>({
-          ref: "default",
-          repo: options.repo,
-          signal,
-          token,
-          url: `https://api.github.com/repos/${options.repo}`,
-        }), isGitHubRepositoryResponse, options.repo, "repository")
-        const ref = repo.default_branch
-        const commit = requireGitHubResponse(await requestGitHubJson<unknown>({
-          ref,
-          repo: options.repo,
-          signal,
-          token,
-          url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(ref)}`,
-        }), isGitHubCommitResponse, options.repo, "commit")
-        return { id: commit.sha, immutable: true, ref }
+        const ref = await client.defaultBranch(token, signal)
+        return { id: await client.resolveCommit(ref, token, signal), immutable: true, ref }
       }
       catch (error) {
         if (shouldResolveMainFallback(error)) return { id: "main", immutable: false, ref: "main" }
@@ -166,14 +113,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
 
     try {
-      const commit = requireGitHubResponse(await requestGitHubJson<unknown>({
-        ref: configuredRef,
-        repo: options.repo,
-        signal,
-        token,
-        url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
-      }), isGitHubCommitResponse, options.repo, "commit")
-      return { id: commit.sha, immutable: true, ref: configuredRef }
+      return { id: await client.resolveCommit(configuredRef, token, signal), immutable: true, ref: configuredRef }
     }
     catch (error) {
       if (shouldResolveMainFallback(error)) return { id: configuredRef, immutable: false, ref: configuredRef }
@@ -181,8 +121,10 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
   }
 
+  // Rate limited API reads fall back to the archive. Anonymous archives come from codeload, which has no API limit.
   function shouldResolveMainFallback(error: unknown) {
-    return isSourceError(error) && error instanceof Error && error.message.includes(" request failed with 403 ")
+    const status = githubErrorStatus(error)
+    return status === 403 || status === 429
   }
 
   const resolvedRefs = new Map<string, Promise<string>>()
@@ -207,19 +149,12 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
 
   async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
     if (!configuredRef) return
-    requireGitHubResponse(await requestGitHubJson<unknown>({
-      ref: configuredRef,
-      repo: options.repo,
-      signal,
-      token,
-      url: `https://api.github.com/repos/${options.repo}/commits/${encodeURIComponent(configuredRef)}`,
-    }), isGitHubCommitResponse, options.repo, "commit")
+    await client.resolveCommit(configuredRef, token, signal)
   }
 
   async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
     const ref = resolvedRef ?? await getRef(token, signal)
-    const archive = await fetchGitHubArchive({ ref, repo: options.repo, signal, token })
-    return parseGitHubArchive(archive)
+    return parseGitHubArchive(await client.archive(ref, token, signal))
       .map((entry): GitHubFile<string> | undefined => {
         const key = keyForRepoPath(entry.path)
         if (!key || !shouldInclude(key)) return undefined
@@ -239,13 +174,12 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
+          credentials: forgeGitCredentials({ forge: "github", repository: options.repo, token }),
           keyForRepoPath,
           ref,
-          repo: options.repo,
           shouldInclude,
           signal,
           sparsePatterns,
-          token,
         })
       }
       catch (error) {
@@ -286,15 +220,9 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     if (!normalizedKey || !shouldInclude(normalizedKey)) return
     const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
-    let file: GitHubContentResponse | GitHubContentResponse[] | undefined
+    let file: Awaited<ReturnType<typeof client.metadata>>
     try {
-      file = requireGitHubResponse(await requestGitHubJson<unknown>({
-        ref,
-        repo: options.repo,
-        signal,
-        token,
-        url: contentsUrl(repoPath, ref),
-      }), isGitHubContentResult, options.repo, "content")
+      file = await client.metadata(repoPath, ref, token, signal)
     }
     catch (error) {
       if (isGitHubAccessError(error)) {
@@ -307,13 +235,12 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       }
       throw error
     }
-    if (!file || Array.isArray(file)) return
-    if (file.type === "dir") return
+    if (!file) return
     return {
       key: normalizedKey,
       path: normalizedKey,
       ref,
-      sha: file.sha || ref,
+      sha: file.sha,
     }
   }
 
@@ -333,8 +260,9 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
         () => loadFileMetadata(key, token, undefined, resolvedRef),
       )
 
+  // A missing path and a missing ref both answer 404.
   function isGitHubAccessError(error: unknown) {
-    return isSourceError(error) && error instanceof Error && error.message.includes(" could not access the repository or ref ")
+    return githubErrorStatus(error) === 404
   }
 
   async function loadFile(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string>> {
@@ -350,21 +278,9 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     }
     const ref = resolvedRef ?? await getRef(token, signal)
     const repoPath = repoPathForKey(normalizedKey)
-    const file = requireGitHubResponse(await requestGitHubJson<unknown>({
-      ref,
-      repo: options.repo,
-      signal,
-      token,
-      url: contentsUrl(repoPath, ref),
-    }), isGitHubContentResult, options.repo, "content")
-    if (Array.isArray(file) || file.type === "dir") {
-      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) expected ${JSON.stringify(key)} to be a file, but it is a directory.`)
-    }
-    if (file.encoding !== "base64" || typeof file.content !== "string") {
-      throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include file content for ${JSON.stringify(key)}.`)
-    }
+    const file = await client.file(repoPath, ref, token, signal)
     return {
-      content: new Uint8Array(Buffer.from(file.content.replace(/\s/g, ""), "base64")),
+      content: file.content,
       key: normalizedKey,
       path: normalizedKey,
       ref,

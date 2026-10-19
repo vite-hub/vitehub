@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -35,6 +35,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
 import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -47,50 +48,51 @@ export function serializeGeneratedRegistry(value: unknown): string {
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
-function readDefinitionObjectBody(file: string, exact = false) {
-  const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-    || calls[0]
-  const argument = call?.arguments[0]?.trim()
-  if (!argument?.startsWith("{")) return
-  const closeIndex = findMatching(argument, 0, "{", "}")
-  return closeIndex === undefined || (exact && argument.slice(closeIndex + 1).trim()) ? undefined : argument.slice(1, closeIndex)
+/** The options object of `defineDatabase({ ... })`. With `exact`, the object cannot have a type assertion. */
+function readDefinitionObjectBody(file: string, exact = false): ObjectExpression | undefined {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  const exported = defaultExportExpression(module)
+  const call = exported?.type === "CallExpression" && exported.callee.type === "Identifier" && exported.callee.name === "defineDatabase"
+    ? exported
+    : findCalls(module, ["defineDatabase"])[0]
+  const argument = call?.arguments[0]
+  if (argument === undefined || argument.type === "SpreadElement") return
+  const object = exact ? argument : argumentExpression(argument)
+  return object?.type === "ObjectExpression" ? object : undefined
 }
 
-function objectLiteralBody(value: string | undefined) {
-  const trimmed = value?.trim()
-  if (!trimmed?.startsWith("{")) return
-  const closeIndex = findMatching(trimmed, 0, "{", "}")
-  return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
+interface ObjectEntry {
+  /** Undefined for a spread, a method, an accessor, or a computed key that is not a string literal. */
+  key: string | undefined
+  /** The value as written, with its assertions. */
+  raw: Expression | undefined
+  /** The value without assertions. */
+  value: Expression | undefined
 }
 
-function stripLeadingEntryComments(entry: string) {
-  return entry.replace(/^(?:\s|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, "")
-}
-
-function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
-  return match?.[1] || match?.[2] || match?.[3]
-}
-
-function readEntryValue(entry: string): string | undefined {
-  const normalized = stripLeadingEntryComments(entry)
-  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'][^"']+["']|\[\s*["'][^"']+["']\s*\])\s*:/.exec(normalized)
-  return match ? normalized.slice(match[0].length).trim() : undefined
-}
-
-function readObjectPropertyValue(body: string | undefined, property: string): string | undefined {
-  if (!body) return
-  for (const entry of splitTopLevel(body)) {
-    if (readEntryKey(entry) !== property) continue
-    return readEntryValue(entry)
-  }
-}
-
-function readObjectKeys(body: string | undefined) {
+function readObjectEntries(body: ObjectExpression | undefined): ObjectEntry[] {
   if (!body) return []
-  return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
+  return objectProperties(body).map((property) => {
+    const node = property.node
+    if (node.type === "SpreadElement" || node.kind !== "init" || node.method) return { key: undefined, raw: undefined, value: undefined }
+    return { key: property.key, raw: node.value, value: property.value }
+  })
+}
+
+function readObjectPropertyValue(body: ObjectExpression | undefined, property: string): Expression | undefined {
+  return readObjectEntries(body).find(entry => entry.key === property)?.value
+}
+
+function readObjectKeys(body: ObjectExpression | undefined) {
+  return [...new Set(readObjectEntries(body).map(entry => entry.key).filter((key): key is string => Boolean(key)))]
+}
+
+function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
+  return value?.type === "ObjectExpression" ? value : undefined
+}
+
+function isUndefinedIdentifier(value: Expression | undefined): boolean {
+  return value?.type === "Identifier" && value.name === "undefined"
 }
 
 export interface StaticDatabaseSchema {
@@ -101,105 +103,72 @@ export interface StaticDatabaseSchema {
 
 /** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
 export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
-  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
   if (body === undefined) return { complete: false, tableNames: [] }
-  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
   return {
-    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
+    complete: readObjectEntries(body).every(entry => entry.key !== undefined),
     tableNames: readObjectKeys(body),
   }
 }
 
-function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
+function readConfigValue(body: ObjectExpression | undefined, property: string): DatabaseConfigValue | undefined {
   const expression = readObjectPropertyValue(body, property)
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
   const declaration = readRuntimeEnvDeclaration(expression)
   if (declaration) return declaration
-  const fallbackParts = expression.split(/\s*(?:\|\||\?\?)\s*/)
-  if (fallbackParts.length === 1) {
-    const envName = readProcessEnvName(fallbackParts[0]!)
-    if (envName) return createRuntimeEnvConfigValue([envName])
-  }
-  if (fallbackParts.length === 2) {
-    const envName = readProcessEnvName(fallbackParts[0]!)
-    const fallback = fallbackParts[1]!
-    if (!envName) return
-    const fallbackEnvName = readProcessEnvName(fallback)
-    if (fallbackEnvName) return createRuntimeEnvConfigValue([envName, fallbackEnvName])
-    const staticFallback = readStaticStringLiteral(fallback)
-    if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([envName], staticFallback)
-  }
+  const envName = readProcessEnvName(expression)
+  if (envName) return createRuntimeEnvConfigValue([envName])
+  if (expression.type !== "LogicalExpression" || (expression.operator !== "||" && expression.operator !== "??")) return
+  const primary = readProcessEnvName(unwrapExpression(expression.left))
+  if (!primary) return
+  const fallback = unwrapExpression(expression.right)
+  const fallbackEnvName = readProcessEnvName(fallback)
+  if (fallbackEnvName) return createRuntimeEnvConfigValue([primary, fallbackEnvName])
+  const staticFallback = readStaticStringLiteral(fallback)
+  if (typeof staticFallback !== "undefined") return createRuntimeEnvConfigValue([primary], staticFallback)
 }
 
-function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | undefined {
-  const match = /^env\s*\((.*)\)$/s.exec(expression.trim())
-  const body = objectLiteralBody(match?.[1])
+/** Reads `env({ source: env.source("NAME" | ["NAME", ...]), default: "value" })`. */
+function readRuntimeEnvDeclaration(expression: Expression): DatabaseConfigValue | undefined {
+  if (expression.type !== "CallExpression" || expression.callee.type !== "Identifier" || expression.callee.name !== "env") return
+  const body = objectLiteral(argumentExpression(expression.arguments[0]))
   if (!body) return
-  const source = readObjectPropertyValue(body, "source")?.trim()
-  const sourceMatch = /^env\.source\s*\((.*)\)$/s.exec(source || "")
-  if (!sourceMatch) return
-  const sourceValue = sourceMatch[1]!.trim()
-  const singleName = readStaticStringLiteral(sourceValue)
+  const source = readObjectPropertyValue(body, "source")
+  if (source?.type !== "CallExpression" || source.callee.type !== "MemberExpression" || source.callee.computed
+    || source.callee.object.type !== "Identifier" || source.callee.object.name !== "env"
+    || source.callee.property.type !== "Identifier" || source.callee.property.name !== "source") return
+  const sourceValue = argumentExpression(source.arguments[0])
+  const singleName = sourceValue && readStaticStringLiteral(sourceValue)
   const names = typeof singleName !== "undefined"
     ? [singleName]
-    : /^\[(.*)\]$/s.exec(sourceValue)?.[1]
-        ?.split(",")
-        .map(value => readStaticStringLiteral(value.trim()))
+    : sourceValue?.type === "ArrayExpression"
+      ? sourceValue.elements.map(element => element === null || element.type === "SpreadElement" ? undefined : readStaticStringLiteral(unwrapExpression(element)))
+      : undefined
   if (!names?.length || names.some(name => typeof name === "undefined" || !name.trim())) return
-  const defaultValue = readStaticStringLiteral(readObjectPropertyValue(body, "default")?.trim() || "")
-  return createRuntimeEnvConfigValue(names as string[], defaultValue)
+  const defaultValue = readObjectPropertyValue(body, "default")
+  return createRuntimeEnvConfigValue(names.filter((name): name is string => name !== undefined), defaultValue && readStaticStringLiteral(defaultValue))
 }
 
-const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"]])
-
-function readStaticStringLiteral(expression: string): string | undefined {
-  const quote = expression[0]
-  if (expression.length < 2 || (quote !== "'" && quote !== '"') || expression.at(-1) !== quote) return
-  let value = ""
-  for (let index = 1; index < expression.length - 1; index += 1) {
-    const char = expression[index]!
-    if (char === quote || char === "\n" || char === "\r") return
-    if (char !== "\\") {
-      value += char
-      continue
-    }
-    const escaped = expression[++index]!
-    if (index >= expression.length - 1) return
-    if (escaped === "\r") {
-      if (expression[index + 1] === "\n") index += 1
-      continue
-    }
-    if (escaped === "\n" || escaped === "\u2028" || escaped === "\u2029") continue
-    if (escaped === "u" && expression[index + 1] === "{") {
-      const match = /^\{([\da-f]+)\}/i.exec(expression.slice(index + 1, -1))
-      const codePoint = match ? Number.parseInt(match[1]!, 16) : Number.NaN
-      if (!match || codePoint > 0x10FFFF) return
-      value += String.fromCodePoint(codePoint)
-      index += match[0].length
-      continue
-    }
-    if (escaped === "u" || escaped === "x") {
-      const length = escaped === "u" ? 4 : 2
-      const hex = expression.slice(index + 1, index + 1 + length)
-      if (hex.length !== length || !/^[\da-f]+$/i.test(hex)) return
-      value += String.fromCharCode(Number.parseInt(hex, 16))
-      index += length
-      continue
-    }
-    if (/\d/.test(escaped) && (escaped !== "0" || /\d/.test(expression[index + 1] || ""))) return
-    value += escaped === "0" ? "\0" : staticStringEscapes.get(escaped) ?? escaped
-  }
-  return value
+/** A quoted string literal. Template literals do not count. */
+function readStaticStringLiteral(expression: Expression): string | undefined {
+  return expression.type === "Literal" ? staticString(expression) : undefined
 }
 
-function readProcessEnvName(expression: string) {
-  return /^process\.env\.([A-Za-z_$][\w$]*)$/.exec(expression)?.[1]
-    ?? /^process\.env\[['"]([A-Za-z_$][\w$]*)['"]\]$/.exec(expression)?.[1]
+/** The name in `process.env.NAME` or `process.env["NAME"]`. */
+function readProcessEnvName(expression: Expression): string | undefined {
+  if (expression.type !== "MemberExpression" || expression.optional) return
+  const env = expression.object
+  if (env.type !== "MemberExpression" || env.computed || env.object.type !== "Identifier" || env.object.name !== "process"
+    || env.property.type !== "Identifier" || env.property.name !== "env") return
+  const name = expression.computed
+    ? expression.property.type === "Literal" ? staticString(expression.property) : undefined
+    : expression.property.type === "Identifier" ? expression.property.name : undefined
+  return name && /^[A-Za-z_$][\w$]*$/.test(name) ? name : undefined
 }
 
-function readStringValue(body: string | undefined, property: string): string | undefined {
+function readStringValue(body: ObjectExpression | undefined, property: string): string | undefined {
   const value = readConfigValue(body, property)
   const resolved = resolveConfigValue(value)
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
@@ -207,19 +176,16 @@ function readStringValue(body: string | undefined, property: string): string | u
 
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
-function readDefinitionCloudflareResource(expression: string | undefined): DefinitionCloudflareResource {
-  if (expression?.trim() === "undefined") return "inherited"
-  const body = objectLiteralBody(expression)
+function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
+  if (isUndefinedIdentifier(expression)) return "inherited"
+  const body = objectLiteral(expression)
   if (body === undefined) return "opaque"
   let resource: DefinitionCloudflareResource = "inherited"
-  for (const property of splitTopLevel(body)) {
-    const normalized = stripLeadingEntryComments(property)
-    if (!normalized.trim()) continue
-    const key = readEntryKey(normalized)
-    if (normalized.trimStart().startsWith("...") || !key) return "opaque"
-    if (key !== "databaseId" && key !== "databaseName") continue
-    if (readEntryValue(normalized)?.trim() === "undefined") continue
-    if (readConfigValue(body, key) === undefined) return "opaque"
+  for (const entry of readObjectEntries(body)) {
+    if (entry.key === undefined) return "opaque"
+    if (entry.key !== "databaseId" && entry.key !== "databaseName") continue
+    if (isUndefinedIdentifier(entry.value)) continue
+    if (readConfigValue(body, entry.key) === undefined) return "opaque"
     resource = "configured"
   }
   return resource
@@ -227,31 +193,27 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
 
 function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, value?: CloudflareD1BindingConfig } {
   const definitionBody = readDefinitionObjectBody(file)
-  const definitionEntries = definitionBody === undefined
-    ? []
-    : splitTopLevel(definitionBody).map(stripLeadingEntryComments)
-  const cloudflareEntries = definitionEntries.filter(entry => readEntryKey(entry) === "cloudflare")
-  const expression = cloudflareEntries.length ? readEntryValue(cloudflareEntries.at(-1)!) : undefined
+  const definitionEntries = readObjectEntries(definitionBody)
+  const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
+  const expression = cloudflareEntries.at(-1)?.value
   let resource: DefinitionCloudflareResource = definitionBody === undefined ? "opaque" : "inherited"
   for (const entry of definitionEntries) {
-    if (!entry.trim()) continue
-    const key = readEntryKey(entry)
-    if (entry.trimStart().startsWith("...") || !key) {
+    if (entry.key === undefined) {
       resource = "opaque"
     }
-    else if (key === "cloudflare") {
-      resource = readDefinitionCloudflareResource(readEntryValue(entry))
+    else if (entry.key === "cloudflare") {
+      resource = readDefinitionCloudflareResource(entry.value)
     }
   }
-  const body = objectLiteralBody(expression)
+  const body = objectLiteral(expression)
   if (resource === "opaque") {
-    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, value: {} }
+    if (cloudflareEntries.length && !isUndefinedIdentifier(expression)) return { resource, value: {} }
     return { resource }
   }
   if (body === undefined) return { resource }
-  const httpExpression = readObjectPropertyValue(body, "http")?.trim()
-  const httpBody = objectLiteralBody(httpExpression)
-  const http = httpExpression === "true"
+  const httpExpression = readObjectPropertyValue(body, "http")
+  const httpBody = objectLiteral(httpExpression)
+  const http = httpExpression?.type === "Literal" && httpExpression.value === true
     ? true
     : httpBody
       ? {
@@ -278,24 +240,22 @@ export function isStaticD1HttpDefinition(file: string) {
   if (!existsSync(file)) return false
   const definitionBody = readDefinitionObjectBody(file, true)
   if (definitionBody === undefined) return false
-  const definitionEntries = splitTopLevel(definitionBody).filter(entry => entry.trim())
-  if (definitionEntries.some(entry => !readEntryKey(entry))) return false
-  const cloudflareEntries = definitionEntries.filter(entry => readEntryKey(entry) === "cloudflare")
+  const definitionEntries = readObjectEntries(definitionBody)
+  if (definitionEntries.some(entry => entry.key === undefined)) return false
+  const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
   if (cloudflareEntries.length !== 1) return false
-  const expression = readEntryValue(cloudflareEntries[0]!)?.trim()
-  const body = objectLiteralBody(expression)
-  if (body === undefined || expression !== `{${body}}`) return false
-  const entries = splitTopLevel(body).filter(entry => entry.trim())
-  if (entries.some(entry => !readEntryKey(entry))) return false
-  const httpEntries = entries.filter(entry => readEntryKey(entry) === "http")
+  const body = cloudflareEntries[0]!.raw
+  if (body?.type !== "ObjectExpression") return false
+  const entries = readObjectEntries(body)
+  if (entries.some(entry => entry.key === undefined)) return false
+  const httpEntries = entries.filter(entry => entry.key === "http")
   if (httpEntries.length !== 1) return false
-  const http = readEntryValue(httpEntries[0]!)?.trim()
-  const httpBody = objectLiteralBody(http)
-  return http === "true" || (httpBody !== undefined && http === `{${httpBody}}`)
+  const http = httpEntries[0]!.raw
+  return (http?.type === "Literal" && http.value === true) || http?.type === "ObjectExpression"
 }
 
 function readDefinitionConnectionConfig(file: string) {
-  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
+  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
   if (!body) return
   const value = {
     authToken: readConfigValue(body, "authToken"),
@@ -306,7 +266,7 @@ function readDefinitionConnectionConfig(file: string) {
 
 /** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
 export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
-  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")?.trim()
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")
   if (expression === undefined) return "sqlite"
   const dialect = readStaticStringLiteral(expression)
   if (dialect === "sqlite" || dialect === "postgresql") return dialect
@@ -314,7 +274,7 @@ export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
 }
 
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
-  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
+  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
   const hyperdriveId = readConfigValue(body, "hyperdriveId")
   if (hyperdriveId !== undefined) config.hyperdriveId = hyperdriveId
@@ -380,12 +340,9 @@ function readDefinitionOptionKeys(file: string): Set<string> | undefined {
   const body = readDefinitionObjectBody(file)
   if (body === undefined) return
   const keys = new Set<string>()
-  for (const entry of splitTopLevel(body)) {
-    const normalized = stripLeadingEntryComments(entry)
-    if (!normalized.trim()) continue
-    const key = readEntryKey(normalized)
-    if (normalized.trimStart().startsWith("...") || !key) return
-    if (!schemaOnlyDefinitionKeys.has(key)) keys.add(key)
+  for (const entry of readObjectEntries(body)) {
+    if (entry.key === undefined) return
+    if (!schemaOnlyDefinitionKeys.has(entry.key)) keys.add(entry.key)
   }
   return keys
 }
