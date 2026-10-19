@@ -380,7 +380,7 @@ Queued webhook deliveries in this state survive a restart. A persistent Nitro se
 
 `defineChannelTrigger({ durableState: true, invoke })` types `context.channelState` as present (`AgentDurableChannelTriggerContext`). The trigger throws `AGENT_R1005` before `invoke` runs when the Channel's State is not bound. The webhook route and the webhook queue bind it. See [Start several Invocations from one webhook](../../docs/content/docs/agents/channels.md#start-several-invocations-from-one-webhook).
 
-A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel.
+A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel. When a webhook route runs the trigger, an unset `webhook.deliveryId` defaults to the SHA-256 (hex) of the raw request body, so an identical retried body is the same delivery. See [Identify a webhook delivery](../../docs/content/docs/agents/triggers.md#identify-a-webhook-delivery).
 
 `webhook.response` is the `Response` sent for an accepted, queued, steered, or duplicate delivery, after admission, instead of the JSON receipt. Busy and error answers keep their own. The queue never stores it. See [Answer the provider](../../docs/content/docs/agents/triggers.md#answer-the-provider).
 
