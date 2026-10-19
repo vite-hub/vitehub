@@ -27,6 +27,7 @@ import type {
   AgentRuntimeContext,
   AgentTriggerAcceptedInvocation,
   AgentTriggerDefinition,
+  AgentTriggerFailedEvent,
   AgentTriggerInvokeResult,
   AgentTriggerPrepareResult,
   AgentTriggerRunInvokeResult,
@@ -263,8 +264,9 @@ function bindAgentTriggerCallbacks<TContext>(
     if (task.agent !== undefined && !(hasAgentDefinition(task.agent) && isRuntimeString(agentName) && agentName.trim())) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" needs an Agent with a stable non-empty name.`)
     if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
     if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
-    const { agent, prepare: taskPrepare, run } = task as { agent?: AgentInput; prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>; run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown> }
-    tasks[name] = { ...(agent ? { agent } : {}), ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}), ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}) }
+    const { agent, prepare: taskPrepare, run, failed } = task as { agent?: AgentInput; prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>; run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown>; failed?: (event: AgentTriggerFailedEvent) => MaybePromise<void> }
+    if (failed !== undefined && !isRuntimeFunction(failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
+    tasks[name] = { ...(agent ? { agent } : {}), ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}), ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}), ...(failed ? { failed } : {}) }
   }
   bound.tasks = tasks
   return bound
@@ -419,12 +421,33 @@ async function resolveWebhookSecret(
 ): Promise<unknown> {
   if (value === undefined) return undefined
   if (isRuntimeFunction(value)) {
-    return await value(context)
+    return unsealWebhookSecret(await value(context))
   }
   if (isRecord(value) && Object.hasOwn(value, "resolve") && isRuntimeFunction(value.resolve)) {
-    return await value.resolve(context)
+    return unsealWebhookSecret(await value.resolve(context))
   }
-  return value
+  return unsealWebhookSecret(value)
+}
+
+/** A sealed Server Env secret (`{ unseal() }`) resolves to its value. */
+function unsealWebhookSecret(value: unknown): unknown {
+  return isRecord(value) && isRuntimeFunction(value.unseal) ? value.unseal() : value
+}
+
+/** `signature: "bearer"` reads `Authorization` unless `secretHeader` names another header. */
+export function webhookSecretHeader(registration: AgentWebhookRegistrationDefinition): string | undefined {
+  return registration.secretHeader ?? (registration.signature === "bearer" ? "authorization" : undefined)
+}
+
+/** `Bearer <secret>`, with the scheme compared case-insensitively and the token in constant time. */
+async function verifyBearerSignature(secret: string, header: string): Promise<boolean> {
+  const match = /^bearer[ \t]+(.+)$/i.exec(header.trim())
+  // Without the scheme, still run the comparison so a malformed header takes the same time.
+  return await constantTimeEqual(secret, match?.[1] ?? `\0${header}`)
+}
+
+function missingBearerSecretError(registration: AgentWebhookRegistrationDefinition): AgentHttpError {
+  return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
 }
 
 async function sha256(value: string): Promise<Uint8Array> {
@@ -543,7 +566,9 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
     if (secretToken !== undefined && secretToken !== false && !isRuntimeString(secretToken)) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" resolved secretToken to an invalid value.`)
     }
-    if (!registration.secretHeader) {
+    if (!secretToken && secretToken !== false && registration.signature === "bearer") throw missingBearerSecretError(registration)
+    const secretHeader = webhookSecretHeader(registration)
+    if (!secretHeader) {
       if (secretToken === false) return { registration, verified: true }
       if (secretToken) {
         throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.`)
@@ -554,9 +579,9 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
       return { registration, verified: true }
     }
     if (!secretToken) {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
-    throw webhookVerificationError(`[vitehub] Webhook secret header "${registration.secretHeader}" is required.`)
+    throw webhookVerificationError(`[vitehub] Webhook secret header "${secretHeader}" is required.`)
   }
   return { verified: true }
 }
@@ -578,10 +603,10 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
   }
   const targeted = registrations
-    .map(registration => ({
-      headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
-      registration,
-    }))
+    .map((registration) => {
+      const secretHeader = webhookSecretHeader(registration)
+      return { headerValue: secretHeader ? request.headers.get(secretHeader) : null, registration }
+    })
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
@@ -617,9 +642,16 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       continue
     }
     if (!secretToken) {
+      if (registration.signature === "bearer") throw missingBearerSecretError(registration)
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (headerValue === null) continue
+    if (registration.signature === "bearer") {
+      if (await verifyBearerSignature(secretToken, headerValue)) {
+        return { registration, verified: true }
+      }
+      continue
+    }
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
@@ -644,7 +676,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
 }
 
 function requiresWebhookSecretHeader(registrations: AgentWebhookRegistrationDefinition[]) {
-  return registrations.some(registration => registration.secretToken !== undefined && registration.secretToken !== false)
+  return registrations.some(registration => registration.signature === "bearer" || (registration.secretToken !== undefined && registration.secretToken !== false))
 }
 
 function withAgentTriggerContext<CALL_OPTIONS>(
@@ -869,5 +901,6 @@ export async function streamAgentTriggerWith<
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
-  return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })
+  const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+  return await executor(executionAgent, withTaskAgentIdentity({ ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.agent), invocation.input, { output })
 }

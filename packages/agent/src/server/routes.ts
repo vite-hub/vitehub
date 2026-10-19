@@ -37,7 +37,7 @@ import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
-import { agentInvocationId, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -57,6 +57,7 @@ import {
   resolveAgentTriggerInvocationResult,
   taskAgentIdentity,
   verifyAgentWebhookRequest,
+  webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
 import {
@@ -768,6 +769,8 @@ async function matchedWebhookRegistrationRequiresVerification(
   const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return secret !== false
+  // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
+  if (registration.signature === "bearer") return true
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
 
@@ -1550,7 +1553,10 @@ async function notifyQueuedWebhookFailure(
       if (!match?.registration.channelId || !isRuntimeString(dispatched)) return match?.trigger.definition.failed
       // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
       const triggers = await resolveAgentTriggers(agent as never, context as never)
-      return triggers[`${match.registration.channelId}.${dispatched}`]?.definition.failed
+      const resolved = triggers[`${match.registration.channelId}.${dispatched}`]
+      const taskName = (delivery.invocation as { task?: unknown } | undefined)?.task
+      if (isRuntimeString(taskName)) return resolved?.tasks?.[taskName]?.failed || resolved?.definition.failed
+      return resolved?.definition.failed
     })
     if (!isRuntimeFunction(failed)) return
     const reference = await runInvocationReference(routeAgentInvocationName(agent, identity), invocation?.run)
@@ -1584,6 +1590,32 @@ async function rollbackQueuedDispatchOrder(state: AgentWebhookQueueStateAdapter,
   }
 }
 
+/** Fails an open Invocation when a queued delivery is abandoned. */
+async function failOpenQueuedWebhookInvocation(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+  delivery: AgentWebhookQueueDelivery,
+  error: unknown,
+  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
+): Promise<void> {
+  const run = (invocation?.run ?? delivery.invocation?.run) as AgentRunMetadata | undefined
+  if (!run?.runId || !isRecord(agent) || !agent.invocations) return
+  try {
+    const invocations = agent.invocations as AgentInvocations
+    const identity = routeAgentIdentity(handlerOptions)
+    const agentName = routeAgentInvocationName(agent, identity)
+    const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
+    if (summary?.status !== "pending" && summary?.status !== "running") return
+    const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
+    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true, expectedCursor: summary.cursor })
+    if (!journal) return
+    await journal.finish("failed", error)
+  }
+  catch (journalError) {
+    console.error(`[vitehub] Could not fail the open Invocation of webhook delivery "${delivery.deliveryId}".`, journalError)
+  }
+}
+
 async function deliverQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
@@ -1607,6 +1639,7 @@ async function deliverQueuedWebhookFailure(
       return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
     }
     if (!delivery.failure && !await state.markWebhookDeliveryFailure(delivery.scope, delivery.deliveryId, delivery.leaseToken, failure)) return false
+    await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
     // The dispatch marker is permanent, while queue ownership can expire.
     // Recovery finalizes the failure without repeating a paused callback.
     if (!await state.beginWebhookFailureNotification(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
@@ -1614,6 +1647,7 @@ async function deliverQueuedWebhookFailure(
     return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
   }
   if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
+  await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
   await notifyQueuedWebhookFailure(agent, handlerOptions, delivery, error, attempts, invocation)
   return true
 }
@@ -1797,6 +1831,10 @@ async function executeQueuedWebhookDelivery(
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
+        if (match.registration.channelId) {
+          const channelState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+          if (channelState) bindAgentChannelTriggerState(request, match.registration.channelId, channelState)
+        }
         const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
@@ -1843,6 +1881,10 @@ async function executeQueuedWebhookDelivery(
       const prepared = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
+        if (match.registration.channelId) {
+          const channelState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+          if (channelState) bindAgentChannelTriggerState(request, match.registration.channelId, channelState)
+        }
         const triggers = await resolveAgentTriggers(agent as never, context as never, { queuedInvocation: invocation as never })
         const trigger = triggers[match.trigger.id]
         if (!trigger) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook trigger "${match.trigger.id}" no longer exists.` })
@@ -8610,7 +8652,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
         const secret = await resolveWebhookSecret(registration.secretToken, context)
-        if (!registration.secretHeader || !secret) {
+        const secretHeader = webhookSecretHeader(registration)
+        if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")
         }
         try {
