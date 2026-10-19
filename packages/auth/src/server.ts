@@ -568,6 +568,13 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // return a reader owned by an unrelated stream. Preserve subclasses that
     // inherit their realm's native method, but fail closed for overrides.
     if (constructor.prototype === lockedOwner && getReader !== trustedReadableStreamGetReader) {
+      // A subclass may wrap both accessors while delegating to the native
+      // implementation.  Keep that supported shape, but reject arbitrary
+      // constructor-owned overrides that can return a reader for another
+      // stream.
+      const readerSource = Function.prototype.toString.call(getReader)
+      const lockedSource = Function.prototype.toString.call(locked)
+      if (!readerSource.includes("super.getReader") || !lockedSource.includes("super.locked")) return false
       let parent: object | null = Object.getPrototypeOf(lockedOwner)
       const seenParents = new Set<object>()
       while (parent && !seenParents.has(parent)) {
