@@ -60,6 +60,12 @@ import {
   verifyAgentWebhookRequest,
   withRehydratedBodyDeliveryId,
 } from "../trigger-runtime.ts"
+import {
+  admitAgentChannelStateCommit,
+  createAgentChannelStateCommit,
+  releaseAgentChannelStateCommit,
+  settleAgentChannelStateCommit,
+} from "../internal/channel-state.ts"
 import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
@@ -1200,7 +1206,8 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
-): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean } | undefined> {
+  beforeComplete?: () => Promise<void>,
+): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean; duplicate?: boolean } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
   const duplicateResponse = (claim: unknown) => {
@@ -1208,16 +1215,19 @@ async function steerQueuedWebhookDelivery(
       return {
         queued: false,
         invalidState: true,
+        duplicate: true,
         response: Response.json({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" }),
       }
     }
     return claim === "queued"
       ? {
           queued: true,
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }),
         }
       : {
           queued: claim === "steering",
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }),
         }
   }
@@ -1320,6 +1330,9 @@ async function steerQueuedWebhookDelivery(
             .then(async () => {
               let completed: boolean
               try {
+                // Persist any staged Channel State before marking the delivery
+                // complete. A failed commit must leave the delivery retryable.
+                await beforeComplete?.()
                 completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
               } catch {
                 await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now()).catch(() => false)
@@ -8604,6 +8617,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             state: channelState.state,
           })
         }
+        // `channelState.transaction()` writes in `invoke` commit with this delivery's admission, or when it is accepted without one.
+        const stateCommit = registration.channelId ? createAgentChannelStateCommit(channelState.state) : undefined
+        let stateCommitDeferred = false
         try {
           const input = createAgentWebhookTriggerInput(request, registration, rawBody)
           const invocation = await resolveAgentTriggerInvocationWithResolvedContext(
@@ -8613,9 +8629,13 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             createExecutionContext(context as never) as never,
             trigger.id,
             input,
-            { rawBody: rawBodyBytes },
+            {
+              rawBody: rawBodyBytes,
+              ...(stateCommit ? { channelStateCommit: stateCommit } : {}),
+            },
           )
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+            if (invocation.response.status < 400) await settleAgentChannelStateCommit(stateCommit)
             await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
             if (!waitUntil) await context.flushWaitUntil?.()
             return await observeHandledChannelDeliveryResponse(invocation.response, channelDelivery)
@@ -8713,14 +8733,18 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 invocation.input,
                 waitUntil,
                 async (reserved) => {
-                  if (reserved)
+                  if (reserved) {
+                    // The existing delivery remains queued; this invocation was
+                    // not admitted, so discard its staged Channel State.
+                    await releaseAgentChannelStateCommit(stateCommit)
                     return Response.json({
                       accepted: true,
                       duplicate: false,
                       ok: true,
                       queued: true,
                     })
-                  const queued = await webhookQueue.admit({
+                  }
+                  const queued = await admitAgentChannelStateCommit(stateCommit, webhookQueue, {
                     backendId,
                     options: handlerOptions,
                     scope: webhookState.keyPrefix,
@@ -8728,8 +8752,27 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   }, delivery)
                   return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
                 },
+                async () => {
+                  await settleAgentChannelStateCommit(stateCommit)
+                },
               )
               if (outcome) {
+                // A steered delivery is only committed after the active invocation
+                // completes successfully. If it fails, release the staged decision
+                // so the retry can re-evaluate it.
+                if (outcome.settlement) {
+                  // The settlement owns the staged commit after this route returns.
+                  stateCommitDeferred = true
+                  context.waitUntil(
+                    outcome.settlement.then(async completed => {
+                      if (!completed) await releaseAgentChannelStateCommit(stateCommit)
+                    }),
+                  )
+                } else if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) {
+                  await settleAgentChannelStateCommit(stateCommit)
+                } else if (outcome.invalidState || outcome.duplicate) {
+                  await releaseAgentChannelStateCommit(stateCommit)
+                }
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 if (outcome.settlement) {
                   await recordChannelDeliveryEvidence(channelDelivery, {
@@ -8756,7 +8799,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   : outcome.response
               }
             }
-            const queued = await webhookQueue.admit({
+            const queued = await admitAgentChannelStateCommit(stateCommit, webhookQueue, {
               backendId,
               options: handlerOptions,
               scope: webhookState.keyPrefix,
@@ -8789,6 +8832,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
             if ((await webhookState.state.get(deliveryClaimKey)) === true) {
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return webhookReceipt(invocation.webhook, { accepted: false, duplicate: true, ok: true })
             }
@@ -8807,6 +8851,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             }
             if (!claimed) {
               if (webhookLock) await webhookState.state.releaseLock(webhookLock)
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
               return webhookReceipt(invocation.webhook, { accepted: false, duplicate: true, ok: true })
             }
@@ -8825,6 +8870,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             // A 5xx answer lets the provider retry the delivery.
             if (prepared.response.status >= 500 && deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
+            if (prepared.response.status < 400) await settleAgentChannelStateCommit(stateCommit)
             await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
             if (!waitUntil) await context.flushWaitUntil?.()
             return await observeHandledChannelDeliveryResponse(prepared.response, channelDelivery)
@@ -8914,10 +8960,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 }
               })
               if (durableHandoff) return
+              await settleAgentChannelStateCommit(stateCommit)
               await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", {
                 runId: invocation.run?.runId,
               })
             } catch (error) {
+              await releaseAgentChannelStateCommit(stateCommit)
               await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
                 error: channelDeliveryError(error),
                 runId: invocation.run?.runId,
@@ -8926,9 +8974,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             }
           })
           try {
+            stateCommitDeferred = true
             context.waitUntil(task)
             dispatch(true)
           } catch (error) {
+            stateCommitDeferred = false
+            await releaseAgentChannelStateCommit(stateCommit)
             dispatch(false)
             stopHeartbeat?.()
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
@@ -8941,6 +8992,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const response = toHttpErrorResponse(error)
           if (response) return response
           throw error
+        } finally {
+          if (!stateCommitDeferred) await releaseAgentChannelStateCommit(stateCommit)
         }
       }
 

@@ -318,6 +318,29 @@ triggers: {
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
 
+### Decide and write Channel State in one step
+
+A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
+
+```ts
+invoke: (context, change: { id: string, version: number, text: string }) =>
+  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+    if (record.value && record.value.version >= change.version) return ignored('stale_update')
+    record.set({ version: change.version })
+    return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
+  }),
+```
+
+Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+
+How the write and the admission commit depends on the State:
+
+| State | Commit |
+| --- | --- |
+| SQLite and libSQL | One transaction checks the locks, queues the delivery, and writes the values. A crash before the commit keeps the old value and queues nothing. |
+| A custom State with `commitWebhookState()` | The State's own transaction, with the same contract. |
+| Other States, such as Cloudflare Durable Objects | ViteHub extends the locks, queues the delivery, then writes the values. A crash between those steps keeps the delivery and loses the write, so the retried trigger decides again and the delivery ID removes the duplicate admission. These States have no webhook queue, so only `ignored()` and inline deliveries commit there. |
+
 ## Publish Agent activity without opening a chat
 
 Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened` unless `pullRequest.reconcile.events` explicitly excludes `opened`; later invocations reuse it. If that event is excluded, the first later invocation creates the comment. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the newest available session's final answer appear below it. All session answers stay in one collapsed section, newest first, with one session link and one paragraph per answer. The full transcript stays in the linked session when one is configured.

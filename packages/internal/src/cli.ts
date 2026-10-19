@@ -81,6 +81,7 @@ const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
  * Sends `process.stdout` writes to stderr while `run` loads project config.
  * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
  */
+// SAFETY: The default Node stream is adapted to the narrower ViteHub stream contract.
 export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr as ViteHubCliStreams["stderr"]): Promise<T> {
   // Capture a newly installed process writer before the redirect is active.
   // This keeps first-use payload writes on the invocation's real stdout.

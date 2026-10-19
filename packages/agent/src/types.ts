@@ -761,6 +761,54 @@ export interface AgentChannelStateBinding {
   state: StateAdapter
 }
 
+/** One key of a Channel's State while `channelState.transaction()` holds its lock. */
+export interface AgentChannelStateTransaction<T = unknown> {
+  /** The full State key: the Channel's `keyPrefix` followed by the transaction key. */
+  readonly key: string
+  /** The saved value when the lock was taken, or `null`. */
+  readonly value: T | null
+  /** Stage a new value. Nothing is written until the transaction commits. */
+  set(value: T): void
+  /** Stage the removal of the key. */
+  delete(): void
+}
+
+export interface AgentChannelStateTransactionOptions {
+  /** Lock lease in milliseconds. Defaults to 60 000. The commit fails, and writes nothing, after the lease expires. */
+  ttlMs?: number
+  /** How long to wait for another holder of the key, in milliseconds. Defaults to 10 000. Then the transaction throws. */
+  waitMs?: number
+}
+
+/** The State of a Channel inside its trigger callbacks. */
+export interface AgentChannelState extends AgentChannelStateBinding {
+  /**
+   * Reads, decides, and writes one key under its lock. `run` gets the saved `value` and stages `set()` or `delete()`.
+   * `key` is relative to `keyPrefix`. A thrown error, or a returned `Response` with status 400 or above, writes nothing.
+   *
+   * Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned
+   * invocation. On SQLite and libSQL State this is one transaction, so a crash before admission keeps the old value and
+   * the retried delivery decides again. The write commits at once when the trigger answers below 400 without a queued
+   * delivery, such as with `ignored()`, or when the delivery runs inline. In other places, it commits when `run` returns.
+   * Run at most one transaction per key in one trigger call.
+   *
+   * `T` types the saved value. `R` is inferred from `run`; when `T` is given explicitly, `R` defaults to a trigger result.
+   *
+   * @example
+   * invoke: (context, change) => context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+   *   if (record.value && record.value.version >= change.version) return ignored("stale_update")
+   *   record.set({ version: change.version })
+   *   return { input: { prompt: change.text }, webhook: { deliveryId: change.eventId, serialize: change.id } }
+   * })
+   */
+  transaction<T = unknown, R = AgentTriggerInvokeResult>(
+    key: string,
+    run: (state: AgentChannelStateTransaction<T>) => MaybePromise<R>,
+    options?: AgentChannelStateTransactionOptions,
+  ): Promise<R>
+}
+
+
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
@@ -770,8 +818,8 @@ export interface AgentChannelTriggerContext<
   agentCapabilities: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
   agentName?: string
   channel: AgentChannelDefinition<TRuntimeConfig>
-  /** The Channel's State Adapter. Present when a webhook route runs the trigger. Declare `durableState: true` on the trigger to require it. */
-  channelState?: AgentChannelStateBinding
+  /** The Channel's State Adapter. Present when a webhook route runs the trigger. */
+  channelState?: AgentChannelState
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
    * Items use the same Invocation IDs as `replayChannel()`, so an item that already has an Invocation is skipped.
@@ -786,7 +834,7 @@ export interface AgentChannelTriggerContext<
 }
 
 /** The context of a Channel trigger with `durableState: true`. `channelState` is always present. */
-export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> { channelState: AgentChannelStateBinding }
+export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> { channelState: AgentChannelState }
 
 export type AgentChannelTriggerDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown> =
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
@@ -3008,7 +3056,6 @@ export interface AgentAdapterRunContext<
   executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

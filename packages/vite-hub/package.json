@@ -543,6 +543,12 @@
       "require": "./dist/console.js",
       "default": "./dist/console.js"
     },
+    "./console/ui": {
+      "types": "./dist/console/ui.d.ts",
+      "import": "./dist/console/ui.js",
+      "require": "./dist/console/ui.js",
+      "default": "./dist/console/ui.js"
+    },
     "./console/auth": {
       "types": "./dist/console/auth.d.ts",
       "import": "./dist/console/auth.js",
