@@ -90,6 +90,24 @@ describe("PromptInput", () => {
     ]);
   });
 
+  it("renders a text-only prompt when attachments are off", async () => {
+    const wrapper = mount(PromptInput, { global, props: { attachments: false } });
+    const image = new File(["image"], "clipboard.png", { type: "image/png" });
+
+    expect(wrapper.find('input[type="file"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Add attachment"]').exists()).toBe(false);
+
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: [image], getData: () => "" },
+    });
+    wrapper.get("textarea").element.dispatchEvent(event);
+    await flushPromises();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(wrapper.emitted("update:files")).toBeUndefined();
+  });
+
   it("leaves generic clipboard files alone when text is present", async () => {
     const wrapper = mount(PromptInput, { global });
     const document = new File(["notes"], "notes.txt", { type: "text/plain" });
