@@ -564,6 +564,19 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const constructorDescriptor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")
     const constructor = constructorDescriptor?.value
     if (typeof constructor !== "function") return false
+    // A subclass that replaces the stream implementation's reader method can
+    // return a reader owned by an unrelated stream. Preserve subclasses that
+    // inherit their realm's native method, but fail closed for overrides.
+    if (constructor.prototype === lockedOwner && getReader !== trustedReadableStreamGetReader) {
+      let parent: object | null = Object.getPrototypeOf(lockedOwner)
+      const seenParents = new Set<object>()
+      while (parent && !seenParents.has(parent)) {
+        seenParents.add(parent)
+        const inherited = Object.getOwnPropertyDescriptor(parent, "getReader")?.value
+        if (typeof inherited === "function") return false
+        parent = Object.getPrototypeOf(parent)
+      }
+    }
     // A getReader supplied by an intermediate prototype is an override rather
     // than the stream implementation's intrinsic operation. Reject it before
     // allowing that override to select the bridge reader.
