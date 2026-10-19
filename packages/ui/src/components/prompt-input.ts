@@ -123,6 +123,8 @@ export const PromptInput = defineComponent({
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",
             "data-slot": "prompt-input-textarea",
+            // Let the native control grow with multiline content instead of scrolling internally.
+            style: { fieldSizing: "content" },
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
             // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
             onKeydown: (event: KeyboardEvent) => {
