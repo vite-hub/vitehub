@@ -45,14 +45,14 @@ it("replays a failed report after reopening SQLite with its original ID and time
   const url = `file:${join(directory, "journal.sqlite")}`
   const first = createClient({ url })
   const second = createClient({ url })
-  const store = createLibsqlAgentInvocationStore({ client: first, maxAgeMs: false, maxRecords: false })
+  const store = createLibsqlAgentInvocationStore({ client: first, maxAge: false, maxRecords: false })
   try {
     await store.create({ id: "run", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "trace" })
     const reporter = createPapercutReporter({ eventPrefix: "quiver.papercut", invocations: () => defineAgentInvocations({ content: "content", store }), send: async () => { throw new Error("offline") } })
     await expect(reporter.report(delivery)).rejects.toThrow("offline")
     await reporter.stop()
     first.close()
-    const restarted = defineAgentInvocations({ content: "content", store: createLibsqlAgentInvocationStore({ client: second, maxAgeMs: false, maxRecords: false }) })
+    const restarted = defineAgentInvocations({ content: "content", store: createLibsqlAgentInvocationStore({ client: second, maxAge: false, maxRecords: false }) })
     const send = vi.fn(async () => {})
     const replay = createPapercutReporter({ eventPrefix: "quiver.papercut", invocations: () => restarted, send, intervalMs: 10 })
     replay.start()
