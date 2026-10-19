@@ -136,7 +136,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (query.method === "run" && result.results === undefined) return []
-      if (!isRecord(result.results)) throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
+      if (!isRecord(result.results)) throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       if (!("rows" in result.results) || result.results.rows === undefined) {
         if (query.method === "run") return []
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)

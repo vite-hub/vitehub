@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from "vue";
-import type { AgentInvocationView } from "@vite-hub/ui";
+import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
-onMounted(() => {
-  now.value = Date.now();
-});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
-onMounted(() => {
-  now.value = Date.now();
-});
 
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {

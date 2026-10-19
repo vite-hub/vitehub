@@ -19,6 +19,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (clock) clearInterval(clock);
 });
+// Keep running timestamps relative to the page load, including server rendering.
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
 const invocations = computed<AgentInvocationView[]>(() => [
