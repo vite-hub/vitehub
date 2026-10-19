@@ -201,6 +201,9 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
               return !!window
                 && window.Response === constructor
                 && typeof window.Headers === "function"
+                && !!window.document
+                && window.document.defaultView === window
+                && !!window.location
                 && (window.window === window || window.self === window)
             })
         })()
