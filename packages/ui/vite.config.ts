@@ -34,6 +34,12 @@ export default defineConfig({
       "src/components/agent-tool-list.ts",
       "src/components/agent-trace.ts",
       "src/code-block.ts",
+      "src/markdown.ts",
+      "src/marker.ts",
+      "src/message.ts",
+      "src/message-parts.ts",
+      "src/prompt-input.ts",
+      "src/trace.ts",
       "src/headless.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
@@ -50,7 +56,14 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...normalizePackageExports(publicExports), "./styles.css": "./dist/styles.css" };
+        const normalized = normalizePackageExports(publicExports);
+        for (const key of Object.keys(normalized)) {
+          if (key !== "." && key !== "./headless" && key !== "./nuxt" && key !== "./primitive-rail" && key !== "./vite") {
+            const entry = normalized[key];
+            if (entry && typeof entry === "object") delete entry.require;
+          }
+        }
+        return { ...normalized, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

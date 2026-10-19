@@ -30,11 +30,15 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./headless": {
       "types": "./dist/headless.d.ts",
-      "import": "./dist/headless.js"
+      "import": "./dist/headless.js",
+      "require": "./dist/headless.js",
+      "default": "./dist/headless.js"
     },
     "./agent-chat": {
       "types": "./dist/components/agent-chat.d.ts",
@@ -43,15 +47,21 @@
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js"
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
     },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
-      "import": "./dist/primitive-rail.js"
+      "import": "./dist/primitive-rail.js",
+      "require": "./dist/primitive-rail.js",
+      "default": "./dist/primitive-rail.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",
     "./styles.css": "./dist/styles.css",
@@ -111,12 +121,10 @@
     "@comark/vue": "0.7.0",
     "@iconify-json/ph": "catalog:ui",
     "@nuxt/kit": "4.6.2",
+    "@shikijs/langs": "4.5.0",
     "@types/node": "catalog:tooling",
     "nostics": "catalog:runtime",
-    "@vueuse/core": "catalog:ui",
-    "katex": "^0.19.0",
-    "@json-render/vue": "0.21.1",
-    "@json-render/core": "0.21.1",
+    "katex": "^0.17.0",
     "reka-ui": "catalog:ui",
     "shiki": "^4.5.0"
   },

@@ -343,58 +343,36 @@ async function runAccessAuthorize(
       if (resolved !== true) return { response: createForbiddenResponse(context.request) }
       return {}
     }
-    // Only native Promise instances use the intrinsic adoption path. Ordinary
-    // thenables must call their own `then` method with the original receiver.
-    let promiseBrand = false
-    try {
-      promiseBrand = Object.prototype.toString.call(result) === "[object Promise]"
-    }
-    catch {
-      promiseBrand = false
-    }
-    if (!promiseBrand) {
-      const thenMethod = resultThen
-      const assimilated = new Promise<unknown>((resolve, reject) => {
-        queueMicrotask(() => {
-          try { Reflect.apply(thenMethod, result, [resolve, reject]) }
-          catch (error) { reject(error) }
-        })
-      })
-      return assimilated.then(async resolved => {
-        const response = await normalizeAuthorizationResponse(resolved)
-        if (response) return { response }
-        if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-        return {}
-      })
-    }
+    // Try the captured intrinsic directly. Native Promises (including
+    // cross-realm values) carry the internal slot it requires; ordinary
+    // thenables fail with an incompatible-receiver TypeError and must use
+    // their captured method instead. Other failures (for example a Promise
+    // species constructor throwing) belong to the native adoption path.
     const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
-      const attach = () => Reflect.apply(intrinsicPromiseThen, result, [
-        (resolved: unknown) => { void settle(resolved).then(resolve, reject) }, reject,
-      ])
       try {
-        attach()
+        Reflect.apply(intrinsicPromiseThen, result, [
+          (resolved: unknown) => { void settle(resolved).then(resolve, reject) },
+          reject,
+        ])
       }
       catch (error) {
-        reject(error)
+        if (!(error instanceof TypeError)) {
+          reject(error)
+          return
+        }
+        const thenMethod = resultThen
+        queueMicrotask(() => {
+          try {
+            Reflect.apply(thenMethod, result, [
+              (resolved: unknown) => { void settle(resolved).then(resolve, reject) },
+              reject,
+            ])
+          }
+          catch (thenError) { reject(thenError) }
+        })
       }
     })
     return adopted
-  }
-
-  const thenMethod = resultThen
-  if (typeof thenMethod !== "function") return { response: result !== true ? createForbiddenResponse(context.request) : undefined }
-  const assimilated = new Promise<unknown>((resolve, reject) => {
-    queueMicrotask(() => {
-      try { Reflect.apply(thenMethod, result, [resolve, reject]) }
-      catch (error) { reject(error) }
-    })
-  })
-  return assimilated.then(async resolved => {
-    const response = await normalizeAuthorizationResponse(resolved)
-    if (response) return { response }
-    if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-    return {}
-  })
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
