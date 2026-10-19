@@ -368,7 +368,8 @@ async function runAccessAuthorize(
       adoptionError = error
     }
   }
-  if (!adopted && Object(authorization) === authorization) {
+  const isPromiseBrand = Object.prototype.toString.call(authorization) === "[object Promise]"
+  if (!adopted && Object(authorization) === authorization && isPromiseBrand) {
     // Host-realm Promise.prototype.then rejects genuine foreign promises. Find
     // the source realm's inherited intrinsic instead of awaiting the value,
     // which would read an own or overridden `then` property.
@@ -387,11 +388,12 @@ async function runAccessAuthorize(
       }
       prototype = Object.getPrototypeOf(prototype) as object | null
     }
-    if (!sourcePromiseThen) {
-      // Values that are intentionally accepted as ordinary thenables retain
-      // their normal assimilation semantics.
-      adopted = Promise.resolve(authorization)
-    }
+  }
+  if (!adopted && Object(authorization) === authorization) {
+    // Values that are intentionally accepted as ordinary thenables retain
+    // their normal assimilation semantics, including own-property
+    // precedence over inherited properties.
+    adopted = Promise.resolve(authorization)
   }
   if (!adopted && adoptionError !== undefined) throw adoptionError
   const result = adopted ? await adopted : authorization
