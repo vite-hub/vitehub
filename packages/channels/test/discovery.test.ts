@@ -14,10 +14,10 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function touch(root: string, path: string): Promise<void> {
+async function touch(root: string, path: string, source = "export default {}\n"): Promise<void> {
   const file = join(root, path)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, "export default {}\n")
+  await writeFile(file, source)
 }
 
 afterEach(async () => {
@@ -76,5 +76,74 @@ describe("discoverChannelDefinitions", () => {
     await touch(root, "server/channels/alerts.ts")
 
     expect(discoverChannelDefinitions({ rootDir: root }).map(definition => definition.name)).toEqual(["alerts", "index"])
+  })
+
+  it("lists only outbound Channels when Agent Channels share server/channels", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/teams/index.ts", [
+      "import { defineOutboundChannel } from 'vite-hub/channels'",
+      "export default defineOutboundChannel({ connectors: { teams: { send() {} } } })",
+      "",
+    ].join("\n"))
+    await touch(root, "server/channels/airtable/index.ts", [
+      "import { defineChannel } from 'vite-hub/agent/channels'",
+      "export const airtable = defineChannel('airtable', {})",
+      "export default airtable",
+      "",
+    ].join("\n"))
+    await touch(root, "server/channels/mailbox/index.ts", [
+      "import { defineChannel as channel } from '@vite-hub/agent/channels'",
+      "export default (channel('mailbox', {}) satisfies object)",
+      "",
+    ].join("\n"))
+    await touch(root, "server/channels/github/index.ts", [
+      "import * as channels from 'vite-hub/agent/channels'",
+      "const github = channels.defineChannel('github', {})",
+      "export { github as default }",
+      "",
+    ].join("\n"))
+    await touch(root, "server/channels/discord/index.ts", [
+      "import * as channels from 'vite-hub/agent/channels'",
+      `const discord = channels["defineChannel"]('discord', {})`,
+      "export { discord as default }",
+      "",
+    ].join("\n"))
+
+    const expected = [
+      { handler: join(root, "server/channels/teams/index.ts"), name: "teams", source: "server-channels" },
+    ]
+    expect(discoverChannelDefinitions({ rootDir: root })).toEqual(expected)
+    expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] })).toEqual(expected)
+  })
+
+  it("skips factories, classes, primitives, and modules without a default or connectors export", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/arrow.ts", "export default (name: string) => ({ connectors: { [name]: { send() {} } } })\n")
+    await touch(root, "server/channels/declared.ts", "export default function createChannel() { return {} }\n")
+    await touch(root, "server/channels/named.ts", "function createChannel() { return {} }\nexport { createChannel as default }\n")
+    await touch(root, "server/channels/helpers.ts", "export const format = (text: string) => text.trim()\n")
+    await touch(root, "server/channels/types.ts", "export type Message = { text: string }\n")
+    await touch(root, "server/channels/shape.ts", "export default interface Shape { text: string }\n")
+    await touch(root, "server/channels/client.ts", "class Client {}\nexport default Client\n")
+    await touch(root, "server/channels/inline-class.ts", "export default class {}\n")
+    await touch(root, "server/channels/count.ts", "export default 1\n")
+    await touch(root, "server/channels/empty.ts", "export default null\n")
+    await touch(root, "server/channels/list.ts", "export default []\n")
+    await touch(root, "server/channels/label.ts", "export default `label`\n")
+    await touch(root, "server/channels/undefined.ts", "export default undefined\n")
+    await touch(root, "server/channels/void.ts", "export default void 0\n")
+    await touch(root, "server/channels/negative.ts", "export default -1\n")
+
+    expect(discoverChannelDefinitions({ rootDir: root })).toEqual([])
+  })
+
+  it("keeps modules that export connectors or that it cannot read statically", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/alerts.ts", "export const connectors = { log: { send() {} } }\n")
+    await touch(root, "server/channels/pager.ts", "import { definition } from './shared/pager-definition'\nexport default definition\n")
+    await touch(root, "server/channels/relay.ts", "export * from './shared/relay-definition'\n")
+    await touch(root, "server/channels/broken.ts", "export default {\n")
+
+    expect(discoverChannelDefinitions({ rootDir: root }).map(definition => definition.name)).toEqual(["alerts", "broken", "pager", "relay"])
   })
 })
