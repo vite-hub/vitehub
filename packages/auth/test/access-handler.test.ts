@@ -146,6 +146,21 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("rejects conditional forged null-body responses with native headers", async () => {
+    let candidate: Record<string, unknown>
+    const prototype = Object.create(null) as Record<string, unknown>
+    for (const [key, value] of [["status", 409], ["statusText", "Conflict"], ["bodyUsed", false], ["url", ""], ["redirected", false], ["type", "default"], ["ok", false]] as const) {
+      Object.defineProperty(prototype, key, { get() { if (this !== candidate) throw new TypeError("Illegal invocation"); return value } })
+    }
+    Object.defineProperty(prototype, "headers", { get() { if (this !== candidate) throw new TypeError("Illegal invocation"); return new Headers() } })
+    Object.defineProperty(prototype, "body", { get() { if (this !== candidate) throw new TypeError("Illegal invocation"); return null } })
+    candidate = Object.create(prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))

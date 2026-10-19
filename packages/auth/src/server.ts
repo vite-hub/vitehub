@@ -377,12 +377,20 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       const descriptor = Object.getOwnPropertyDescriptor(current, "status")
       if (descriptor) {
         if (typeof descriptor.get !== "function") return false
-        const bodyUsed = Object.getOwnPropertyDescriptor(current, "bodyUsed")
-        if (typeof bodyUsed?.get !== "function") return false
+        // A native Fetch Response exposes the complete intrinsic accessor set.
+        // Requiring several independent slots prevents a response-shaped object
+        // from crossing this boundary by imitating only status/bodyUsed.
+        const intrinsicKeys = ["bodyUsed", "url", "redirected", "type", "ok"] as const
+        const getters = [descriptor.get]
+        for (const key of intrinsicKeys) {
+          const property = Object.getOwnPropertyDescriptor(current, key)
+          if (typeof property?.get !== "function") return false
+          getters.push(property.get)
+        }
         // Fetch accessors perform an internal-slot check on an unrelated
         // object. Probe that behavior before applying them to the candidate;
         // a caller-defined getter can otherwise imitate the Response shape.
-        for (const getter of [descriptor.get, bodyUsed.get]) {
+        for (const getter of getters) {
           let rejected = false
           try {
             Reflect.apply(getter, {}, [])
@@ -392,8 +400,10 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
           }
           if (!rejected) return false
         }
-        Reflect.apply(descriptor.get, value, [])
-        Reflect.apply(bodyUsed.get, value, [])
+        const values = getters.map(getter => Reflect.apply(getter, value, []))
+        if (typeof values[1] !== "boolean" || typeof values[2] !== "string"
+          || typeof values[3] !== "boolean" || typeof values[4] !== "string"
+          || typeof values[5] !== "boolean") return false
         return true
       }
       current = Object.getPrototypeOf(current)
@@ -824,7 +834,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let nativeCookieMethod = !cookieDescriptor?.get
     if (nativeCookieMethod && typeof cookieDescriptor?.value === "function") {
       try {
-        Reflect.apply(cookieDescriptor.value, {})
+        Reflect.apply(cookieDescriptor.value, {}, [])
         nativeCookieMethod = false
       }
       catch {
@@ -916,6 +926,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignResponse) return
       return emptyError ? Response.error() : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
+    if (!nativeBodyReader) return
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
