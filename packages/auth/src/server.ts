@@ -191,6 +191,9 @@ function isRequestLike(value: AuthRequest): value is Request {
             // populated for ordinary Requests, including the default path.
             if (typeof Reflect.get(requestState, "method") !== "string"
               || typeof Reflect.get(requestState, "url") !== "string"
+              || !Reflect.get(requestState, "client")
+              || typeof Reflect.get(requestState, "client") !== "object"
+              || !Array.isArray(Reflect.get(requestState, "urlList"))
               || !Reflect.get(requestState, "headersList")
               || typeof Reflect.get(requestState, "headersList") !== "object") return false
             // A genuine Web IDL accessor checks its internal slot even when
