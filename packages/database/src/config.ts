@@ -694,6 +694,9 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
     for (const property of splitTopLevel(body)) {
       const normalized = stripLeadingEntryComments(property).trim()
       if (!normalized) continue
+      // Computed keys whose value is not statically known may denote the
+      // requested property at runtime; absence cannot be proven.
+      if (/^\s*\[/.test(normalized) && !/^\s*\[\s*["'][^"']+["']\s*\]/.test(normalized)) unresolved = true
       if (readEntryKey(normalized) === key) {
         found = true
         continue
@@ -765,7 +768,11 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   const cloudflareEntry = cloudflareEntries.at(-1)
   const trailingDefinitionSpread = cloudflareEntry !== undefined && definitionEntries
     .slice(cloudflareEntry.index + 1)
-    .some(entry => entry.trimStart().startsWith("..."))
+    .some(entry => {
+      const spread = entry.trimStart().startsWith("...") ? entry.trim().slice(3) : undefined
+      if (spread === undefined) return false
+      return opaqueObjectContainsKey(spread, source, "cloudflare") !== false
+    })
   // A later definition-level spread can replace the whole Cloudflare value.
   // Keep the effective expression unresolved rather than inspecting the
   // earlier property and reporting a binding the runtime may not emit.
