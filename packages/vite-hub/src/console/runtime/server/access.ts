@@ -110,7 +110,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     let responsePrototype = prototype
     while (responsePrototype) {
       const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
-      const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
+      // Some Fetch implementations inherit their toStringTag from a shared
+      // response base while keeping clone on the concrete prototype.
+      let tagPrototype: object | null = responsePrototype
+      let tagDescriptor: PropertyDescriptor | undefined
+      while (tagPrototype && !tagDescriptor) {
+        tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
+        tagPrototype = Object.getPrototypeOf(tagPrototype)
+      }
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
       const constructorPrototype = typeof constructor === "function"
         ? Object.getOwnPropertyDescriptor(constructor, "prototype")
