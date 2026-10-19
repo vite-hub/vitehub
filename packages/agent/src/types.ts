@@ -28,6 +28,7 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceDefinitionInput,
+  WorkspaceMaterializeMode,
   WorkspaceName,
   WorkspaceRules,
   WorkspaceSourceInput,
@@ -1293,6 +1294,12 @@ export interface AgentCapabilityDefinition<
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  /**
+   * Combine this Capability with the parent's Capability of the same `id` when an Agent uses
+   * `defineAgent({ extends })`. Return the Capability that the child uses; it must keep the same `id`.
+   * Without `extend`, the child's Capability replaces the parent's.
+   */
+  extend?: (inherited: AgentCapabilityDefinition<TRuntimeConfig, Name>) => AgentCapabilityDefinition<TRuntimeConfig, Name>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
@@ -1573,8 +1580,11 @@ export interface AgentProviderDriverOptions<
    * Commands the Driver shell needs, such as `git`, `gh`, or `unzip`.
    * `status()` checks them where the Driver runs. With `driver.launch`, a resolver is required
    * and each inspection probe checks commands in its shell before starting the provider.
+   *
+   * In `defineAgent({ extends })`, an array replaces the parent's list and a function receives it:
+   * `requirements: inherited => [...inherited, 'kubectl']`. Without a parent the function receives `[]`.
    */
-  requirements?: readonly string[]
+  requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
   /**
@@ -1776,9 +1786,19 @@ export type AgentAskQuestionsResolver<
   | ((context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<AgentAskQuestions<TOutput>>)
 
 /**
- * Answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output.
+ * Answers typed questions with TypeSafe Jev in bounded requests. The answers are the Invocation output.
  * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
  * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
+ *
+ * Each question is recorded in the Invocation's trace as `agent.tool.start` (`tool.input`: the question sent), then
+ * `agent.tool.finish` (`tool.output`: the answer; `ask.answer`: the choice, score, chance or boolean;
+ * `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs`) or `agent.tool.error` (`tool.error`,
+ * `error.status`, `error.requestId`). All three carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`,
+ * `ask.batch.index`, `ask.batch.count`, `ask.batch.size`, `gen_ai.operation.name: "ask"` and
+ * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
+ * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`. The shared state is `input.data` (or the prompt) on
+ * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
+ * No credentials or request headers are recorded.
  */
 export interface AgentAskDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -2669,6 +2689,11 @@ export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
   commit?: boolean | string
+  /**
+   * Default `materialize` mode for every Source in `sources` that does not set its own, including
+   * Sources inherited through `extends`. Sources that Capabilities contribute keep their own mode.
+   */
+  materialize?: WorkspaceMaterializeMode
   mode?: AgentCapabilityMode
   name?: never
 }
