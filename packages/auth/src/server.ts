@@ -123,37 +123,14 @@ function isRequestLike(value: AuthRequest): value is Request {
         if (descriptor) {
           if (typeof descriptor.get !== "function") return false
           try {
-            descriptor.get.call(Object.create(null))
-            // An invalid receiver must not produce a usable value. Accepting
-            // an empty result lets a structural prototype spoof opt out of
-            // the brand check and reach Better Auth unchanged.
-            if (target !== value) return false
-            const ownSymbols = Object.getOwnPropertySymbols(value)
-            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-            // Happy DOM stores its Request state in a fixed set of private
-            // symbols. Require the complete state shape before accepting an
-            // implementation whose accessors do not expose a Web-IDL brand
-            // error. A caller-created lookalike with a few arbitrary symbols
-            // must stay on the normalization path.
-            const happyDomSymbols = [
-              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
-              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
-              "contentType", "referrer", "url", "bodyBuffer",
-            ]
-            const happyDomState = happyDomSymbols.every(name =>
-              ownSymbols.some(symbol => symbol.description === name),
-            )
-              && prototypeSymbols.some(symbol => symbol.description === "window")
-            if (!happyDomState) return false
+            // A genuine Request carries the implementation's internal slots,
+            // so its native accessors must succeed when applied to the
+            // candidate itself. Applying them only to an invalid receiver is
+            // forgeable by copying the native prototype onto a plain object.
+            descriptor.get.call(target)
             return true
           }
-          catch (error) {
-            if (!isBrandCheckError(error)) return false
-            // A genuine Request implementation from another realm or loaded
-            // copy reports the same Web-IDL brand failure. Do not tie this
-            // compatibility path to Auth's particular Undici constructor.
-            return true
-          }
+          catch { return false }
         }
         current = Object.getPrototypeOf(current)
       }
