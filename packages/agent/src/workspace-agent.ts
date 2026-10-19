@@ -828,7 +828,7 @@ function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentIns
     ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
     ...(retention.maxSize === false
       ? {}
-      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${Number((retention.maxSize.fraction * 100).toFixed(4))}%` }),
+      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${retention.maxSize.fraction * 100}%` }),
   }
 }
 
