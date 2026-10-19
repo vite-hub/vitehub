@@ -1478,11 +1478,17 @@ async function createAgent(
       }
     : undefined
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
-  const repairToolCall = execution?.repairToolCall === false
+  const selectedRepairToolCall = execution?.repairToolCall === false
     ? undefined
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
       : configuredRepairToolCall ?? builtInRepairToolCall
+  const repairToolCall = selectedRepairToolCall
+    ? async (...args: Parameters<NonNullable<typeof selectedRepairToolCall>>) => {
+        context.executionBudget?.recordRetry()
+        return await selectedRepairToolCall(...args)
+      }
+    : undefined
   const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
     ? outputMaxAttempts(context.output)
     : 1
