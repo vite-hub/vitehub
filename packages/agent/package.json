@@ -159,6 +159,12 @@
       "require": "./dist/output.js",
       "default": "./dist/output.js"
     },
+    "./process-host": {
+      "types": "./dist/process-host.d.ts",
+      "import": "./dist/process-host.js",
+      "require": "./dist/process-host.js",
+      "default": "./dist/process-host.js"
+    },
     "./presets/babysitter": {
       "types": "./dist/presets/babysitter.d.ts",
       "import": "./dist/presets/babysitter.js"

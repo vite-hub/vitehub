@@ -33,8 +33,13 @@ export const CodeBlockCopyButton = defineComponent({
     const copied = ref(false);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
-    const copy = () =>
-      navigator.clipboard
+    const copy = () => {
+      try {
+        if (!navigator.clipboard) return;
+      } catch {
+        return;
+      }
+      void navigator.clipboard
         .writeText(props.value)
         .then(() => {
           copied.value = true;
@@ -42,6 +47,7 @@ export const CodeBlockCopyButton = defineComponent({
           timeout = setTimeout(() => (copied.value = false), 2_000);
         })
         .catch(() => {});
+    };
     return () => [
       h(UButton, {
         "aria-label": copied.value ? "Copied" : "Copy",

@@ -6,7 +6,7 @@ import {
   installModule,
 } from "@nuxt/kit";
 import type { ViteHubUIOptions } from "./config.ts";
-import { componentNames } from "./component-names.ts";
+import { componentNames, componentEntryName } from "./component-entries.ts";
 import { viteHubUIIcons } from "./icons.ts";
 
 export interface ViteHubUINuxtOptions extends ViteHubUIOptions {

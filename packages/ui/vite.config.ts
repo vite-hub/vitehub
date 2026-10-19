@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
 export default defineConfig({
   pack: {
@@ -24,10 +25,6 @@ export default defineConfig({
     entry: [
       ...new Set(componentNames.map((name) => `src/${componentEntryName(name)}.ts`)),
       "src/index.ts",
-      "src/agent-code-view.ts",
-      "src/agent-file-tree.ts",
-      "src/agent-tool-list.ts",
-      "src/agent-trace.ts",
       "src/attachment.ts",
       "src/bubble.ts",
       "src/chat.ts",
