@@ -76,6 +76,15 @@ it("does not retry an explicit GET with a request body", async () => {
   expect(calls).toHaveLength(1);
 });
 
+it("does not retry an implicit write with a request body", async () => {
+  vi.useFakeTimers();
+  replies.push(gatewayPage());
+  const result = host().command(["api", "repos/acme/app/issues", "--input", "payload.json"], { repository: "acme/app" }).catch((error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(4_000);
+  expect(await result).toBeInstanceOf(Error);
+  expect(calls).toHaveLength(1);
+});
+
 it("retries an installation token that fails on a dropped connection", async () => {
   vi.useFakeTimers();
   let attempts = 0;
