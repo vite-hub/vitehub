@@ -22,8 +22,9 @@ type Payload =
   | { kind: "pull" }
 
 interface Hooks {
+  cycle?: boolean
   failSeq?: number
-  fetches: number[]
+  fetches: Array<number | string>
   gapAt?: number
   log: Change[]
   onRecord?: (change: Change) => void
@@ -70,9 +71,13 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
           if (payload.kind === "dispatch") return Response.json(await context.dispatch(payload.items, { queue: true, trigger: "record" }))
           try {
             return Response.json(await context.pull({
-              fetch(cursor) {
+              fetch(cursor: number | string) {
                 hooks.fetches.push(cursor)
-                if (hooks.page) return hooks.page(cursor)
+                if (hooks.cycle) {
+                  const next = cursor === "A" ? "B" : "A"
+                  return { items: [], more: true, next }
+                }
+                if (hooks.page && typeof cursor === "number") return hooks.page(cursor)
                 const page = hooks.log.filter(change => change.seq >= cursor).slice(0, 2)
                 async function* items() {
                   for (const change of page) yield changeItem(change)
@@ -80,7 +85,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
                 const next = cursor + page.length
                 return { first: hooks.gapAt === cursor ? cursor + 1 : cursor, items: items(), more: next <= hooks.log.length, next }
               },
-              initialCursor: 1,
+              initialCursor: hooks.cycle ? "A" : 1,
               key: "log-cursor",
               signal: hooks.signal,
               trigger: "record",
@@ -341,6 +346,19 @@ describe("context.pull()", () => {
     expect((await json(response)).error).toContain(message)
     expect(await state.get(channelKey("log-cursor"))).toBeNull()
     expect(runIds).toEqual([])
+  })
+
+  it("throws when a string cursor repeats", async () => {
+    const { channelKey, hooks, open } = await setup()
+    const { post, state } = open()
+    hooks.cycle = true
+
+    const response = await post({ kind: "pull" })
+
+    expect(response.status).toBe(500)
+    expect((await json(response)).error).toContain("repeated cursor A")
+    expect(hooks.fetches).toEqual(["A", "B"])
+    expect(await state.get(channelKey("log-cursor"))).toBe("B")
   })
 
   it("keeps the cursor on abort, and the next pull skips the admitted item as stale", async () => {

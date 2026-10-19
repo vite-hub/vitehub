@@ -19,16 +19,6 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
-/** Stable display order for task lanes in primitive sidebars. */
-const primitiveSidebarGroupOrder: Array<string | null> = [
-  null,
-  "Learn",
-  "Build",
-  "Deploy and operate",
-];
-
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -84,9 +74,9 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     .sort((left, right) => {
       const leftOrder = primitiveSidebarGroupOrder.indexOf(left.label);
       const rightOrder = primitiveSidebarGroupOrder.indexOf(right.label);
-      const normalizedLeft = leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder;
-      const normalizedRight = rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder;
-      return normalizedLeft - normalizedRight || left.index - right.index;
+      return (leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder)
+        - (rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder)
+        || left.index - right.index;
     })
     .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
@@ -104,6 +94,8 @@ const docsLandingCategorySet = new Set<string>(docsLandingCategories);
 
 /** Sections whose Overview stays a regular docs page even though their category is a product category. */
 const docsPageOverviewSections = new Set(["ui"]);
+const primitiveCategories = new Set<DocsCategory>(["Data", "Compute", "Access", "Delivery", "Files"]);
+const primitiveSidebarGroupOrder: Array<string | null> = [null, "Learn", "Build", "Deploy and operate"];
 
 /** True for `/docs` and for the Overview of every product section. These pages have a hero and no sidebar. */
 export function isDocsLandingPath(sections: DocsSection[], path: string) {

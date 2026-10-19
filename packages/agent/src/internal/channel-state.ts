@@ -259,6 +259,7 @@ export async function pullAgentChannel<TCursor extends string | number>(
     }
     // SAFETY: The saved cursor has the type of `initialCursor`, checked above.
     let cursor = (saved ?? options.initialCursor) as TCursor
+    const visited = new Set<TCursor>([cursor])
     const result: AgentChannelPullResult<TCursor> = { cursor, pages: 0, queued: 0, skipped: 0 }
     while (true) {
       signal?.throwIfAborted()
@@ -278,6 +279,9 @@ export async function pullAgentChannel<TCursor extends string | number>(
       if (page.more && next === cursor) {
         throw new Error(`[vitehub] context.pull("${name}") reported more items without advancing its cursor ${cursor}.`)
       }
+      if (page.more && visited.has(next)) {
+        throw new Error(`[vitehub] context.pull("${name}") repeated cursor ${next}.`)
+      }
       for await (const item of page.items) {
         signal?.throwIfAborted()
         if (!await state.extendLock(lock, channelStateLockTtlMs)) throw channelStateLockLost(lock)
@@ -288,6 +292,7 @@ export async function pullAgentChannel<TCursor extends string | number>(
       signal?.throwIfAborted()
       await commitChannelStateWrites(state, { locks: [lock], mutations: [{ key: cursorKey, type: "set", value: next }] })
       cursor = next
+      visited.add(cursor)
       result.cursor = cursor
       result.pages += 1
       if (!page.more) return result
