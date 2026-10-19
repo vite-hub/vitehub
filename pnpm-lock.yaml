@@ -2453,10 +2453,10 @@ importers:
         version: 5.20261016.1
       '@google-cloud/storage':
         specifier: catalog:storage
-        version: 7.22.0
+        version: 8.4.0
       '@googleapis/drive':
         specifier: catalog:storage
-        version: 20.2.0
+        version: 26.0.2
       '@json-render/core':
         specifier: 0.21.0
         version: 0.21.0(zod@4.6.7)
