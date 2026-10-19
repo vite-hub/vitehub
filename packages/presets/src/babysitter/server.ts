@@ -224,7 +224,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
     const { provider } = await forge(repository, signal);
-    return readForgePullRequestThreads(provider, repository, number);
+    return readForgePullRequestThreads(provider, repository, number, signal);
   }
 
   function isAbortError(error: unknown): boolean {
@@ -869,6 +869,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               (path, projection) => readRest(path, projection, passSignal),
               (repository, number) => readThreads(repository, number, passSignal),
               activityAuthors,
+              passSignal,
             ))
           ) {
             await pullRequestInbox.release(inboxClaim);
