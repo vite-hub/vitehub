@@ -622,8 +622,14 @@ function restoreDeletedRows(db: DatabaseSync, backups: readonly DeletedRows[]): 
     const table = quoteIdentifier(backup.table)
     const columns = backup.columns.map(quoteIdentifier).join(", ")
     const placeholders = backup.columns.map(() => "?").join(", ")
-    const statement = db.prepare(`INSERT OR IGNORE INTO ${table} (${columns}) VALUES (${placeholders})`)
-    for (const row of backup.rows) statement.run(...row)
+    const statement = db.prepare(`INSERT INTO ${table} (${columns}) VALUES (${placeholders})`)
+    let restored = 0
+    for (const row of backup.rows) restored += Number(statement.run(...row).changes)
+    // A compensation transaction must restore every backed-up row. Do not let
+    // a conflict or an ignored insert turn a partial cleanup into a silent one.
+    if (restored !== backup.rows.length) {
+      throw new Error(`restored ${restored} of ${backup.rows.length} rows in ${backup.table}`)
+    }
   }
 }
 
