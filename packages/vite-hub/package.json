@@ -35,6 +35,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./_internal/agent": "./dist/_internal/agent.js",
+    "./_internal/agent/invocations": "./dist/_internal/agent/invocations.js",
     "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
     "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
     "./_internal/agent/eve": "./dist/_internal/agent/eve.js",

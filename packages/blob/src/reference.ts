@@ -78,6 +78,7 @@ export interface BlobReferenceSchema {
 
 const jsonSchemaTargets = new Set<string>(["draft-07", "draft-2020-12", "openapi-3.0"])
 const mimePattern = /^(?:\*\/\*|[a-z0-9!#$&^_.+-]+\/(?:\*|[a-z0-9!#$&^_.+-]+))$/
+const mimeTypePattern = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/
 
 function isString(value: unknown): value is string {
   return typeof value === "string"
@@ -104,8 +105,9 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
 
 function accepts(patterns: string[], contentType: string): boolean {
   const type = contentType.split(";")[0]!.trim().toLowerCase()
-  const [major, subtype] = type.split("/")
-  return Boolean(subtype) && patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
+  if (!mimeTypePattern.test(type)) return false
+  const major = type.slice(0, type.indexOf("/"))
+  return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }
 
 function caseInsensitivePattern(value: string): string {
@@ -126,7 +128,7 @@ function contentTypeSchema(accept: string[] | undefined): Record<string, unknown
   }
   if (!accept) return schema
   const patterns = accept.map(pattern => {
-    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]+(?:\\s*;.*)?\\s*$`
+    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[a-zA-Z0-9!#$&^_.+-]+(?:\\s*;.*)?\\s*$`
     return `^${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
   })
   if (patterns.length === 1) schema.pattern = patterns[0]
