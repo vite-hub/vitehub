@@ -403,13 +403,31 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       try {
         const clone = Reflect.get(value, "clone")
         if (typeof clone === "function") {
-          const cloned = Reflect.apply(clone, value, [])
           const nativeClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
           // Only the platform clone operation proves that a proxy targets a
           // genuine local Response; a caller-supplied clone can return any
           // branded response and must not establish provenance.
-          if (clone === nativeClone && cloned !== value && cloned instanceof Response) return true
+          if (clone === nativeClone) {
+            try {
+              const cloned = Reflect.apply(clone, value, [])
+              if (cloned !== value && cloned instanceof Response) return true
+            }
+            catch {
+              // Proxies fail the native brand check even when their target is
+              // a genuine Response. Continue with the proxy-safe snapshot path.
+            }
+          }
         }
+      }
+      catch {}
+      // A proxy cannot satisfy the native brand checks above, but it still
+      // exposes the genuine Response prototype and ordinary target fields.
+      // Keep this proxy-safe path for readable bodies; null-body lookalikes
+      // remain rejected by the normal native-state validation below.
+      try {
+        if (Object.getPrototypeOf(value) === Response.prototype
+          && Reflect.get(value, "body") !== null
+          && typeof Reflect.get(value, "status") === "number") return true
       }
       catch {}
     }
