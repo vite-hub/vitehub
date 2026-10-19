@@ -591,9 +591,17 @@ function getNativeAuthorizationReaderMethods(reader: object): AuthorizationReade
 
 function releaseAuthorizationReader(reader: object, trustedRelease?: Function): void {
   try {
-    // Never fall back to the reader's mutable property. Validation rejects
-    // overridden operations, and invoking one here would let a malformed
-    // reader keep the source stream locked (or throw during cleanup).
+    // The Web Streams intrinsic performs its own reader brand check and works
+    // across supported realms, so it is safe even when the reader's ordinary
+    // releaseLock property is overridden. Use a foreign-runtime operation only
+    // when the local intrinsic cannot recognize the reader.
+    if (typeof nativeReaderMethods.releaseLock === "function") {
+      try {
+        Reflect.apply(nativeReaderMethods.releaseLock, reader, [])
+        return
+      }
+      catch { /* try the authenticated foreign operation below */ }
+    }
     if (typeof trustedRelease === "function") Reflect.apply(trustedRelease, reader, [])
   }
   catch { /* best effort cleanup */ }
@@ -730,7 +738,7 @@ function bridgeAuthorizationBody(
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let methods: ReturnType<typeof getNativeAuthorizationReaderMethods>
   let initialization: Promise<NonNullable<typeof methods>> | undefined
-  const initialize = () => initialization ??= Promise.resolve().then(() => {
+  const initialize = () => initialization ??= Reflect.apply(nativePromiseThen, Reflect.apply(nativePromiseResolve, nativePromiseConstructor, [undefined]), [() => {
     const nextReader = Reflect.apply(getReader, body, [])
     const trustedRelease = getTrustedAuthorizationReaderRelease(nextReader, body, getReader)
     try {
@@ -744,7 +752,7 @@ function bridgeAuthorizationBody(
       releaseAuthorizationReader(nextReader, trustedRelease)
       throw error
     }
-  })
+  }])
   let released = false
   const release = () => {
     if (released || !reader || !methods) return
