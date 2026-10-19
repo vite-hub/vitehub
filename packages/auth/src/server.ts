@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -35,9 +36,6 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts";
 // Uint8Array.prototype chain during module initialization.
 const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag)?.get
 const intrinsicUint8ArrayConstructor = Uint8Array
-const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
-const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
-const intrinsicPromiseThen = Promise.prototype.then
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
@@ -89,6 +87,7 @@ function getRuntimeEnvResolver(definition?: AuthDefinition): AuthRuntimeEnvResol
   const state = getAuthRuntimeState()
   return (definition && state.envResolvers?.get(definition)) ?? state.envResolver
 }
+
 
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half";
@@ -412,8 +411,8 @@ async function createSignInResponse(
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
-  const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
+  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const response = await auth.handler(new Request(`${origin}${resolveAuthMountPath(basePath)}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -458,44 +457,11 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const returned = authorize(context)
-  // Normalize a direct Response before promise assimilation. A Response may
-  // expose a callable `then` property and must remain a response value.
-  let isPromise = false
-  try { isPromise = returned instanceof Promise } catch {}
-  const directResponse = !isPromise && Object(returned) === returned
-    ? await normalizeAuthorizationResponse(returned)
-    : undefined
-  if (directResponse) return directResponse
-  let result: unknown
-  if (isPromise) {
-    result = await new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
-  }
-  else {
-    // Try the intrinsic path for a promise from another realm. An ordinary
-    // thenable is an incompatible receiver, so probe before creating the
-    // adoption promise; otherwise the executor would turn that synchronous
-    // failure into a rejected promise and skip normal thenable assimilation.
-    let adoption: Promise<unknown> | undefined
-    if (Object(returned) === returned) {
-      try {
-        const probe = Reflect.apply(intrinsicPromiseThen, returned, [() => {}, () => {}])
-        // Observe the probe through the captured intrinsic operation. Calling
-        // `probe.catch()` would dispatch a foreign Promise subclass override
-        // and could incorrectly force the mutable thenable fallback.
-        Reflect.apply(intrinsicPromiseThen, probe, [() => {}, () => {}])
-        adoption = new Promise<unknown>((resolve, reject) => Reflect.apply(intrinsicPromiseThen, returned, [resolve, reject]))
-      }
-      catch {
-      }
-    }
-    result = adoption ? await adoption : await returned
-  }
+  const result = await authorize(context)
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
-
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
@@ -613,10 +579,10 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         if (headers && typeof headers === "object") return true
       }
     }
-    return
+    return false
   }
   catch {
-    return
+    return false
   }
 }
 
@@ -819,10 +785,10 @@ function bridgeAuthorizationBody(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value === null || Object(value) !== value) return
+  if (!(value instanceof Response)) return
   try {
     const candidate = Object(value)
-    const responseImplementationConstructor = await responseImplementation(candidate)
+    const responseImplementationConstructor = await hasResponsePrototype(candidate)
     if (!responseImplementationConstructor) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
@@ -833,6 +799,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
+    const bodyUsed = Reflect.get(candidate, "bodyUsed")
     if (bodyUsed !== undefined && typeof bodyUsed !== "boolean") return
     if (headers === null || Object(headers) !== headers) return
     if (body !== null) {
@@ -967,7 +934,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
   }
   catch {
-    return undefined
+    return
   }
 }
 
@@ -990,8 +957,7 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes);
     const routes = authAccessRoutes(options, routeIndexes);
     for (const [index, route] of routes.entries()) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
-      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
+      const authorize = route !== null && typeof route === "object" ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request));
       }
