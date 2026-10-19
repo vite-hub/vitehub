@@ -95,9 +95,11 @@ import {
   isRuntimeSymbol,
   isRuntimeUndefined,
 } from "../internal/runtime-value.ts"
-import { createAgentWebhookQueue, hasAgentWebhookQueue } from "../internal/webhook-queue.ts"
+import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
+import { acknowledgeWebhookAdmission, drainDeferredWebhookAdmissions, openWebhookInbox, replayWebhookInbox, resolveWebhookAckTimeoutMs, webhookDeliveryHeader, webhookInboxId } from "./webhook-inbox.ts"
+import type { WebhookInbox } from "./webhook-inbox.ts"
 import {
   agentChannelDeliveryMessageIdentity,
   agentChannelDeliveryPayloadFingerprint,
@@ -789,7 +791,7 @@ function requestHeaders(request: Request): Record<string, string> {
 }
 
 function webhookDeliverySourceId(request: Request, provider: string, payload: unknown): string {
-  const header = request.headers.get("x-github-delivery") || request.headers.get("x-gitlab-event-uuid") || request.headers.get("x-forgejo-delivery") || request.headers.get("x-gitea-delivery") || request.headers.get("x-vitehub-delivery-id") || request.headers.get("idempotency-key")
+  const header = webhookDeliveryHeader(request)
   if (header) return header
   const source = agentChannelDeliverySourceId(provider, payload)
   if (source) return source
@@ -8753,7 +8755,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         return await channelDeliveryPromise
       }
 
-      if (trigger.id !== "chat.message") {
+      const admitWebhook = async (): Promise<Response> => {
         const channelDelivery = await resolveChannelDelivery()
         context = withAgentChannelDelivery(context, channelDelivery)
         if (registration.channelId) {
@@ -9104,6 +9106,41 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           await releaseAgentChannelStateCommit(stateCommit)
         }
       }
+      if (trigger.id !== "chat.message") {
+        // With durable webhook State, the verified request is stored first, so a slow admission
+        // can be answered with 202 and a stopped process leaves the request for the next one.
+        const ackTimeoutMs = webhookDeliveryState && isDurableAgentState(webhookDeliveryState.state)
+          ? resolveWebhookAckTimeoutMs(registration.ackTimeoutMs)
+          : undefined
+        if (!webhookDeliveryState || ackTimeoutMs === undefined) return await admitWebhook()
+        const inboxFields = {
+          agentName: context.agentIdentity?.name || "agent",
+          ...(registration.channelId ? { channelId: registration.channelId } : {}),
+          deliveryScope: webhookDeliveryState.keyPrefix,
+          provider: registration.provider,
+        }
+        let inbox: WebhookInbox
+        try {
+          inbox = await openWebhookInbox(webhookDeliveryState, {
+            id: await webhookInboxId(request, rawBodyBytes),
+            receivedAt: new Date(webhookStartedAt).toISOString(),
+            request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
+            webhookId,
+          })
+        }
+        catch (error) {
+          if (isRuntimeObject(error) && (error as { webhookStored?: boolean }).webhookStored === true) {
+            return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
+          }
+          // Without a stored request, the route waits for admission as before.
+          console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
+          return await admitWebhook()
+        }
+        if (inbox.duplicate) {
+          return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store", "x-vitehub-webhook-duplicate": "1" }, status: 202 })
+        }
+        return await acknowledgeWebhookAdmission(admitWebhook(), inbox, webhookStartedAt + ackTimeoutMs, inboxFields, waitUntil)
+      }
 
       const webhookDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
       const chatWebhookTask = (async () => {
@@ -9271,7 +9308,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     let recoveryBefore = recoverInterruptedBefore
-    return webhookQueue.resume(async (registrar) => {
+    let inboxReplayBefore = recoverInterruptedBefore
+    const stopQueue = webhookQueue.resume(async (registrar) => {
       const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
       const context = createRuntimeContext(
         request,
@@ -9291,9 +9329,11 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         trackedStates.add(state)
       }
       const registrations: AgentWebhookQueueRegistration<AgentChannelWebhookRouteOptions>[] = []
+      const inboxes: { keyPrefix: string; state: StateAdapter }[] = []
       for (const { registration } of await agentWebhookRegistrations(agent, context)) {
         const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
         if (sharedState && webhookState) trackedStates.add(webhookState.state)
+        if (webhookState && isDurableAgentState(webhookState.state)) inboxes.push(webhookState)
         if (webhookState && hasAgentWebhookQueue(webhookState.state)) {
           registrations.push({
             backendId: await resolveWebhookStateBackendId(webhookState.state),
@@ -9315,7 +9355,17 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
       for (const state of trackedStates) registrar.track(state, handlerOptions, agentScopePrefix)
       for (const registration of registrations) await registrar.register(registration)
+      if (inboxReplayBefore !== undefined) {
+        // Requests that an earlier process stored but did not finish admitting go through the route again.
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId) => await handler(request, webhookId, handlerOptions))
+          .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
+        inboxReplayBefore = undefined
+      }
     }, { scopePrefix: agentScopePrefix })
+    return async () => {
+      // Admissions answered with 202 get the same grace as active queue deliveries.
+      await Promise.all([stopQueue(), drainDeferredWebhookAdmissions({ timeoutMs: webhookQueueStopGraceMs() })])
+    }
   }
   return handler
 }
