@@ -322,9 +322,12 @@ async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
-  const result = await authorize(context)
+  const result = authorize(context)
   if (result === true) return
-  const response = await normalizeAuthorizationResponse(result)
+  // Normalize an already-returned native Response before awaiting it. This
+  // avoids assimilating an own `then` property on the Response object.
+  let response = await normalizeAuthorizationResponse(result)
+  if (!response) response = await normalizeAuthorizationResponse(await result)
   if (response) return response
   return createForbiddenResponse(context.request)
 }
@@ -678,7 +681,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // method identities may legitimately differ across Web realms.
     // Only invoke the intrinsic selected by the trusted Headers brand probe.
     // Candidate-owned accessors may be overridden by subclasses or proxies.
-    const cookies: unknown = trustedGetSetCookie ? Reflect.apply(trustedGetSetCookie, headers, []) : []
+    const ownCookieDescriptor = Object.getOwnPropertyDescriptor(headers, "getSetCookie")
+    const cookieAccessor = ownCookieDescriptor
+      ? ownCookieDescriptor.value
+      : trustedGetSetCookie
+    const cookies: unknown = ownCookieDescriptor && ownCookieDescriptor.value === undefined
+      ? []
+      : typeof cookieAccessor === "function" ? Reflect.apply(cookieAccessor, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
@@ -694,6 +703,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
+      if (ownCookieDescriptor && ownCookieDescriptor.value === undefined) return
       const mergedCookie = /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
         || /;\s*expires\s*=\s*[A-Za-z]{3},\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT(?:\s*;\s*[^,;]+(?:=\s*[^,;]*)?)*\s*,\s*[^;=,\s]+\s*=/i.test(combinedCookies)
       if (mergedCookie) return
