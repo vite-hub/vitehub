@@ -34,15 +34,19 @@ export const CodeBlockCopyButton = defineComponent({
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
     const copy = () => {
-      const clipboard = navigator.clipboard;
-      if (!clipboard?.writeText) return;
-      return clipboard.writeText(props.value)
-        .then(() => {
-          copied.value = true;
-          clearTimeout(timeout);
-          timeout = setTimeout(() => (copied.value = false), 2_000);
-        })
-        .catch(() => {});
+      try {
+        const clipboard = navigator.clipboard;
+        if (!clipboard?.writeText) return;
+        return clipboard.writeText(props.value)
+          .then(() => {
+            copied.value = true;
+            clearTimeout(timeout);
+            timeout = setTimeout(() => (copied.value = false), 2_000);
+          })
+          .catch(() => {});
+      } catch {
+        return;
+      }
     };
     return () => [
       h(UButton, {
