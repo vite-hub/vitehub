@@ -57,7 +57,7 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { hasCloudflareSqlExec } from "./cloudflare-sql.ts"
+import { hasNativeCloudflareSql, type RealtimeRoomSql } from "./cloudflare-sql.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -693,47 +693,24 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
     const storage = storageDescriptor.value
     if (!storage || typeof storage !== "object") return undefined
-    const readNativeSql = (descriptor: PropertyDescriptor, inherited: boolean): RealtimeRoomSql | undefined => {
-      // An inherited data property can be supplied by an ordinary prototype
-      // and must not be mistaken for Workerd's branded lazy accessor.
-      if ("value" in descriptor) return inherited ? undefined : (hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined)
+    const readNativeSql = (descriptor: PropertyDescriptor, inherited = false): RealtimeRoomSql | undefined => {
+      if ("value" in descriptor) return !inherited && hasNativeCloudflareSql(descriptor.value) ? descriptor.value : undefined
       const getter = descriptor.get
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
-      // Native accessor formatting differs between Workerd/V8 versions. Keep
-      // the native body and function shape checks while allowing anonymous
-      // accessors and runtime-specific whitespace.
       if (!/^function(?:\s+get(?:\s+\w+)?|\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
       try {
-        // Workerd's lazy accessor is receiver-branded. Probe a structurally
-        // identical receiver first; ordinary getters and copied/proxied
-        // carriers that return a SQL-shaped object must not be accepted.
-        const prototype = Object.getPrototypeOf(storage)
-        try {
-          // Probe even null-prototype storage objects. A missing prototype is
-          // still a valid receiver shape for the platform accessor and must
-          // not bypass the receiver-brand check.
-          Reflect.apply(getter, Object.create(prototype), [])
-          return undefined
-        }
-        catch {
-          // Expected for the genuine Workerd accessor.
-        }
         const sql = Reflect.get(storage, "sql")
-        return hasCloudflareSqlExec(sql) ? sql : undefined
+        return hasNativeCloudflareSql(sql) ? sql : undefined
       }
-      catch {
-        return undefined
-      }
+      catch { return undefined }
     }
     const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
-    if (descriptor) return readNativeSql(descriptor, false)
+    if (descriptor) return readNativeSql(descriptor)
     let prototype = Object.getPrototypeOf(storage)
     while (prototype && prototype !== Object.prototype) {
       const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
-      if (sqlDescriptor) {
-        return readNativeSql(sqlDescriptor, true)
-      }
+      if (sqlDescriptor) return readNativeSql(sqlDescriptor, true)
       prototype = Object.getPrototypeOf(prototype)
     }
     return undefined

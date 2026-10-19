@@ -8,10 +8,9 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-
   return category && category !== currentSection.value?.title ? category : "Getting started";
 });
-const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
+const isSectionCurrent = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
 
 <template>
@@ -21,15 +20,16 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
       class="vh-sidebar-search"
       :ui="{
         base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        trailing: 'ms-auto flex items-center gap-1',
+        // Touch screens have no keyboard shortcut to show.
+        trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
       }"
     />
 
     <NuxtLink
       :to="sectionPath"
       class="vh-docs-context"
-      :class="{ 'is-current': isDocsIndex }"
-      :aria-current="isDocsIndex ? 'page' : undefined"
+      :class="{ 'is-current': isSectionCurrent }"
+      :aria-current="isSectionCurrent ? 'page' : undefined"
     >
       <UIcon
         :name="currentSection ? sidebarSectionIcon(currentSection) : 'i-ph-squares-four-light'"
@@ -45,49 +45,12 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
 </template>
 
 <style scoped>
-.vh-sidebar-search {
-  height: 2.5rem;
-  font-size: 0.875rem;
-}
-
-.vh-docs-context {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-height: 3.25rem;
-  border-bottom: 1px solid var(--ui-border);
-  padding: 0.5rem 1.25rem;
-  color: var(--ui-text-muted);
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.vh-docs-context:hover,
-.vh-docs-context:focus-visible,
-.vh-docs-context.is-current {
-  background: color-mix(in srgb, var(--ui-text-highlighted) 5%, transparent);
-  color: var(--ui-text-highlighted);
-}
-
-.vh-docs-context-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.vh-docs-context-category {
-  color: var(--ui-text-dimmed);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.vh-docs-context-title {
+.vh-docs-panel-title {
+  flex: none;
+  margin: 0;
+  padding: 0 1rem;
   overflow: hidden;
-  color: inherit;
+  color: var(--ui-text-highlighted);
   font-size: 0.875rem;
 }
 
@@ -121,7 +84,6 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
   color: var(--ui-text-dimmed);
   font-size: 0.625rem;
   font-weight: 600;
-
   letter-spacing: 0.07em;
   line-height: 1;
   text-transform: uppercase;

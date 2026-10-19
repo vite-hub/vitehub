@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
-import { createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { checksStillRunning, createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/babysitter/stack.ts";
 import { evaluateGitHubRequiredChecks } from "../../agent/src/server/github-required-checks.ts";
@@ -104,7 +104,8 @@ describe("Babysitter check waits", () => {
     expect(hasPendingChecks(snapshot, policy)).toBe(false);
     expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
     snapshot.wait!.defer = "checks";
-    expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
+    // Nothing runs on the head, so a deferral wakes even while the required-check policy reads pending.
+    expect(wakeReasons(snapshot, "pending", policy)).toEqual(["gates-settled"]);
     expect(wakeReasons(snapshot, "passed", policy)).toEqual(["gates-settled"]);
   });
 
@@ -118,20 +119,36 @@ describe("Babysitter check waits", () => {
     snapshot.comments["manual"] = { id: 56, body: "Service access restored, please retry", user: { login: "dev" } };
     expect(wakeReasons(snapshot, "passed", policy)).toEqual(["feedback-changed"]);
   });
-  it("holds a deferred pass while gates run, then wakes once they settle", async () => {
+  it("holds a deferred pass while checks run, then wakes once they settle", async () => {
     const deferred = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => {
       s.checks = { "check_run:1": { id: 1, name: "lint", head_sha: head, status: "in_progress", app: { id: 5 } } };
       s.wait = { headSha: head, ...createCheckWait(s, policy), defer: "checks" };
       update(s);
     });
     const feedback = (s: Snapshot) => { s.comments["9"] = { id: 9, body: "Please fix", user: { login: "reviewer" } } };
+    const settled = (s: Snapshot) => { s.checks["check_run:1"] = { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } } };
+    const failed = (s: Snapshot) => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } };
     expect(wakeReasons(await deferred(feedback), "pending", policy)).toEqual([]);
-    expect(wakeReasons(await deferred(s => { s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "in_progress", app: { id: 6 } } }), "passed", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { settled(s); s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "in_progress", app: { id: 6 } } }), "passed", policy)).toEqual([]);
     expect(wakeReasons(await deferred(s => { s.pr!.mergeable_state = "dirty" }), "pending", policy)).toEqual(["merge-conflict"]);
-    expect(wakeReasons(await deferred(s => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } }), "pending", policy)).toEqual(["new-failure"]);
-    // The deferral recorded no assessment, so it wakes without new evidence once the gates stop.
-    expect(wakeReasons(await deferred(feedback), "passed", policy)).toEqual(["gates-settled"]);
-    expect(wakeReasons(await deferred(), "unknown", policy)).toEqual(["gates-settled"]);
+    // A fast failure waits for the checks that still run, so one pass sees every result.
+    expect(wakeReasons(await deferred(failed), "pending", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { failed(s); settled(s) }), "failed", policy)).toEqual(["new-failure"]);
+    // The deferral recorded no assessment, so it wakes without new evidence once the checks stop.
+    expect(wakeReasons(await deferred(s => { feedback(s); settled(s) }), "passed", policy)).toEqual(["gates-settled"]);
+    expect(wakeReasons(await deferred(settled), "unknown", policy)).toEqual(["gates-settled"]);
+  });
+
+  it("treats a check that runs for half an hour as stuck", async () => {
+    const now = Date.parse("2026-10-18T12:00:00Z");
+    const running = (startedAt: string) => parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "in_progress", started_at: startedAt, app: { id: 5 } } };
+    });
+    expect(checksStillRunning(await running("2026-10-18T11:45:00Z"), now)).toBe(true);
+    expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(false);
+    // A queued check without a start time still runs.
+    expect(checksStillRunning(await parked(s => { s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued", app: { id: 5 } } } }), now)).toBe(true);
+    expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 
   it("ignores an abandoned earlier run of a review check", async () => {
