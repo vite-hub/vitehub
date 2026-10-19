@@ -7,6 +7,9 @@ export const scheduleDevRoute = "/__vitehub/schedule/dev"
 export const scheduleDevRuntimeRoute = "/_vitehub/schedule/dev"
 export const scheduleDevHeader = "x-vitehub-schedule-dev"
 export const scheduleDevHeaderValue = "1"
+// Compatibility names used by the Static Schedule CLI.
+export const scheduleDevRunHeader: string = scheduleDevHeader
+export const scheduleDevRunRoute: string = scheduleDevRoute
 export const scheduleDevTokenNamespace = "schedule"
 export const scheduleDevTokenServerHeader = "x-vitehub-schedule-dev-server"
 
