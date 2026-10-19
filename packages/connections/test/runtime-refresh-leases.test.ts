@@ -48,7 +48,7 @@ it("requires reconnect after an expired refresh for the same token revision", as
   await test.store.refreshLeases.claim({ expiresAt: test.now.value + 10, name: "mail", now: test.now.value, owner: "crashed-owner", revision: token.revision })
   const before = test.provider.calls.length
   test.now.value += 11
-  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(before)
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
 })
@@ -77,6 +77,6 @@ it("does not reuse a refresh grant when its replacement cannot be persisted", as
   await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toBeDefined()
   expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
   const count = test.provider.calls.length
-  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+  await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   expect(test.provider.calls).toHaveLength(count)
 })

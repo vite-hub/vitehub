@@ -647,6 +647,9 @@ importers:
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../packages/ui
+      vite-hub:
+        specifier: workspace:*
+        version: link:../packages/vite-hub
       '@vueuse/core':
         specifier: catalog:ui
         version: 14.4.0(vue@3.5.43(typescript@6.0.3))

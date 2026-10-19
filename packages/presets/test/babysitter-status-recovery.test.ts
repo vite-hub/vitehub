@@ -375,7 +375,8 @@ test('a stalled publisher retains ownership until its aborted write settles', as
     await flushing
   }
   const entries = await inbox.metaEntries('status-outbox:v1:')
-  assert.equal((entries[0]?.[1] as { attempts: number }).attempts, 1)
+  assert.ok(entries[0])
+  assert.equal((entries[0][1] as { attempts: number }).attempts, 1)
 })
 
 test('an expired delivery lease can be recovered while its old owner is fenced', async t => {
@@ -440,7 +441,8 @@ test('the publication deadline reaches GitHub credentials and stalled HTTP reque
   assert.equal(credentialSignal?.aborted, true)
   assert.equal(requestSignal?.aborted, true)
   const entries = await inbox.metaEntries('status-outbox:v1:')
-  assert.equal((entries[0]?.[1] as { attempts: number }).attempts, 1)
+  assert.ok(entries[0])
+  assert.equal((entries[0][1] as { attempts: number }).attempts, 1)
 })
 
 for (const legacy of [false, true]) test(`saved waiting activity publishes after the invocation has completed, legacy=${legacy}`, async t => {
