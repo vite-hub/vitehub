@@ -54,7 +54,6 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
           : mode === "write" && hasWritableTools(workspace)
             ? workspace.tools.write({ executionBudget, sourceRequests: true })
             : workspace.tools.inspect({ executionBudget, sourceRequests: true })),
-        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional command tools are added only for provider-configured commands.
         ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context, executionBudget }) : {}),
       }
     },

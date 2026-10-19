@@ -498,8 +498,10 @@ function isSectionId(value: unknown): value is ConsoleSectionId {
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
   // Authorization results may come from a different JavaScript realm.
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization results cross the JavaScript module boundary.
-  if (!result || typeof result !== "object" || !("sections" in result) || !Array.isArray(result.sections)) return
-  const sections: unknown[] = result.sections
+  if (!result || typeof result !== "object") return
+  const sectionsValue = (result as { sections?: unknown }).sections
+  if (!Array.isArray(sectionsValue)) return
+  const sections: unknown[] = sectionsValue
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
 }

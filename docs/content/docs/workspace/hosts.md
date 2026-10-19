@@ -40,7 +40,7 @@ The [Blob + Database Store](/docs/workspace/configure#blob-database-store) uses 
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 
-Blob keys are `<prefix>/<sha256(workspace identity)>/sha256/<file digest>`. A digest is SHA-256 of the complete file bytes. Identical files at any path share one object within a workspace. Workspaces have separate namespaces. There are no cross-workspace reference counts, and deleting one workspace cannot remove another's bytes. MIME types and file metadata belong to each manifest entry.
+Blob keys are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>`. A digest is SHA-256 of the complete file bytes. Identical files at any path share one object within a workspace. Workspaces have separate namespaces. There are no cross-workspace reference counts, and deleting one workspace cannot remove another's bytes. MIME types and file metadata belong to each manifest entry.
 
 Commits check object existence and upload only missing digests. Simultaneous writers can both observe a missing object and write identical bytes to its key. The Database batch creates the ref row on first use, inserts the candidate manifest, compares and updates the ref head, and marks only the winning revision as committed. A failed batch rolls back the head. Losing candidates do not appear in `list()` or `open()` and do not count toward `usage()`.
 

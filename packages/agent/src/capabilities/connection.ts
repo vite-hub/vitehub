@@ -23,7 +23,17 @@ interface AgentConnectionClientOptions {
   invocationId?: string
 }
 
-export function useAgentConnectionClient(context: AgentCapabilityContext & { [agentEnvIdentity]?: { name: string } }, name: string, capability: string, options: { rejectApprovals?: boolean } = {}): AgentConnectionClient {
+/** Structural view of the Connections runtime that an Agent capability reads. */
+export interface AgentConnectionsRuntime {
+  client: (name: string, options: AgentConnectionClientOptions) => unknown
+  /** The Connection Definition. `mcp({ servers })` reads the provider's `mcp` endpoint from it. */
+  definition?: (name: string) => Promise<{ provider: { mcp?: string } }>
+  /** The Connection status. `mcp({ servers })` reads it for an `optional` server. */
+  inspect?: (name: string) => Promise<{ status: string }>
+}
+
+/** The Connections runtime of the Agent's host. Throws when Connections is not enabled. */
+export function agentConnectionsRuntime(context: AgentCapabilityContext, name: string, capability: string): AgentConnectionsRuntime {
   const handle = primitiveHandle(context, "connections")
   if (!handle) {
     throw agentDiagnostics.AGENT_R0080({ message: `[vitehub] ${capability}() uses Connection "${name}", so it requires Connections. Set vitehub({ connections: true }).` })
@@ -32,11 +42,16 @@ export function useAgentConnectionClient(context: AgentCapabilityContext & { [ag
   if (!primitive.success) {
     throw agentDiagnostics.AGENT_R0080({ message: `[vitehub] ${capability}() requires the connections primitive to expose runtime().` })
   }
-  const runtime = v.safeParse(v.object({ client: v.function() }), primitive.output.runtime())
+  const runtime = v.safeParse(v.looseObject({ client: v.function(), definition: v.optional(v.function()), inspect: v.optional(v.function()) }), primitive.output.runtime())
   if (!runtime.success) {
     throw agentDiagnostics.AGENT_R0080({ message: `[vitehub] ${capability}() requires the Connections runtime to expose client().` })
   }
-  const connectionRuntime = runtime.output
+  // SAFETY: The structural schema checks the runtime methods. Their signatures match the Connections public contract.
+  return runtime.output as AgentConnectionsRuntime
+}
+
+export function useAgentConnectionClient(context: AgentCapabilityContext & { [agentEnvIdentity]?: { name: string } }, name: string, capability: string, options: { rejectApprovals?: boolean } = {}): AgentConnectionClient {
+  const connectionRuntime = agentConnectionsRuntime(context, name, capability)
   // Static tool inspection does not consume credentials. Mint authority only when a tool runs.
   let client: AgentConnectionClient | undefined
   function getClient(): AgentConnectionClient {
