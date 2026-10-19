@@ -33,6 +33,9 @@ const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
 const intrinsicUint8ArrayConstructor = Uint8Array
 const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
 const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+const intrinsicReaderReleaseLock = typeof ReadableStreamDefaultReader === "function"
+  ? Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, "releaseLock")?.value as ((this: object) => void) | undefined
+  : undefined
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!intrinsicTypedArrayTagGetter) return false
   try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
@@ -444,12 +447,19 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
   try {
+  // Capture the instance operation before any prototype reflection. A hostile
+  // prototype can throw during the walk, but this direct lookup gives cleanup
+  // the source reader's own release operation first.
+  try { releaseLock = Reflect.get(reader, "releaseLock") as typeof releaseLock } catch {}
   let readerPrototype: object | null = Object.getPrototypeOf(reader)
-  // Capture releaseLock first. If later descriptor reflection fails, this
-  // source-realm intrinsic still releases the exact reader we acquired.
-  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
-    releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
-    if (typeof releaseLock === "function") break
+  if (typeof releaseLock !== "function") {
+    for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
+      releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as typeof releaseLock
+      if (typeof releaseLock === "function") break
+    }
+  }
+  if (typeof releaseLock !== "function") {
+    releaseLock = intrinsicReaderReleaseLock
   }
   if (typeof releaseLock !== "function") {
     releaseAuthorizationReader(reader)
