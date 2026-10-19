@@ -371,6 +371,10 @@ Queued webhook deliveries in this state survive a restart. A persistent Nitro se
 
 A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel.
 
+`defineChannelTrigger({ durableState: true, invoke })` types `context.channelState` as present (`AgentDurableChannelTriggerContext`). The trigger throws `AGENT_R1005` before `invoke` runs when the Channel's State is not bound. The webhook route and the webhook queue bind it. See [Start several Invocations from one webhook](../../docs/content/docs/agents/channels.md#start-several-invocations-from-one-webhook).
+
+A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset `run.runId` defaults to the delivery ID and an unset `run.channelId` to the Channel. When a webhook route runs the trigger, an unset `webhook.deliveryId` defaults to the SHA-256 (hex) of the raw request body, so an identical retried body is the same delivery. See [Identify a webhook delivery](../../docs/content/docs/agents/triggers.md#identify-a-webhook-delivery).
+
 `webhook.debounce: { key, delayMs }` delays a queued delivery by `delayMs`. A later delivery with the same key replaces a queued one that has not started, and its wait starts again. The replaced delivery records a `superseded` Channel delivery event. See [Debounce webhook deliveries](../../docs/content/docs/agents/triggers.md#debounce-webhook-deliveries).
 
 A queued delivery gets three execution attempts. When the queue stops retrying it, after the last failed attempt or after the delivery used all its execution leases, ViteHub dispatches the Trigger's `failed` callback at most once with `{ attempts, deliveryId, error, publicError, input?, invocation?, run? }`. An error from `failed` is logged and does not change the delivery outcome. Pending notifications survive restart with built-in state providers; a process exit after the durable notification claim leaves an uncertain outcome that is not replayed automatically. See [Report a failed webhook delivery](../../docs/content/docs/agents/triggers.md#report-a-failed-webhook-delivery).
@@ -676,6 +680,10 @@ Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to pre
 
 
 Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an object with its own `resolve` method. Resolver objects must define `resolve` directly, for example `{ resolve: () => "secret" }`. A class can use a `resolve` field. Inherited methods, including class prototype methods, are rejected. Resolvers must return a string, `false` to disable verification, or `undefined`. Other resolved values fail webhook verification.
+
+Webhook `signature` selects how `secretHeader` is checked: unset compares the secret itself, `"bearer"` compares `Bearer <secretToken>` in constant time and reads `authorization` unless `secretHeader` names another header, `"github-sha256"` and `"stripe-sha256"` check those providers' formats, `{ preset: "hmac-sha256", prefix?, encoding?: "hex" | "base64", secretEncoding?: "utf8" | "base64" }` checks `prefix` followed by the HMAC-SHA256 of the raw body, and `{ verify }` runs a custom check. `"github-sha256"` is the HMAC preset with `prefix: "sha256="`. A `secretEncoding: "base64"` key that does not decode fails verification. `vitehub channels history` signs its requests with the same preset.
+
+Webhook `secretToken` accepts a string, `false`, `undefined`, a callback, or an object with its own `resolve` method. Resolver objects must define `resolve` directly, for example `{ resolve: () => "secret" }`. A class can use a `resolve` field. Inherited methods, including class prototype methods, are rejected. Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`. ViteHub unseals a sealed secret when it verifies the request. Other resolved values fail webhook verification. A `"bearer"` webhook whose `secretToken` resolves to no secret answers HTTP 500 with an error that names the Channel.
 
 For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
 

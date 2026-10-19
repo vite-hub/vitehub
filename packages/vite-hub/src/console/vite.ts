@@ -76,6 +76,14 @@ export interface ConsoleOptions {
   retention?: AgentRetentionPolicy
 }
 
+/** Deprecated Console configuration accepted for source compatibility and normalized at the boundary. */
+export type LegacyConsoleOptions = Omit<ConsoleOptions, "auth"> & {
+  access?: "auth" | "local" | "open"
+  exposure?: "host-managed" | "open"
+} & ({ access: "auth" | "local" | "open" } | { exposure: "host-managed" | "open" })
+
+export type ConsoleConfig = ConsoleOptions | LegacyConsoleOptions
+
 /** Direct plugin use without Console options in development installs the development-only `local` policy. */
 interface LocalConsoleOptions extends ConsoleOptions {
   local: true
@@ -95,14 +103,25 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (!(value instanceof Object) || Array.isArray(value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
-  if ("access" in value && value.access !== undefined) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access is no longer supported. Use console.auth.' })
+  const legacy = value as { access?: unknown, exposure?: unknown, auth?: unknown }
+  if (legacy.access !== undefined && legacy.access !== "auth" && legacy.access !== "local" && legacy.access !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access must be "auth", "local", or "open". Use console.auth instead.' })
   }
-  if ("exposure" in value && value.exposure !== undefined && value.exposure !== "host-managed") {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure is no longer supported. Use console.auth.' })
+  if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
   }
-  if (value.exposure === "host-managed" && !('auth' in value)) {
-    return { ...value, auth: false } as ConsoleOptions
+  if (legacy.exposure === "host-managed" && typeof (value as { authorize?: unknown }).authorize !== "string") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure: "host-managed" requires console.authorize.' })
+  }
+  if (legacy.access !== undefined && legacy.exposure !== undefined) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access and console.exposure cannot be combined. Use one legacy Console access setting.' })
+  }
+  if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
+    const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : false
+    return { ...value, auth, ...(legacy.access === "local" ? { local: true } : {}) } as ConsoleOptions
+  }
+  if ("auth" in value && (legacy.access !== undefined || legacy.exposure !== undefined)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth cannot be combined with legacy console.access or console.exposure. Use console.auth instead.' })
   }
   if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
@@ -122,7 +141,7 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
 
 export interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
-  console?: ConsoleOptions
+  console?: ConsoleConfig
   connections?: unknown
   runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
@@ -306,6 +325,7 @@ function authRouteProtects(
  */
 export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
   if (configured.auth !== false) return
+  if ("exposure" in configured && configured.exposure === "host-managed") return
   if (!configured.authorize) return consoleOpenAccessWarning
   if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
 }
@@ -339,9 +359,9 @@ export function resolveConsoleAccessBuild(
 ): ConsoleAccessBuild {
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
-  if ("local" in configured && configured.local === true) return { mode: "local" }
-  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
-  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: authorize ? "host-managed" : "open" })
+  if ("local" in configured && configured.local === true) return withAuthorize({ mode: "local" })
+  if ("exposure" in configured && configured.exposure === "host-managed") return withAuthorize({ mode: "host-managed" })
+  if (configured.auth === false) return withAuthorize({ mode: "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
@@ -380,9 +400,6 @@ export function assertConsoleAccess(
 /** Check the app Auth access routes of a production build. */
 export function assertConsoleProductionAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig, base?: string, development?: boolean, sections?: readonly ConsoleSectionId[] }): void {
   if (options.development) return
-  if ((configured as ConsoleOptions & { exposure?: unknown }).exposure === "host-managed" && !configured.authorize) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize in production." })
-  }
   if (configured.auth === "app" && options.auth) assertConsoleAccess(configured, options)
 }
 
