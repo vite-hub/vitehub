@@ -3,6 +3,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
 import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
@@ -124,6 +125,17 @@ export interface AgentInvocationRecord {
   error?: RuntimeDiagnosticError
   failedAt?: string
   id: string
+  /**
+   * What the Invocation did, in order. Every Driver records `agent.invocation.start` (with `input.prompt`,
+   * `input.messages` or `input.data`) and `agent.invocation.finish` (with `result.text`, or `result.output` for a
+   * structured result such as `driver.ask` answers). `driver.ask` adds `agent.tool.*` per question and
+   * `agent.usage.recorded` per Jev request; see `AgentAskDriver`.
+   *
+   * An Invocation started while another one runs its Driver or an outcome hook, such as `runAgent()` in
+   * `agent:finish`, is its child. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish`
+   * with `agent.invocation.child.id` (the child's record `id`), `.run.id` and `.agent.name`, and on finish `.status`
+   * and `.durationMs`. The child's `agent.invocation.start` carries the same `agent.invocation.parent.*` attributes.
+   */
   observations: readonly TraceEventLogEntry[]
   /** Resolved retention limits for this durable Invocation. */
   observationLimits?: Required<AgentInvocationObservationOptions>
@@ -137,6 +149,10 @@ export interface AgentInvocationRecord {
   title?: string
   /** Sequence of the projected title, preserved when its observation is evicted. */
   titleSequence?: number
+  /**
+   * Shared by an Invocation and the children it starts without a trace of their own.
+   * The observations of a child carry `trace.parentId`, the record `id` of its parent.
+   */
   traceId: string
   updatedAt: string
 }
@@ -195,6 +211,8 @@ export interface AgentInvocationStore {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
     replaceClaimToken?: string
+    /** Requires the claimed record to have this stable identity. */
+    expectedTraceId?: string
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
@@ -213,14 +231,6 @@ export interface AgentInvocationStore {
   prune?(options: AgentInvocationStorePruneOptions): MaybePromise<AgentInvocationPruneResult>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
-}
-
-/** Retention limits for terminal records. Pending and running records are never removed by retention. */
-export interface AgentInvocationRetentionOptions {
-  /** Maximum age of terminal records, measured from their last update. Set to false to disable age-based retention. */
-  maxAgeMs?: false | number
-  /** Maximum number of terminal records. Set to false to disable count-based retention. Stores may apply it periodically, so the count can briefly exceed it. */
-  maxRecords?: false | number
 }
 
 /** `not-terminal` means the record is pending or running and was kept. */
@@ -245,6 +255,11 @@ export interface AgentInvocationPruneResult {
   dryRun: boolean
   /** Deleted record IDs, or the IDs a dry run selected. */
   ids: readonly string[]
+  /**
+   * Set when the store applies a maxSize limit. Bytes are the live data of the database, without free pages.
+   * `afterBytes` above `budgetBytes` means that only pending or running records remain to delete.
+   */
+  size?: { beforeBytes: number, afterBytes: number, budgetBytes: number }
 }
 
 export interface AgentInvocationObservationOptions {
@@ -357,6 +372,8 @@ interface AgentInvocationBindOptions {
   /** Binds only an existing record; queue cleanup must not recreate deleted records. */
   existingOnly?: boolean
   replaceClaimToken?: string
+  /** Requires the claimed record to have this stable identity. */
+  expectedTraceId?: string
   recoverPending?: boolean
 }
 
@@ -397,6 +414,8 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   readonly reusedTerminal: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
+  /** The record `id` of this Invocation. */
+  readonly id: string
   /** The stored `traceId`, available after creation confirms the record identity. */
   traceId: string | undefined
   /** Wait for an asynchronous create attempt to resolve its stored identity. */
@@ -1833,6 +1852,8 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     claim(id, claimId, leaseMs, options) {
       const claim = claims.get(id)
       const now = Date.now()
+      const record = records.get(id)
+      if (options?.expectedTraceId && record?.traceId !== options.expectedTraceId) return false
       if (supersededClaims.get(id)?.has(claimId)) return false
       const expected = options?.expectedClaimIds
       const expectedMismatch = expected !== undefined && claim !== undefined
@@ -2111,6 +2132,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       context: AgentRuntimeContext<TRuntimeConfig>,
       bindOptions: AgentInvocationBindOptions = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
+      // An Invocation started inside another one's Driver or hook joins that trace unless it has its own.
+      const parentTrace = context.trace ? undefined : parentInvocationTrace()
+      if (parentTrace) context = { ...context, trace: parentTrace }
       const runId = context.run?.runId || createInvocationId()
       const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await agentInvocationId(runId, agentName)
@@ -2131,6 +2155,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const pendingClaimIds = new Set<string>()
       const cancellationOwnerId = createInvocationId()
       let traceId = await boundedIdentity(context.trace?.id || runId)
+      let existingTraceId: string | undefined
       const annotations = normalizeAnnotations(context.run?.annotations)
       let writes = Promise.resolve()
       let finished = false
@@ -2233,6 +2258,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           }).then((result) => {
             if (result) {
               traceId = result.record.traceId
+              if (bindOptions.existingOnly) existingTraceId = result.record.traceId
               limits = observationLimits(result.record.observationLimits)
               observationCount = result.record.observations.length
               observationsTruncated = result.record.observationsTruncated === true
@@ -2283,10 +2309,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         const attemptId = claimConfirmed && !claimUncertain && !rotate && pendingClaimIds.size === 0 ? claimId : createInvocationId()
         const expectedClaimIds = [...pendingClaimIds, ...(claimConfirmed ? [claimId] : [])]
         pendingClaimIds.add(attemptId)
-        const claimTask = Promise.resolve().then(() => store.claim(recordId, attemptId, CLAIM_LEASE_MS,
-          force ? { replaceExisting: true }
-            : expectedClaimIds.length ? { expectedClaimIds }
-              : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : undefined))
+        const claimOptions = force ? { replaceExisting: true }
+          : expectedClaimIds.length ? { expectedClaimIds }
+            : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : {}
+        if (existingTraceId) claimOptions.expectedTraceId = existingTraceId
+        const claimTask = Promise.resolve().then(() => store.claim(recordId, attemptId, CLAIM_LEASE_MS, claimOptions))
         const claim = await boundedStore(() => claimTask)
         if (claim !== true && claim !== false) {
           claimUncertain = true
@@ -2644,6 +2671,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ownsRecord = false
         },
         configuration: options.configuration,
+        id: recordId,
         get traceId() { return created ? traceId : undefined },
         async ready() {
           if (creationTask) await boundedStore(() => creationTask!)

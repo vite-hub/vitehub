@@ -15,8 +15,14 @@ export interface AgentWebhookQueueDelivery {
   deliveryId: string
   enqueuedAt: number
   invocation?: {
+    /** The name of the Agent that the selected task runs. Unset when the Agent that owns the trigger runs it. */
+    agentName?: string
     input: unknown
     run?: unknown
+    /** The key of the trigger task that `invoke` selected. */
+    task?: string
+    /** Whether the trigger had preparation that must run before execution. */
+    requiresPrepare?: true
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -91,7 +97,7 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.request.method) ||
     !("url" in value.request) ||
     !isRuntimeString(value.request.url) ||
-    ("invocation" in value && !isRuntimeUndefined(value.invocation) && !isRuntimeObject(value.invocation)) ||
+    ("invocation" in value && !isRuntimeUndefined(value.invocation) && (!isRuntimeObject(value.invocation) || ("requiresPrepare" in value.invocation && value.invocation.requiresPrepare !== true))) ||
     ("rehydrate" in value && !isRuntimeUndefined(value.rehydrate) && value.rehydrate !== true)
   ) {
     throw agentDiagnostics.AGENT_R0593({ message: "[vitehub] Agent webhook queue contains an invalid delivery." })
@@ -134,7 +140,15 @@ interface AgentWebhookQueueRegistrar<Options> {
 }
 
 export interface AgentWebhookQueue<Options> {
-  admit: (registration: AgentWebhookQueueRegistration<Options>, delivery: AgentWebhookQueueDelivery) => Promise<boolean>
+  /**
+   * Queues `delivery` and registers its scope. `enqueue` replaces `state.enqueueWebhookDelivery()`, such as to commit
+   * Channel State writes in the same transaction. It returns whether the delivery was newly queued.
+   */
+  admit: (
+    registration: AgentWebhookQueueRegistration<Options>,
+    delivery: AgentWebhookQueueDelivery,
+    enqueue?: (delivery: AgentWebhookQueueDelivery) => Promise<boolean>,
+  ) => Promise<boolean>
   idle: () => Promise<void>
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   resume: (
@@ -359,8 +373,8 @@ export function createAgentWebhookQueue<Options>(
   }
 
   return {
-    async admit(registration, delivery) {
-      const admitted = await registration.state.enqueueWebhookDelivery(delivery)
+    async admit(registration, delivery, enqueue) {
+      const admitted = enqueue ? await enqueue(delivery) : await registration.state.enqueueWebhookDelivery(delivery)
       await register(registration)
       return admitted
     },
