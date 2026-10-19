@@ -187,7 +187,7 @@ export function connectGitHubRepository(repository: string, token: string): GitH
 export async function githubRequest<T>(
   repository: GitHubRepository,
   run: (provider: GitHubProvider, repo: GitHubRepoRef) => Promise<T>,
-  response?: string,
+  responseKind?: string,
 ): Promise<T> {
   const provider = await repository.provider();
   try {
@@ -198,8 +198,8 @@ export async function githubRequest<T>(
     // Only the Forge response marker denotes a successful response that could
     // not be decoded. Other errors (including request validation and abort
     // failures) must retain their original request/transport classification.
-    if (status === undefined && response && isForgeResponseError(error)) {
-      throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
+    if (status === undefined && responseKind && isForgeResponseError(error)) {
+      throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${responseKind} response.`, { cause: error });
     }
     if (status === undefined) throw error;
     throw workspaceError(`[vitehub] GitHub workspace request failed for ${repository.name}: ${status} ${error instanceof Error ? error.message : ""}`.trim(), { cause: error });
