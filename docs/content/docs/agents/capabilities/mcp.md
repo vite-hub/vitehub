@@ -95,6 +95,23 @@ export default defineAgent({
 })
 ```
 
+## Extend the parent's servers
+
+In an Agent that [`extends`](/docs/agents/agent-definitions#extend-an-agent) another, a child `mcp()` extends the parent's `mcp()` Capability. `servers`, `integrity`, and `toolOverrides` merge by server name, and the child's entry for a server wins as a whole. Per-server options such as `optional` stay with their entry. Options that the child leaves unset, such as `unavailableNotice`, are inherited.
+
+```ts [server/agents/bot-dev/agent.ts]
+export default defineAgent({
+  extends: bot,
+  capabilities: [mcp({ servers: { portal: { connection: 'portal' }, drop: false } })],
+})
+```
+
+`drop: false` removes the inherited `drop` server. Set `inherit: false` to replace the parent's `mcp()` Capability:
+
+```ts
+capabilities: [mcp({ servers: {}, inherit: false })]
+```
+
 ## Authenticate through a Connection
 
 Set `connection` on a client config to use a [Connection](/docs/connections) as the server credential. The Connection sends the `Authorization` header, refreshes the token, checks access for each request, and records activity. The Agent and the MCP client never see the token.
@@ -142,6 +159,28 @@ access: {
 ```
 
 ViteHub checks access before the tool runs. A denied request fails with `CONNECTION_DENIED`. MCP needs protocol responses in the active session, so its Connection client rejects writes that require approval with `CONNECTION_DENIED` before creating an approval. Set `approve: false` on the Agent access rule; durable approval replay cannot resume MCP discovery or tool calls.
+
+## Install a server's Skills
+
+A server can serve [Agent Skills](/docs/agents/capabilities/skills) as `skill://<name>/<path>` resources, as the MCP Skills extension describes. During discovery, `mcp()` lists each server's resources and installs every Skill that has a `SKILL.md` in the Invocation's Workspace at `.agents/skills/<name>/`. Provider Agents such as Codex find them there. Only text files are installed.
+
+The files exist only for that Invocation. They are not written to the Workspace store and they are not persisted. The next Invocation reads the server again, so a changed or removed Skill applies at once.
+
+- The Agent's own Skill with the same name wins, for example `server/agents/<agent>/skills/<name>/`.
+- When two servers serve the same name, the first configured server wins.
+- Names must match `^[a-z0-9][a-z0-9-]{0,63}$`. Paths with `.`, `..`, empty, or control-character segments are skipped.
+- Each server can contribute at most 64 files and 1 MiB. A Skill that does not fit is left out whole.
+- An Invocation without a Workspace does not read Skills.
+
+A Skills failure never removes the server's tools. A server without the resources capability has no Skills. Set `skills: false` on a server entry to turn this off:
+
+```ts [server/agents/support.ts]
+mcp({
+  servers: {
+    drop: { skills: false, transport: { type: 'http', url: 'https://drop.example.com/mcp' } },
+  },
+})
+```
 
 ## Executor through `mcp()`
 
@@ -277,6 +316,8 @@ Confirm that the Capability fails before model execution.
 | `servers.<name>.connection` | `string` | none | Name of a Connection in `server/connections/` that authorizes an `http` or `sse` client config. Without `transport.url`, the server is the provider's `mcp` endpoint. |
 | `servers.<name>.optional` | `boolean` | `false` | With `connection`, leave the server out until the Connection is connected. |
 | `servers.<name>.tools` | `string[]` | every tool | Expose only these tools, by their name on the server. |
+| `inherit` | `boolean` | `true` | In an Agent that `extends` another, `false` replaces the parent's `mcp()` Capability instead of extending it. |
+| `servers.<name>.skills` | `boolean` | `true` | Install the server's `skill://` Skills into the Invocation's Workspace at `.agents/skills/<name>/`. |
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 
@@ -289,7 +330,7 @@ Cover MCP usage guidance in Agent Driver Instructions with explicit Capability c
 
 ## Inspect servers and tools
 
-Open an Invocation's **Capabilities** tab and select **MCP**. Each configured server has a recorded discovery status, sanitized connection metadata, and its tools. A tool shows its original MCP name, the name exposed to the Agent, its description, and recorded input and output JSON Schema.
+Open an Invocation's **Capabilities** tab and select **MCP**. Each configured server has a recorded discovery status, sanitized connection metadata, its Skills, and its tools. **Skills** lists the names of the Skills that the server serves, or shows `None`, `Off` for `skills: false`, `No Workspace`, or `Discovery failed:` with the error. A tool shows its original MCP name, the name exposed to the Agent, its description, and recorded input and output JSON Schema.
 
 The snapshot distinguishes resolved servers, skipped optional servers, and resolution or discovery failures. Resolved servers can have no tools. These are observations from the selected Invocation, not current connection health. Opening the view does not reconnect or call tools. MCP resources mounted through Sources are outside this Capability's inventory.
 

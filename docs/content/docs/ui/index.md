@@ -11,7 +11,14 @@ icon: i-ph-squares-four-light
 
 The package owns presentation, layout, and interaction defaults. Your app owns transport, persistence, and authorization. Every example uses synthetic data, makes no network requests, and shows the source below the live preview.
 
-[Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+## A Console with the defaults
+
+Select an Invocation to read its messages, tool calls, and result. The inspector shows its configuration and activity. This example uses the package styles and built-in layouts.
+
+::component-preview{name="InvocationDashboardBlock" flush reset}
+::
+
+[Install the package](/docs/ui/installation), then explore the [Invocation dashboard in the Console](/docs/development/console), or copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each example explains how to connect real data.
 
 ## Components
 

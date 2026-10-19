@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { useDocsSection } from "~/composables/useDocsSection";
 
 const route = useRoute();
@@ -8,9 +8,9 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  return category && category !== currentSection.value?.title ? category : "Getting started";
+  return category || "Getting started";
 });
-const isSectionCurrent = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
+const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 </script>
 
 <template>
@@ -20,16 +20,15 @@ const isSectionCurrent = computed(() => normalizeDocsPath(route.path) === normal
       class="vh-sidebar-search"
       :ui="{
         base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        // Touch screens have no keyboard shortcut to show.
-        trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
+        trailing: 'ms-auto flex items-center gap-1',
       }"
     />
 
     <NuxtLink
       :to="sectionPath"
       class="vh-docs-context"
-      :class="{ 'is-current': isSectionCurrent }"
-      :aria-current="isSectionCurrent ? 'page' : undefined"
+      :class="{ 'is-current': isDocsIndex }"
+      :aria-current="isDocsIndex ? 'page' : undefined"
     >
       <UIcon
         :name="currentSection ? sidebarSectionIcon(currentSection) : 'i-ph-squares-four-light'"

@@ -209,10 +209,89 @@ export interface ConnectionApiKeyDefinition<
   scopes?: undefined
 }
 
+/** What a provider `login` receives. It plays the browser for one authorization request. */
+export interface ConnectionLoginContext {
+  /** The authorization URL, with PKCE, `state`, `scope`, and `resource`. Open it like a browser would. */
+  url: string
+  /** Where the provider sends the browser with the code. ViteHub never listens on it. */
+  redirectUri: string
+  /** The value of `credentials`, unsealed. Empty without `credentials`. */
+  credentials: string
+  /**
+   * Fetch as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs
+   * against `url`, and does not follow redirects unless `init.redirect` asks for it.
+   */
+  fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
+  /** Aborts the login after 60 seconds. */
+  signal: AbortSignal
+}
+
+/** An OAuth 2.0 provider that signs in without a person. `oauthLogin()` creates it. */
+export interface ConnectionLoginProvider<TApis extends object = object> {
+  readonly kind: "oauth-login"
+  readonly id: string
+  /** The provider's MCP endpoint. Discovery starts at its protected resource metadata unless `issuer` is set. */
+  readonly mcp?: string
+  /** The authorization server issuer. */
+  readonly issuer?: string
+  /** The `resource` of authorization and token requests. Default: `mcp`. */
+  readonly resource?: string
+  /** Other origins that `fetch` may send the token to. API catalog root URLs and the `mcp` endpoint are also allowed. */
+  readonly origins: readonly string[]
+  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
+  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** A registered public client id. Without it, ViteHub registers a client once per process. */
+  readonly clientId?: ConnectionValue
+  /** `client_name` for client registration. */
+  readonly clientName?: string
+  /** The redirect URI of the client. ViteHub never listens on it. */
+  readonly redirectUri: string
+  /** Extra authorization request parameters. */
+  readonly authorizationParams?: Readonly<Record<string, string>>
+  /** The secret that `login` uses. While it resolves to nothing, the Connection is disconnected. */
+  readonly credentials?: ConnectionApiKeyFallback
+  /** Sign in and approve the request like a browser. Returns the URL that the provider redirects to `redirectUri`. */
+  readonly login: (context: ConnectionLoginContext) => Promise<string>
+  /** Read the account from a token response. Default: the ID token when `scopes` includes `openid`. */
+  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
+  /** Pacing, retries, and a timeout for provider requests. */
+  readonly requests?: ConnectionRequestPolicy
+  /** Type-only method map. It has no runtime value. */
+  readonly "~apis"?: TApis
+}
+
+/** A Connection that signs in by itself through its provider `login`. Tokens stay in memory. */
+export interface ConnectionLoginDefinition<
+  TApis extends object = object,
+  TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
+> extends ConnectionDefinitionRules<TApis, TSelection> {
+  provider: ConnectionLoginProvider<TApis>
+  /** Scopes to request, for example `["openid", "email"]`. */
+  scopes?: readonly string[]
+}
+
 export type ConnectionDefinition<
   TApis extends object = object,
   TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection>
+> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection>
+
+/**
+ * One definition for several Connections of the same kind, such as one per tenant. Each instance is a
+ * Connection named `<name>:<instance>`, for example `portal:acme` from `server/connections/portal.ts`.
+ */
+export interface ConnectionInstancesDefinition<
+  TInstance extends string = string,
+  TDefinition extends ConnectionDefinition = ConnectionDefinition,
+> {
+  /** Instance keys: 1 to 128 letters, digits, `.`, `_`, and `-`, without duplicates. */
+  readonly instances: readonly TInstance[]
+  /** The Connection Definition of one instance. It runs once per process, when the instance is first used. */
+  definition(instance: TInstance): TDefinition
+  // `api` and `access` belong in `definition`. Declaring them here lets `defineConnection()` report a
+  // wrong `api` or `access` entry of a plain definition at that entry.
+  readonly api?: never
+  readonly access?: never
+}
 
 /** Fetch options supported by Connections. Bodies are persisted for approval replay. */
 export type ConnectionFetchInit = Pick<RequestInit, "headers" | "method" | "redirect" | "signal"> & { body?: string }
