@@ -61,7 +61,7 @@ const stateActions = computed<ButtonProps[]>(() => {
   const action = problem.value?.action;
   if (action === "sign-in") main.push({ label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
   else if (action === "reload") main.push({ label: "Reload", icon: "i-ph-arrows-clockwise-light", onClick: reload });
-  else if (props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
+  else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
   const first = main[0];
   const buttons: ButtonProps[] = first ? [{ color: "neutral", variant: "soft", size: "xs", ...first }] : [];
   if (docsAction.value) {

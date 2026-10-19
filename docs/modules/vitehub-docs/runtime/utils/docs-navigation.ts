@@ -73,7 +73,12 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));
+  const ordered = [...groups].map(([label, pages]) => ({ label, pages }));
+  if (section.id === "ui") {
+    const order = ["Start", "Console", "Chat", "Agent work", "Utilities"];
+    return ordered.sort((left, right) => (order.indexOf(left.label || "") + order.length) - (order.indexOf(right.label || "") + order.length));
+  }
+  return ordered;
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
