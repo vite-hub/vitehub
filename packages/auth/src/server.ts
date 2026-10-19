@@ -600,8 +600,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     // malformed read/cancel operations, but the acquired reader must still be
     // released on every such failure path.
     const releaseLock = readerOperation(readerPrototype, "releaseLock") as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
+    // Keep a source-realm cleanup reference as soon as it is discovered. The
+    // subsequent identity checks may reject the reader, but must not strand the
+    // lock acquired by getReader(). Only callable, correctly named operations
+    // are retained for cleanup; malformed values remain fail-closed.
+    if (typeof releaseLock === "function" && releaseLock.name === "releaseLock") verifiedRelease = releaseLock
     if (!isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
-    verifiedRelease = releaseLock
     if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
