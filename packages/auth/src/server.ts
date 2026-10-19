@@ -547,7 +547,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null
       || responsePropertyDescriptor(Object(body), "getReader")?.value === validatedAuthorizationStreamGetReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!(value instanceof Response && nativeProperties) && bodyUsed === true) return
     const streamOperations = body === null ? undefined : getAuthorizationStreamOperations(body)
     if (body !== null && !streamOperations) return

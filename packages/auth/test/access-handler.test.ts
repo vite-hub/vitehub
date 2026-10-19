@@ -435,6 +435,18 @@ describe("Auth access handlers", () => {
     expect(getReader).not.toHaveBeenCalled()
   })
 
+  it("rejects a local response with an own body reader override", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    const getReader = vi.fn(() => { throw new Error("must not call own reader") })
+    Object.defineProperty(response.body, "getReader", { value: getReader })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(getReader).not.toHaveBeenCalled()
+  })
+
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves status-zero error semantics from the %s runtime", async (_runtime, ResponseConstructor) => {
     const source = ResponseConstructor.error()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
