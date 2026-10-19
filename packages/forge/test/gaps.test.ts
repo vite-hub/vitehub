@@ -140,6 +140,17 @@ describe("forgeBlob", () => {
     await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
   })
 
+  it.each([
+    { content: "", encoding: "base64", sha: "abc" },
+    { content: "not-base64", encoding: "base64", sha: "abc" },
+    { content: Buffer.from("target.md").toString("base64"), encoding: "base64", sha: "" },
+  ])("rejects an invalid blob payload: %j", async (payload) => {
+    const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json(payload) })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
+  })
+
   it("rejects other Forges with FORGE_R0004", async () => {
     const fake = githubRoutes({})
     const provider = await forgeProvider({ forge: "gitlab", fetch: fake.fetch })
