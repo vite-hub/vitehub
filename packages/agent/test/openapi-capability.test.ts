@@ -165,6 +165,139 @@ describe("openapi capability", () => {
     }, runtime(), { prompt: "delete" })).rejects.toThrow("v1 supports GET, HEAD, and POST")
   })
 
+  it("names tools after the keys of an operations record", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const operationIds: string[] = []
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          hooks: {
+            request({ operation }) {
+              operationIds.push(operation.id)
+            },
+          },
+          operations: { "customer-list": "listCustomers", "order": "getOrder" },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "list" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const tools = resolved.tools as AgentToolSet
+
+    expect(Object.keys(tools)).toEqual(["customer-list", "order"])
+    expect(tools["customer-list"]?.metadata).toMatchObject({ openapi: { operationId: "listCustomers" } })
+
+    await tools["customer-list"]?.execute?.({ query: { region: "eu" } })
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers?region=eu")
+    expect(operationIds).toEqual(["listCustomers"])
+  })
+
+  it("uses operations record keys as generated CLI command names", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ customers: ["acme"] }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: { customers: "listCustomers", portal_order: "getOrder" },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "list" })
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
+    expect(resolved.tools?.portal?.description).toContain("`customers --json`")
+    expect(resolved.tools?.portal?.description).toContain("`portal_order --json`")
+    expect(resolved.tools?.portal?.description).not.toContain("list-customers")
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["customers", "--json"],
+    })).resolves.toMatchObject({
+      command: "portal customers --json",
+      exitCode: 0,
+      json: { customers: ["acme"] },
+    })
+  })
+
+  it("accepts operations record keys that are Object.prototype names", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ customers: ["acme"] }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const operations = { constructor: "getOrder", toString: "listCustomers" }
+
+    const tools = await resolveAgentCapabilities({
+      capabilities: [openapi({ operations, spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+    const cli = await resolveAgentCapabilities({
+      capabilities: [openapi({ cli: { name: "portal" }, operations, spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+
+    expect(Object.keys(tools.tools || {})).toEqual(["constructor", "toString"])
+    await expect(cli.tools?.portal?.execute?.({ argv: ["toString", "--json"] })).resolves.toMatchObject({
+      exitCode: 0,
+      json: { customers: ["acme"] },
+    })
+  })
+
+  it("does not validate operations outside the selection", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const spec = {
+      ...portalSpec(),
+      paths: {
+        ...portalSpec().paths,
+        "/flows/{id}": {
+          get: { operationId: "read_flow_flows__id__get", summary: "Read flow." },
+        },
+        "/flows/{id}/graph": {
+          get: { operationId: "read-flow-graph", summary: "Read flow graph." },
+        },
+        "/flows/{id}/graph-v2": {
+          get: { operationId: "read-flow-graph", summary: "Read flow graph again." },
+        },
+      },
+    }
+
+    for (const operations of [{ flow: "read_flow_flows__id__get" }, ["listCustomers"]]) {
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [openapi({ operations, spec })],
+      }, runtime(), { prompt: "read" })
+      expect(Object.keys(resolved.tools || {})).toHaveLength(1)
+    }
+  })
+
+  it("keeps the operationId list form", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const tools = await resolveAgentCapabilities({
+      capabilities: [openapi({ operations: ["listCustomers", "getOrder"], spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+    const cli = await resolveAgentCapabilities({
+      capabilities: [openapi({ cli: { name: "portal" }, operations: ["listCustomers"], spec: portalSpec() })],
+    }, runtime(), { prompt: "list" })
+
+    expect(Object.keys(tools.tools || {})).toEqual(["listCustomers", "getOrder"])
+    expect(cli.tools?.portal?.description).toContain("`list-customers --json`")
+    expect(() => openapi({ operations: ["list-customers"], spec: portalSpec() })).toThrow("must be usable as a tool name")
+  })
+
+  it("rejects empty selections and unusable operation names", async () => {
+    const { openapi } = await import("../src/capabilities.ts")
+
+    expect(() => openapi({ operations: [], spec: portalSpec() })).toThrow("requires at least one allowed operationId")
+    expect(() => openapi({ operations: {}, spec: portalSpec() })).toThrow("requires at least one allowed operationId")
+    expect(() => openapi({ operations: { customers: "" }, spec: portalSpec() })).toThrow("requires at least one allowed operationId")
+    for (const name of ["1customers", "list customers", "customers.list", "-customers"]) {
+      expect(() => openapi({ operations: { [name]: "listCustomers" }, spec: portalSpec() })).toThrow(`operation name "${name}"`)
+    }
+  })
+
   it("derives request server from OpenAPI servers", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

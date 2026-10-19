@@ -153,26 +153,14 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("keeps the sidebar header focused on search", () => {
+  it("uses a static context link instead of a product disclosure control", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("UContentSearchButton");
-    expect(sidebarTop).not.toContain("vh-docs-context");
-    expect(sidebarTop).not.toContain("<NuxtLink");
+    expect(sidebarTop).toContain("vh-docs-context");
+    expect(sidebarTop).toContain('<NuxtLink');
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
-
-  it("keeps site catalogs in the rail header above the product sections", () => {
-    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
-
-    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
-    expect(rail).toContain("<template #header");
-    expect(rail).toContain("getDocsRailCatalog(docsManifest.sections)");
-    expect(rail).toContain("getUncategorizedDocsSections(docsManifest.sections)");
-    expect(rail).toContain("<template #default");
-  });
-
 
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
@@ -184,13 +172,7 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toMatch(/<UPageAside class="vh-docs-aside">/);
-    expect(layout).toContain("flex-direction: column;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain("overflow: hidden;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

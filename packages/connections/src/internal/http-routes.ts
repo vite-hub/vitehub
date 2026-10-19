@@ -2,7 +2,8 @@ import * as v from "valibot";
 
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
-import { ConnectionError, isConnectionError } from "../errors.ts";
+import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 import { managementErrorBody } from "./http-diagnostics.ts";
@@ -60,22 +61,26 @@ export function json(body: unknown, status = 200, headers: Record<string, string
 }
 
 /** HTTP status of a Connections failure. */
+const errorStatuses: Partial<Record<ConnectionsCatalogCode, number>> = {
+  CONNECTIONS_APPROVAL_REQUIRED: 409,
+  CONNECTIONS_DENIED: 403,
+  CONNECTIONS_EXECUTION_UNKNOWN: 409,
+  CONNECTIONS_FORBIDDEN: 403,
+  CONNECTIONS_NEEDS_RECONNECT: 409,
+  CONNECTIONS_NOT_CONNECTED: 409,
+  CONNECTIONS_PROVIDER_FAILED: 502,
+  CONNECTIONS_UNAVAILABLE: 502,
+};
+
 export function errorStatus(error: unknown): number {
   if (!isConnectionError(error)) return 500;
-  return {
-    approval_required: 409,
-    denied: 403,
-    execution_unknown: 409,
-    invalid: 400,
-    provider: 502,
-    reauth_required: 409,
-  }[error.reason];
+  return errorStatuses[error.code] ?? 400;
 }
 
 export function errorResponse(error: unknown): Response {
   if (isConnectionError(error))
-    return json({ error: managementErrorBody(error.code, error.message, error.requestId) }, errorStatus(error));
-  return json({ error: managementErrorBody("CONNECTION_FAILED", "The Connections request failed.") }, 500);
+    return json({ error: managementErrorBody(error.code, error.why) }, errorStatus(error));
+  return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
 }
 
 /**
@@ -88,7 +93,7 @@ function originRejection(request: Request, url: URL): Response | undefined {
     const received = origin.slice(0, 256);
     return json({
       error: managementErrorBody(
-        "CONNECTION_ORIGIN_REJECTED",
+        "CONNECTIONS_ORIGIN_REJECTED",
         `The request Origin ${received} does not match the server origin ${url.origin}.`,
         undefined,
         { expectedOrigin: url.origin, receivedOrigin: received },
@@ -97,7 +102,7 @@ function originRejection(request: Request, url: URL): Response | undefined {
   }
   if (request.headers.get("sec-fetch-site") === "cross-site") {
     return json({
-      error: managementErrorBody("CONNECTION_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: url.origin }),
+      error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: url.origin }),
     }, 403);
   }
   return undefined;
@@ -155,10 +160,10 @@ const connect: ConnectionsRoute = {
     try {
       connectionName = decodeURIComponent(url.pathname.replace(/\/+$/, "").slice(`${base}/connect/`.length));
     } catch {
-      return failure("The Connection name is invalid.", 400, "CONNECTION_INVALID");
+      return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     }
     const connection = v.safeParse(name, connectionName);
-    if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTION_INVALID");
+    if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
@@ -195,10 +200,10 @@ const callback: ConnectionsRoute = {
     const providerError = url.searchParams.get("error");
     if (providerError) {
       if (providerError === "access_denied")
-        return failure("Connection cancelled", "The provider did not grant access.", 400, "CONNECTION_AUTHORIZATION_CANCELLED");
+        return failure("Connection cancelled", "The provider did not grant access.", 400, "CONNECTIONS_AUTHORIZATION_CANCELLED");
       // Only a short error code from the provider reaches the page, never its free text.
       const reported = PROVIDER_ERROR.test(providerError) ? ` with ${providerError}` : "";
-      return failure("Connection failed", `The provider stopped the authorization${reported}.`, 502, "CONNECTION_PROVIDER");
+      return failure("Connection failed", `The provider stopped the authorization${reported}.`, 502, "CONNECTIONS_PROVIDER_FAILED");
     }
     // The state must come from a start request in this browser, by the same manager.
     // `complete()` consumes the state and checks the manager that started the flow.
@@ -207,7 +212,7 @@ const callback: ConnectionsRoute = {
         "Connection failed",
         "The authorization response does not match this browser.",
         400,
-        "CONNECTION_STATE_MISMATCH",
+        "CONNECTIONS_STATE_MISMATCH",
       );
     let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
     try {
@@ -245,7 +250,7 @@ const action: ConnectionsRoute = {
     const { actor, request } = access;
     if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
       return json(
-        { error: managementErrorBody("CONNECTION_CONTENT_TYPE_REJECTED", "Connections management accepts only application/json requests.") },
+        { error: managementErrorBody("CONNECTIONS_CONTENT_TYPE_REJECTED", "Connections management accepts only application/json requests.") },
         403,
       );
     }
@@ -254,7 +259,7 @@ const action: ConnectionsRoute = {
     const parsed = v.safeParse(actionSchema, await readBody(request));
     if (!parsed.success)
       return json(
-        { error: managementErrorBody("CONNECTION_INVALID", "Invalid Connections request.") },
+        { error: managementErrorBody("CONNECTIONS_INVALID_REQUEST", "Invalid Connections request.") },
         400,
       );
     const input = parsed.output;
@@ -299,16 +304,16 @@ const action: ConnectionsRoute = {
             pageCount++;
             count += result.approvals.length;
             if (result.nextCursor && seenCursors.has(result.nextCursor)) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination" });
             }
             if (result.nextCursor && pageCount >= MAX_APPROVAL_COUNT_PAGES) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not terminate.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination-end" });
             }
             if (
               result.nextCursor &&
               (result.approvals.length === 0 || result.approvals.every((approval) => seenApprovalIds.has(approval.id)))
             ) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination" });
             }
             for (const approval of result.approvals) seenApprovalIds.add(approval.id);
             before = result.nextCursor;

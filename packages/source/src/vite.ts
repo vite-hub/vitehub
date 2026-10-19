@@ -14,6 +14,7 @@ import { findExportNames } from "mlly"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin } from "vite"
 import { inspectCollectionDefinitions } from "./inspect.ts"
+import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles, discoverCollections } from "./internal/collection-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -308,7 +309,11 @@ async function writeCollectionArtifacts(
   }))
 }
 
-async function discoverContent(options: SourceGenerationOptions): Promise<string | undefined> {
+/**
+ * Find the Content Definition: one `content.{ts,js,mts,mjs,cts,cjs}` file in the server directories that exports
+ * `content`. Returns undefined when the app defines no Content.
+ */
+export async function discoverContentDefinition(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -369,7 +374,7 @@ async function writeContentArtifact(
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const [collections, content] = await Promise.all([
     discoverCollections(options),
-    discoverContent(options),
+    discoverContentDefinition(options),
   ])
   return [
     ...await writeCollectionArtifacts(options, collections),
@@ -453,6 +458,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
+  let legacyServerBuild = false
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
     listener: GeneratedSourceHandlersListener
@@ -545,6 +551,40 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     name: "@vite-hub/source/vite",
     enforce: "post",
     api: { onGeneratedHandlersChanged, prepareSources },
+    // glob() in a server build: calls with literal options become their files, bundled (internal/bundle-glob.ts).
+    // The filters keep Rolldown from calling these hooks for every other module.
+    resolveId: {
+      filter: { id: BUNDLED_GLOB_ID_PATTERN },
+      handler(id) {
+        return id
+      },
+    },
+    load: {
+      filter: { id: BUNDLED_GLOB_ID_PATTERN },
+      async handler(id) {
+        const { code, watched } = await loadBundledGlob(id, latestProjectRoot ?? resolveViteHubProjectRoot(process.cwd()))
+        for (const file of watched) this.addWatchFile(file)
+        return code
+      },
+    },
+    transform: {
+      filter: { id: { exclude: /\/node_modules\// }, code: "source/glob" },
+      handler(code, _id, options) {
+        const environment = this.environment?.config
+        const server = environment
+          ? environment.consumer === "server"
+          : options?.ssr === true && legacyServerBuild
+        if (!server || (environment && environment.command !== "build")) return
+        const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
+        for (const call of calls.filter(call => call.input === undefined)) {
+          this.warn({
+            message: "[vitehub] glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
+            pos: call.start,
+          })
+        }
+        if (calls.some(call => call.input !== undefined)) return { code: rewriteGlobCalls(code, calls), map: null }
+      },
+    },
     vitehub: {
       inspect: () => ({
         definitions: [{
@@ -565,10 +605,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         generatedRouteGuard(nitroHandlers).setup(nitro)
       },
     },
-    async config(config) {
+    async config(config, env) {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
+      legacyServerBuild = env.command === "build" && config.build?.ssr === true
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
