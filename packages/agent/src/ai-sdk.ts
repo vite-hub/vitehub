@@ -1389,7 +1389,7 @@ async function createAgent(
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
   let repairBudgetError: ExecutionBudgetExceededError | undefined
   const guardedModel = hasRuntimeType(observedModel, "object")
-    ? new Proxy(budgetedModel as object, {
+    ? new Proxy(instrumentedModel as object, {
         get(target, property, receiver) {
           const value = Reflect.get(target, property, receiver)
           if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value

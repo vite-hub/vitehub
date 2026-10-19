@@ -281,7 +281,7 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
     }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })
-    budgetWrappedExecutors.set(wrappedTool, execute)
+    budgetWrappedExecutors.set(wrappedTool, execute as (...args: unknown[]) => unknown)
     budgetWrappedBudgets.set(wrappedTool, budget)
     return [name, wrappedTool]
   })) as TTools
