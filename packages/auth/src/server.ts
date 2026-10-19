@@ -461,7 +461,6 @@ async function validateAuthorizationBody(
         await cleanupReader().catch(() => {});
         controller.error(error);
       }
-
     },
     async cancel(reason) {
       await cleanupReader(reason);
