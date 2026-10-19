@@ -1201,11 +1201,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // reader methods across the boundary. The platform Response constructor
     // performs the source-runtime brand check and creates a host stream whose
     // captured intrinsics can be bridged without executing foreign methods.
-    if (!nativeBodyReader && body !== null) {
-      const converted = new Response(body as ReadableStream<Uint8Array>)
-      body = converted.body
-      nativeBodyReader = nativeStreamGetReader
-    }
+    // A non-null body must be a validated native ReadableStream. Passing an
+    // arbitrary value to Response would stringify it into a new stream and
+    // incorrectly admit the malformed authorization result.
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
     // Reader validation yields to the event loop. Re-read the source

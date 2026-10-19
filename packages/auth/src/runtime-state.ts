@@ -13,6 +13,7 @@ export interface AuthRuntimeState {
    * server module when the app's Auth Definition changes, and the plugin does not run again.
    */
   envResolver?: AuthRuntimeEnvResolver
+  envResolvers?: WeakMap<object, AuthRuntimeEnvResolver>
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {
@@ -21,6 +22,7 @@ export function getAuthRuntimeState(): AuthRuntimeState {
     [authRuntimeStateKey]?: AuthRuntimeState
   }
   globalScope[authRuntimeStateKey] ??= {}
+  globalScope[authRuntimeStateKey].envResolvers ??= new WeakMap()
   return globalScope[authRuntimeStateKey]
 }
 
