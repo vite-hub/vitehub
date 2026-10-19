@@ -145,6 +145,7 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   }
   activeWebhookInboxLocks.add(key)
   const ownerKey = `${key}:owner`
+  let indexed = false
   try {
     await state.set(ownerKey, true, webhookInboxOwnerTtlMs)
   }
@@ -165,6 +166,7 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
       await state.appendToList(webhookInboxIndexKey(keyPrefix), { ...entry, attempts } satisfies StoredWebhookInboxEntry, {
         ttlMs: webhookInboxRetentionMs,
       })
+      indexed = true
     }
     await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
     return {
@@ -172,9 +174,12 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
       id: entry.id,
       async release() {
         clearInterval(ownerHeartbeat)
+        // Release the durable lock before removing the owner lease. Replay uses
+        // the lease as its crashed-owner signal; keeping it visible until the
+        // lock is gone prevents takeover during settlement.
+        await state.releaseLock(lock).catch(() => undefined)
         activeWebhookInboxLocks.delete(key)
         await state.delete(ownerKey).catch(() => undefined)
-        await state.releaseLock(lock).catch(() => undefined)
       },
       async settle() {
         clearInterval(ownerHeartbeat)
@@ -184,9 +189,9 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
         catch (error) {
           logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
         }
-        await state.delete(ownerKey).catch(() => undefined)
         await state.releaseLock(lock).catch(() => undefined)
         activeWebhookInboxLocks.delete(key)
+        await state.delete(ownerKey).catch(() => undefined)
       },
     }
   }
@@ -195,6 +200,11 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
     activeWebhookInboxLocks.delete(key)
     await state.delete(ownerKey).catch(() => undefined)
     await state.releaseLock(lock).catch(() => undefined)
+    if (indexed) {
+      const storedError = error instanceof Error ? error : new Error(String(error))
+      Object.assign(storedError, { webhookStored: true })
+      throw storedError
+    }
     throw error
   }
 }

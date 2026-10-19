@@ -8793,6 +8793,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           })
         }
         catch (error) {
+          if (isRuntimeObject(error) && (error as { webhookStored?: boolean }).webhookStored === true) {
+            return Response.json({ accepted: true, deferred: true, ok: true }, { headers: { "cache-control": "no-store" }, status: 202 })
+          }
           // Without a stored request, the route waits for admission as before.
           console.error(JSON.stringify({ scope: "vitehub.channel.delivery", event: "inbox.open.failed", ...inboxFields, error: channelDeliveryError(error) }))
           return await admitWebhook()
