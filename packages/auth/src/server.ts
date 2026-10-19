@@ -562,7 +562,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
           const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
           if (releaseResult !== undefined || releaseStream.locked) return
-          foreignReaderMethods.set(constructor, probeMethods)
+          const readerConstructor = Object.getOwnPropertyDescriptor(probePrototype, "constructor")?.value
+          if (typeof readerConstructor !== "function") return
+          foreignReaderMethods.set(readerConstructor, probeMethods)
           return descriptor.value
         }
         return
