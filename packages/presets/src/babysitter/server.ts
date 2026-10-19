@@ -1659,8 +1659,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           if (modelWorkParked) return;
 
           const current = await pullRequestInbox.get(repository, number);
+          // Checks and bot reviews often arrive during a pass and move the claim revision. A review of the
+          // unchanged head stays valid: its evidence key comes from the claim, so newer evidence still needs a pass.
           const assessed = passResult?.wait?.kind !== "external" && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
-            && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.isClaimCurrent(inboxClaim);
+            && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.holdsClaimedHead(inboxClaim);
           if (assessed) await recordAssessment(inboxClaim.snapshot, { head: pullRequest.headRefOid, evidenceKey: mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy) });
           // A push alone proves nothing, but a pass that reports its own pushed head as reviewed inspected the
           // feedback it was given. Record that feedback only, never the head's check evidence, so the next

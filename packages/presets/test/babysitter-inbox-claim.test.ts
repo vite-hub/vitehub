@@ -362,3 +362,26 @@ test('a review stored for an older head does not move a PR forward', async () =>
     assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [1, 2])
   } finally { await inbox.close() }
 })
+
+test('a claim keeps its head across unrelated events, but not across a source push or a lost lease', async () => {
+  let now = 1_000
+  const inbox = await fixture(() => now)
+  try {
+    const claim = (await inbox.claim(1))[0]!
+    await inbox.ingest('comment-during-pass', 'issue_comment', { repository: { full_name: 'vite-hub/vitehub' }, issue: { number: 42, pull_request: {} }, action: 'created', comment: { id: 1, body: 'Looks fine', user: { login: 'review-bot[bot]', type: 'Bot' } } })
+    assert.equal(await inbox.isClaimCurrent(claim), false)
+    assert.equal(await inbox.holdsClaimedHead(claim), true)
+    // A push webhook for the claimed head itself is not a new source head.
+    await inbox.ingest('same-head-push', 'push', { repository: { full_name: 'vite-hub/vitehub' }, ref: 'refs/heads/feature', after: 'new' })
+    assert.equal(await inbox.holdsClaimedHead(claim), true)
+    now += 24 * 60 * 60_000
+    assert.equal(await inbox.holdsClaimedHead(claim), false)
+  } finally { await inbox.close() }
+  const pushed = await fixture()
+  try {
+    const claim = (await pushed.claim(1))[0]!
+    await pushed.ingest('external-push', 'push', { repository: { full_name: 'vite-hub/vitehub' }, ref: 'refs/heads/feature', after: 'external' })
+    assert.equal((await pushed.get('vite-hub/vitehub', 42))?.pr?.head?.sha, 'new')
+    assert.equal(await pushed.holdsClaimedHead(claim), false)
+  } finally { await pushed.close() }
+})

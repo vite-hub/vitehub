@@ -1231,6 +1231,69 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("keeps a reviewed-head result when an unrelated event moves the claim during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
+    f.beforeResult(async () => {
+      await f.runtime.inbox.ingest("unrelated-edit-during-pass", "pull_request", {
+        repository: { full_name: "acme/app" }, action: "edited",
+        pull_request: { ...f.pr(), base: { ...f.pr().base, repo: { ...f.pr().base.repo, pushed_at: "2026-10-08T20:00:00Z", open_issues_count: 20 } } },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "waiting", lastResult: "Reviewed", attempts: 0, wait: { headSha: head } });
+      // The kept result costs the pass once, like a reviewed head on a current claim.
+      expect(current?.progressBudget?.count).toBe(1);
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("checks a reviewed head again when new feedback arrives during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
+    f.beforeResult(async () => {
+      f.beforeResult(() => {});
+      await f.runtime.inbox.ingest("bot-review-during-pass", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 101, body: "Finding after the pass started", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: head },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
+      await f.reconcile();
+      // The recorded evidence is from the claim, so the new review needs another pass.
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("discards a reviewed-head result when the head changes during the pass", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    f.beforeResult(async () => {
+      f.advanceHead("b".repeat(40));
+      await f.runtime.inbox.ingest("external-push-during-pass", "pull_request", {
+        repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr(),
+      });
+    });
+    try {
+      await f.reconcile();
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current?.pr?.head?.sha).toBe("b".repeat(40));
+      expect(current?.wait).toBeUndefined();
+      expect(current?.status).toBe("ready");
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("preserves the dependency installation opt-out in the configured preset", () => {
     const agent = defineAgent({ extends: babysitter, options: { install: false } });
     expect(agent.install).toBe(false);
