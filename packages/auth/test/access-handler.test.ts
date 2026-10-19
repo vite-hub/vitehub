@@ -204,7 +204,7 @@ describe("Auth access handlers", () => {
     ["a Promise subclass", new (class extends Promise<boolean> {
       then(): never { throw new Error("subclass then must not be called") }
     })(resolve => resolve(true))],
-    ["a Promise from another realm", runInNewContext("Promise.resolve(true)") as Promise<boolean>],
+    ["a Promise from another realm", vm.runInNewContext("Promise.resolve(true)") as Promise<boolean>],
   ])("adopts native authorization promises from %s without reflective then", async (_label, result) => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => result as never }] },
@@ -450,7 +450,7 @@ describe("Auth access handlers", () => {
         Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
         return response
       }],
-      ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
+      ["a Response created in another realm", () => vm.runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
     ])("normalizes %s", async (_name, create) => {
       const result = await run(await create())
       expect(result?.status).toBe(409)
@@ -473,7 +473,7 @@ describe("Auth access handlers", () => {
       ["a proxy around a Response", () => new Proxy(new Response("Policy rejected", { status: 409 }), {})],
       ["an object created from Response.prototype", () => Object.create(Response.prototype)],
       ["an object tagged Response", () => ({ status: 409, statusText: "Conflict", headers: new Headers(), [Symbol.toStringTag]: "Response" })],
-      ["an instance of a class named Response", () => runInNewContext(`new (class Response {
+      ["an instance of a class named Response", () => vm.runInNewContext(`new (class Response {
         get status() { return 409 }
         get headers() { return new Headers({ "x-policy": "forged" }) }
         get body() { return null }
@@ -727,7 +727,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects objects that spoof the Response shape", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+    const foreignResponse = vm.runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return { get() { return null } } }
@@ -742,7 +742,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects a forged Response-named prototype with valid headers", async () => {
-    const forgedResponse = runInNewContext(`new (class Response {
+    const forgedResponse = vm.runInNewContext(`new (class Response {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return new Headers({ "x-policy": "forged" }) }
