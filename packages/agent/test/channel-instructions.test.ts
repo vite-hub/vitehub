@@ -55,7 +55,13 @@ function createModel(withUsage = true) {
   return {
     doGenerate: async (options: { prompt: Array<{ content: string, role: string }>, responseFormat?: unknown }) => {
       doGenerateCalls.push(options)
-      return withUsage ? generateResult : { ...generateResult, usage: undefined }
+      return withUsage ? generateResult : {
+        ...generateResult,
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 0, total: 0 },
+          outputTokens: { reasoning: 0, text: 0, total: 0 },
+        },
+      }
     },
     doGenerateCalls,
     doStream: async () => {

@@ -557,10 +557,12 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   if (evidence.length === 0) return undefined
 
   const { generateText } = await loadAiSdk()
-  context.executionBudget?.recordRetry()
+  const budgetLimits = context.executionBudget?.snapshot().limits
+  const hasBudgetConstraints = budgetLimits ? Object.values(budgetLimits).some(value => value !== undefined) : false
+  if (hasBudgetConstraints) context.executionBudget?.recordRetry()
   const summary = await generateText({
     abortSignal: context.input.abortSignal,
-    maxRetries: context.executionBudget ? 0 : undefined,
+    maxRetries: hasBudgetConstraints ? 0 : undefined,
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
