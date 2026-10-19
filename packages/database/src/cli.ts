@@ -130,7 +130,7 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
-function resolveDrizzleKit(rootDirs: string[]): string {
+function resolveDrizzleKit(rootDirs: string[]): string | undefined {
   for (const rootDir of [...new Set(rootDirs)]) {
     try {
       // Prefer the Database project, then the invoking application. Both roots
@@ -140,7 +140,11 @@ function resolveDrizzleKit(rootDirs: string[]): string {
       // Try the next supported project root.
     }
   }
-  return require.resolve("drizzle-kit")
+  try {
+    return require.resolve("drizzle-kit")
+  } catch {
+    return undefined
+  }
 }
 
 async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string, drizzleKitRoots: string[] = [context.rootDir, process.cwd()]): Promise<number> {
@@ -156,8 +160,13 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
   // Run Drizzle Kit's JavaScript entry through Node instead.
   const windows = process.platform === "win32"
   const command = windows ? process.execPath : "drizzle-kit"
+  const drizzleKitEntry = windows ? resolveDrizzleKit(drizzleKitRoots) : undefined
+  if (windows && !drizzleKitEntry) {
+    context.stderr.write("[vitehub] drizzle-kit is not installed or cannot be resolved from the Database or invoking project root. Install drizzle-kit and try again.\n")
+    return 1
+  }
   const commandArgs = windows
-    ? [join(dirname(resolveDrizzleKit(drizzleKitRoots)), "bin.cjs"), ...drizzleArgs]
+    ? [join(dirname(drizzleKitEntry!), "bin.cjs"), ...drizzleArgs]
     : drizzleArgs
   const result = await context.spawn(command, commandArgs, {
     cwd: context.rootDir,

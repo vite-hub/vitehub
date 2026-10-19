@@ -115,7 +115,7 @@ describe("Database table names", () => {
   it("marks imported and spread schemas in source-only inspection", async () => {
     const tables = async (form: string) => {
       const rootDir = await createProject(forms[form]!.definition)
-      const [definition] = inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
+      const [definition] = await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })
       return definition!.fields.find(field => field.label === "Tables")?.value
     }
 
