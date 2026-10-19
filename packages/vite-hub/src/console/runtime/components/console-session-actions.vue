@@ -46,7 +46,9 @@ const rerunUnavailable: Record<string, string> = {
 };
 const rerunLabel = computed(() => {
   if (props.rerun.available) return "Rerun with the same prompt";
-  return rerunUnavailable[props.rerun.reason] ?? "Rerun is unavailable for this session";
+  return Object.hasOwn(rerunUnavailable, props.rerun.reason)
+    ? rerunUnavailable[props.rerun.reason]!
+    : "Rerun is unavailable for this session";
 });
 const deleteLabel = computed(() =>
   props.deletable ? "Delete session" : props.deleteUnavailableReason === "store-delete-unavailable"

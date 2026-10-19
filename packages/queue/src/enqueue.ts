@@ -14,7 +14,11 @@ export function createQueueMessageId(prefix = "queue"): string {
 
 /** Payload properties never select enqueue options. */
 export function normalizeQueueEnqueueInput<TPayload>(payload: TPayload, options: QueueEnqueueOptions = {}): NormalizedQueueEnqueueInput<TPayload> {
-  const { id, ...providerOptions } = options
+  const providerOptions = { ...options }
+  const id = Object.hasOwn(providerOptions, "id")
+    ? providerOptions.id
+    : Object.hasOwn(options, "id") ? options.id : undefined
+  delete providerOptions.id
   return {
     id: typeof id === "string" && id.length > 0 ? id : createQueueMessageId(),
     options: providerOptions,

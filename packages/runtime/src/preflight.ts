@@ -120,7 +120,12 @@ function normalizeReason(value: unknown): string | undefined {
 
 function normalizeThrownReason(value: unknown): string | undefined {
   try {
-    return normalizeReason(value instanceof Error ? value.message : value)
+    if (value instanceof Error) return normalizeReason(value.message)
+    if (value !== null && hasRuntimeType(value, "object")) {
+      const message = Object.getOwnPropertyDescriptor(value, "message")
+      if (message && "value" in message) return normalizeReason(message.value)
+    }
+    return normalizeReason(value)
   }
   catch {
     return

@@ -236,6 +236,8 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(copiedBackup)).toBe(false)
+    expect(existsSync(join(rootDir, "dist", "client", relative(clientDir, cloudflareDir)))).toBe(false)
+    await expect(readFile(join(rootDir, "dist", "client", "index.html"), "utf8")).resolves.toBe("<!doctype html>\n")
   })
 
   it("backs up custom Cloudflare roots outside their client tree", async () => {
@@ -1647,6 +1649,78 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("copies optional Node runtime dependencies when installed", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    const runtimePackageDir = await writePackage(rootDir, "runtime-package", {
+      optionalDependencies: { "optional-runtime": "1.0.0" },
+      exports: { ".": "./index.js" },
+      type: "module",
+    })
+    await writeFile(join(runtimePackageDir, "index.js"), "import 'optional-runtime'\n", "utf8")
+    await writePackage(rootDir, "optional-runtime")
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "optional-runtime", "index.js"))).toBe(true)
+  })
+
+  it("keeps duplicated optional Node runtime dependencies optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      dependencies: { "optional-runtime": "1.0.0" },
+      optionalDependencies: { "optional-runtime": "1.0.0" },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+    })).resolves.toBeUndefined()
+  })
+
+  it("requires duplicated peer dependencies when the peer is not optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      optionalDependencies: { "required-peer": "1.0.0" },
+      peerDependencies: { "required-peer": "1.0.0" },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ includePeerDependencies: true, name: "runtime-package" }],
+      rootDir,
+    })).rejects.toMatchObject({
+      code: "INTERNAL_B0046",
+    })
+  })
+
+  it("keeps duplicated optional peer dependencies optional", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "runtime-package", {
+      optionalDependencies: { "optional-peer": "1.0.0" },
+      peerDependencies: { "optional-peer": "1.0.0" },
+      peerDependenciesMeta: { "optional-peer": { optional: true } },
+    })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await expect(copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ includePeerDependencies: true, name: "runtime-package" }],
+      rootDir,
+    })).resolves.toBeUndefined()
+  })
+
   it("copies cyclic Node runtime package dependencies once", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
@@ -1682,52 +1756,6 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(join(outputNodeModules, "runtime-peer", "package.json"))).toBe(true)
-  })
-
-  it("preserves nested dependency versions in copied Vercel runtime packages", async () => {
-    const rootDir = await createTempProject()
-    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
-    const { copyVercelFunctionRuntimePackageDirectories } = await import("../src/build/vercel-runtime-package-copy.ts")
-    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
-    const firstDir = await writePackage(rootDir, "first-runtime", { dependencies: { shared: "1.0.0" } })
-    await writePackage(rootDir, "shared", { version: "2.0.0" })
-    await writePackage(firstDir, "shared", { version: "1.0.0" })
-    await mkdir(serverDir, { recursive: true })
-
-    await copyVercelFunctionRuntimePackageDirectories({
-      packages: [{ name: "first-runtime" }, { name: "shared" }],
-      rootDir,
-    })
-
-    await expect(readFile(join(serverDir, "node_modules", "first-runtime", "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "1.0.0")
-    await expect(readFile(join(serverDir, "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "2.0.0")
-  })
-
-  it("rolls back copied Vercel runtime package directories when cancellation follows the live swap", async () => {
-    const rootDir = await createTempProject()
-    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
-    const { copyVercelFunctionRuntimePackageDirectories } = await import("../src/build/vercel-runtime-package-copy.ts")
-    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
-    const existingPackage = join(serverDir, "node_modules", "runtime-package")
-    await writePackage(rootDir, "runtime-package")
-    await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
-    await mkdir(existingPackage, { recursive: true })
-    await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
-    let checks = 0
-    const signal = {
-      throwIfAborted() {
-        checks += 1
-        if (checks === 3) throw new DOMException("cancelled", "AbortError")
-      },
-    } as AbortSignal
-
-    await expect(copyVercelFunctionRuntimePackageDirectories({
-      packages: [{ name: "runtime-package" }],
-      rootDir,
-      signal,
-    })).rejects.toHaveProperty("name", "AbortError")
-
-    await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
   })
 
   it("resolves import-only Vercel runtime packages from an explicit package location", async () => {

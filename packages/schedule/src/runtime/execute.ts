@@ -22,6 +22,29 @@ interface ExecuteScheduleOptions {
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
+interface ExecuteRuntimeScheduleOptions {
+  captureHandlerFailure?: boolean
+  id: string
+  intent?: "manual" | "provider"
+  requireDue?: boolean
+  runtimeScheduleStore?: RuntimeScheduleStore
+  scheduledAt?: Date
+  scheduleRunStore?: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+interface ExecuteRuntimeScheduleWakeOptions {
+  runtimeScheduleStore: RuntimeScheduleStore
+  scheduleRunStore: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", { details: invalidScheduleValueDetails("options", options) })
+  }
+}
+
 interface ExecuteStaticScheduleOptions {
   cron: string
   definition: ScheduleDefinition
@@ -71,13 +94,22 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
+function isDate(value: unknown): value is Date {
+  try {
+    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
+  }
+  catch {
+    return false
+  }
+}
+
 function validateScheduledAt(scheduledAt: Date): Date {
-  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+  if (!isDate(scheduledAt)) {
     throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
       details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
     })
   }
-  return scheduledAt
+  return new Date(Date.prototype.getTime.call(scheduledAt))
 }
 
 function toRunError(error: unknown): ScheduleRunError {

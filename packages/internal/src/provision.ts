@@ -152,13 +152,16 @@ export class ProvisionRequestError extends Diagnostic {
 function createJsonClient(baseURL: string, headers: Record<string, string>, fetchImpl: typeof globalThis.fetch, baseQuery?: Record<string, string>): ProvisionRequest {
   return async function request<T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}): Promise<unknown> {
     const url = new URL(`${baseURL}${path}`)
-    for (const [key, value] of Object.entries({ ...baseQuery, ...options.query })) {
+    const query = Object.hasOwn(options, "query") ? options.query : undefined
+    for (const [key, value] of Object.entries({ ...baseQuery, ...query })) {
       url.searchParams.set(key, value)
     }
-    const init: RequestInit = { method: options.method ?? "GET", headers: { ...headers } }
-    if (options.body !== undefined) {
+    const method = Object.hasOwn(options, "method") ? options.method : undefined
+    const body = Object.hasOwn(options, "body") ? options.body : undefined
+    const init: RequestInit = { method: method ?? "GET", headers: { ...headers } }
+    if (body !== undefined) {
       init.headers = { ...init.headers, "content-type": "application/json" }
-      init.body = JSON.stringify(options.body)
+      init.body = JSON.stringify(body)
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
@@ -169,7 +172,7 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
       const codes = [body?.error?.code, ...body?.errors?.map(error => error.code) ?? []]
         .filter((code): code is number | string => typeof code === "number"
           || (typeof code === "string" && /^[\w.-]{1,128}$/.test(code)))
-      throw new ProvisionRequestError(options.method ?? "GET", path, response.status, codes)
+      throw new ProvisionRequestError(method ?? "GET", path, response.status, codes)
     }
     const value: unknown = await response.json()
     const parse = ownParser(options)

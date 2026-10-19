@@ -63,11 +63,22 @@ export function splitShellCommandSegments(command: string) {
   let current = ""
   let quote: "'" | "\"" | undefined
   let escaped = false
+  let comment = false
+  let wordBoundary = true
   let followsPipe = false
   for (let index = 0; index < command.length; index++) {
     const char = command[index]!
+    if (comment) {
+      if (char !== "\n") continue
+      comment = false
+    }
     if (escaped) {
+      if (char === "\n") {
+        escaped = false
+        continue
+      }
       current += char
+      wordBoundary = false
       escaped = false
       continue
     }
@@ -79,11 +90,17 @@ export function splitShellCommandSegments(command: string) {
     if (quote) {
       if (char === quote) quote = undefined
       current += char
+      wordBoundary = false
       continue
     }
     if (char === "'" || char === "\"") {
       quote = char
       current += char
+      wordBoundary = false
+      continue
+    }
+    if (char === "#" && wordBoundary) {
+      comment = true
       continue
     }
     const next = command[index + 1]
@@ -91,6 +108,7 @@ export function splitShellCommandSegments(command: string) {
       segments.push({ command: current, followsPipe, separatorAfter: "&&" })
       current = ""
       followsPipe = false
+      wordBoundary = true
       index += 1
       continue
     }
@@ -98,6 +116,7 @@ export function splitShellCommandSegments(command: string) {
       segments.push({ command: current, followsPipe, separatorAfter: "||" })
       current = ""
       followsPipe = false
+      wordBoundary = true
       index += 1
       continue
     }
@@ -105,9 +124,11 @@ export function splitShellCommandSegments(command: string) {
       segments.push({ command: current, followsPipe, separatorAfter: char })
       current = ""
       followsPipe = char === "|"
+      wordBoundary = true
       continue
     }
     current += char
+    wordBoundary = /[\s()<>]/.test(char) || char === "&"
   }
   segments.push({ command: current, followsPipe })
   return segments

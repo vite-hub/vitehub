@@ -4,7 +4,7 @@ import { importSealKey, seal } from "@vite-hub/env/seal"
 import { drizzle } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { Miniflare } from "miniflare"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createDatabaseConnectionStore } from "../src/store.ts"
 
@@ -18,7 +18,7 @@ describe("stored Connection scopes", () => {
       expect((await store.state.get("mail"))?.scopes).toEqual(["mail.read"])
       for (const scopes of ['["mail.read", 42]', '{}', 'null']) {
         await db.run(sql`UPDATE vitehub_connection_state SET scopes = ${scopes} WHERE name = 'mail'`)
-        await expect(store.state.get("mail")).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+        await expect(store.state.get("mail")).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_STORED_DATA" })
       }
     }
     finally {
@@ -135,7 +135,7 @@ describe("approval execution leases", () => {
       await store.approvals.recover("2026-09-30T00:10:00.000Z")
       expect(await store.approvals.get("a1")).toMatchObject({
         status: "failed",
-        error: "CONNECTION_EXECUTION_UNKNOWN",
+        error: "CONNECTIONS_EXECUTION_UNKNOWN",
       })
       await store.approvals.renew("a1", "2026-09-30T00:20:00.000Z")
       expect(
@@ -147,6 +147,22 @@ describe("approval execution leases", () => {
       client.close()
     }
   })
+})
+
+it("removes authorizations at their exact expiration timestamp", async () => {
+  const client = createClient({ url: ":memory:" })
+  const now = Date.now()
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+  try {
+    const store = createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(9) })
+    await store.authorizations.put({ actor: "user:local", expiresAt: now, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "expired", verifier: "verifier" })
+    await store.authorizations.put({ actor: "user:local", expiresAt: now + 60_000, name: "mail", redirectUri: "http://127.0.0.1/callback", state: "current", verifier: "verifier" })
+    await expect(store.authorizations.take("expired")).resolves.toBeUndefined()
+    await expect(store.authorizations.take("current")).resolves.toMatchObject({ state: "current" })
+  } finally {
+    clock.mockRestore()
+    client.close()
+  }
 })
 
 it("updates Connection metadata atomically at the token revision", async () => {

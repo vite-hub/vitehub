@@ -22,4 +22,7 @@ Pass stable run identity, actor/context, input, wait-until behavior, timeouts, a
 
 ## Proof
 
-Invoke the Agent directly first. Then exercise the Schedule or Workflow path, observe step/invocation identity, retry behavior, and terminal state. For provider-backed wakeups or workflows, inspect the target Provider Output and one live execution.
+For an Agent-backed path, invoke the Agent directly first. For a Schedule,
+exercise one manual run and one scheduled wake. For a Workflow, observe step or
+invocation identity, retry behavior, and terminal state. For provider-backed
+wakeups or workflows, inspect the target Provider Output and one live execution.

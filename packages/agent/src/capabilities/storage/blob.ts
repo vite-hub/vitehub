@@ -2,7 +2,6 @@ import { defineCapability, normalizeMode, workspaceMaterializationPathsSymbol } 
 import { publishWorkspaceArtifacts, rewriteDeliveryArtifactMarkdown } from "../../delivery-artifacts.ts"
 import { toAgentRunResult } from "../../agent-output.ts"
 import {
-  clearAgentWorkspaceDiff,
   readActiveAgentWorkspaceFile,
   readAgentWorkspaceDiff,
 } from "../../agent-workspace-runtime.ts"
@@ -180,7 +179,6 @@ async function publishReferencedAgentArtifacts(
   options: BlobCapabilityOptions,
 ): Promise<unknown> {
   const diff = readAgentWorkspaceDiff(context.context)
-  clearAgentWorkspaceDiff(context.context)
   if (!diff) return result
 
   const runResult = toAgentRunResult(result)

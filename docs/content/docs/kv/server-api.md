@@ -64,7 +64,7 @@ const [incrementError, attempts] = await kv.increment('rate-limit:user', 60)
 if (incrementError) throw incrementError
 ```
 
-`increment()` applies the TTL only when it creates the counter. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore reject both methods. Use the [Rate Limit primitive](/docs/rate-limit) when provider-managed request budgets fit the application.
+`increment()` applies the TTL only when it creates the counter. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods. Use the [Rate Limit primitive](/docs/rate-limit) when provider-managed request budgets fit the application.
 
 ## Runtime helper
 
@@ -79,10 +79,11 @@ if (incrementError) throw incrementError
 | `kv.increment(key, ttl)` | Atomically increments a counter on Upstash. |
 | `kv.del(key)` | Deletes one key. |
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
+| `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
 | `kv.store(name)` | Selects a named KV Store. |
 
-Every async method returns `[error, value]`. Provider failures are `ViteHubError` values with code `KV_OPERATION_FAILED`, operation/store details, and the provider failure in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Invalid configuration and unknown named stores still throw before provider execution.
+Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
 ## Application teardown
 

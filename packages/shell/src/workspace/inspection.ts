@@ -7,11 +7,13 @@ import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
 
 import type { ShellExecutionProvider, ShellObservation } from "../runtime/types.ts"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
+  budget?: ExecutionBudget
   broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
@@ -19,6 +21,7 @@ interface WorkspaceInspectionCommandOptions {
   maxOutputLength?: number
   networkGrants?: ShellNetworkGrantExecutor
   provider?: ShellExecutionProvider
+  signal?: AbortSignal
   timeout?: number
 }
 
@@ -27,19 +30,23 @@ export async function runWorkspaceInspectionCommand(
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
-  const maxOutputLength = options.maxOutputLength || 30_000
-  const timeout = options.timeout || 30_000
+  throwIfAborted(options.signal)
+  const maxOutputLength = options.maxOutputLength === undefined
+    ? 30_000
+    : normalizeOutputLength(options.maxOutputLength)
+  const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  const chargeRejected = () => options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
-  if (unsupportedSyntax) return unsupportedSyntax
-  const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd)
-  if (preflight) return preflight
+  if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
+  const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, options.signal)
+  if (preflight) { chargeRejected(); return limitInspectionObservation(preflight, maxOutputLength) }
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
-  if (pipedBroadSearch) return pipedBroadSearch
-  const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
-  if (missingPath) return missingPath
+  if (pipedBroadSearch) { chargeRejected(); return limitInspectionObservation(pipedBroadSearch, maxOutputLength) }
+  const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd, options.signal)
+  if (missingPath) { chargeRejected(); return limitInspectionObservation(missingPath, maxOutputLength) }
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
-  if (unsupported) return unsupported
+  if (unsupported) { chargeRejected(); return limitInspectionObservation(unsupported, maxOutputLength) }
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -53,10 +60,49 @@ export async function runWorkspaceInspectionCommand(
     }),
   })
   const cwd = options.cwd || workspaceMountPoint
-  const result = await runtime.exec(command, { cwd, timeout, workspacePaths: workspaceSessionPaths(command, cwd) })
+  const result = await runtime.exec(command, {
+    budget: options.budget,
+    cwd,
+    timeout,
+    signal: options.signal,
+    workspacePaths: workspaceSessionPaths(command, cwd),
+  })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+  if (!noMatchFeedback) return result
+  const bounded = limitInspectionFeedback(noMatchFeedback, maxOutputLength)
+  return {
+    ...result,
+    stdout: bounded.stdout,
+    outputTruncated: result.outputTruncated || bounded.outputTruncated,
+    workspaceGuardrail: { kind: "no_match" },
+  }
+}
+
+function limitInspectionFeedback(feedback: string, maxLength: number | undefined) {
+  if (maxLength === undefined || feedback.length <= maxLength) return { stdout: feedback, outputTruncated: false }
+  return {
+    stdout: `${feedback.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`,
+    outputTruncated: true,
+  }
+}
+
+function limitInspectionObservation(observation: ShellObservation, maxLength: number | undefined): ShellObservation {
+  const bounded = limitInspectionFeedback(observation.stdout, maxLength)
+  const boundedError = limitInspectionFeedback(observation.stderr, maxLength)
+  if (!bounded.outputTruncated && !boundedError.outputTruncated) return observation
+  return {
+    ...observation,
+    stdout: bounded.stdout,
+    stderr: boundedError.stdout,
+    outputTruncated: true,
+  }
+}
+
+function normalizeOutputLength(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (value === Number.POSITIVE_INFINITY) return undefined
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {
@@ -105,24 +151,29 @@ function usesWorkspaceNetworkGrant(command: string) {
   }
 }
 
-async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
+async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
   try {
-    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd)) {
+    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd, signal)) {
+      throwIfAborted(signal)
       if (isBroadWorkspaceSearch(segment, broadSearchPaths, segmentCwd)) return broadWorkspaceSearchFeedback(broadSearchPaths)
     }
   }
   catch {
+    throwIfAborted(signal)
     return undefined
   }
 }
 
-async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
+async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShellFileSystem, cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
   try {
-    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd)) {
+    for await (const { segment, cwd: segmentCwd } of walkWorkspaceInspectionCommand(command, fs, cwd, signal)) {
+      throwIfAborted(signal)
       for (const path of segment.paths) {
         if (!isConcreteWorkspacePath(path)) continue
         const resolvedPath = resolveWorkspaceShellPath(segmentCwd, path)
-        if (await fs.exists(resolvedPath)) continue
+        const exists = await fs.exists(resolvedPath)
+        throwIfAborted(signal)
+        if (exists) continue
         if (segment.separatorAfter === "||") continue
         return missingWorkspacePathFeedback(command, resolvedPath)
       }
@@ -130,15 +181,17 @@ async function preflightMissingWorkspacePath(command: string, fs: WorkspaceShell
     }
   }
   catch {
+    throwIfAborted(signal)
     return undefined
   }
 }
 
-async function* walkWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, cwd: string) {
+async function* walkWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, cwd: string, signal?: AbortSignal) {
   let currentCwd = cwd
   let skipAndChain = false
   let skipOrChain = false
   for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+    throwIfAborted(signal)
     if (skipAndChain) {
       skipAndChain = segment.separatorAfter === "&&"
       continue
@@ -153,6 +206,7 @@ async function* walkWorkspaceInspectionCommand(command: string, fs: WorkspaceShe
       if (!isWorkspacePathCandidate(path)) continue
       const resolvedPath = resolveWorkspaceShellPath(currentCwd, path)
       const directory = await workspacePathIsDirectory(fs, resolvedPath)
+      throwIfAborted(signal)
       if (segment.separatorAfter === "&&" && !directory) skipAndChain = true
       if (segment.separatorAfter === "||" && directory) skipOrChain = true
       if (directory) {
@@ -162,6 +216,10 @@ async function* walkWorkspaceInspectionCommand(command: string, fs: WorkspaceShe
     }
     yield { segment, cwd: currentCwd }
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  signal?.throwIfAborted()
 }
 
 async function workspacePathIsDirectory(fs: WorkspaceShellFileSystem, path: string) {
@@ -247,7 +305,11 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
         continue
       }
       const paths = segment.paths
-      const hasBroadPath = paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))
+      const hasBroadPath = paths.some(path => {
+        const resolved = cleanWorkspaceShellPath(resolvedWorkspaceCwd(currentCwd, path))
+        return isBroadWorkspacePath(path, broadSearchPaths, currentCwd)
+          || broadSearchPaths.some(root => resolved.startsWith(`${cleanWorkspaceShellPath(root)}/`))
+      })
       if (!hasBroadPath) {
         if (segment.separatorAfter === "&&") return ""
         continue

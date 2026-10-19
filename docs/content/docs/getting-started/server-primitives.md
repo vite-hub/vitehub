@@ -34,7 +34,7 @@ You can add Agents later if your product needs them.
 | Parse, query, search, and serve content from Sources | [Content](/docs/content) |
 | Background delivery that returns before work finishes | [Queue](/docs/queue) |
 | Durable long-running work with provider-tracked run state | [Workflows](/docs/workflows) |
-| Static cron output or recurring runtime schedules | [Schedule](/docs/schedule) |
+| Static cron output | [Schedule](/docs/schedule) |
 | Isolated provider-managed execution | [Sandbox](/docs/sandbox) |
 | Controlled Unix-like command sessions | [Shell](/docs/shell) |
 
@@ -51,6 +51,10 @@ export default defineEventHandler(async (event) => {
   return { ok: true }
 })
 ```
+
+This route uses Nuxt/Nitro's auto-imported `defineEventHandler` and `readBody`.
+In a plain Vite server, import those helpers from `h3` and connect the handler
+to your server entry. The ViteHub primitive import stays the same.
 
 The route doesn't need to know whether KV uses local files, Cloudflare, Vercel, or another driver.
 

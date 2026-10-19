@@ -14,7 +14,7 @@ const rect = (x: number, y: number, width: number, height: number, rx = 1.5): Sh
 const path = (d: string): Shape => ["path", { d }];
 
 /** Square 24px icons, one for each Server Primitive and docs area. Strokes use currentColor. */
-export const primitiveIcons = {
+const primitiveIcons = {
   agent: {
     base: [rect(4.5, 9, 15, 11, 3), path("M12 6v3"), ["circle", { cx: 12, cy: 5, r: 1 }]],
     motion: [path("M9.5 13.5v2M14.5 13.5v2")],

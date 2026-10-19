@@ -143,8 +143,12 @@ function skipBlockComment(source: string, index: number) {
   return end === -1 ? source.length : end + 2
 }
 
+// ECMAScript IdentifierPart includes the two join controls in addition to
+// Unicode ID_Continue characters.
+const identifierCharPattern = /(?:[\p{ID_Continue}$]|\u200C|\u200D)/u
+
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\p{ID_Continue}$]/u.test(char)
+  return !!char && identifierCharPattern.test(char)
 }
 
 function isIdentifierStart(char: string | undefined) {
@@ -757,15 +761,77 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
   }
 }
 
-function isMethodDeclarationName(source: string, index: number, closeParen: number) {
-  const previous = previousNonWhitespace(source, index)
-  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
-    && previous !== "("
-    && previous !== "="
-    && previous !== ","
-    && previous !== ":"
+interface TypeMemberContext {
+  masked: string
+  enclosingBraces: Int32Array
+  boundaries: Int32Array
+  closeParens: Int32Array
+  parents: Map<number, number>
+  heads: Map<number, string>
 }
 
+function createTypeMemberContext(source: string, controlFlowRegexes: ControlFlowRegexCache): TypeMemberContext {
+  const masked = maskSourceLiteralsWithContext(source, controlFlowRegexes)
+  const enclosingBraces = new Int32Array(masked.length)
+  const boundaries = new Int32Array(masked.length)
+  const closeParens = new Int32Array(masked.length)
+  const parents = new Map<number, number>()
+  const heads = new Map<number, string>()
+  const stack: number[] = []
+  let boundary = -1
+  let closeParen = -1
+  for (let index = 0; index < masked.length; index++) {
+    const parent = stack.at(-1) ?? -1
+    enclosingBraces[index] = parent
+    boundaries[index] = boundary
+    closeParens[index] = closeParen
+    const char = masked[index]
+    if (char === "{") {
+      parents.set(index, parent)
+      heads.set(index, masked.slice(boundary + 1, index))
+      stack.push(index)
+    }
+    else if (char === "}") stack.pop()
+    if (char === "{" || char === "}" || char === ";") boundary = index
+    if (char === ")") closeParen = index
+  }
+  return { masked, enclosingBraces, boundaries, closeParens, parents, heads }
+}
+
+function isTypeMemberDeclaration(context: TypeMemberContext, index: number) {
+  const { masked, enclosingBraces, boundaries, closeParens, parents, heads } = context
+  const openBrace = enclosingBraces[index] ?? -1
+  if (openBrace < 0) return false
+  const isTypeBrace = (brace: number, nested: boolean): boolean => {
+    const head = heads.get(brace) ?? ""
+    const declarationPrefix = masked.slice(0, brace)
+    const isInterfaceHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*$/s.test(head)
+      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
+    if (isInterfaceHead) return true
+    const isClassHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*$/s.test(head)
+      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
+    if (isClassHead) {
+      // Only the suffix after the last member delimiter can introduce a signature.
+      const prefixStart = Math.max(brace + 1, (boundaries[index] ?? -1) + 1, closeParens[index] ?? -1)
+      return /(?:^|\)(?:[^\S\r\n\u2028\u2029]*:[^;{}=\r\n\u2028\u2029]*)?[^\S\r\n\u2028\u2029]*[\r\n\u2028\u2029])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(prefixStart, index))
+    }
+    if (/^\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(head) || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(declarationPrefix)) return true
+    if (/^\s*(?:export\s+)?declare\s+(?:namespace|module)\b[^{}]*$/s.test(head)) return true
+    if (!head.trimEnd().endsWith(":")) return false
+    if (nested) return true
+    return /\b(?:const|let|var)\s+[^;{}:]+:\s*$/s.test(head) || /\)\s*:\s*$/s.test(head)
+  }
+  const enclosingBrace = parents.get(openBrace) ?? -1
+  return isTypeBrace(openBrace, enclosingBrace >= 0 && isTypeBrace(enclosingBrace, false))
+}
+
+function isMethodDeclarationName(source: string, index: number, closeParen: number, context: TypeMemberContext) {
+  const previous = previousNonWhitespace(source, index)
+  if (previous === "(" || previous === "=" || previous === "," || previous === ":") return false
+  const next = source[skipWhitespaceAndComments(source, closeParen + 1)]
+  if (next === "{") return true
+  return isTypeMemberDeclaration(context, index)
+}
 function isMemberAccessName(source: string, index: number) {
   return previousNonWhitespace(source, index) === "."
 }
@@ -915,11 +981,50 @@ function isNamedAssertionComparison(source: string, index: number, genericEnd: n
   return !/^(?:as|satisfies)\s+\S/u.test(suffix) && /^[\p{ID_Start}_$\d"'`]/u.test(suffix)
 }
 
+// One token of an assertion type. A sticky match takes each token once and
+// never splits it again, so a long prefix that is not an assertion type is
+// rejected in linear time.
+const assertionTypeToken = /[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:]/uy
+
 function hasAssertionTypePrefix(source: string) {
   // Mask completed type regions, including import arguments and comments,
   // before recognizing the continuation of a union or intersection.
   const prefix = decodeIdentifier(maskAssertionTypeArguments(source))
-  return /(?:^|[^\p{ID_Continue}$.])(?:as|satisfies)\s+(?:[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:])+$/u.test(prefix)
+  // The prefix continues an assertion when the text after an `as` or
+  // `satisfies` keyword is only type tokens up to the end.
+  // Cache each token boundary so candidates that overlap do not rescan their
+  // shared suffix. A failed token is cached as `undefined`.
+  const tokenEnds = new Map<number, number | undefined>()
+  const reachesEnd = new Map<number, boolean>()
+  const tokenEndAt = (index: number) => {
+    if (tokenEnds.has(index)) return tokenEnds.get(index)
+    assertionTypeToken.lastIndex = index
+    const end = assertionTypeToken.test(prefix) ? assertionTypeToken.lastIndex : undefined
+    tokenEnds.set(index, end)
+    return end
+  }
+  const tokenizableToEnd = (start: number) => {
+    const pending: number[] = []
+    let index = start
+    while (index < prefix.length && !reachesEnd.has(index)) {
+      pending.push(index)
+      const end = tokenEndAt(index)
+      if (end === undefined) {
+        for (const position of pending) reachesEnd.set(position, false)
+        return false
+      }
+      index = end
+    }
+    const result = index === prefix.length || reachesEnd.get(index) === true
+    for (const position of pending) reachesEnd.set(position, result)
+    return result
+  }
+  for (const keyword of prefix.matchAll(/(?<![\p{ID_Continue}$.])(?:as|satisfies)\s/gu)) {
+    let index = keyword.index + keyword[0].length
+    if (index === prefix.length) continue
+    if (tokenizableToEnd(index)) return true
+  }
+  return false
 }
 
 function maskAssertionTypeArguments(source: string) {
@@ -1055,6 +1160,7 @@ function splitTopLevelWithContext(source: string, separator: string, controlFlow
 
 function findIdentifierCallsWithContext(source: string, name: string, controlFlowRegexes: ControlFlowRegexCache): IdentifierCall[] {
   const calls: IdentifierCall[] = []
+  let typeMembers: TypeMemberContext | undefined
   let previousSignificant = ""
   for (let index = 0; index < source.length; index++) {
     const char = source[index]
@@ -1113,7 +1219,7 @@ function findIdentifierCallsWithContext(source: string, name: string, controlFlo
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
-    if (isMethodDeclarationName(source, index, closeParen)) {
+    if (isMethodDeclarationName(source, index, closeParen, typeMembers ??= createTypeMemberContext(source, controlFlowRegexes))) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }

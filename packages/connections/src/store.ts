@@ -4,11 +4,12 @@ import { importSealKey, unseal } from "@vite-hub/env/seal"
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
+import { resolveActivityRetention } from "./internal/activity-retention.ts"
 
 import type { EnvAccessStore, EnvBridge, EnvSecretStore } from "@vite-hub/env/bridge"
 import type { EnvDatabase } from "@vite-hub/env/database"
-import type { ConnectionApproval, ConnectionApprovalPage, ConnectionApprovalStatus } from "./types.ts"
+import type { ConnectionActivityRetention, ConnectionApproval, ConnectionApprovalPage, ConnectionApprovalStatus } from "./types.ts"
 
 export interface ConnectionState {
   accountEmail?: string
@@ -109,14 +110,14 @@ function parseJson(value: string): unknown {
     return JSON.parse(value)
   }
   catch {
-    throw new ConnectionError("invalid", "Stored Connection data is invalid.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "data" })
   }
 }
 
 function stringArray(value: string): string[] {
   const parsed = parseJson(value)
   const result = v.safeParse(v.array(v.string()), parsed)
-  if (!result.success) throw new ConnectionError("invalid", "Stored Connection scopes are invalid.")
+  if (!result.success) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "scopes" })
   return result.output
 }
 
@@ -142,11 +143,35 @@ function toApproval(row: unknown): ConnectionApproval {
 /**
  * Store Connections in a ViteHub SQLite database. Tokens are encrypted with
  * AES-GCM through the Env Bridge store in the `connections` namespace.
+ * Activity, one event per provider request, is pruned by `activityRetention`:
+ * 14 days and 10,000 events by default, `false` keeps all activity.
  */
-export function createDatabaseConnectionStore(options: { db: EnvDatabase, encryptionKey: Uint8Array }): ConnectionStore {
+export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKey: Uint8Array }): ConnectionStore {
   const envStore = createDatabaseEnvStore({ db: options.db, encryptionKey: options.encryptionKey, namespace: "connections" })
+  const retention = resolveActivityRetention(options.activityRetention)
+  // One DELETE drops events past the newest `maxRecords` and events older than `maxAgeMs`.
+  // Events store `timestamp` as an ISO string, so text order is time order.
+  async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
+    const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
+    await options.db.run(
+      sql`DELETE FROM vitehub_env_activity WHERE namespace = 'connections' AND (sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords}) OR json_extract(payload, '$.timestamp') < ${cutoff})`,
+    )
+  }
+  const access: EnvAccessStore = retention === false
+    ? envStore.access
+    : {
+        ...envStore.access,
+        async append(event) {
+          await envStore.access.append(event)
+          // Pruning is housekeeping. It never fails the provider request that wrote the event.
+          await pruneActivity(retention).catch((error: unknown) => {
+            console.warn("[vitehub] Connections could not prune old activity. The next prune retries.", error)
+          })
+        },
+      }
   const bridge = createEnvBridge({
     ...envStore,
+    access,
     // Connections never resolves tokens as an Env provider. Each call gets a narrow context from Env.
     runtimeActor: { id: "connections", kind: "service" },
   })
@@ -226,6 +251,7 @@ export function createDatabaseConnectionStore(options: { db: EnvDatabase, encryp
 
   return {
     ...envStore,
+    access,
     secrets: {
       async inspect(key) {
         await initialize()
@@ -287,7 +313,7 @@ export function createDatabaseConnectionStore(options: { db: EnvDatabase, encryp
     authorizations: {
       async put(authorization) {
         await initialize()
-        await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at < ${Date.now()}`)
+        await db.run(sql`DELETE FROM vitehub_connection_authorizations WHERE expires_at <= ${Date.now()}`)
         await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${authorization.state}, ${authorization.name}, ${authorization.actor}, ${authorization.verifier}, ${authorization.redirectUri}, ${authorization.expiresAt})`)
       },
       async take(state) {
@@ -302,7 +328,7 @@ export function createDatabaseConnectionStore(options: { db: EnvDatabase, encryp
       async recover(before) {
         await initialize()
         await db.run(
-          sql`UPDATE vitehub_connection_approvals SET status = 'failed', error = 'CONNECTION_EXECUTION_UNKNOWN' WHERE status = 'approved' AND (execution_expires_at <= ${before} OR (execution_expires_at IS NULL AND (decided_at IS NULL OR decided_at <= ${new Date(Date.parse(before) - 5 * 60_000).toISOString()})))`,
+          sql`UPDATE vitehub_connection_approvals SET status = 'failed', error = 'CONNECTIONS_EXECUTION_UNKNOWN' WHERE status = 'approved' AND (execution_expires_at <= ${before} OR (execution_expires_at IS NULL AND (decided_at IS NULL OR decided_at <= ${new Date(Date.parse(before) - 5 * 60_000).toISOString()})))`,
         )
       },
       async renew(id, expiresAt) {

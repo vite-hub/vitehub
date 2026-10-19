@@ -67,6 +67,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
+// Spawn the workspace Vite+ binary, not a global `vp` with another core version.
+const vp = resolve(import.meta.dirname, "../../../node_modules/.bin/vp")
 const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
@@ -1219,7 +1221,7 @@ describe("Vite workflow provider outputs", () => {
       "",
     ].join("\n"))
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
@@ -1356,7 +1358,7 @@ describe("Vite workflow provider outputs", () => {
       `export default defineWorkflow(async () => "inline", { native: durable })`,
     ].join("\n"))
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
@@ -1380,7 +1382,7 @@ describe("Vite workflow provider outputs", () => {
     expect(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).toContain("/.well-known/workflow/v1/webhook/")
 
     await rm(generatedWorkflowDir, { recursive: true })
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOSTING: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
@@ -1413,7 +1415,7 @@ describe("Vite workflow provider outputs", () => {
       `export default defineWorkflow(async () => "inline", { native: durable })`,
     ].join("\n"))
 
-    await expect(execFileAsync("vp", ["build"], {
+    await expect(execFileAsync(vp, ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })).rejects.toThrow(/must be colocated with its discovered workflow definition/)
@@ -1430,7 +1432,7 @@ describe("Vite workflow provider outputs", () => {
       ),
     )
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
@@ -1443,7 +1445,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-to-openworkflow-")
     const viteConfig = join(rootDir, "vite.config.ts")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
@@ -1464,7 +1466,7 @@ describe("Vite workflow provider outputs", () => {
       ),
     )
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
@@ -1483,7 +1485,7 @@ describe("Vite workflow provider outputs", () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-cloudflare-sibling-")
     const viteConfig = join(rootDir, "vite.config.ts")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
@@ -1502,7 +1504,7 @@ describe("Vite workflow provider outputs", () => {
       ),
     )
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(vp, ["build"], {
       cwd: rootDir,
       timeout: buildOutputTestTimeout,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },

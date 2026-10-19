@@ -2,6 +2,7 @@ import { handleCacheHeaders, type H3Event } from "h3"
 import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
@@ -11,6 +12,7 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import isBlob from "./internal/is-blob.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
@@ -66,7 +68,7 @@ async function hashBlob(body: Blob): Promise<string> {
 }
 
 async function derivedCachePrefix(pathname: string): Promise<string> {
-  return `_vitehub/derived/${await hashCacheKey(pathname)}/`
+  return `${vitehubOwnedPrefix}derived/${await hashCacheKey(pathname)}/`
 }
 
 async function readDerived(cache: Blob | null, fingerprint: string): Promise<Blob | null> {
@@ -202,7 +204,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
-      const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || guessContentType(normalizedPath)
+      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
       return blobResult("put", store, () => driver.put(normalizedPath, body, {
         ...options,
         contentType,

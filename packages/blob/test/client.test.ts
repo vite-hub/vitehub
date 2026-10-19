@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createMultipartUploader, uploadFiles } from "../src/client.ts"
+import type { BlobMultipartPart } from "../src/types.ts"
 import { useMultipartUpload, useUpload } from "../src/vue.ts"
 
 type FetchInput = Parameters<typeof fetch>[0]
@@ -84,6 +85,90 @@ describe("createMultipartUploader", () => {
     expect(progress).toEqual([0, 33, 67, 100])
   })
 
+
+  it("aborts a server upload that finishes creating after local abort", async () => {
+    let releaseCreate!: (response: Response) => void
+    const fetch = vi.fn((url: FetchInput, init?: RequestInit) => {
+      if (String(url).includes("/create/")) return new Promise<Response>((resolve, reject) => {
+        releaseCreate = resolve
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+      })
+      return Promise.resolve(json({ action: "abort" }))
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    let abortFinished = false
+    const aborted = task.abort().then(() => { abortFinished = true })
+    await vi.waitFor(() => expect(abortFinished).toBe(true))
+    releaseCreate(json({ pathname: "a.txt", uploadId: "u1" }))
+
+    await aborted
+    await expect(task.completed).resolves.toBeUndefined()
+    const abortRequests = fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u1"))
+    expect(abortRequests).toHaveLength(1)
+  })
+
+  it("cleans up when create rejects with a received response after local abort", async () => {
+    const fetch = vi.fn(async (url: FetchInput) => {
+      if (String(url).includes("/create/")) {
+        const error = new Error("transport failed") as Error & { response?: Response }
+        error.response = json({ pathname: "a.txt", uploadId: "u-create-rejected" })
+        throw error
+      }
+      return json({ action: "abort" })
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    await task.abort()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u-create-rejected"))).toHaveLength(1)
+  })
+
+  it("cleans up when create rejects with a cross-realm response", async () => {
+    const fetch = vi.fn(async (url: FetchInput) => {
+      if (String(url).includes("/create/")) {
+        const response = {
+          ok: true,
+          status: 200,
+          json: async () => ({ pathname: "a.txt", uploadId: "u-cross-realm" }),
+          text: async () => "",
+        }
+        const error = new Error("transport failed") as Error & { response?: unknown }
+        error.response = response
+        throw error
+      }
+      return json({ action: "abort" })
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await task.abort()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u-cross-realm"))).toHaveLength(1)
+  })
+
+  it("completes concurrent uploads with parts in part-number order", async () => {
+    const { fetch } = multipartServer()
+    let completeParts: BlobMultipartPart[] | undefined
+    fetch.mockImplementation(async (url, init = {}) => {
+      const href = String(url)
+      if (href.includes("/create/")) return json({ pathname: "concurrent.bin", uploadId: "u3" })
+      if (href.includes("/upload/")) {
+        const partNumber = Number(new URL(href, "http://x").searchParams.get("partNumber"))
+        await new Promise(resolve => setTimeout(resolve, (4 - partNumber) * 5))
+        return json({ part: { etag: `"p${partNumber}"`, partNumber } })
+      }
+      completeParts = JSON.parse(String(init.body)).parts as BlobMultipartPart[]
+      return json({ object: { ...object, pathname: "concurrent.bin" } })
+    })
+
+    await createMultipartUploader("/api/multipart", { fetch, partSize: 1, concurrency: 3 })(new File(["abc"], "concurrent.bin")).completed
+
+    expect(completeParts?.map(part => part.partNumber)).toEqual([1, 2, 3])
+  })
+
   it("aborts the server upload and resolves with undefined", async () => {
     const { fetch, requests } = multipartServer()
     let releasePart: () => void = () => {}
@@ -101,6 +186,25 @@ describe("createMultipartUploader", () => {
 
     await expect(task.completed).resolves.toBeUndefined()
     expect(requests.at(-1)).toMatchObject({ method: "DELETE", url: "/api/multipart/abort/a.bin?uploadId=u2" })
+  })
+
+  it("cleans up when a transport rejects after local abort", async () => {
+    const { fetch } = multipartServer()
+    let rejectPart!: (error: Error) => void
+    fetch.mockImplementationOnce(async () => json({ action: "create", pathname: "a.bin", uploadId: "u4" }))
+    fetch.mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
+      rejectPart = reject
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+    }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+
+    const aborted = task.abort()
+    rejectPart(new Error("transport failed"))
+
+    await expect(aborted).resolves.toBeUndefined()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.bin?uploadId=u4"))).toHaveLength(1)
   })
 
   it.each([

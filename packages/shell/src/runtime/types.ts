@@ -1,3 +1,5 @@
+import type { ExecutionBudget } from "@vite-hub/runtime"
+
 export type ShellObservationEvent =
   | "command_finished"
   | "command_timed_out"
@@ -5,10 +7,16 @@ export type ShellObservationEvent =
   | "session_disposed"
 
 export interface ShellRuntimeExecOptions {
+  budget?: ExecutionBudget
   cwd?: string
   env?: Record<string, string>
+  /** Abort the command and any provider-owned work, such as a Source request. */
+  signal?: AbortSignal
+  /** A provider may enforce this before buffering output. The runtime always enforces its policy limit. */
+  maxOutputLength?: number
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
+  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]
@@ -70,6 +78,18 @@ export interface ShellBoundary {
   timeout: {
     enforcedBy: "provider" | "runtime" | "unsupported"
     supported: boolean
+  }
+  /** Provider execution details that callers can inspect without knowing the host implementation. */
+  execution?: {
+    isolation: "in_process" | "process" | "provider_managed" | "unknown"
+    model: "virtual" | "host" | "unknown"
+  }
+  /** Resource controls that this provider can enforce before buffering work. */
+  resources?: {
+    output: {
+      enforcedBy: "provider" | "runtime" | "unsupported"
+      unit: "characters"
+    }
   }
 }
 

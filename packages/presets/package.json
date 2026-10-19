@@ -1,0 +1,96 @@
+{
+  "name": "@vite-hub/presets",
+  "version": "0.0.4",
+  "description": "Ready-made Agents built from ViteHub primitives: Babysitter, Labeller, and the workspace preset.",
+  "keywords": [
+    "agent",
+    "babysitter",
+    "gmail",
+    "preset",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/presets"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./babysitter": {
+      "types": "./dist/babysitter.d.ts",
+      "import": "./dist/babysitter.js",
+      "require": "./dist/babysitter.js",
+      "default": "./dist/babysitter.js"
+    },
+    "./babysitter/server": {
+      "types": "./dist/babysitter/server.d.ts",
+      "import": "./dist/babysitter/server.js",
+      "require": "./dist/babysitter/server.js",
+      "default": "./dist/babysitter/server.js"
+    },
+    "./labeller": {
+      "types": "./dist/labeller.d.ts",
+      "import": "./dist/labeller.js",
+      "require": "./dist/labeller.js",
+      "default": "./dist/labeller.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js",
+      "require": "./dist/workspace.js",
+      "default": "./dist/workspace.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "vitehub": {
+    "agent": {
+      "processHost": [
+        "./babysitter"
+      ],
+      "providerDriver": [
+        "./babysitter",
+        "./babysitter/server",
+        "./workspace"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/presets#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "valibot": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@libsql/client": "catalog:database",
+    "@modelcontextprotocol/sdk": "catalog:ai",
+    "@t3tools/provider-runtime": "catalog:",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@vite-hub/agent": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

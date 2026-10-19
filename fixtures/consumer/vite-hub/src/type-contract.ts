@@ -11,19 +11,16 @@ import * as agentEval from "vite-hub/agent/eval"
 import * as agentServer from "vite-hub/agent/server"
 import * as agentSqliteState from "vite-hub/agent/state/sqlite"
 import * as authAgent from "vite-hub/auth/agent"
-import { resolveBox } from "vite-hub/box"
+import { resolveSandbox } from "vite-hub/sandbox"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
-import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
-import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
-import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
 
 export const contract = {
@@ -32,7 +29,7 @@ export const contract = {
     driver: { run: () => ({ text: "typed" }) },
   }),
   builtInAgent: defineAgent({ driver: "codex", runtime: false }),
-  box: resolveBox({ runtime: "trusted-host" }, {}),
+  sandbox: resolveSandbox({ runtime: "trusted-host" }, {}),
   env: env({ default: "typed" }),
   extensions: [
     agentCloudflare,
@@ -41,13 +38,10 @@ export const contract = {
     agentSqliteState,
     authAgent,
     markdownTemplate,
-    scheduleDriver,
     scheduleProcess,
-    cloudflareShell,
     justBashShell,
     cloudflareWorkspace,
     workspaceLoader,
-    workspacePublisher,
     workspaceServer,
   ],
   plugins: vitehub({

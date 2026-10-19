@@ -8,6 +8,8 @@ icon: i-lucide-folder-search
 
 Workspace context gives an Agent a named file tree and optional Sources. The Workspace decides what exists; Capabilities and the selected Driver decide how the Agent can access it.
 
+Use the [Workspace preset](/docs/agents/workspace-preset) for a read-only Codex Agent with Source citation instructions.
+
 Use a Workspace for project files, documentation, generated state, Source-backed paths, and controlled writeback. Do not use it as hidden prompt storage; model-facing policy belongs in [Instructions](/docs/agents/instructions).
 
 ## Add a read-only Workspace

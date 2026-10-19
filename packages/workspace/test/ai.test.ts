@@ -9,6 +9,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
 import type { ShellExecutionProvider } from "@vite-hub/shell"
+import { createExecutionBudget } from "@vite-hub/runtime"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -16,8 +17,8 @@ function createAssets(files: Record<string, string | Uint8Array>) {
   ))
 }
 
-async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command: string): Promise<WorkspaceShellResult> {
-  return await tools.shell.execute!({ command }, { toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
+async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command: string, abortSignal?: AbortSignal): Promise<WorkspaceShellResult> {
+  return await tools.shell.execute!({ command }, { abortSignal, toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
 }
 
 function createMutableWorkspace() {
@@ -157,6 +158,21 @@ describe("createWorkspaceTools", () => {
     expect(runWorkspaceInspectionCommand).toHaveBeenCalledOnce()
   })
 
+  it("forwards tool cancellation to a custom shell provider", async () => {
+    let signal: AbortSignal | undefined
+    const provider = createProvider("provider\n")
+    const exec = provider.exec
+    provider.exec = async (command, options) => {
+      signal = options?.signal
+      return await exec(command, options)
+    }
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { executionProvider: provider })
+    const controller = new AbortController()
+
+    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "provider\n" })
+    expect(signal).toBe(controller.signal)
+  })
+
   it("runs real read-only shell inspection commands", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
@@ -201,6 +217,20 @@ describe("createWorkspaceTools", () => {
     expect(tools.shell.description).not.toContain("controlled `curl`")
   })
 
+  it("stops preflight when the shared budget is cancelled during a filesystem check", async () => {
+    const workspace = createMutableWorkspace()
+    await workspace.writeFile("file.txt", "hello")
+    const budget = createExecutionBudget()
+    const exists = workspace.exists.bind(workspace)
+    vi.spyOn(workspace, "exists").mockImplementation(async (path) => {
+      budget.cancel(new Error("preflight budget cancelled"))
+      return await exists(path)
+    })
+    const tools = createWorkspaceTools(workspace, { executionBudget: budget })
+    await expect(runShell(tools, "cat file.txt")).rejects.toThrow("preflight budget cancelled")
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
+  })
+
   it("prefers executable Workspace Session shell execution", async () => {
     const workspace = createMutableWorkspace()
     await workspace.mkdir("models")
@@ -217,14 +247,15 @@ describe("createWorkspaceTools", () => {
       close,
       exec,
     } as unknown as WorkspaceSession))
-    const tools = createWorkspaceTools(workspace)
+    const budget = createExecutionBudget()
+    const tools = createWorkspaceTools(workspace, { executionBudget: budget })
 
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
       stdout: "session:sh -lc rg orders models /workspace\n",
     })
     expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["models"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -324,6 +355,15 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "cat large.txt")).resolves.toMatchObject({
       stdout: "0123\n[output truncated to 4 characters]\n",
     })
+  })
+
+  it("spends one Invocation budget across Workspace Shell calls", async () => {
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), {
+      executionBudget: createExecutionBudget({ maxToolCalls: 1 }),
+    })
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(runShell(tools, "cat README.md")).rejects.toThrow("toolCalls")
   })
 
   it("accepts shell timeout through workspace tools", async () => {
@@ -568,6 +608,21 @@ describe("createWorkspaceTools", () => {
         write: true,
       },
     })).toThrow("Write operations require a mutable Workspace")
+  })
+
+  it.each(["writeFile", "appendFile", "deletePath", "makeDir", "copyPath", "movePath"] as const)("charges rejected %s paths before validation", async (operation) => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const tools = createWorkspaceTools(createMutableWorkspace(), {
+      executionBudget: budget,
+      operations: { write: true },
+    })
+    const input = { content: "abc", from: "/", path: "/", to: "target" }
+    const execute = () => tools[operation].execute!(input, { context: {}, toolCallId: "test", messages: [] })
+    await expect(execute()).rejects.toThrow()
+    expect(budget.snapshot().usage.toolCalls).toBe(1)
+    expect(budget.snapshot().usage.inputBytes).toBe(operation === "writeFile" || operation === "appendFile" ? 3 : 0)
+    await expect(execute()).rejects.toThrow("toolCalls")
+    expect(budget.signal.aborted).toBe(true)
   })
 
   it("applies structured write operations to mutable workspaces", async () => {

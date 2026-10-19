@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest"
-import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
+import { runInNewContext } from "node:vm"
+import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it("accepts ArrayBuffer values created in another realm", async () => {
+    const value = runInNewContext("new ArrayBuffer(3)")
+    new Uint8Array(value)[0] = 0x41
+    const response = toResponse(value)
+
+    expect(response.headers.get("content-type")).toBeNull()
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.of(0x41, 0, 0))
+  })
+
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
     const restored = deserializeResponse(await serializeResponse(new Response(null, { status })))
     expect(restored.status).toBe(status)
@@ -59,11 +69,19 @@ describe("durable Response representation", () => {
     expect(isSerializedResponse({ ...serialized, status: 200 })).toBe(false)
     expect(isSerializedResponse({ ...serialized, headers: [["x-test", "value"]] })).toBe(false)
     expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: "YQ==" } })).toBe(false)
+    if (type !== "opaqueredirect") {
+      expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
+    }
   })
 
   it("rejects malformed records", () => {
     expect(isSerializedResponse({})).toBe(false)
     expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+  })
+
+  it("rejects URLs on ordinary response records", async () => {
+    const serialized = await serializeResponse(new Response("ok"))
+    expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
   })
 
   it("rejects sparse header arrays", () => {

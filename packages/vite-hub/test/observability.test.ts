@@ -30,7 +30,7 @@ describe("vitehub({ observability })", () => {
       const plugin = observabilityPlugin({
         preset: "node",
         agent: true,
-        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+        console: { auth: false, authorize: hostManagedAuthorize },
         observability: { service: "support", environment: "production", posthog: { apiKey, host: "https://eu.i.posthog.com" }, evlog: { pretty: false, env: { service: "other", environment: "staging", version: "1.2.3" } }, papercuts: { eventPrefix: "acme.papercut" } },
       })
       const config: ObservabilityConfig = { root }

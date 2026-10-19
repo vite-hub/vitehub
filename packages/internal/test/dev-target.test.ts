@@ -58,6 +58,7 @@ describe("dev target options", () => {
   })
 
   it("uses the owner error factories", () => {
+    expect(() => parseTarget(["--url="])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url=." }))
     expect(() => parseTarget(["--url"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --url." }))
     expect(() => parseTarget(["--server", "--timeout"])).toThrow(expect.objectContaining({ code: "missing", message: "Missing value for --server." }))
     expect(() => parseTarget(["--timeout", "0"])).toThrow(expect.objectContaining({ code: "separate", message: "--timeout must be an integer from 1 to 2147483647 milliseconds." }))

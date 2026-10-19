@@ -42,12 +42,36 @@ export function createWorkTracker(options: {
   const fallback = new Map<string, WorkCheckpoint>()
   function checkpoint(value: unknown): WorkCheckpoint | undefined {
     if (!isRuntimeObject(value)) return
-    // SAFETY: This untrusted checkpoint is returned only after validating every control field below.
-    const state = value as WorkCheckpoint
-    if (state.version !== 1 || !hasRuntimeType(state.fingerprint, "string")
-      || !Number.isSafeInteger(state.attempt) || state.attempt < 0) return
-    if (state.disposition === "park") return state
-    if (state.disposition === "retry" && Number.isFinite(state.retryAt)) return state
+    try {
+      // Inspect descriptors before cloning. Cloning first would invoke an
+      // enumerable accessor and let untrusted store data run code. Reject any
+      // accessor-backed own property without reading its value. Checkpoint
+      // fields are scalar; reject containers before cloning can traverse their getters.
+      for (const key of Reflect.ownKeys(value)) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key)
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, "value")
+          || isRuntimeObject(descriptor.value)) return
+      }
+      // Store results must be cloneable records. A proxy can fabricate
+      // descriptors, but structuredClone rejects the proxy itself.
+      structuredClone(value)
+      const read = (key: string): unknown => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key)
+        return descriptor && Object.prototype.hasOwnProperty.call(descriptor, "value") ? descriptor.value : undefined
+      }
+      const version = read("version")
+      const fingerprint = read("fingerprint")
+      const disposition = read("disposition")
+      const attempt = read("attempt")
+      const retryAt = read("retryAt")
+      if (version !== 1 || !hasRuntimeType(fingerprint, "string")
+        || !hasRuntimeType(attempt, "number") || !Number.isSafeInteger(attempt) || attempt < 0) return
+      if (disposition === "park") return { version, fingerprint, disposition, attempt }
+      if (disposition === "retry" && hasRuntimeType(retryAt, "number") && Number.isFinite(retryAt)) {
+        return { version, fingerprint, disposition, attempt, retryAt }
+      }
+    }
+    catch { return }
   }
   async function read(key: string) {
     // A failed durable write must still cool down the job on this host.

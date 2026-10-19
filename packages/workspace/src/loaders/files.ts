@@ -1,4 +1,4 @@
-import { matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { isWorkspaceBytes, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createSourceContext } from "../sources/config.ts"
 import { prepareWorkspaceSource } from "../sources/preparation.ts"
 
@@ -38,7 +38,7 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
 
           const transformed = options.transform ? await options.transform(rawItem) : rawItem
           ctx.abortSignal?.throwIfAborted()
-          const item = typeof transformed === "string" || transformed instanceof Uint8Array
+          const item = typeof transformed === "string" || isWorkspaceBytes(transformed)
             ? { ...rawItem, content: transformed }
             : transformed
           const path = normalizeWorkspacePath(item.path || rawPath)

@@ -16,17 +16,113 @@ export interface SerializedResponse {
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
+interface BlobMethods {
+  readonly body: () => ReadableStream
+  readonly type: string
+}
+
+const blobTypeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
+const blobStreamMethod = Object.getOwnPropertyDescriptor(Blob.prototype, "stream")?.value
+
+function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  const cleanup = async (reason?: unknown, cancel = false) => {
+    const current = reader
+    reader = undefined
+    if (!current) return
+    try {
+      if (cancel) await current.cancel(reason)
+    }
+    finally {
+      current.releaseLock()
+    }
+  }
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      reader ??= read().getReader()
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          await cleanup()
+          controller.close()
+        }
+        else controller.enqueue(chunk.value)
+      }
+      catch (error) {
+        await cleanup(error, true)
+        throw error
+      }
+    },
+    async cancel(reason) {
+      await cleanup(reason, true)
+    },
+  })
+}
+
+function getBlobMethods(value: unknown): BlobMethods | undefined {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
+  try {
+    if (typeof blobTypeGetter !== "function" || typeof blobStreamMethod !== "function") return undefined
+    // The intrinsic accessor establishes the Blob internal-slot brand before
+    // consulting the value's realm-specific stream method.
+    const type = String(Reflect.apply(blobTypeGetter, value, []))
+    const body = () => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream
+    return { type, body }
+  }
+  catch {
+    return undefined
+  }
+}
+
+
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+
+function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!isRuntimeObject(value)) return false
+  try {
+    if (typeof arrayBufferByteLengthGetter !== "function") return false
+    arrayBufferByteLengthGetter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
-  if (value instanceof Response) return value
+  if (isResponse(value)) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+  if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
     return new Response(value as ConstructorParameters<typeof Response>[0])
+  }
+  const blobMethods = getBlobMethods(value)
+  if (blobMethods) {
+    return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
   })
+}
+
+/** Recognize Responses created by another realm from their standard tag and surface. */
+function isResponse(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  if (!isRuntimeObject(value)) return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // Calling a native prototype operation performs the internal-slot brand check;
+    // a configurable tag and a handful of methods are not sufficient to spoof it.
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (!headers) return false
+    Array.from(Headers.prototype.entries.call(headers))
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 /** Convert a native Response into a JSON-safe record. The body is fully buffered. */
@@ -74,9 +170,11 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (record.url !== undefined && !hasRuntimeType(record.url, "string")) return false
   if (record.type !== undefined && record.type !== "error" && record.type !== "opaque" && record.type !== "opaqueredirect") return false
   if (record.type !== undefined) {
+    if (record.type !== "opaqueredirect" && record.url !== undefined) return false
     return record.status === 0 && record.statusText === "" && Array.isArray(record.headers)
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
+  if (record.url !== undefined) return false
   if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
   if (!hasRuntimeType(record.statusText, "string") || !isSerializedHeaderEntries(record.headers)) return false
   // Responses with these status codes cannot carry a body. Reject malformed

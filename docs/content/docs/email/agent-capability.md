@@ -55,7 +55,7 @@ This configuration exposes the following tool contract. The docs build resolves 
 
 ## How email sending works
 
-The Capability fixes `from` from application configuration. It calls `send({ from, to, subject, text })` on the Email runtime handle and returns the result unchanged.
+The Capability fixes `from` from application configuration. It calls `send({ from, to, subject, text })` on the Email runtime handle and returns the `[error, sent]` result unchanged.
 A successful result means the active provider accepted the message and returned an `id`. It does not prove inbox delivery, display, or reading.
 
 The model cannot set HTML, headers, attachments, carbon-copy recipients, blind-carbon-copy recipients, or reply routing through this tool.
@@ -67,7 +67,7 @@ Your delivery provider owns those limits and may charge for every accepted recip
 
 ## Handle failures without duplicate delivery
 
-The Capability forwards the Email primitive result and error unchanged.
+The Capability forwards the `[error, sent]` result of the Email primitive unchanged. A delivery failure is the `error` element. Its JSON has only `code`, `why`, `fix`, and `docs`, so the model does not see `cause`.
 It does not retry.
 
 Capability-owned validation and runtime failures happen before the Email driver runs, so these failures cannot have delivered a message:
@@ -81,17 +81,18 @@ Capability-owned validation and runtime failures happen before the Email driver 
 | Empty `to`, `subject`, or `text` | Tool execution rejects before calling the Email primitive. |
 | Recipient outside `recipients` | Policy denies the entire tool call before calling the Email primitive. |
 
-After the Capability calls the Email primitive, handle the `EMAIL_*` ViteHub error code according to the delivery state:
+After the Capability calls the Email primitive, handle the `EMAIL_*` error code according to the delivery state:
 
 | Failure | What to do |
 | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Configure the Email integration with one provider. |
+| `EMAIL_NOT_CONFIGURED` | The tool call throws. Configure the Email integration with one provider. |
+| `EMAIL_INVALID_MESSAGE` | Correct the message. Do not retry it unchanged. |
 | `EMAIL_AUTHENTICATION` | Fix provider credentials or sender authorization before retrying. |
 | `EMAIL_RATE_LIMITED` | Apply an application-owned backoff or queue policy. |
 | `EMAIL_NETWORK` or `EMAIL_TIMEOUT` | Treat delivery as uncertain. Check provider delivery logs before retrying, because the provider may already have accepted the message. |
 | `EMAIL_PROVIDER_FAILED` | Inspect protected server logs and provider delivery records. Never expose `cause` to the model. |
 
-ViteHub-produced `ViteHubError.message` values are safe to return from the public runtime.
+The `why` and `fix` of an `EMAIL_*` error are safe to return from the public runtime.
 ViteHub-wrapped provider failures remain in `cause` for protected server-side diagnostics and may contain addresses, credentials, or response content. Custom drivers must preserve the same rule.
 
 ## Keep Dynamic Markdown application-owned
@@ -178,7 +179,7 @@ Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) before
 1. Start the Vite development server.
 2. Run `vitehub agent info --agent support --json`. Confirm that `tools` contains an entry with `name: "email"`. When `recipients` is set, confirm that `capabilities` contains `{ id: "email", metadata: { recipients: [...] } }` with the expected addresses.
 3. For the first delivery, use an approved test recipient and a test or sandbox provider account.
-4. Approve the call, confirm the tool returns a non-empty `id`, then verify the same message in provider delivery logs or the recipient mailbox.
+4. Approve the call, confirm the tool result has no error and a non-empty `id`, then verify the same message in provider delivery logs or the recipient mailbox.
 
 ## Options
 

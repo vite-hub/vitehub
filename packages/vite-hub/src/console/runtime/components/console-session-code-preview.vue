@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import type { BundledLanguage, SpecialLanguage } from "shiki";
+import { languageForPath } from "./console-session-code-language";
 
 const props = defineProps<{ content: string; path: string; wrap?: boolean }>();
 const html = ref("");
@@ -8,7 +8,7 @@ const loading = ref(false);
 const highlightingFailed = ref(false);
 let renderId = 0;
 
-const language = computed<BundledLanguage | SpecialLanguage>(() => languageForPath(props.path));
+const language = computed(() => languageForPath(props.path));
 const plainLines = computed(() => props.content.split("\n"));
 
 watch(
@@ -36,35 +36,6 @@ watch(
   { immediate: true },
 );
 
-function languageForPath(path: string): BundledLanguage | SpecialLanguage {
-  const name = path.split("/").at(-1)?.toLowerCase() || "";
-  if (name === "dockerfile") return "dockerfile";
-  if (name === "makefile") return "make";
-  if (name === ".gitignore" || name === ".npmrc") return "shellscript";
-  const extension = name.split(".").at(-1) || "";
-  const languages: Partial<Record<string, BundledLanguage>> = {
-    cjs: "javascript",
-    css: "css",
-    html: "html",
-    js: "javascript",
-    json: "json",
-    jsonc: "jsonc",
-    jsx: "jsx",
-    md: "markdown",
-    mdx: "mdx",
-    mjs: "javascript",
-    mts: "typescript",
-    scss: "scss",
-    sh: "shellscript",
-    sql: "sql",
-    ts: "typescript",
-    tsx: "tsx",
-    vue: "vue",
-    yaml: "yaml",
-    yml: "yaml",
-  };
-  return languages[extension] || "text";
-}
 </script>
 
 <template>

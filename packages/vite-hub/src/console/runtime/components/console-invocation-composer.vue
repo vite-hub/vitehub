@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { AgentChatPrompt } from "@vite-hub/ui";
+import { PromptInput } from "@vite-hub/ui";
 import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
 import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../client/invocation";
+import { ConsoleRequestError } from "../client/request";
+import ConsoleState from "./console-state.vue";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -80,35 +82,31 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
 <template>
   <div class="console-invocation-composer shrink-0 bg-default px-3 pb-4 pt-2 sm:px-5 sm:pb-5">
     <div class="mx-auto grid w-full max-w-3xl gap-2">
+      <ConsoleState
+        v-if="error instanceof ConsoleRequestError"
+        compact
+        :error="error"
+        title="Could not start Agent"
+      />
       <UAlert
-        v-if="error"
+        v-else-if="error"
         color="error"
         icon="i-ph-warning-circle-light"
         title="Could not start Agent"
         :description="errorMessage(error)"
         variant="subtle"
       />
-      <div
-        class="console-invocation-composer__surface relative rounded-[22px] bg-default ring-1 ring-default transition-shadow has-[textarea:focus-visible]:ring-accented"
-      >
-        <AgentChatPrompt
+      <div class="console-invocation-composer__surface relative">
+        <PromptInput
           v-model="draft"
           v-model:files="files"
           aria-label="Test this Agent"
           accept="image/png,image/jpeg,image/webp,image/gif"
           @error="error = $event"
-          class="console-invocation-composer__prompt gap-2 rounded-[22px] bg-transparent px-3 pb-2 pt-3 sm:px-4 sm:pt-3.5 [&_.vh-prompt__spacer]:hidden"
-          color="neutral"
+          class="console-invocation-composer__prompt"
           :filter-files="filterFiles"
-          :maxrows="8"
           :placeholder="`Message ${agent}…`"
-          :rows="2"
           :status="loading ? 'submitted' : 'ready'"
-          variant="naked"
-          :ui="{
-            body: 'min-h-[4.375rem] items-start text-sm leading-relaxed',
-            footer: 'min-h-8 items-center gap-2',
-          }"
           @submit="submit"
         >
           <template #footer-leading>
@@ -148,7 +146,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
               @click="submit({ text: draft, files })"
             />
           </template>
-        </AgentChatPrompt>
+        </PromptInput>
       </div>
       <p class="px-3 text-center text-[11px] text-dimmed">
         Enter sends · Shift+Enter adds a line · Images up to 10 MiB

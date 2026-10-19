@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { collectViteHubCliContribution } from "../src/cli.ts"
+import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "../src/cli.ts"
 
 import type { ProvisionStep } from "../src/provision.ts"
 
@@ -30,6 +30,21 @@ describe("CLI primitives", () => {
         name: "agent",
       }),
     ])
+  })
+
+  it("ignores inherited plugin metadata", async () => {
+    const inherited = Object.create({
+      vitehub: {
+        cli: {
+          namespaces: [{ features: [{ name: "unexpected", run: () => undefined }], name: "inherited" }],
+        },
+      },
+    }) as object
+
+    const { namespaces, provision } = await collectViteHubCliContribution([inherited])
+
+    expect(namespaces).toEqual([])
+    expect(provision).toEqual([])
   })
 
   it("merges features for the same namespace", async () => {
@@ -91,5 +106,103 @@ describe("CLI primitives", () => {
     ])
 
     expect(steps.map(item => item.id)).toEqual(["queue:cloudflare-queues", "blob:vercel-blob"])
+  })
+
+  it("sends stdout writes to stderr while project config loads", async () => {
+    const write = process.stdout.write
+    const stderr: Array<string | Uint8Array> = []
+    const callback = vi.fn()
+    await expect(withStdoutOnStderr(async () => {
+      process.stdout.write("ℹ Using index.html as renderer template.\n", callback)
+      process.stdout.write(Buffer.from("vite info\n"))
+      throw new Error("config failed")
+    }, { write: chunk => stderr.push(chunk) })).rejects.toThrow("config failed")
+
+    expect(stderr.map(String).join("")).toBe("ℹ Using index.html as renderer template.\nvite info\n")
+    expect(callback).toHaveBeenCalledOnce()
+    expect(process.stdout.write).toBe(write)
+  })
+
+  it("serializes concurrent stdout redirects", async () => {
+    const write = process.stdout.write
+    const firstStarted = Promise.withResolvers<void>()
+    const releaseFirst = Promise.withResolvers<void>()
+    const firstStderr: string[] = []
+    const secondStderr: string[] = []
+
+    const first = withStdoutOnStderr(async () => {
+      firstStarted.resolve()
+      await releaseFirst.promise
+      process.stdout.write("first\n")
+    }, { write: chunk => firstStderr.push(String(chunk)) })
+    await firstStarted.promise
+
+    let secondStarted = false
+    const second = withStdoutOnStderr(async () => {
+      secondStarted = true
+      process.stdout.write("second\n")
+    }, { write: chunk => secondStderr.push(String(chunk)) })
+    await Promise.resolve()
+    expect(secondStarted).toBe(false)
+
+    releaseFirst.resolve()
+    await Promise.all([first, second])
+    expect(firstStderr).toEqual(["first\n"])
+    expect(secondStderr).toEqual(["second\n"])
+    expect(process.stdout.write).toBe(write)
+  })
+
+  it("keeps first-use default payload writes out of an active redirect", async () => {
+    const original = process.stdout.write
+    const payload = vi.fn(() => true)
+    const release = Promise.withResolvers<void>()
+    try {
+      process.stdout.write = payload as typeof process.stdout.write
+      const redirect = withStdoutOnStderr(async () => {
+        await release.promise
+      }, { write: () => undefined })
+      await Promise.resolve()
+      getStableStdoutWrite()("payload\n")
+      expect(payload).toHaveBeenCalledWith("payload\n")
+      release.resolve()
+      await redirect
+    } finally {
+      process.stdout.write = original
+    }
+  })
+
+  it("waits for promise-based stderr writes before completing callbacks", async () => {
+    const callback = vi.fn()
+    const write = vi.fn((_chunk: string | Uint8Array, done: (error?: Error | null) => void) => {
+      const result = Promise.resolve().then(() => done())
+      return result
+    })
+
+    await withStdoutOnStderr(async () => {
+      process.stdout.write("config\n", callback)
+      await Promise.resolve()
+    }, { write })
+
+    expect(callback).toHaveBeenCalledOnce()
+  })
+
+  it("refreshes the default stdout writer when the process writer changes", () => {
+    const original = process.stdout.write
+    const first = vi.fn(() => true)
+    const second = vi.fn(() => true)
+    try {
+      process.stdout.write = first as typeof process.stdout.write
+      const firstWriter = getStableStdoutWrite()
+      process.stdout.write = second as typeof process.stdout.write
+      const secondWriter = getStableStdoutWrite()
+
+      firstWriter("first\n")
+      secondWriter("second\n")
+      expect(first).toHaveBeenCalledWith("first\n")
+      expect(second).toHaveBeenCalledWith("second\n")
+    }
+    finally {
+      process.stdout.write = original
+    }
   })
 })

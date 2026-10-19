@@ -35,11 +35,13 @@ Credentials come from [Server Env](/docs/env). Options cannot contain credential
 
 | Host | Default instance | Server Env variables |
 | --- | --- | --- |
-| GitHub | `https://api.github.com` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH`, optional `GITHUB_APP_INSTALLATION_ID`; or `VITEHUB_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
-| GitLab | `https://gitlab.com` | `GITLAB_BASE_URL`, `GITLAB_TOKEN` |
-| Forgejo | `https://codeberg.org` | `FORGEJO_BASE_URL`, `FORGEJO_TOKEN` |
+| GitHub | `https://api.github.com` | `VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`, optional `VITEHUB_GITHUB_INSTALLATION_ID`; or `VITEHUB_GITHUB_TOKEN` |
+| GitLab | `https://gitlab.com` | `VITEHUB_GITLAB_BASE_URL`, `VITEHUB_GITLAB_TOKEN` |
+| Forgejo | `https://codeberg.org` | `VITEHUB_FORGEJO_BASE_URL`, `VITEHUB_FORGEJO_TOKEN` |
 
-For the default GitHub.com API, GitHub uses the Agent's `github` identity first. When that identity is unavailable, or for a custom GitHub API base, it tries App credentials from `env.server.github`, then the token variables in table order. Without an installation ID, it looks up the App installation for the repository. A private key can be an inline PEM value or a file path. GitLab and Forgejo use `env.server.gitlab` and `env.server.forgejo`.
+Each `VITEHUB_` name also has a `FORGES_` name, for example `FORGES_GITHUB_TOKEN`. These are the names that the [`forges`](https://forges.link/reference/environment-variables) library reads. ViteHub reads the `VITEHUB_` name first. `VITEHUB_GITHUB_PRIVATE_KEY_PATH`, `VITEHUB_GITHUB_APP_OWNER` and `VITEHUB_GITHUB_APP_INSTALLATIONS` have no `FORGES_` name. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
+
+For the default GitHub.com API, GitHub uses the Agent's `github` identity first. When that identity is unavailable, or for a custom GitHub API base, it tries App credentials from `env.server.github`, then `VITEHUB_GITHUB_TOKEN`. Without an installation ID, it looks up the App installation for the repository. A private key can be an inline PEM value or a file path. GitLab and Forgejo use `env.server.gitlab` and `env.server.forgejo`.
 
 `baseUrl` takes precedence over Server Env. GitHub expects an API base, including `/api/v3` for GitHub Enterprise Server. GitLab and Forgejo expect the instance root. Missing credentials stop the tool call with a diagnostic. Public reads also require credentials.
 

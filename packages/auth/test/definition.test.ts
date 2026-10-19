@@ -70,9 +70,19 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ secrets: [{ value: "secret", version: 1 }] } as never)).toThrow(/resolved at runtime/)
   })
 
+  it("requires placement metadata to use own properties", () => {
+    const inheritedDatabase = Object.create({ name: "inherited-auth" })
+    const inheritedSecondaryStorage = Object.create({ store: "inherited-auth" })
+
+    expect(() => defineAuth({ database: inheritedDatabase } as never)).toThrow(/database.name/)
+    expect(() => defineAuth({ secondaryStorage: inheritedSecondaryStorage } as never)).toThrow(/secondaryStorage.store/)
+  })
+
   it("rejects unsupported route, database, and secondary storage shapes", () => {
     expect(() => defineAuth({ route: true } as never)).toThrow(/route can only be `false`/)
     expect(() => defineAuth({ basePath: "api/auth" } as never)).toThrow(/basePath must start/)
+    expect(() => defineAuth({ basePath: "/" } as never)).toThrow(/basePath must resolve to a non-empty path/)
+    expect(() => defineAuth({ basePath: "//" } as never)).toThrow(/basePath must resolve to a non-empty path/)
     expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `true`/)
     expect(() => defineAuth({ database: { dedicated: true } } as never)).toThrow(/database.name/)
     expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database does not support/)

@@ -6,7 +6,7 @@ import * as v from "valibot"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
-import { chat, progressSummary, title, schedule } from "../src/capabilities.ts"
+import { chat, progressSummary, title } from "../src/capabilities.ts"
 import { toAgentFetchResponse } from "../src/http-response.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 import { isAsyncIterable } from "../src/internal/stream-result.ts"
@@ -1713,12 +1713,38 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it.each(["missing", "throwing"])("fails closed for a %s model budget wrapper", async (kind) => {
+    const { createAiSdkAdapter } = await import("../src/ai-sdk.ts")
+    const generate = vi.fn()
+    const failure = new Error('No "wrapLanguageModel" export is defined on the production mock compatibility proxy')
+    loadAiSdk.mockResolvedValue({
+      isStepCount: () => () => false,
+      jsonSchema: (schema: unknown) => schema,
+      get wrapLanguageModel() {
+        if (kind === "throwing") throw failure
+        return undefined
+      },
+      ToolLoopAgent: class { generate = generate },
+    })
+    const agent = adapterDefinition(createAiSdkAdapter({
+      // SAFETY: Wrapper resolution must fail before this model can be invoked.
+      model: {} as never,
+    }))
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      executionBudget: { maxInputBytes: 1 },
+      prompt: "Hello",
+    })).rejects.toThrow(kind === "throwing" ? failure : "Execution budgets require AI SDK wrapLanguageModel support")
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it.each(["static", "resolved"])("includes %s adapter-local tool titles in AI SDK telemetry", async (kind) => {
     const { createAiSdkAdapter } = await import("../src/ai-sdk.ts")
     const traceLog = createTraceEventLog({ content: "content" })
     loadAiSdk.mockResolvedValue({
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(private settings: Record<string, unknown>) {}
 
@@ -1944,6 +1970,8 @@ describe("agent message protocol", () => {
     aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         settings: Record<string, unknown>
 
@@ -2091,6 +2119,8 @@ describe("agent message protocol", () => {
       isStepCount: () => () => false,
       jsonSchema: vi.fn(schema => schema),
       Output: { object: vi.fn(() => nativeOutput) },
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -2203,36 +2233,6 @@ describe("agent message protocol", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("output")
   })
 
-  it("creates inline schedule capabilities without requiring chat history", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    const agent = defineAgent({
-      capabilities: [schedule({ schedules: ["0   9 * * *", { cron: "15 10 * * 1-5", id: "weekday-digest" }] })],
-      driver: { run: () => "ok" },
-    })
-
-    expect(agent.capabilities).toEqual([
-      expect.objectContaining({
-        id: "schedule",
-        metadata: {
-          kind: "schedule",
-          schedules: [
-            { cron: "0 9 * * *", id: "schedule-0-9" },
-            { cron: "15 10 * * 1-5", id: "weekday-digest" },
-          ],
-        },
-      }),
-    ])
-    expect(agent.chat).toBeUndefined()
-  })
-
-  it("rejects unknown inline schedule option and entry keys", () => {
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect(() => schedule({ schedules: ["0 9 * * *"], timeZone: "Europe/Copenhagen" } as never)).toThrow('schedule() does not support "timeZone"')
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect(() => schedule({ schedules: [{ cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }] } as never)).toThrow('schedule({ schedules }) entry does not support "timeZone"')
-  })
-
   it("runs scheduled agents with schedule-owned input metadata and no synthetic messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
@@ -2297,7 +2297,7 @@ describe("agent message protocol", () => {
       runId: "review-pr-646",
       scheduleId: "scheduled-review",
       scheduledAt,
-      target: "agent/reviewer",
+      target: "review-pr",
     }, {}, {
       abortSignal: abortController.signal,
       context: { owner: "vite-hub/vitehub" },
@@ -2316,46 +2316,8 @@ describe("agent message protocol", () => {
         runId: "review-pr-646",
         scheduleId: "scheduled-review",
         scheduledAt,
-        target: "agent/reviewer",
+        target: "review-pr",
       },
-    }])
-  })
-
-  it("keeps durable scheduled Agent turn prompts authoritative", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const seen: unknown[] = []
-    const agent = defineAgent({
-      driver: { run: context => {
-          seen.push({
-            input: context.input,
-            messages: context.messages,
-            prompt: context.prompt,
-          })
-          return "ok"
-        } },
-    })
-
-    await expect(runScheduled(agent, {
-      id: "srun-durable",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
-        prompt: "Persisted turn prompt.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    }, {}, {
-      message: "Caller message.",
-      messages: [createMessage({ role: "user", text: "Caller messages." })],
-      prompt: [createMessage({ role: "user", text: "Caller prompt messages." })],
-    })).resolves.toBe("ok")
-
-    expect(seen).toEqual([{
-      input: expect.not.objectContaining({
-        message: expect.anything(),
-        messages: expect.anything(),
-      }),
-      messages: [],
-      prompt: "Persisted turn prompt.",
     }])
   })
 
@@ -2444,191 +2406,6 @@ describe("agent message protocol", () => {
       runtime: "vite",
       waitUntil,
     }])
-  })
-
-  it("forwards host runtime capabilities through scheduled Agent targets", async () => {
-    const { kv } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
-    const store = {
-      get: vi.fn(async (key: string) => `value:${key}`),
-      keys: vi.fn(async () => []),
-    }
-    const agent = defineAgent({
-      capabilities: [kv()],
-      driver: {
-        run: async ({ tools }) => await tools!.kv_read.execute!({ key: "scheduled" }),
-      },
-    })
-    const target = defineScheduledAgentTarget(agent, { capabilities: { kv: store } })
-
-    await expect(target.handler({
-      id: "srun-capabilities",
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).resolves.toBe("value:scheduled")
-    expect(store.get).toHaveBeenCalledWith("scheduled")
-  })
-
-  it("reauthorizes durable scheduled Agent turns and replies to the full origin thread", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineChannel } = await import("../src/channels.ts")
-    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
-    const channelIdFromThreadId = vi.fn(() => "discord:channel")
-    const postMessage = vi.fn(async () => undefined)
-    const resolveInvoker = vi.fn(({ defaultInvoker }) => ({ ...defaultInvoker, label: "Reauthorized Maxi" }))
-    const seen: unknown[] = []
-    const agent = defineAgent({
-      capabilities: [schedule({ allowSelfTarget: true, delivery: "origin", mode: "write" })],
-      channels: {
-        discord: defineChannel("discord", {
-          // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-          adapter: {
-            channelIdFromThreadId,
-            postMessage,
-          } as never,
-        }),
-      },
-      driver: { run: context => {
-          seen.push({
-            invoker: context.invoker,
-            prompt: context.prompt,
-            run: context.run,
-            schedule: context.context.get("schedule"),
-          })
-          return { text: "Scheduled reply" }
-        } },
-      invoker: { resolve: resolveInvoker },
-    })
-    const target = defineScheduledAgentTarget(agent)
-    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-
-    expect(target.options).toEqual({ allowRuntimeSchedules: true })
-    await expect(target.handler({
-      id: "srun-daily",
-      input: {
-        delivery: { channelId: "discord", origin: "discord", threadId: "discord:channel:thread-7" },
-        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      runId: "srun-daily",
-      scheduleId: "daily",
-      scheduledAt,
-      target: "agent/digest",
-    })).resolves.toMatchObject({ text: "Scheduled reply" })
-
-    expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
-      defaultInvoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-    }))
-    expect(seen).toEqual([{
-      invoker: { id: "discord:user-1", kind: "chat", label: "Reauthorized Maxi" },
-      prompt: "Prepare my daily report.",
-      run: {
-        channelId: "discord",
-        origin: "discord",
-        runId: "srun-daily",
-        threadId: "discord:channel:thread-7",
-      },
-      schedule: {
-        id: "srun-daily",
-        kind: "schedule",
-        runId: "srun-daily",
-        scheduleId: "daily",
-        scheduledAt,
-        target: "agent/digest",
-      },
-    }])
-    expect(postMessage).toHaveBeenCalledWith("discord:channel:thread-7", { markdown: "Scheduled reply" })
-
-    await expect(target.handler({
-      id: "srun-invalid",
-      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      input: {
-        invoker: { id: "discord:user-1", meta: { token: "must-not-persist" } },
-        kind: "agent-turn",
-        prompt: "Invalid payload.",
-      } as never,
-      scheduledAt,
-    })).rejects.toThrow("durable invoker")
-  })
-
-  it("rejects a scheduled Agent turn when invoker reauthorization fails", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
-    const run = vi.fn(() => "must not run")
-    const agent = defineAgent({
-      driver: { run },
-      invoker: {
-        resolve() {
-          throw new Error("Scheduled invoker was revoked")
-        },
-      },
-    })
-    const target = defineScheduledAgentTarget(agent)
-
-    await expect(target.handler({
-      id: "srun-revoked",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).rejects.toThrow("Scheduled invoker was revoked")
-    expect(run).not.toHaveBeenCalled()
-  })
-
-  it("runs durable scheduled Agent turns through input hooks without an invoker resolver", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
-    const inputHook = vi.fn(({ invoker }) => {
-      expect(invoker).toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
-    })
-    const run = vi.fn(({ invoker }) => invoker)
-    const agent = defineAgent({
-      driver: { run },
-      hooks: { "agent:input": inputHook },
-    })
-    const target = defineScheduledAgentTarget(agent)
-
-    await expect(target.handler({
-      id: "srun-durable",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat", label: "Maxi" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).resolves.toEqual({ id: "discord:user-1", kind: "chat", label: "Maxi" })
-    expect(inputHook).toHaveBeenCalledOnce()
-    expect(run).toHaveBeenCalledOnce()
-  })
-
-  it.each([
-    ["returns no identity", undefined],
-    ["returns a different identity", { id: "discord:user-2", kind: "chat" }],
-  ])("rejects a scheduled Agent turn when invoker reauthorization %s", async (_scenario, resolvedInvoker) => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineScheduledAgentTarget } = await import("../src/server/internal.ts")
-    const run = vi.fn(() => "must not run")
-    const agent = defineAgent({
-      driver: { run },
-      invoker: {
-        resolve: () => resolvedInvoker,
-      },
-    })
-    const target = defineScheduledAgentTarget(agent)
-
-    await expect(target.handler({
-      id: "srun-revoked",
-      input: {
-        invoker: { id: "discord:user-1", kind: "chat" },
-        kind: "agent-turn",
-        prompt: "Prepare my daily report.",
-      },
-      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
-    })).rejects.toThrow("matching invoker reauthorization")
-    expect(run).not.toHaveBeenCalled()
   })
 
   it("converts ViteHub messages to model messages internally", async () => {
@@ -2734,6 +2511,8 @@ describe("agent message protocol", () => {
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema,
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -2817,6 +2596,8 @@ describe("agent message protocol", () => {
     loadAiSdk.mockResolvedValue({
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(_settings: unknown) {}
 
@@ -3005,11 +2786,11 @@ describe("agent message protocol", () => {
     expect(toAiSdkModelMessages([
       createMessage({
         id: "m1",
-        parts: [{ data: { city: "Seattle" }, type: "data-weather" }],
+        parts: [{ data: { city: "Seattle", modelText: "reserved by the consumer" }, type: "data-weather" }],
         role: "user",
       }),
     ])).toEqual([
-      { content: "{\"city\":\"Seattle\"}", role: "user" },
+      { content: "{\"city\":\"Seattle\",\"modelText\":\"reserved by the consumer\"}", role: "user" },
     ])
 
     expect(toAiSdkModelMessages([
@@ -6030,6 +5811,8 @@ describe("agent message protocol", () => {
     const agentSettings: Record<string, unknown>[] = []
     loadAiSdk.mockResolvedValue({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         constructor(settings: Record<string, unknown>) {
           agentSettings.push(settings)
@@ -6352,7 +6135,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than allowBots, commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {
@@ -6758,6 +6541,8 @@ describe("agent message protocol", () => {
   it("runs agent finish hooks for model-backed object results", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6890,6 +6675,8 @@ describe("agent message protocol", () => {
   it("runs stream finish hooks with rendered model-backed object results", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -6940,6 +6727,8 @@ describe("agent message protocol", () => {
   it("runs stream finish hooks with accumulated model-backed text", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "unused" }
@@ -6989,6 +6778,8 @@ describe("agent message protocol", () => {
   it("finalizes model-backed results before finish hooks", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return {
@@ -8687,6 +8478,8 @@ describe("agent message protocol", () => {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -8735,6 +8528,8 @@ describe("agent message protocol", () => {
       generateText,
       isStepCount: vi.fn(count => ({ count })),
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -8963,6 +8758,8 @@ describe("agent message protocol", () => {
   it("emits title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -16062,13 +15859,13 @@ describe("agent message protocol", () => {
 
       const run = await runAgent(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
         agentIdentity: { name: "generated-capabilities" },
-        capabilities: { schedule: {} },
+        capabilities: { kv: {} },
         memo: vi.fn(),
         runtime: "vercel",
         waitUntil: promise => waitUntilTasks.push(promise),
       }, {})
 
-      expect(run).toEqual(["schedule"])
+      expect(run).toEqual(["kv"])
       expect(waitUntilTasks).toHaveLength(0)
     })
 

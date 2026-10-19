@@ -2,6 +2,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
 import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
@@ -19,8 +20,14 @@ function isNotFound(error: unknown): boolean {
   return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
 }
 
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join("")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
 function encodeFoldedCursor(value: FoldedCursor) {
-  return Buffer.from(JSON.stringify(value)).toString("base64url")
+  return encodeBase64Url(JSON.stringify(value))
 }
 
 function isNumber(value: unknown): value is number {
@@ -34,9 +41,23 @@ function isString(value: unknown): value is string {
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
-  const decoded = Buffer.from(cursor, "base64url")
-  if (decoded.toString("base64url") !== cursor) throw new TypeError("Invalid Blob cursor.")
-  const parsed: unknown = JSON.parse(decoded.toString("utf8"))
+  let decoded: string
+  try {
+    const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+    decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
+  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded)
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
@@ -253,7 +274,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       const client = await files(putOptions)
       const uploadOptions = {
         contentLength: putOptions.contentLength,
-        contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
         metadata: putOptions.customMetadata,
       }
       const result = await client.upload(pathname, body as never, uploadOptions)
@@ -261,7 +282,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return {
         ...mapUploadResult(result, putOptions),
         pathname: result.key,
-        contentType: result.contentType || putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+        contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
         url: await getUploadUrl(client, result.key),
       }
     },

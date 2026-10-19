@@ -2,10 +2,13 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
+import { resolveAuthMountPath } from "./application-path.ts"
 
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -25,6 +28,20 @@ import type {
   ViteHubAuth,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+const intrinsicPromiseThen = Promise.prototype.then
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
+
 
 export { resetAuth } from "./runtime-state.ts"
 
@@ -47,33 +64,180 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined
-
-export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  authRuntimeEnvResolver = resolver
+export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
+  const state = getAuthRuntimeState()
+  if (definition) {
+    if (resolver) {
+      state.envResolvers?.set(definition, resolver)
+      // Keep a process-local fallback for dev server reloads. The generated
+      // initializer is not re-evaluated when the definition module changes,
+      // so the new definition cannot look up the old WeakMap key.
+      state.envResolver = resolver
+    }
+    else {
+      const registeredResolver = state.envResolvers?.get(definition)
+      state.envResolvers?.delete(definition)
+      if (registeredResolver && state.envResolver === registeredResolver) state.envResolver = undefined
+    }
+    return
+  }
+  state.envResolver = resolver
 }
+
+function getRuntimeEnvResolver(definition?: AuthDefinition): AuthRuntimeEnvResolver | undefined {
+  const state = getAuthRuntimeState()
+  return (definition && state.envResolvers?.get(definition)) ?? state.envResolver
+}
+
 
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
-function toRequest(request: AuthRequest): Request {
-  if (request instanceof Request) return request
-  const init: RequestInitWithDuplex = {
-    headers: request.headers,
-    method: request.method,
-    signal: request.signal,
+function isRequestLike(value: AuthRequest): value is Request {
+  try {
+    const isBrandCheckError = (error: unknown): boolean => {
+      if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
+      // A caller-controlled object can imitate the name and message of a
+      // Web-IDL exception. Require an actual Error value as well; this remains
+      // safe across realms because Object#toString uses the Error brand.
+      try {
+        if (Object.prototype.toString.call(error) !== "[object Error]") return false
+      }
+      catch {
+        return false
+      }
+      let name: unknown
+      let message: unknown
+      try {
+        name = Reflect.get(error, "name")
+        message = Reflect.get(error, "message")
+      }
+      catch {
+        return false
+      }
+      return name === "TypeError"
+        && typeof message === "string"
+        && /illegal invocation|invalid (this|receiver)|brand|cannot read properties of (?:null|undefined)|must be (?:an? )?instance/i.test(message)
+    }
+    // Independent Fetch implementations do not share native brands or prototype
+    // layouts. This checks the API used by Better Auth, not the object's origin:
+    // host-provided implementations are trusted code, not an authenticity boundary.
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const hasPrototypeTag = (target: object, tag: string): boolean => {
+      let prototype: object | null = Object.getPrototypeOf(target)
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+        if (descriptor) {
+          if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
+          return "value" in descriptor && descriptor.value === tag
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
+    }
+    const hasBrandedAccessor = (target: object, property: string): boolean => {
+      let current: object | null = Object.getPrototypeOf(target)
+      while (current) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, property)
+        if (descriptor) {
+          if (typeof descriptor.get !== "function") return false
+          try {
+            descriptor.get.call(Object.create(null))
+            // An invalid receiver must not produce a usable value. Accepting
+            // an empty result lets a structural prototype spoof opt out of
+            // the brand check and reach Better Auth unchanged.
+            if (target !== value) return false
+            const ownSymbols = Object.getOwnPropertySymbols(value)
+            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+            // Happy DOM stores its Request state in a fixed set of private
+            // symbols. Require the complete state shape before accepting an
+            // implementation whose accessors do not expose a Web-IDL brand
+            // error. A caller-created lookalike with a few arbitrary symbols
+            // must stay on the normalization path.
+            const happyDomSymbols = [
+              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+              "contentType", "referrer", "url", "bodyBuffer",
+            ]
+            const happyDomState = happyDomSymbols.every(name =>
+              ownSymbols.some(symbol => symbol.description === name),
+            )
+              && prototypeSymbols.some(symbol => symbol.description === "window")
+            if (!happyDomState) return false
+            return true
+          }
+          catch (error) {
+            if (!isBrandCheckError(error)) return false
+            // A genuine Request implementation from another realm or loaded
+            // copy reports the same Web-IDL brand failure. Do not tie this
+            // compatibility path to Auth's particular Undici constructor.
+            return true
+          }
+        }
+        current = Object.getPrototypeOf(current)
+      }
+      return false
+    }
+    if (!hasPrototypeTag(value, "Request")) return false
+    const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
+      return typeof Reflect.get(target, method) === "function"
+    })
+    const ownSymbols = Object.getOwnPropertySymbols(value)
+    const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+    const happyDomState = [
+      "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+      "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+      "contentType", "referrer", "url", "bodyBuffer",
+    ].every(name => ownSymbols.some(symbol => symbol.description === name))
+      && prototypeSymbols.some(symbol => symbol.description === "window")
+    if (happyDomState) {
+      // The private-symbol fingerprint identifies Happy DOM, but still verify
+      // the interface Better Auth consumes before preserving the value.
+      if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
+      if (!value.headers || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+      if (!value.signal || typeof value.signal.aborted !== "boolean") return false
+      return true
+    }
+    if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
+    if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
+    // Body methods alone are insufficient: structural host inputs can expose
+    // them while lacking the Headers and AbortSignal APIs of a Web Request.
+    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+    if (["get", "has", "set", "append", "delete", "entries", "forEach"].some(method => Object.prototype.hasOwnProperty.call(value.headers, method))) return false
+    const headersGet = Reflect.get(value.headers, "get")
+    if (typeof headersGet !== "function") return false
+    try {
+      headersGet.call(Object.create(null), "")
+      return false
+    }
+    catch (error) {
+      if (!isBrandCheckError(error)) return false
+    }
+    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
+    if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
+    return true
   }
+  catch {
+    return false
+  }
+}
+
+function toRequest(request: AuthRequest): Request {
+  if (request instanceof Request || isRequestLike(request)) return request
+  const init: RequestInitWithDuplex = {
+    method: request.method,
+  }
+  // Preserve conversion failures instead of silently dropping authentication
+  // headers such as cookies, authorization, or content type.
+  init.headers = new Headers(request.headers as HeadersInit)
+  if (request.signal instanceof AbortSignal) init.signal = request.signal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
   }
   return new Request(request.url, init)
-}
-
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
 }
 
 export function createAuthRequestRuntimeOptions(
@@ -82,7 +246,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -96,7 +260,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: authRuntimeEnvResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getRuntimeEnvResolver(definition) }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -121,16 +285,22 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -169,7 +339,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getRuntimeEnvResolver(definition) }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -189,8 +359,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -230,7 +399,7 @@ async function createSignInResponse(
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
   const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
-  const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
+  const response = await auth.handler(new Request(`${origin}${resolveAuthMountPath(basePath)}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -261,7 +430,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: authRuntimeEnvResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getRuntimeEnvResolver(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -280,8 +449,20 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (result instanceof Response) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (!(value instanceof Response)) return
+  try {
+    Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
+    return value
+  }
+  catch {
+    return
+  }
 }
 
 async function checkAuthRequest(
@@ -303,7 +484,7 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      const authorize = route !== null && typeof route === "object" ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
@@ -356,7 +537,8 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route handlers can come from another runtime realm.
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -376,10 +558,12 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (!(handler instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route handlers can come from another runtime realm.
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {
@@ -398,7 +582,7 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 

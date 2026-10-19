@@ -17,6 +17,9 @@ const connectionSuffixPattern = /\.connection\.(?:c|m)?[jt]s$/i
 
 function createDiscoveredConnectionDefinition(source: DiscoveredConnectionDefinition["source"]) {
   return (context: { file: string, name: string }): DiscoveredConnectionDefinition => {
+    if (context.name !== context.name.trim()) {
+      throw new Error(`Connection name "${context.name}" cannot start or end with whitespace. Rename "${context.file}".`)
+    }
     if (context.name.length > CONNECTION_NAME_MAX_LENGTH) {
       throw new Error(`Connection name "${context.name}" exceeds ${CONNECTION_NAME_MAX_LENGTH} characters. Rename "${context.file}" so its Env key fits the 512-character limit.`)
     }

@@ -375,7 +375,7 @@ function explicitChatWebhookRegistrations(options: AgentChatOptions): AgentWebho
     .flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
 }
 
-export function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
   const registrations = [...explicitChatWebhookRegistrations(options), ...inferredChatWebhookRegistrations(options)]
   return registrations.length ? registrations : undefined
 }
@@ -487,8 +487,8 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.loading?.intervalMs !== undefined && (!Number.isFinite(options.loading.intervalMs) || options.loading.intervalMs <= 0)) {
     throw agentDiagnostics.AGENT_R0380({ message: "[vitehub] messages.loading.intervalMs must be a positive finite number." })
   }
-  if (options.final?.delivery !== undefined && options.final.delivery !== "new-message") {
-    throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message".' })
+  if (options.final?.delivery !== undefined && options.final.delivery !== "new-message" && options.final.delivery !== "placeholder") {
+    throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message" or "placeholder".' })
   }
   if (options.timeout !== undefined && (!Number.isFinite(options.timeout) || options.timeout <= 0)) {
     throw agentDiagnostics.AGENT_R0382({ message: "[vitehub] messages.timeout must be a positive finite number." })

@@ -11,6 +11,7 @@ import {
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
   resolveNitroVercelFunctionName,
+  resolveNuxtServerDirs,
   resolveViteHubGeneratedRoot,
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
@@ -185,5 +186,32 @@ describe("Vite provider builds", () => {
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "node-server" } }, "blob", {})).toBeUndefined()
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "node-server" } }, "blob", { VERCEL: "1" })).toBeUndefined()
     expect(resolveNitroVercelFunctionName({ plugins, nitro: { preset: "cloudflare" } }, "blob", { VITEHUB_HOSTING: "vercel" })).toBeUndefined()
+  })
+})
+
+describe("resolveNuxtServerDirs", () => {
+  it("lists the application server directory first, then each layer in Nuxt priority order", () => {
+    expect(resolveNuxtServerDirs({
+      _layers: [
+        { config: { rootDir: "/app", serverDir: "/app/server", srcDir: "/app/app" }, cwd: "/app" },
+        { config: { rootDir: "/layers/auth", serverDir: "/layers/auth/server", srcDir: "/layers/auth/app" }, cwd: "/layers/auth" },
+        { config: { rootDir: "/layers/blog", serverDir: "backend", srcDir: "/layers/blog" }, cwd: "/layers/blog" },
+        { config: { rootDir: "/layers/auth", serverDir: "/layers/auth/server" }, cwd: "/layers/auth" },
+      ],
+      rootDir: "/app",
+      serverDir: "/app/custom-server",
+    })).toEqual(["/app/custom-server", "/layers/auth/server", "/layers/blog/backend"])
+  })
+
+  it("keeps a single server directory without layers", () => {
+    expect(resolveNuxtServerDirs({ rootDir: "/app", serverDir: "/app/server" })).toEqual(["/app/server"])
+    expect(resolveNuxtServerDirs({ rootDir: "/app" })).toBeUndefined()
+  })
+
+  it("keeps the application first when Nuxt omits its server directory", () => {
+    expect(resolveNuxtServerDirs({
+      _layers: [{ config: { rootDir: "/layers/auth" }, cwd: "/layers/auth" }],
+      rootDir: "/app",
+    })).toEqual(["/app/server", "/layers/auth/server"])
   })
 })

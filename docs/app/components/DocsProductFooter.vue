@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// The footer of a product landing page: every documented area by category, with the current one marked.
+// The end of every docs page: every documented area by category, with the current one marked.
 import { docsManifest, type DocsSection } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { getDocsCatalog } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
-  current: DocsSection;
+  current?: DocsSection | null;
 }>();
 
 const groups = getDocsCatalog(docsManifest.sections);
 
 function isCurrent(section: DocsSection) {
-  return section.id === props.current.id;
+  return section.id === props.current?.id;
 }
 </script>
 
@@ -29,8 +29,8 @@ function isCurrent(section: DocsSection) {
               :class="{ 'is-current': isCurrent(section) }"
               :aria-current="isCurrent(section) ? 'page' : undefined"
             >
-              <UIcon :name="sidebarSectionIcon(section)" class="size-4 shrink-0" />
-              <span class="min-w-0 truncate">{{ section.title }}</span>
+              <UIcon :name="sidebarSectionIcon(section)" class="mt-[0.1875rem] size-4 shrink-0" />
+              <span class="min-w-0">{{ section.title }}</span>
             </NuxtLink>
           </li>
         </ul>
@@ -55,22 +55,11 @@ function isCurrent(section: DocsSection) {
   text-transform: uppercase;
 }
 
+/* Columns keep a readable width and fill the row, so long section titles fit instead of truncating. */
 .vh-product-footer-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.5rem 2rem;
-}
-
-@media (min-width: 48rem) {
-  .vh-product-footer-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 64rem) {
-  .vh-product-footer-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 1.5rem;
 }
 
 .vh-product-footer-category {
@@ -90,7 +79,7 @@ function isCurrent(section: DocsSection) {
 
 .vh-product-footer-link {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.1875rem 0;
   color: var(--ui-text-muted);

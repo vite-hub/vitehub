@@ -1,10 +1,15 @@
 import { defineComponent, getCurrentInstance, h, type PropType } from "vue";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
 import type { AgentToolInspection } from "../types.ts";
 
 function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) {
   if (schema === undefined) return h("p", { class: "vh-agent-tool-list__unavailable" }, `${label} not recorded.`);
-  const object: Record<string, unknown> | undefined = hasRuntimeType(schema, "object") && schema !== null && !Array.isArray(schema) ? Object.fromEntries(Object.entries(schema)) : undefined;
+  const text = hasRuntimeType(schema, "string") ? JSON.stringify(schema) : payloadText(schema);
+  // Inspect the serialized value so getters and custom conversions cannot escape the display guard.
+  let normalized: unknown;
+  try { normalized = JSON.parse(text); } catch { normalized = undefined; }
+  const object: Record<string, unknown> | undefined = hasRuntimeType(normalized, "object") && normalized !== null && !Array.isArray(normalized) ? Object.fromEntries(Object.entries(normalized)) : undefined;
   const properties = object?.properties;
   const fields = hasRuntimeType(properties, "object") && properties !== null && !Array.isArray(properties) ? Object.entries(properties) : [];
   const required = Array.isArray(object?.required) ? object.required : [];
@@ -21,7 +26,7 @@ function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) 
         ]);
       })),
     ]) : null,
-    h("details", { open: !fields.length }, [h("summary", "JSON schema"), h("pre", JSON.stringify(schema, null, 2))]),
+    h("details", { open: !fields.length }, [h("summary", "JSON schema"), h("pre", text)]),
   ]);
 }
 

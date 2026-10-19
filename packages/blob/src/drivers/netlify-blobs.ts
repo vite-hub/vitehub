@@ -4,6 +4,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { BlobDriverAdapter, BlobObject, BlobPutBody, BlobPutOptions, NetlifyBlobsStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 type StoredMetadata = {
   __contentType?: string
@@ -363,9 +364,9 @@ function toBlobObject(
   const contentType = envelope === "files-sdk"
     ? metadata.__contentType
     : envelope === "legacy" ? metadata.contentType : undefined
-  const customMetadata = rawCustomMetadata(metadata, envelope)
-  if (isStringRecord(metadata.customMetadata)) Object.assign(customMetadata, metadata.customMetadata)
-  if (isStringRecord(metadata.__user)) Object.assign(customMetadata, metadata.__user)
+  let customMetadata = rawCustomMetadata(metadata, envelope)
+  if (isStringRecord(metadata.customMetadata)) customMetadata = { ...customMetadata, ...metadata.customMetadata }
+  if (isStringRecord(metadata.__user)) customMetadata = { ...customMetadata, ...metadata.__user }
   const metadataSize = envelope === "files-sdk"
     ? metadata.__size
     : envelope === "legacy" ? metadata.size : undefined
@@ -480,11 +481,11 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
       const normalizedBody = await normalizeBody(body)
       const contentType = putOptions.contentType
-        || (normalizedBody instanceof Blob ? normalizedBody.type : undefined)
+        || (isBlob(normalizedBody) ? normalizedBody.type : undefined)
         || "application/octet-stream"
       const size = typeof normalizedBody === "string"
         ? new TextEncoder().encode(normalizedBody).byteLength
-        : normalizedBody instanceof Blob
+        : isBlob(normalizedBody)
           ? normalizedBody.size
           : normalizedBody.byteLength
       const uploadedAt = new Date()

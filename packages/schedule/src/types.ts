@@ -1,5 +1,6 @@
 export interface ScheduleRunContext<TInput = unknown> {
   id: string
+  /** Input supplied when the schedule run was started manually or by a runtime trigger. */
   attemptId?: string
   input?: TInput
   runId?: string
@@ -19,18 +20,21 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
+  timeZone?: string
 }
 
 export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
+  timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
   options?: ScheduleDefinitionOptions
+  timeZone?: string
 }
 
 export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {

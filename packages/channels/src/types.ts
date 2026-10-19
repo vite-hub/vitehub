@@ -18,6 +18,20 @@ export interface ChannelConnector<TOptions extends object = Record<string, unkno
 export type ChannelConnectorMap = Record<string, ChannelConnector<never, object>>
 
 type ChannelObjectConstraint<TObject extends object> = Extract<TObject, Function> extends never ? unknown : never
+type ChannelOptionsConstraint<TOptions extends object> = [Extract<TOptions, readonly unknown[] | Function>] extends [never] ? unknown : never
+type FiniteKeys<T> = keyof T extends infer TKey
+  ? TKey extends string
+    ? string extends TKey ? never : TKey
+    : TKey extends number
+      ? number extends TKey ? never : TKey
+      : TKey extends symbol
+        ? symbol extends TKey ? never : TKey
+        : never
+  : never
+type NonArrayOptions<TOptions> = TOptions extends readonly unknown[] ? never : TOptions
+type ChannelOptionExcess<TOptions, TAllowed> = TAllowed extends unknown
+  ? Record<Exclude<FiniteKeys<TOptions>, keyof TAllowed>, never>
+  : never
 
 type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, options: infer TOptions) => unknown }
   ? unknown extends TOptions ? object : NonNullable<TOptions>
@@ -26,7 +40,10 @@ type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, op
 type ValidatedChannelConnectors<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors]: TConnectors[TName] extends ChannelConnector<never, infer TResult>
     ? [ConnectorOptions<TConnectors[TName]>] extends [object]
-      ? ChannelObjectConstraint<ConnectorOptions<TConnectors[TName]> | TResult> extends never ? never : TConnectors[TName]
+      ? [NonArrayOptions<ConnectorOptions<TConnectors[TName]>>] extends [never]
+        ? [ConnectorOptions<TConnectors[TName]>] extends [never] ? TConnectors[TName] : never
+        : ChannelObjectConstraint<NonArrayOptions<ConnectorOptions<TConnectors[TName]>> | TResult> extends never
+          ? never : TConnectors[TName]
       : never
     : never
 }
@@ -52,7 +69,7 @@ export interface DiscoveredChannelDefinition {
 type ExplicitChannelSendOptions<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors & string]: {
     connector: TName
-  } & ConnectorOptions<TConnectors[TName]>
+  } & NonArrayOptions<ConnectorOptions<TConnectors[TName]>>
 }[keyof TConnectors & string]
 
 type DynamicChannelSendOptions = {
@@ -64,15 +81,15 @@ type DefaultChannelSendOptions<
   TDefault extends keyof TConnectors & string,
 > = {
   connector?: TDefault
-} & ConnectorOptions<TConnectors[TDefault]>
+} & NonArrayOptions<ConnectorOptions<TConnectors[TDefault]>>
 
 export type ChannelSendOptions<
   TConnectors extends ChannelConnectorMap,
   TDefault extends keyof TConnectors & string = never,
-> = string extends keyof TConnectors
+> = (string extends keyof TConnectors
   ? DynamicChannelSendOptions
   : ExplicitChannelSendOptions<TConnectors>
-    | ([TDefault] extends [never] ? never : DefaultChannelSendOptions<TConnectors, TDefault>)
+    | ([TDefault] extends [never] ? never : DefaultChannelSendOptions<TConnectors, TDefault>))
 
 export interface ChannelClient<
   TConnectors extends ChannelConnectorMap = ChannelConnectorMap,
@@ -82,7 +99,8 @@ export interface ChannelClient<
   send: <TOptions extends object>(
     text: string,
     options: string extends keyof TConnectors
-      ? TOptions & ChannelObjectConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
-      : ChannelSendOptions<TConnectors, TDefault>,
+      ? TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
+      : TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
+        & ChannelOptionExcess<TOptions, ChannelSendOptions<TConnectors, TDefault>>,
   ) => Promise<ChannelSendOutcome>
 }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -56,6 +57,15 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("runs authorize callbacks on routes from another JavaScript realm", async () => {
+    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
+      access: { routes: [foreignRoute] },
+    }))
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
+  })
+
   it("does not resolve Auth for unmatched requests", async () => {
     const handler = createAuthAccessHandler([{ route: "/private/**" }])
     await expect(handler(new Request("https://app.example/public"))).resolves.toBeUndefined()
@@ -101,6 +111,40 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
+  it("rejects authorization responses from another realm", async () => {
+    const foreignResponse = runInNewContext(`new (class {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return [["x-policy", "rejected"]] }
+      get body() { return null }
+      async arrayBuffer() { return new ArrayBuffer(0) }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).toMatchObject({ status: 403 })
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(403)
+  })
+
+  it("rejects response-shaped objects without native body operations", async () => {
+    const spoof = runInNewContext(`({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return { get() { return null } } },
+      get body() { return null },
+      [Symbol.toStringTag]: "Response",
+    })`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

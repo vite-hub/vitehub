@@ -54,7 +54,7 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
     // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_C0001({ message: `Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "deno-kv", "upstash", or "fs-lite".` })
+    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
   }
 }
 
@@ -62,9 +62,9 @@ function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: 
   return stores ? { store, stores: { default: store, ...stores } } : { store }
 }
 
-function hasStoresConfig(options: KVModuleOptions | undefined): options is KVStoresConfig {
+function hasStoresConfig(options: KVModuleOptions | undefined, stores: unknown): stores is KVStoresConfig["stores"] {
   // SAFETY: The own-property check establishes stores exists; its value stays unknown until isPlainObject validates it.
-  return !!options && Object.hasOwn(options, "stores") && isPlainObject((options as { stores?: unknown }).stores)
+  return !!options && Object.hasOwn(options, "stores") && isPlainObject(stores)
 }
 
 export function normalizeKVOptions(
@@ -74,19 +74,25 @@ export function normalizeKVOptions(
   if (options === false) return
 
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw kvErrorDiagnostics.KV_C0002({ message: "`kv` must be a plain object." })
+    throw kvErrorDiagnostics.KV_INVALID_CONFIG({ path: "kv" })
   }
 
   const env = input.env || process.env
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as KVStoreConfig | undefined
+  const hasOwnStores = options !== undefined && Object.hasOwn(options, "stores")
+  // SAFETY: Reflect.get preserves the effective value exposed by a Proxy or accessor; ownness is checked separately above.
+  const stores = hasOwnStores ? Reflect.get(options, "stores", options) : undefined
+  if (hasOwnStores && !isPlainObject(stores)) {
+    throw kvErrorDiagnostics.KV_INVALID_CONFIG({ path: "kv.stores" })
+  }
 
-  if (hasStoresConfig(options)) {
+  if (hasStoresConfig(options, stores)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
     )
     const defaultStore = resolvedStores.default
-    if (!defaultStore) throw kvErrorDiagnostics.KV_C0003({ message: "`kv.stores.default` is required when using named KV stores." })
+    if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 

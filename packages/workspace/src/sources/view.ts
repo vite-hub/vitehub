@@ -1,4 +1,5 @@
-import { workspaceConflict, workspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -753,35 +754,53 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     requireHistoryGrants(history) {
       return async (grants, options) => {
         return await withWorkspaceStoreMutation(store, async () => {
-          const head = await history.head()
-          if ((head?.id ?? null) !== options.ifHead) throw workspaceConflict("[vitehub] Workspace head changed before the history commit.", { details: { expected: options.ifHead, actual: head?.id ?? null } })
+          const ref = normalizeHistoryRef(options.ref)
+          const head = await history.head({ ref })
+          if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
           const previous = head ? await history.open(head.id) : undefined
-          const entries = previous ? (await previous.list("", { recursive: true })).filter(entry => entry.type === "file") : []
+          const entries = new Map<string, WorkspaceEntry>()
+          for (const entry of previous ? await previous.list("", { recursive: true }) : []) {
+            if (entry.type === "file") entries.set(entry.path, entry)
+          }
+          const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await sha256(await previous!.readFile(path, { encoding: "binary" }))
+          const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">) =>
+            digest === await sha256(file.content) &&
+            (file.mediaType === undefined || entry.mediaType === file.mediaType) &&
+            (file.metadata === undefined || JSON.stringify(entry.metadata) === JSON.stringify(file.metadata))
+          // The next state of one path: a put file, a deletion, or the unchanged head entry.
+          const next = (path: string): WorkspaceFile | WorkspaceEntry | undefined => {
+            if (options.files) return options.files[path]
+            if (options.changes.put && Object.hasOwn(options.changes.put, path)) return options.changes.put[path]
+            return options.changes.delete?.includes(path) ? undefined : entries.get(path)
+          }
+          const candidates = options.files
+            ? new Set([...Object.keys(options.files), ...entries.keys()])
+            : new Set([...Object.keys(options.changes.put ?? {}), ...options.changes.delete ?? []])
           const paths: string[] = []
-          for (const path of new Set([...Object.keys(options.files), ...entries.map(entry => entry.path)])) {
-            const file = options.files[path]
-            const before = entries.find(entry => entry.path === path)
-            const digest = before?.digest ?? (previous && before ? await sha256(await previous.readFile(path, { encoding: "binary" })) : undefined)
-            if (!file || !before || digest !== await sha256(file.content) || before.mediaType !== file.mediaType || JSON.stringify(before.metadata) !== JSON.stringify(file.metadata)) paths.push(path)
+          for (const path of candidates) {
+            const file = next(path)
+            const before = entries.get(path)
+            if (!file || !before || !("content" in file) || !await sameFile(file, await digestOf(path, before), before)) paths.push(path)
           }
           const authorized = new Set(grants.map(grant => writeGrants.get(grant)))
           if (authorized.has(undefined) || paths.some(path => !authorized.has(path))) {
             throw workspaceError("[vitehub] History publication requires a Source write grant for every affected path.")
           }
           for (const path of paths) await assertWritableCurrentPath(path)
-          // A Store's own history replaces its draft, including materialized Source files.
+          // A Store's own history replaces its working tree when the default ref moves, including materialized Source files.
           // Overlay Sources live outside the backing Store's retained file tree.
-          if (history === store.history && allSources.length) {
+          if (history === store.history && ref === defaultWorkspaceHistoryRef && allSources.length) {
             for (const entry of await store.list("", { recursive: true })) {
               if (entry.type !== "file" || !allSources.some(source => source.key === entry.metadata?.source)) continue
-              const file = options.files[entry.path]
+              const file = next(entry.path)
               const digest = entry.digest ?? await sha256((await store.readFile(entry.path))!.content)
-              if (!file || digest !== await sha256(file.content) || entry.mediaType !== file.mediaType || JSON.stringify(entry.metadata) !== JSON.stringify(file.metadata)) {
-                await assertWritableCurrentPath(entry.path)
-              }
+              const unchanged = file && ("content" in file
+                ? await sameFile(file, digest, entry)
+                : await digestOf(entry.path, file) === digest && file.mediaType === entry.mediaType && JSON.stringify(file.metadata) === JSON.stringify(entry.metadata))
+              if (!unchanged) await assertWritableCurrentPath(entry.path)
             }
           }
-          return await history.commit(options)
+          return await history.commit({ ...options, ref })
         })
       }
     },

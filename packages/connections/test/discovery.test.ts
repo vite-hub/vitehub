@@ -46,6 +46,12 @@ describe("discoverConnectionDefinitions", () => {
       .toEqual(["sales+ops", "team/客户 inbox"])
   })
 
+  it("rejects names with surrounding whitespace", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/connections/ mail.ts")
+    expect(() => discoverConnectionDefinitions({ rootDir: root })).toThrow("cannot start or end with whitespace")
+  })
+
   it("preserves discovered names longer than the old management limit", async () => {
     const root = await createTempProject()
     await touch(root, `server/connections/${"n".repeat(129)}.ts`)

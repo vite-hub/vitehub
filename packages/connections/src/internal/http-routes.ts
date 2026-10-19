@@ -2,9 +2,12 @@ import * as v from "valibot";
 
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
-import { ConnectionError, isConnectionError } from "../errors.ts";
+import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
+import { managementErrorBody } from "./http-diagnostics.ts";
+import { page, readCookie, requestReturnPath, RETURN_COOKIE } from "./http-page.ts";
 
 import type { ConnectionsRuntime } from "../runtime.ts";
 import type { ConnectionsAccess } from "./http-access.ts";
@@ -15,7 +18,7 @@ const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
 // Discovery preserves filesystem-valid characters, including symbols such as `+`.
 // Keep management validation in step with the generated registry.
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH));
+const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
   v.object({ action: v.literal("list") }),
@@ -58,63 +61,51 @@ export function json(body: unknown, status = 200, headers: Record<string, string
 }
 
 /** HTTP status of a Connections failure. */
+const errorStatuses: Partial<Record<ConnectionsCatalogCode, number>> = {
+  CONNECTIONS_APPROVAL_REQUIRED: 409,
+  CONNECTIONS_DENIED: 403,
+  CONNECTIONS_EXECUTION_UNKNOWN: 409,
+  CONNECTIONS_FORBIDDEN: 403,
+  CONNECTIONS_NEEDS_RECONNECT: 409,
+  CONNECTIONS_NOT_CONNECTED: 409,
+  CONNECTIONS_PROVIDER_FAILED: 502,
+  CONNECTIONS_UNAVAILABLE: 502,
+};
+
 export function errorStatus(error: unknown): number {
   if (!isConnectionError(error)) return 500;
-  return {
-    approval_required: 409,
-    denied: 403,
-    execution_unknown: 409,
-    invalid: 400,
-    provider: 502,
-    reauth_required: 409,
-  }[error.reason];
+  return errorStatuses[error.code] ?? 400;
 }
 
 export function errorResponse(error: unknown): Response {
-  if (isConnectionError(error)) {
-    const body: { code: string; message: string; requestId?: string } = {
-      code: error.code,
-      message: error.message,
-    };
-    if (error.requestId) body.requestId = error.requestId;
-    return json({ error: body }, errorStatus(error));
+  if (isConnectionError(error))
+    return json({ error: managementErrorBody(error.code, error.why) }, errorStatus(error));
+  return json({ error: managementErrorBody("CONNECTIONS_REQUEST_FAILED", "The Connections request failed.") }, 500);
+}
+
+/**
+ * The same-origin check of the action route. `url` is the request URL that the server sees. Behind a
+ * TLS-terminating proxy that the server does not trust, it can be `http:` while the browser sends an `https:` Origin.
+ */
+function originRejection(request: Request, url: URL): Response | undefined {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== url.origin) {
+    const received = origin.slice(0, 256);
+    return json({
+      error: managementErrorBody(
+        "CONNECTIONS_ORIGIN_REJECTED",
+        `The request Origin ${received} does not match the server origin ${url.origin}.`,
+        undefined,
+        { expectedOrigin: url.origin, receivedOrigin: received },
+      ),
+    }, 403);
   }
-  return json(
-    { error: { code: "CONNECTION_FAILED", message: "The Connections request failed." } },
-    500,
-  );
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
-}
-
-export function page(title: string, message: string, status: number): Response {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font-family:system-ui;margin:4rem auto;max-width:32rem"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></body>`,
-    {
-      headers: {
-        "cache-control": "no-store",
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
-        "content-type": "text/html; charset=utf-8",
-      },
-      status,
-    },
-  );
-}
-
-function cookie(request: Request, key: string): string | undefined {
-  for (const part of request.headers.get("cookie")?.split(";") ?? []) {
-    const [cookieName, ...value] = part.trim().split("=");
-    if (cookieName === key) return value.join("=");
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return json({
+      error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: url.origin }),
+    }, 403);
   }
   return undefined;
-}
-
-function sameOrigin(request: Request, url: URL): boolean {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== url.origin) return false;
-  return request.headers.get("sec-fetch-site") !== "cross-site";
 }
 
 async function readBody(request: Request): Promise<unknown> {
@@ -159,32 +150,40 @@ const connect: ConnectionsRoute = {
     const runtime = connectionsRuntimeFor(access);
     const { request } = access;
     const url = new URL(request.url);
+    const returnTo = requestReturnPath(request);
+    const failure = (message: string, status: number, code?: string) =>
+      page({ code, message, outcome: "error", returnTo, status, title: "Connection failed" });
     // A foreign page must not start a flow in the name of the signed-in manager.
     if (request.headers.get("sec-fetch-site") === "cross-site")
-      return page("Connection failed", "Start the connection from this application.", 403);
+      return failure("Start the connection from this application.", 403);
     let connectionName: string;
     try {
       connectionName = decodeURIComponent(url.pathname.replace(/\/+$/, "").slice(`${base}/connect/`.length));
     } catch {
-      return page("Connection failed", "The Connection name is invalid.", 400);
+      return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     }
     const connection = v.safeParse(name, connectionName);
-    if (!connection.success) return page("Connection failed", "The Connection name is invalid.", 400);
+    if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
       redirectUri: `${url.origin}${base}/callback`,
     });
-    return new Response(null, {
-      headers: {
-        "cache-control": "no-store",
-        location: authorization.url,
-        "set-cookie": `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${url.protocol === "https:" ? "; Secure" : ""}`,
-      },
-      status: 302,
-    });
+    const secure = url.protocol === "https:" ? "; Secure" : "";
+    const headers = new Headers({ "cache-control": "no-store", location: authorization.url });
+    headers.append("set-cookie", `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+    // The callback page returns to the Console page that started the flow.
+    headers.append(
+      "set-cookie",
+      returnTo
+        ? `${RETURN_COOKIE}=${encodeURIComponent(returnTo)}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`
+        : `${RETURN_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`,
+    );
+    return new Response(null, { headers, status: 302 });
   },
 };
+
+const PROVIDER_ERROR = /^[\w.-]{1,64}$/;
 
 const callback: ConnectionsRoute = {
   id: "callback",
@@ -193,25 +192,44 @@ const callback: ConnectionsRoute = {
   async handle(access, base) {
     const runtime = connectionsRuntimeFor(access);
     const url = new URL(access.request.url);
+    const returnTo = requestReturnPath(access.request);
+    const failure = (title: string, message: string, status: number, code: string) =>
+      page({ code, message, outcome: "error", returnTo, status, title });
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
-    if (url.searchParams.get("error"))
-      return page("Connection cancelled", "The provider did not grant access.", 400);
+    const providerError = url.searchParams.get("error");
+    if (providerError) {
+      if (providerError === "access_denied")
+        return failure("Connection cancelled", "The provider did not grant access.", 400, "CONNECTIONS_AUTHORIZATION_CANCELLED");
+      // Only a short error code from the provider reaches the page, never its free text.
+      const reported = PROVIDER_ERROR.test(providerError) ? ` with ${providerError}` : "";
+      return failure("Connection failed", `The provider stopped the authorization${reported}.`, 502, "CONNECTIONS_PROVIDER_FAILED");
+    }
     // The state must come from a start request in this browser, by the same manager.
     // `complete()` consumes the state and checks the manager that started the flow.
-    if (!state || !code || !isViteHubSecretEqual(state, cookie(access.request, STATE_COOKIE)))
-      return page(
+    if (!state || !code || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
+      return failure(
         "Connection failed",
-        "The authorization response does not match this browser. Start the connection again.",
+        "The authorization response does not match this browser.",
         400,
+        "CONNECTIONS_STATE_MISMATCH",
       );
-    const result = await runtime().complete({ actor: access.actor, code, state });
-    const response = page(
-      "Connected",
-      `Connection "${result.name}" is connected${result.account?.email ? ` as ${result.account.email}` : ""}. You can close this tab.`,
-      200,
-    );
+    let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
+    try {
+      result = await runtime().complete({ actor: access.actor, code, state });
+    } catch (error) {
+      if (!isConnectionError(error)) throw error;
+      return failure("Connection failed", error.message, errorStatus(error), error.code);
+    }
+    const response = page({
+      message: `${result.name} is connected${result.account?.email ? ` as ${result.account.email}` : ""}.`,
+      outcome: "success",
+      returnTo,
+      status: 200,
+      title: "Connected",
+    });
     response.headers.append("set-cookie", `${STATE_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`);
+    response.headers.append("set-cookie", `${RETURN_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`);
     return response;
   },
 };
@@ -230,24 +248,18 @@ const action: ConnectionsRoute = {
   async handle(access) {
     const runtime = connectionsRuntimeFor(access);
     const { actor, request } = access;
-    if (
-      !request.headers.get("content-type")?.toLowerCase().startsWith("application/json") ||
-      !sameOrigin(request, new URL(request.url))
-    ) {
+    if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
       return json(
-        {
-          error: {
-            code: "CONNECTION_FORBIDDEN",
-            message: "Cross-origin or non-JSON requests are not allowed.",
-          },
-        },
+        { error: managementErrorBody("CONNECTIONS_CONTENT_TYPE_REJECTED", "Connections management accepts only application/json requests.") },
         403,
       );
     }
+    const rejected = originRejection(request, new URL(request.url));
+    if (rejected) return rejected;
     const parsed = v.safeParse(actionSchema, await readBody(request));
     if (!parsed.success)
       return json(
-        { error: { code: "CONNECTION_INVALID", message: "Invalid Connections request." } },
+        { error: managementErrorBody("CONNECTIONS_INVALID_REQUEST", "Invalid Connections request.") },
         400,
       );
     const input = parsed.output;
@@ -280,7 +292,7 @@ const action: ConnectionsRoute = {
         return json({ ...result, approvals: result.approvals.map(approvalSummary) });
       }
       case "approval-counts": {
-        const counts: Record<string, number> = {};
+        const counts: Record<string, number> = Object.create(null);
         for (const connection of await connections.list()) {
           let before: string | undefined;
           const seenCursors = new Set<string>();
@@ -292,16 +304,16 @@ const action: ConnectionsRoute = {
             pageCount++;
             count += result.approvals.length;
             if (result.nextCursor && seenCursors.has(result.nextCursor)) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination" });
             }
             if (result.nextCursor && pageCount >= MAX_APPROVAL_COUNT_PAGES) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not terminate.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination-end" });
             }
             if (
               result.nextCursor &&
               (result.approvals.length === 0 || result.approvals.every((approval) => seenApprovalIds.has(approval.id)))
             ) {
-              throw new ConnectionError("invalid", "Connections approval pagination did not advance.");
+              throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "pagination" });
             }
             for (const approval of result.approvals) seenApprovalIds.add(approval.id);
             before = result.nextCursor;

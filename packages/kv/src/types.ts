@@ -1,4 +1,4 @@
-import type { ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 
 export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lite"
 
@@ -67,13 +67,14 @@ export interface ResolvedKVModuleOptions {
 }
 
 export type KVOperation = "clear" | "del" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set"
-export type KVErrorDetails = ViteHubErrorDetails & {
-  operation: KVOperation
-  store: string
-}
-export type KVResult<TResult> =
-  | [error: null, value: TResult]
-  | [error: ViteHubError<"KV_OPERATION_FAILED", KVErrorDetails>, value: undefined]
+
+/** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
+export type KVErrorCode =
+  | "KV_INVALID_CURSOR"
+  | "KV_INVALID_LIMIT"
+  | "KV_INVALID_TTL"
+  | "KV_OPERATION_FAILED"
+  | "KV_UNSUPPORTED_OPERATION"
 
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
@@ -90,19 +91,23 @@ export interface KVListPage {
   cursor?: string
 }
 
+/**
+ * Each method returns `[error, data]`. `error.code` is one of the codes in the method type.
+ * Config errors, for example an unknown store name, throw.
+ */
 export interface KVStorage {
-  clear(base?: string, options?: unknown): Promise<KVResult<void>>
-  del(key: string, options?: unknown): Promise<KVResult<void>>
+  clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  del(key: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  get<T = unknown>(key: string, options?: unknown): Promise<KVResult<T | null>>
+  get<T = unknown>(key: string, options?: unknown): Promise<Result<T | null, "KV_OPERATION_FAILED">>
   /** Atomically returns and deletes a value when the configured store supports it. */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  getAndDelete<T = unknown>(key: string): Promise<KVResult<T | null>>
-  has(key: string, options?: unknown): Promise<KVResult<boolean>>
+  getAndDelete<T = unknown>(key: string): Promise<Result<T | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  has(key: string, options?: unknown): Promise<Result<boolean, "KV_OPERATION_FAILED">>
   /** Atomically increments a counter. The TTL is applied only when the counter is created. */
-  increment(key: string, ttl: number): Promise<KVResult<number>>
-  keys(base?: string, options?: unknown): Promise<KVResult<string[]>>
-  list(options: KVListOptions): Promise<KVResult<KVListPage>>
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<KVResult<void>>
+  increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
+  list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
   store(name: KVStoreName): KVStorage
 }

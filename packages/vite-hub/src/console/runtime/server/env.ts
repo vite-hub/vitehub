@@ -1,3 +1,4 @@
+import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { isBlockingServerEnvEntry } from "@vite-hub/env"
 import { installConsoleEnvScope, resolveConsoleEnv } from "../../internal.ts"
 import type { ServerEnvDescription, ServerEnvInspection, ServerEnvInspectionEntry } from "@vite-hub/env"
@@ -52,6 +53,6 @@ export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<C
 
 export async function manageConsoleEnv(request: Request): Promise<Response> {
   const manage = getConsoleSections().includes("env") ? resolveConsoleEnv()?.manage : undefined
-  if (!manage) return Response.json({ message: "Env management is unavailable." }, { status: 404, headers: { "cache-control": "no-store" } })
+  if (!manage) return Response.json(consoleDiagnosticBody("CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"), { status: 404, headers: { "cache-control": "no-store" } })
   return manage(request)
 }

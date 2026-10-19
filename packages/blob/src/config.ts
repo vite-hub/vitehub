@@ -149,7 +149,6 @@ function normalizeServeHeaders(value: unknown): Record<string, string> | undefin
 
   const entries = Object.entries(value)
   for (const [name, headerValue] of entries) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Header values must be strings before validation by the Headers constructor.
     if (typeof headerValue !== "string") throw blobErrorDiagnostics.BLOB_C0003({ message: "`blob.serve.headers` values must be strings." })
     try {
       new Headers({ [name]: headerValue })
@@ -223,6 +222,11 @@ export function normalizeBlobOptions(
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
+  // SAFETY: `options` was validated as a plain object above, so this assertion only narrows its optional `stores` property.
+  const storesOption = (options as { stores?: unknown } | undefined)?.stores
+  if (options !== undefined && Object.hasOwn(options, "stores") && storesOption !== undefined && !isPlainObject(storesOption)) {
+    throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
+  }
   const serve = normalizeServeOptions(optionRecord?.serve)
   const { serve: _serve, ...storeOptions } = options || {}
   const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined

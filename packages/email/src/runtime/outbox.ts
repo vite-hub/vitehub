@@ -96,7 +96,7 @@ export function disposeEmailOutbox(runtimeId: string): void {
 }
 
 function normalizeLimit(value: number | undefined): number {
-  if (value === undefined) return defaultEmailOutboxLimit
+  if (value === undefined || !Number.isFinite(value)) return defaultEmailOutboxLimit
   return Math.min(Math.max(Math.trunc(value), 1), maximumEmailOutboxLimit)
 }
 
@@ -207,11 +207,37 @@ export function summarizeEmailOutboxMessage(
 }
 
 function failedDelivery(error: unknown): EmailOutboxDelivery {
-  const shape = getViteHubErrorShape(error)
-  const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
-  const code = shape?.code ?? (coded.success ? coded.output.code : undefined)
-  const message = error instanceof Error ? error.message : String(error)
-  return { error: { ...optional("code", code), message: redactInspectionText(message) }, status: "failed" }
+  let shape: ReturnType<typeof getViteHubErrorShape> | undefined
+  try {
+    shape = getViteHubErrorShape(error)
+  }
+  catch {
+    // Provider errors can be proxies whose properties throw while being inspected.
+  }
+  let code: string | undefined = shape?.code
+  if (code === undefined) {
+    try {
+      const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
+      code = coded.success ? coded.output.code : undefined
+    }
+    catch {
+      // Keep the delivery record inspectable even when the provider value is hostile.
+    }
+  }
+  let message: string
+  try {
+    message = error instanceof Error ? error.message : String(error)
+  }
+  catch {
+    message = "Email delivery failed with an uninspectable error."
+  }
+  try {
+    message = redactInspectionText(message)
+  }
+  catch {
+    message = "Email delivery failed with an uninspectable error."
+  }
+  return { error: { ...optional("code", code), message }, status: "failed" }
 }
 
 export interface EmailDevOutboxDriverOptions {
@@ -279,7 +305,16 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
         captured.delivery = failedDelivery(error)
         throw error
       }
-      captured.delivery = result.error ? failedDelivery(result.error) : { id: result.data.id, status: "sent" }
+      if (result.error) {
+        captured.delivery = failedDelivery(result.error)
+      }
+      else if (v.safeParse(v.pipe(v.string(), v.check(id => id.trim().length > 0)), result.data?.id).success) {
+        captured.delivery = { id: result.data.id, status: "sent" }
+      }
+      else {
+        // Keep malformed provider responses out of the successful delivery history.
+        captured.delivery = failedDelivery(new Error("Email driver returned an invalid message id."))
+      }
       return result
     },
   }

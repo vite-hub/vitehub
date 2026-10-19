@@ -27,5 +27,5 @@ async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ConsoleEnv
   return result
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleEnvHandler> = withConsoleAccess(consoleEnvHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleEnvHandler> = withConsoleAccess(consoleEnvHandler, { section: "env" })
 export default guardedHandler

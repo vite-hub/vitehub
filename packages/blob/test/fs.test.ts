@@ -156,6 +156,41 @@ describe("fs blob driver", () => {
       folders: [],
       hasMore: false,
     })
+
+    await expect(driver.list({
+      cursor: firstPage.cursor,
+      folded: true,
+      limit: 0,
+      prefix: "a/",
+    })).resolves.toMatchObject({
+      blobs: [],
+      folders: [],
+      hasMore: true,
+    })
+    const resumedEmptyPage = await driver.list({
+      cursor: firstPage.cursor,
+      folded: true,
+      limit: 0,
+      prefix: "a/",
+    })
+    expect(resumedEmptyPage.cursor).toBe(firstPage.cursor)
+  })
+
+  it("returns no blobs for a zero folded-list limit", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+
+    const driver = createDriver({ base, driver: "fs" })
+    await driver.put("root.txt", "root")
+    await driver.put("nested/file.txt", "nested")
+
+    await expect(driver.list({ folded: true, limit: 0 })).resolves.toMatchObject({
+      blobs: [],
+      folders: ["nested/"],
+      hasMore: true,
+    })
+    const emptyPage = await driver.list({ folded: true, limit: 0 })
+    expect(emptyPage.cursor).toBeDefined()
   })
 
   it("preserves content type when reading blobs", async () => {

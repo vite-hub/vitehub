@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -31,6 +31,13 @@ function createNuxt() {
 }
 
 describe("Auth Nuxt integration", () => {
+  it("registers the Env resolver for the generated Auth Definition", async () => {
+    const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")
+
+    expect(runtime).toContain('import definition from "#vitehub/auth/definition"')
+    expect(runtime).toContain("setAuthRuntimeEnvResolver(useServerEnv, definition)")
+  })
+
   it("installs Vue composables and the server Env runtime once", () => {
     const nuxt = createNuxt()
 

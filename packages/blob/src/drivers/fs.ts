@@ -6,6 +6,7 @@ import { object, optional, parse, record, safeParse, string } from "valibot"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 interface FsMultipartState {
   contentType?: string
@@ -300,6 +301,24 @@ function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: num
   const limit = options.limit ?? 1000
   const folders = new Set<string>()
   const blobs: BlobObject[] = []
+
+  // A zero limit is an empty page. Keep folder discovery consistent with the
+  // existing folded listing behavior, but never emit a blob when callers ask
+  // for no blobs.
+  if (limit <= 0) {
+    for (const entry of entries.slice(start)) {
+      const remainder = entry.path.slice(prefix.length)
+      const firstSlash = remainder.indexOf("/")
+      if (firstSlash !== -1) folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+    }
+    return {
+      blobs,
+      cursor: start < entries.length ? encodeCursor(start) : undefined,
+      folders: [...folders].sort((left, right) => left.localeCompare(right)),
+      hasMore: start < entries.length,
+    }
+  }
+
   let consumed = start
 
   for (const entry of entries.slice(start)) {
@@ -395,7 +414,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       await assertNoSymlinkPath(root, statePath)
       let state: FsMultipartState
       try {
-        // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization,typescript/strict/require-safety-comment-for-type-assertion -- The state file is written by this driver and its pathname and upload ID are checked below.
+        // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The state file is written by this driver and its pathname and upload ID are checked below.
         state = JSON.parse(await readFile(statePath, "utf8")) as FsMultipartState
       }
       catch (error) {
@@ -534,7 +553,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         // Prepare immutable metadata before the only visible publication step:
         // renaming the payload. Readers select metadata by that payload's inode.
         await writeAtomic(root, metadataPath, JSON.stringify({
-          contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
           customMetadata: putOptions.customMetadata,
         }))
       })

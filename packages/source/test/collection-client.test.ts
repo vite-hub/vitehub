@@ -82,6 +82,46 @@ describe("useCollection", () => {
     scope.stop()
   })
 
+  it("exposes total and facets from the latest page", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { immediate: false, request })
+    })
+    expect(collection.total.value).toBeUndefined()
+    expect(collection.facets.value).toBeUndefined()
+
+    const first = collection.refresh()
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), facets: { kind: [{ count: 3, value: "a" }] }, total: 3 })
+    await expect(first).resolves.toEqual({ facets: { kind: [{ count: 3, value: "a" }] }, items: [{ id: 1 }], nextCursor: "next", total: 3 })
+    expect(collection.total.value).toBe(3)
+    expect(collection.facets.value).toEqual({ kind: [{ count: 3, value: "a" }] })
+
+    const next = collection.loadMore()
+    calls[1]!.resolve({ ...page([{ id: 2 }], null), facets: { kind: [{ count: 2, value: "a" }] }, total: 2 })
+    await next
+    expect(collection.total.value).toBe(2)
+    expect(collection.facets.value).toEqual({ kind: [{ count: 2, value: "a" }] })
+    scope.stop()
+  })
+
+  it("rejects malformed total and facets", async () => {
+    for (const body of [{ total: -1 }, { total: "3" }, { facets: { kind: [{ value: 1, count: 1 }] } }, { facets: [] }]) {
+      const { calls, request } = controlledRequester()
+      const scope = effectScope()
+      let collection!: UseCollectionReturn<typeof definition>
+      scope.run(() => {
+        collection = useCollection("items", { immediate: false, request })
+      })
+      const refresh = collection.refresh()
+      calls[0]!.resolve({ ...page([], null), ...body })
+      await refresh
+      expect(collection.error.value).toMatchObject({ code: "SOURCE_R0002" })
+      scope.stop()
+    }
+  })
+
   it("prefixes the generated endpoint with the application base URL", async () => {
     vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
     try {
@@ -169,6 +209,41 @@ describe("useCollection", () => {
 
     expect(collection.items.value).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
     expect(collection.hasMore.value).toBe(false)
+    scope.stop()
+  })
+
+  it("preserves total when later all-pages responses omit it", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), total: 2 })
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], null))
+    await expect(refresh).resolves.toMatchObject({ items: [{ id: 1 }, { id: 2 }], total: 2 })
+    expect(collection.total.value).toBe(2)
+    scope.stop()
+  })
+
+  it("preserves facets when later all-pages responses omit them", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    const facets = { category: [{ value: "guide", count: 1 }] }
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), facets })
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], null))
+    await expect(refresh).resolves.toMatchObject({ items: [{ id: 1 }, { id: 2 }], facets })
+    expect(collection.facets.value).toEqual(facets)
     scope.stop()
   })
 
