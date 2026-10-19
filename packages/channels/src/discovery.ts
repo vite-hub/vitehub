@@ -118,6 +118,20 @@ function isOutboundChannelModule(file: string): boolean {
     }
   }
 
+  // Follow local aliases assigned from an imported Agent `defineChannel`.
+  // This keeps static classification aligned with the runtime call even when
+  // the default export goes through one or more intermediate bindings.
+  let aliasesChanged = true
+  while (aliasesChanged) {
+    aliasesChanged = false
+    for (const [name, binding] of bindings) {
+      if (binding.type === "Identifier" && agentChannelFactories.has(binding.name) && !agentChannelFactories.has(name)) {
+        agentChannelFactories.add(name)
+        aliasesChanged = true
+      }
+    }
+  }
+
   if (exportsConnectors) return true
   if (!hasDefault) return reexportsAll
 

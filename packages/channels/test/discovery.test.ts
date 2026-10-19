@@ -108,6 +108,12 @@ describe("discoverChannelDefinitions", () => {
       "export { discord as default }",
       "",
     ].join("\n"))
+    await touch(root, "server/channels/aliased/index.ts", [
+      "import { defineChannel } from 'vite-hub/agent/channels'",
+      "const makeChannel = defineChannel",
+      "export default makeChannel('aliased', {})",
+      "",
+    ].join("\n"))
 
     const expected = [
       { handler: join(root, "server/channels/teams/index.ts"), name: "teams", source: "server-channels" },
