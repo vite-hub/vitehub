@@ -19,6 +19,7 @@ import type {
 
 const approvalPreservingExecutorOwners = new WeakMap<Function, AgentToolPolicyOwner | null>()
 const budgetWrappedExecutors = new WeakMap<object, (...args: unknown[]) => unknown>()
+const budgetWrappedBudgets = new WeakMap<object, ExecutionBudget>()
 
 function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
   const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
@@ -124,6 +125,7 @@ export async function executeApprovedAgentTool(
   }
   const approvedContext: AgentToolApprovalExecutionContext = { ...context, [toolApprovalGrantContextKey]: grant }
   const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+  budgetWrappedBudgets.get(tool)?.recordToolCall()
   return await execute.call(tool, binding.input, approvedContext)
 }
 
@@ -258,13 +260,29 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
     }
 
     const execute = tool.execute
+    const policyOwner = agentToolPolicyOwners.get(tool)
     const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
+      // Approval requests are probes. Charge the call when the policy-protected
+      // execution actually succeeds, including the later approved execution.
+      if (policyOwner) {
+        try {
+          const result = await execute.call(tool, input, executionContext)
+          budget.recordToolCall()
+          return result
+        }
+        catch (error) {
+          if ((error as { code?: unknown })?.code === "APPROVAL_REQUIRED") throw error
+          budget.recordToolCall()
+          throw error
+        }
+      }
       budget.recordToolCall()
       return await execute.call(tool, input, executionContext)
     }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })
     budgetWrappedExecutors.set(wrappedTool, execute)
+    budgetWrappedBudgets.set(wrappedTool, budget)
     return [name, wrappedTool]
   })) as TTools
 }

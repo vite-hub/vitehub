@@ -31,6 +31,7 @@ export default defineConfig({
         "@vite-hub/env/internal/agent",
         "@vercel/nft",
         "@vite-hub/rate-limit",
+        "@vite-hub/connections/server",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,
         "cloudflare:workers",

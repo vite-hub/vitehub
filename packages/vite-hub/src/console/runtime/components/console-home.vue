@@ -3,7 +3,7 @@ import { useCollection } from "vite-hub/source/client";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { AgentInvocationStatus } from "@vite-hub/ui";
+import type { AgentInvocationStatus } from "./invocation";
 import type { ConsoleSectionId } from "../sections";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import type { ConsoleNavigation } from "../client/sections";
@@ -44,7 +44,7 @@ const error = ref<unknown>();
 const sessionsLoadedAt = ref(Date.now());
 let request = 0;
 
-/** Labels match the Agent session list in `@vite-hub/ui`. */
+/** Labels match the Agent session list in `./invocation`. */
 const sessionStatusLabels: Readonly<Record<AgentInvocationStatus, string>> = {
   cancelled: "Cancelled",
   completed: "Done",

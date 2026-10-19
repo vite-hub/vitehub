@@ -1,22 +1,24 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
-import { createScheduleError } from "../errors.ts"
-import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
+import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
+import { isRuntimeScheduleDue } from "./due.ts"
+import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
-import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
+import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
 interface ExecuteScheduleOptions {
   /** Return the persisted failed run when the handler throws. Guards still throw. */
   captureHandlerFailure?: boolean
-  definition: ScheduleDefinition
+  definition: ScheduleRegistryDefinition
+  input?: unknown
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
-  source?: "direct" | "manual" | "static"
+  source?: "direct" | "manual" | "runtime" | "static"
   scheduledAt?: Date
-  target: string
+  target: ScheduleTargetName
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
@@ -33,6 +35,29 @@ export interface RunScheduleOptions {
   registry?: ScheduleDefinitionRegistry
 }
 
+interface ExecuteRuntimeScheduleOptions {
+  captureHandlerFailure?: boolean
+  id: string
+  intent?: "manual" | "provider"
+  requireDue?: boolean
+  runtimeScheduleStore?: RuntimeScheduleStore
+  scheduledAt?: Date
+  scheduleRunStore?: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+interface ExecuteRuntimeScheduleWakeOptions {
+  runtimeScheduleStore: RuntimeScheduleStore
+  scheduleRunStore: ScheduleRunStore
+  waitUntil?: (promise: PromiseLike<unknown>) => void
+}
+
+function assertRuntimeExecuteOptionsObject(options: unknown): asserts options is ExecuteRuntimeScheduleOptions {
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw createScheduleError("SCHEDULE_INVALID_INPUT", { details: invalidScheduleValueDetails("options", options) })
+  }
+}
+
 function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
   return source ?? "direct"
 }
@@ -42,7 +67,24 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-export { isScheduleDate, validateScheduledAt } from "./date.ts"
+function isDate(value: unknown): value is Date {
+  try {
+    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
+  }
+  catch {
+    return false
+  }
+}
+
+function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  if (!isDate(value)) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return new Date(Date.prototype.getTime.call(value))
+}
 
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {
@@ -119,11 +161,13 @@ async function startAttempt(run: ScheduleRunRecord, store: ScheduleRunStore = ge
 function toHandlerContext(
   run: ScheduleRunRecord,
   attempt: ScheduleRunAttemptRecord,
+  input: unknown,
   waitUntil: (promise: PromiseLike<unknown>) => void,
 ): ScheduleRunContext {
   return {
     attemptId: attempt.id,
     id: run.id,
+    ...(input !== undefined ? { input } : {}),
     runId: run.id,
     scheduleId: run.scheduleId,
     scheduledAt: run.scheduledAt,
@@ -183,7 +227,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const attempt = await startAttempt(run, runStore)
   try {
     const value = await runWithScheduleWaitUntil(
-      waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
+      waitUntil => options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil)),
       options.waitUntil,
     )
     const response = await serializeResponse(toResponse(value))
@@ -258,4 +302,48 @@ export async function runSchedule(name: string, options: RunScheduleOptions = {}
     if (run?.status === "failed") return run
     throw error
   }
+}
+
+export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOptions | string): Promise<ScheduleRunRecord> {
+  const runtimeOptions = typeof options === "string" ? { id: options } : options
+  assertRuntimeExecuteOptionsObject(runtimeOptions)
+  assertRuntimeScheduleId(runtimeOptions.id)
+  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
+  const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
+  const scheduleRunStore = runtimeOptions.scheduleRunStore
+  const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", runtimeOptions.id, scheduledAt))
+  // A persisted run always acknowledges a replay, including provider redeliveries
+  // after the schedule has been disabled or deleted.
+  const schedule = await (runtimeScheduleStore ?? getRuntimeScheduleStore()).get(runtimeOptions.id)
+  if (existingRun && runtimeOptions.intent === "provider") return existingRun
+  if (schedule && !schedule.enabled) throw createScheduleError("SCHEDULE_DISABLED")
+  if (existingRun) return existingRun
+  if (!schedule) throw createScheduleError("SCHEDULE_NOT_FOUND")
+  if (runtimeOptions.requireDue && !isRuntimeScheduleDue(schedule, scheduledAt)) throw createScheduleError("SCHEDULE_NOT_DUE")
+  const definition = await loadScheduleDefinition(schedule.target)
+  if (!definition) throw createScheduleError("SCHEDULE_TARGET_NOT_FOUND")
+  if (definition.options?.allowRuntimeSchedules !== true) throw createScheduleError("SCHEDULE_TARGET_NOT_ELIGIBLE")
+  return await executeSchedule({
+    captureHandlerFailure: runtimeOptions.captureHandlerFailure,
+    definition,
+    input: schedule.input,
+    runStore: scheduleRunStore,
+    scheduleId: schedule.id,
+    source: "runtime",
+    scheduledAt,
+    target: schedule.target,
+    waitUntil: runtimeOptions.waitUntil,
+  })
+}
+
+export async function executeRuntimeScheduleWake(input: RuntimeScheduleWake, options: ExecuteRuntimeScheduleWakeOptions): Promise<void> {
+  await executeRuntimeSchedule({
+    id: input.scheduleId,
+    intent: "provider",
+    requireDue: true,
+    runtimeScheduleStore: options.runtimeScheduleStore,
+    scheduledAt: input.scheduledAt,
+    scheduleRunStore: options.scheduleRunStore,
+    waitUntil: options.waitUntil,
+  })
 }
