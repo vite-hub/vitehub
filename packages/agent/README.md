@@ -311,6 +311,7 @@ openapi({
 
 `spec` can be a callback when the OpenAPI document comes from the current Agent Invocation context. Request servers come from OpenAPI `servers`; use `server` only as an override escape hatch when the spec has no usable server.
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
+`operations` can also be a record of names to `operationId`s, such as `{ "invoice": "billing_get_invoice_invoices__id__get" }`. Each name becomes the tool name and the CLI command name. ViteHub reads only the selected operations, so other operations in the spec can have any `operationId`.
 Capability `cli` can be a static command tree or an invocation resolver that returns `undefined` when the CLI should not be available. Generated command trees stay behind adapter-owned options such as `openapi({ cli })`, whose resolver may return `false` or `undefined` for the current invocation.
 
 ## Channel Env
