@@ -128,6 +128,21 @@ describe("Vercel Blob workspace store", () => {
     ])
     await expect(store.readFile("readme.md")).resolves.toMatchObject({ content: new TextEncoder().encode("current") })
   })
+  it("slices current entries correctly when a custom prefix overlaps the legacy root", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({
+      prefix: "_vitehub/workspaces",
+      provider: "vercel-blob",
+      token: "token",
+    }, "docs")
+
+    await blobMock.put("_vitehub/workspaces/_vitehub/workspaces/docs/files/readme.md", "current")
+
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ path: "readme.md", type: "file", size: 7 }),
+    ])
+  })
   it("detects equal-size content changes in snapshot diffs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")

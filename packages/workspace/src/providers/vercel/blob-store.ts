@@ -254,7 +254,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     // Process legacy entries first so entries under the current root always win
     // when both roots contain the same workspace path during migration.
     for (const blob of [...legacyFiles, ...files]) {
-      const base = blob.key.startsWith(legacyBase) ? legacyBase : currentBase
+      // Check the current root first because an accepted custom prefix can
+      // make the legacy root a prefix of the current root.
+      const base = blob.key.startsWith(currentBase) ? currentBase : legacyBase
       const path = normalizeWorkspacePath(blob.key.slice(base.length))
       if (!path) continue
       if (isExcludedWorkspacePath(path, options.exclude)) continue
