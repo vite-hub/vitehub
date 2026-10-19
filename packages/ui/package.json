@@ -96,24 +96,6 @@
       "require": "./dist/components/agent-file-tree.js",
       "default": "./dist/components/agent-file-tree.js"
     },
-    "./agent-invocation-list": {
-      "types": "./dist/components/agent-invocation-list.d.ts",
-      "import": "./dist/components/agent-invocation-list.js",
-      "require": "./dist/components/agent-invocation-list.js",
-      "default": "./dist/components/agent-invocation-list.js"
-    },
-    "./agent-invocation-timeline": {
-      "types": "./dist/components/agent-invocation-timeline.d.ts",
-      "import": "./dist/components/agent-invocation-timeline.js",
-      "require": "./dist/components/agent-invocation-timeline.js",
-      "default": "./dist/components/agent-invocation-timeline.js"
-    },
-    "./agent-invocation": {
-      "types": "./dist/components/agent-invocation.d.ts",
-      "import": "./dist/components/agent-invocation.js",
-      "require": "./dist/components/agent-invocation.js",
-      "default": "./dist/components/agent-invocation.js"
-    },
     "./agent-markdown": {
       "types": "./dist/components/agent-markdown.d.ts",
       "import": "./dist/components/agent-markdown.js",

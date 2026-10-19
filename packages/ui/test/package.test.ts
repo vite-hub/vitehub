@@ -62,7 +62,7 @@ const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-invocation-list", "./agent-invocation-timeline", "./agent-invocation", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./code-block", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./code-block", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -95,9 +95,6 @@ describe("@vite-hub/ui package contract", () => {
     "./agent-chat-prompt",
     "./agent-code-view",
     "./agent-file-tree",
-    "./agent-invocation-list",
-    "./agent-invocation-timeline",
-    "./agent-invocation",
     "./agent-markdown",
     "./agent-message-parts",
     "./agent-session",
