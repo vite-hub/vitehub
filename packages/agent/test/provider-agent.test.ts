@@ -62,6 +62,12 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
+// Launch failure tests expect one attempt. The retry test sets short delays.
+const providerLaunchRetry = vi.hoisted(() => ({ delaysMs: [] as number[] }))
+vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/provider-launch-retry.ts")>(),
+  get providerLaunchRetryDelaysMs() { return providerLaunchRetry.delaysMs },
+}))
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -91,8 +97,8 @@ function runtime(threadId: string, events: unknown[], options: {
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
-  resumeCursor?: string
-  turnResumeCursor?: string
+  resumeCursor?: unknown
+  turnResumeCursor?: unknown
 } = {}) {
   let mcp: { authorizationHeader: string, endpoint: string } | undefined
   const value = {
@@ -745,6 +751,45 @@ describe("Provider Agent Driver", () => {
         stderr: "launcher stopped before handshake",
       },
     })
+  })
+
+  it("launches a provider again when it exits before its first event", async () => {
+    const threadId = "thread-launch-retry"
+    const failedLaunch = {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        throw new Error("Codex App Server process exited with code 1")
+      },
+    }
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "ready", streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const launches = createProviderRuntime.mock.calls.length
+    providerLaunchRetry.delaysMs = [1, 1]
+    try {
+      const result = await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", 'process.stderr.write("failed to initialize sqlite state runtime\\n");process.exit(1)'],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise a relaunch.
+      }).generate(context(threadId) as never)
+
+      expect(result).toMatchObject({ text: "ready" })
+      expect(createProviderRuntime.mock.calls.length - launches).toBe(3)
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn.mock.calls[0]?.[1]).toBe("failed to initialize sqlite state runtime")
+    }
+    finally {
+      providerLaunchRetry.delaysMs = []
+      warn.mockRestore()
+    }
   })
 
   it("bounds diagnostics while forwarding high-volume provider stderr", async () => {
@@ -3582,6 +3627,54 @@ cli_auth_credentials_store = "keyring"
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it.each([
+    { name: "a new native thread", started: "native-b", resumed: false },
+    { name: "the same native thread", started: "native-a", resumed: true },
+    { name: "an opaque cursor", started: undefined, resumed: true },
+  ])("chooses the prompt and usage from the resumed provider thread ($name)", async ({ started, resumed }) => {
+    const threadId = `thread-resume-check-${started ?? "opaque"}`
+    const cursor = (nativeId: string) => ({ providerThread: { id: `provider-${nativeId}`, nativeThreadRef: { driver: "codex", nativeId, strength: "strong" } }, version: 2 })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    })
+    const raw = { totalProcessedTokens: 100 }
+    const second = runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: raw }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { resumeCursor: started === undefined ? "opaque-cursor" : cursor(started) })
+    const adapter = createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const secondContext = context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = await adapter.generate({ ...secondContext, runtime: { ...secondContext.runtime, traceLog } } as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      resumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: resumed
+        ? "continue"
+        : '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
+    }))
+    expect(result).toMatchObject({ usageRecord: { raw, usage: { totalTokens: resumed ? undefined : 100 } } })
+    const failures = traceLog.entries().filter(entry => entry.name === "agent.provider.session.resume-failed")
+    expect(failures.map(entry => entry.attributes)).toEqual(resumed ? [] : [expect.objectContaining({
+      "gen_ai.provider.name": "codex",
+      "vitehub.provider.requested_thread.id": "native-a",
+      "vitehub.provider.started_thread.id": "native-b",
+    })])
   })
 
   it("replays message history instead of resuming an ephemeral credential Home", async () => {
