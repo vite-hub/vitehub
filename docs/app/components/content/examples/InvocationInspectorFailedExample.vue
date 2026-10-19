@@ -1,70 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
-import type { AgentInvocationView } from "@vite-hub/ui";
 
+import type { AgentInvocationView } from "vite-hub/console/ui";
 
-
-const now = useState("ui-running-clock", () => Date.now());
-onMounted(() => {
-  now.value = Date.now();
-});
-const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
-
-
-
-const invocation = computed<AgentInvocationView>(() => ({
-  agentName: "interface-engineer",
-  createdAt: time(844),
-  id: "ainv_console_navigation",
+const invocation: AgentInvocationView = {
+  agentName: "reviewer",
+  configuration: {
+    agent: { name: "reviewer", version: "1.0.0" },
+    driver: { kind: "provider", model: { id: "gpt-5.6", provider: "openai" }, provider: "codex" },
+    runtime: { name: "node" },
+    tools: [{ name: "exec_command", label: "Run command", icon: "i-lucide-terminal" }],
+    workspace: { mode: "write", name: "vitehub", sources: ["repository"] },
+  },
+  createdAt: "2026-08-30T15:00:00.000Z",
+  id: "ainv_inspector_example",
   observations: [
-    {
-      attributes: {
-        "message.content": "Tighten the Console navigation spacing at mobile widths.",
-        "message.id": "user-1",
-        "message.role": "user",
-      },
-      name: "agent.message.recorded",
-      sequence: 1,
-      timestamp: time(836),
-      trace: { id: "trace_console_navigation" },
-      type: "run",
-    },
-    {
-      attributes: {
-        "progress.label": "Comparing the primitive pages",
-        "progress.value": 0.62,
-        "vitehub.activity.body": "Checking the navigation rhythm at desktop and mobile widths.",
-      },
-      name: "agent.progress",
-      sequence: 2,
-      timestamp: time(444),
-      trace: { id: "trace_console_navigation" },
-      type: "run",
-    },
-    {
-      attributes: {
-        "tool.id": "browser-check",
-        "tool.name": "Check responsive layout",
-        "tool.output": { route: "/_vitehub/agents/interface-engineer", viewport: "390x844" },
-      },
-      name: "agent.tool.finish",
-      sequence: 3,
-      timestamp: time(20),
-      trace: { id: "trace_console_navigation" },
-      type: "run",
-    },
+    { attributes: { "message.content": "Review the navigation changes.", "message.role": "user" }, name: "agent.message.recorded", sequence: 1, timestamp: "2026-08-30T15:00:01.000Z", trace: { id: "trace_inspector_example" }, type: "run" },
+    { attributes: { "tool.name": "exec_command", "tool.output": { exitCode: 0, command: "pnpm test" } }, name: "agent.tool.finish", sequence: 2, timestamp: "2026-08-30T15:00:12.000Z", trace: { id: "trace_inspector_example" }, type: "run" },
   ],
-  startedAt: time(842),
+  startedAt: "2026-08-30T15:00:01.000Z",
   status: "failed",
-  error: { name: "InvocationError", message: "The browser check failed." },
-  title: "Polish Console navigation",
-  traceId: "trace_console_navigation",
-  updatedAt: time(20),
-}));
+  title: "Review navigation changes (failed)",
+  traceId: "trace_inspector_example",
+  updatedAt: "2026-08-30T15:00:14.000Z",
+};
 </script>
 
 <template>
-  <div class="h-[28rem] min-w-0 bg-default">
-    <AgentInvocationInspector :invocation="invocation" class="h-full" />
+  <div class="mx-auto h-[36rem] min-w-0 bg-default">
+    <AgentInvocationInspector :invocation="invocation" class="h-full border-x border-default" />
   </div>
 </template>

@@ -2,10 +2,28 @@ import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, parseThread, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
+import { listReviewThreads, repoRef, type GitHubProvider } from '@vite-hub/forge'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
-export type ReadThreads = (repository: string, number: number) => Promise<GitHubReviewThread[]>
+export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
+
+/** Read review conversations through the Forge GitHub gap helper. */
+export async function readForgePullRequestThreads(provider: GitHubProvider, repository: string, number: number, signal?: AbortSignal): Promise<GitHubReviewThread[]> {
+  const repo = repoRef(provider, repository)
+  const ref = { forge: provider.forge, instance: provider.instance, repo, kind: 'pull_request' as const, number: String(number) }
+  const threads = await listReviewThreads(provider, ref, { signal })
+  return threads.map(thread => ({
+    id: thread.id, node_id: thread.id, isResolved: thread.resolved, isOutdated: thread.outdated,
+    ...(thread.path === undefined ? {} : { path: thread.path }),
+    ...(thread.line === undefined ? {} : { line: thread.line }),
+    ...(thread.originalLine === undefined ? {} : { originalLine: thread.originalLine }),
+    ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
+    ...(thread.originalStartLine === undefined ? {} : { originalStartLine: thread.originalStartLine }),
+    comments: thread.comments.map(comment => ({ id: comment.restId ?? comment.id, node_id: comment.id })),
+    resolutionSource: 'forge',
+  }))
+}
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
 const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) })
 const commentConnection = v.object({ nodes: v.array(v.object({ id: v.string(), databaseId: v.nullish(v.number()) })), pageInfo })
@@ -63,7 +81,7 @@ export async function readPullRequestThreads(graphql: ReadGraphql, repository: s
 }
 
 /** REST snapshots fill webhook gaps without asking an LLM to poll GitHub. */
-export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {
+export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {
   const prefix = `repos/${repository}`
   const [raw] = await read(`${prefix}/pulls/${number}`, '.')
   const pr = parsePullRequest(raw)
@@ -83,7 +101,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     readAll(`${prefix}/pulls/${number}/comments?per_page=100`),
     readAll(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
     readAll(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
-    readThreads?.(repository, number),
+    readThreads?.(repository, number, signal),
   ])
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
@@ -95,14 +113,14 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   return snapshot
 }
 
-export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<boolean> {
+export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<boolean> {
   const { snapshot: current } = claim
   if (current.hydrated && !current.refresh && current.pr?.mergeable !== null && current.pr?.mergeable_state !== 'unknown') {
     if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
-    const threads = await readThreads(current.repository, current.number)
+    const threads = await readThreads(current.repository, current.number, signal)
     return await inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
   }
-  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors)
+  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors, signal)
   // CAS keeps an event received while REST requests ran from being overwritten.
   return await inbox.hydrate(claim, { ...snapshot, refresh: false })
 }

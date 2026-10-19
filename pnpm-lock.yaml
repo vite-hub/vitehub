@@ -907,8 +907,11 @@ importers:
 
   packages/auth:
     dependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.2
       '@cloudflare/workers-types':
-        specifier: ^5.20261003.1
+        specifier: ^5.20261016.1
         version: 5.20261016.1
       '@vite-hub/env':
         specifier: workspace:*
@@ -1739,6 +1742,9 @@ importers:
 
   packages/presets:
     dependencies:
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

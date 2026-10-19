@@ -202,6 +202,8 @@ interface AgentRouteRuntimeOptions {
   waitUntil?: AgentWaitUntil
 }
 
+const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
+
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
@@ -9122,6 +9124,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         let inbox: WebhookInbox
         try {
           inbox = await openWebhookInbox(webhookDeliveryState, {
+            priorAttempts: (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxPriorAttempts]?: number })[webhookInboxPriorAttempts],
             id: await webhookInboxId(request, rawBodyBytes),
             receivedAt: new Date(webhookStartedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
@@ -9357,7 +9360,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {
         // Requests that an earlier process stored but did not finish admitting go through the route again.
-        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId) => await handler(request, webhookId, handlerOptions))
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts } as AgentChannelWebhookRouteOptions))
           .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
         inboxReplayBefore = undefined
       }

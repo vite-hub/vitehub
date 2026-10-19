@@ -33,6 +33,8 @@ interface WebhookInboxEntry {
   receivedAt: string
   request: WebhookInboxRequest
   webhookId: string
+  /** Highest admission count already recorded by replay metadata. */
+  priorAttempts?: number
 }
 
 interface StoredWebhookInboxEntry extends WebhookInboxEntry {
@@ -160,7 +162,8 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   }, Math.max(1_000, webhookInboxOwnerTtlMs / 3))
   try {
     const previous = await state.get(key)
-    const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
+    const previousAttempts = isStoredWebhookInboxEntry(previous) ? previous.attempts : 0
+    const attempts = Math.max(previousAttempts, entry.priorAttempts ?? 0) + 1
     if (!previous) {
       // Keep a complete copy in the replay index. If the process stops between the
       // row and index writes, replay can still recover the stored request.
@@ -300,7 +303,7 @@ export async function drainDeferredWebhookAdmissions(options: DrainDeferredWebho
 export async function replayWebhookInbox(
   scopes: Iterable<WebhookInboxState>,
   before: number,
-  route: (request: Request, webhookId: string) => Promise<Response>,
+  route: (request: Request, webhookId: string, priorAttempts: number) => Promise<Response>,
 ): Promise<void> {
   const states = new Map<string, StateAdapter>()
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
@@ -328,7 +331,7 @@ export async function replayWebhookInbox(
           headers: stored.request.headers,
           method: stored.request.method,
         })
-        let response = await route(makeRequest(), stored.webhookId)
+        let response = await route(makeRequest(), stored.webhookId, stored.attempts)
         // A lock left by a crashed process is indistinguishable from a duplicate request
         // at the route boundary. If this process does not own it, take over once and retry.
         const currentOwner = await state.get(`${key}:owner`)
@@ -346,7 +349,7 @@ export async function replayWebhookInbox(
               : isRecord(currentOwner) && isRecord(takeoverOwner) && currentOwner.token === takeoverOwner.token
             if (sameOwner && !(isRecord(takeoverOwner) && takeoverOwner.settled === true)) {
               await forceReleaseLock(`${key}:admission`).catch(() => undefined)
-              response = await route(makeRequest(), stored.webhookId)
+              response = await route(makeRequest(), stored.webhookId, stored.attempts)
             }
           }
         }

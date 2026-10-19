@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { normalizeRetention, parseRetentionDuration, parseRetentionSize } from "../src/internal/retention-policy.ts"
+import { formatRetentionPercentage, normalizeRetention, parseRetentionDuration, parseRetentionSize } from "../src/internal/retention-policy.ts"
 
 import type { NormalizeRetentionOptions } from "../src/internal/retention-policy.ts"
 
@@ -23,6 +23,14 @@ const second = 1_000
 const hour = 60 * 60 * second
 const day = 24 * hour
 const MiB = 1024 * 1024
+
+describe("formatRetentionPercentage", () => {
+  it("avoids floating-point artifacts", () => {
+    expect(formatRetentionPercentage(0.29)).toBe("29")
+    expect(formatRetentionPercentage(0.9999999)).toBe("99.99999")
+    expect(formatRetentionPercentage(0.0000000000000001)).toBe("0.00000000000001")
+  })
+})
 
 afterEach(() => {
   statfs.mockReset()

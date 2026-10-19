@@ -160,6 +160,24 @@ describe("webhook acknowledgement after store", () => {
     await stop()
   })
 
+  it("preserves attempts when replay recovers an index-only entry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { create, inbox, invokes, routeOptions, state, setStatus } = await setup({ ackTimeoutMs: 1_000 })
+    setStatus(503)
+    await state.appendToList(`${scope}inbox`, {
+      attempts: 2,
+      id: "delivery-index-only",
+      receivedAt: new Date(Date.now() - 1_000).toISOString(),
+      request: { body: "{\"n\":9}", headers: {}, method: "POST", url: "https://example.com/hook" },
+      webhookId: "",
+    })
+    const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
+    await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]), { timeout: 5_000 })
+    expect(invokes).toEqual([9])
+    await stop()
+  })
+
   it("drops a stored request after 3 admissions", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "info").mockImplementation(() => {})

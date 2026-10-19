@@ -16,7 +16,7 @@ import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
-import { parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
+import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 
@@ -1010,7 +1010,7 @@ async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliCon
   const retention: AgentRetentionPolicy = {
     maxAge: parsed.olderThanMs ?? false,
     maxRecords: parsed.maxRecords ?? false,
-    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${parsed.maxSize.fraction * 100}%`,
+    maxSize: !parsed.maxSize ? false : "bytes" in parsed.maxSize ? parsed.maxSize.bytes : `${formatRetentionPercentage(parsed.maxSize.fraction)}%`,
   }
   const result = await withJournalStore(parsed, context, async store => await store.prune!(parsed.dryRun ? { dryRun: true } : {}), retention)
   if (parsed.json) {
