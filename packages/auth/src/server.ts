@@ -376,7 +376,9 @@ async function runAccessAuthorize(
 
       }
       catch (error) {
-        if (!(error instanceof TypeError)) {
+        const incompatibleReceiver = error instanceof TypeError
+          && /incompatible receiver/i.test(String((error as Error).message))
+        if (!incompatibleReceiver) {
           reject(error)
           return
         }
@@ -768,14 +770,6 @@ async function validateAuthorizationBody(
         } else {
           await cleanupReader();
           controller.error(new TypeError("Authorization body chunk must be a Uint8Array"));
-        }
-        else {
-          const value = result.value
-          if (!isIntrinsicUint8Array(value)) throw new Error("Malformed authorization read result")
-          if (!intrinsicTypedArrayByteLengthGetter || typeof intrinsicUint8ArraySet !== "function") throw new Error("Malformed authorization read result")
-          const copy = new intrinsicUint8ArrayConstructor(Reflect.apply(intrinsicTypedArrayByteLengthGetter, value, []))
-          Reflect.apply(intrinsicUint8ArraySet, copy, [value])
-          controller.enqueue(copy)
         }
       }
       catch (error) {
