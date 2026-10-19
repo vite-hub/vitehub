@@ -477,11 +477,22 @@ async function validateAuthorizationBody(
 }
 
 function isUint8ArrayChunk(value: unknown): value is Uint8Array {
-  return (
-    ArrayBuffer.isView(value) &&
-    Object.prototype.toString.call(value) === "[object Uint8Array]" &&
-    (value as { BYTES_PER_ELEMENT?: unknown }).BYTES_PER_ELEMENT === 1
-  );
+  if (!ArrayBuffer.isView(value) || value === null || typeof value !== "object") return false;
+  try {
+    // These accessors validate the intrinsic TypedArray brand, so mutable
+    // Symbol.toStringTag and BYTES_PER_ELEMENT properties cannot spoof it.
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+    const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get;
+    const length = Object.getOwnPropertyDescriptor(typedArrayPrototype, "length")?.get;
+    const tag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get;
+    if (!byteLength || !length || !tag) return false;
+    return (
+      Reflect.apply(tag, value, []) === "Uint8Array" &&
+      Reflect.apply(byteLength, value, []) === Reflect.apply(length, value, [])
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hasNativeStreamBrand(body: object): boolean {
