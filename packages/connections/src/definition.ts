@@ -2,7 +2,8 @@ import * as v from "valibot"
 
 import { isSafeEndpoint, isValidApiKeyProvider } from "./api-key.ts"
 import { ConnectionError } from "./errors.ts"
-import type { ConnectionApiSelection, ConnectionDefinition } from "./types.ts"
+import { isValidLoginProvider } from "./oauth-login.ts"
+import type { ConnectionApiSelection, ConnectionDefinition, ConnectionInstancesDefinition } from "./types.ts"
 
 const connectionValue = v.union([v.string(), v.function()])
 const accessRuleSchema = v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.object({
@@ -72,17 +73,65 @@ const apiKeyDefinitionSchema = v.looseObject({
   scopes: v.optional(v.undefined()),
   ...rulesSchema,
 })
-const definitionSchema = v.union([oauthDefinitionSchema, apiKeyDefinitionSchema])
+const loginDefinitionSchema = v.looseObject({
+  provider: v.pipe(
+    v.nonNullish(v.unknown()),
+    v.check(provider => Object.prototype.hasOwnProperty.call(provider, "kind")),
+    v.looseObject({
+      kind: v.literal("oauth-login"),
+      id: v.pipe(v.string(), v.regex(/^\S+$/)),
+      login: v.function(),
+      origins: v.array(v.string()),
+      redirectUri: v.string(),
+      issuer: mcpSchema,
+      resource: mcpSchema,
+      apis: v.optional(apiCatalogsSchema),
+      clientId: v.optional(connectionValue),
+      clientName: v.optional(v.string()),
+      credentials: v.optional(v.function()),
+      account: v.optional(v.function()),
+      mcp: mcpSchema,
+      requests: requestsSchema,
+    }),
+    v.check(provider => isValidLoginProvider(provider)),
+  ),
+  scopes: v.optional(v.array(v.string())),
+  ...rulesSchema,
+})
+const definitionSchema = v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema])
+const instancesSchema = v.strictObject({
+  instances: v.pipe(
+    v.array(v.pipe(v.string(), v.regex(/^[\w.-]{1,128}$/))),
+    v.check(instances => new Set(instances).size === instances.length),
+  ),
+  definition: v.function(),
+})
+
 /** Validate discovered and directly declared Connections with the same contract. */
 export function isConnectionDefinition(value: unknown): value is ConnectionDefinition {
   return v.is(definitionSchema, value)
 }
 
-/** Define a Connection. The file name under `server/connections/` is the Connection name. */
+/** Whether a value is a keyed Connection Definition with `instances`. */
+export function isConnectionInstances(value: unknown): value is ConnectionInstancesDefinition {
+  return v.is(instancesSchema, value)
+}
+
+/**
+ * Define a Connection. The file name under `server/connections/` is the Connection name.
+ *
+ * With `instances`, define one Connection per instance, for example one per tenant: each instance
+ * is a Connection named `<name>:<instance>`, and `definition(instance)` returns its definition.
+ */
 export function defineConnection<
   const TApis extends object,
   const TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
->(definition: ConnectionDefinition<TApis, TSelection>): ConnectionDefinition<TApis, TSelection> {
-  if (!isConnectionDefinition(definition)) throw new ConnectionError("invalid", "The Connection Definition is invalid.")
-  return definition
+  const TInstance extends string = never,
+  const TDefinition extends ConnectionDefinition = never,
+>(definition: ConnectionDefinition<TApis, TSelection> | ConnectionInstancesDefinition<TInstance, TDefinition>): [TInstance] extends [never]
+  ? ConnectionDefinition<TApis, TSelection>
+  : ConnectionInstancesDefinition<TInstance, TDefinition> {
+  if (!isConnectionDefinition(definition) && !isConnectionInstances(definition)) throw new ConnectionError("invalid", "The Connection Definition is invalid.")
+  // SAFETY: The validated input is returned unchanged; the conditional type names the member that it matched.
+  return definition as [TInstance] extends [never] ? ConnectionDefinition<TApis, TSelection> : ConnectionInstancesDefinition<TInstance, TDefinition>
 }
