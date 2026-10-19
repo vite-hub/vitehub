@@ -420,16 +420,9 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
         }
       }
       catch {}
-      // A proxy cannot satisfy the native brand checks above, but it still
-      // exposes the genuine Response prototype and ordinary target fields.
-      // Keep this proxy-safe path for readable bodies; null-body lookalikes
-      // remain rejected by the normal native-state validation below.
-      try {
-        if (Object.getPrototypeOf(value) === Response.prototype
-          && Reflect.get(value, "body") !== null
-          && typeof Reflect.get(value, "status") === "number") return true
-      }
-      catch {}
+      // Do not accept an exact Response.prototype as provenance after the
+      // native brand check fails. Caller-created objects can inherit that
+      // prototype and expose an arbitrary readable body and status.
     }
   }
   const UndiciResponse = await getUndiciResponse()
@@ -751,7 +744,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
       if (combinedCookies !== undefined) {
-        if (/(?:^|;)\s*(?:path|expires|domain|max-age|httponly|secure|samesite|partitioned|priority)\s*=[^,;]*(?:,\s*[^;=,\s]+\s*=)/i.test(combinedCookies)) return
+        if (/(?:^|;)\s*(?:path|expires|domain|max-age|httponly|secure|samesite|partitioned|priority)\s*=[^,;]*(?:,\s*[^;=,\s]+\s*=)|,\s*[^;=,\s]+\s*=/i.test(combinedCookies)) return
         normalizedHeaders.append("set-cookie", combinedCookies)
       }
       for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
