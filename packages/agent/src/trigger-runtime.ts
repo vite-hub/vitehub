@@ -319,7 +319,10 @@ export async function resolveAgentTriggers<
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: input => trigger.invoke(triggerContext as never, input as never),
+        invoke: (input) => {
+          if (trigger.durableState === true && !channelState) throw agentDiagnostics.AGENT_R1005({ trigger: id })
+          return trigger.invoke(triggerContext as never, input as never)
+        },
         ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,
