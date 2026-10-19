@@ -383,11 +383,11 @@ async function remove(context: MediaContext, input: Record<string, unknown>): Pr
 
 async function createFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ path: string }> {
   requireAccess(context, "write")
-  const parent = folderPath(optionalText(input.parent, "parent") ?? "")
+  const rawParent = folderPath(optionalText(input.parent, "parent") ?? "")
+  const parent = rawParent ? checkedMutationPath(rawParent) : ""
   const name = consoleMediaName(text(input.name, "name"))
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
-  const path = joinPath(parent, name)
-  if (isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  const path = checkedMutationPath(joinPath(parent, name))
   await blobCall(() => context.storage.media.createFolder(path))
   return { path }
 }
@@ -488,12 +488,12 @@ export async function uploadConsoleMedia(request: Request, section: string, acce
   const pathname = form.get("pathname")
   if (String(crop) === crop && crop) {
     if (String(pathname) !== pathname || !pathname) throw failure(400, "MEDIA_INPUT", "A crop replacement needs the pathname of the original.")
-    const record = await blobCall(() => context.storage.media.replaceCrop(pathname, crop, file))
+    const record = await blobCall(() => context.storage.media.replaceCrop(checkedMutationPath(pathname), crop, file))
     return { duplicate: false, file: mediaFile(record) }
   }
   const folderValue = form.get("folder")
-  const folder = folderPath(String(folderValue) === folderValue ? folderValue : "")
-  if (isHiddenFolder(folder)) throw failure(400, "MEDIA_INPUT", "This folder is reserved for ViteHub.")
+  const rawFolder = folderPath(String(folderValue) === folderValue ? folderValue : "")
+  const folder = rawFolder ? checkedMutationPath(rawFolder) : ""
   const target = await freePathname(context.storage, folder, fileName(file.name || "file"))
   const record = await blobCall(() => context.storage.media.put(target, file, { dedupe: true, ...(file.type ? { contentType: file.type } : {}) }))
   return { duplicate: record.pathname !== target, file: mediaFile(record) }
