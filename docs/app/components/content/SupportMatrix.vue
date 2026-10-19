@@ -285,7 +285,12 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
 
         <tbody v-for="group of visible" :key="group.label">
           <tr>
-            <th :colspan="hosts.length + 1" scope="rowgroup" class="pt-6 pb-2 text-left">
+            <th
+              :id="group.label === 'Server primitives' ? 'server-primitives' : 'deployment-and-proof'"
+              :colspan="hosts.length + 1"
+              scope="rowgroup"
+              class="pt-6 pb-2 text-left"
+            >
               <span class="flex items-center gap-2 font-mono text-xs font-medium text-highlighted">
                 <span class="size-1.5 bg-inverted" aria-hidden="true" />
                 {{ group.label }}
