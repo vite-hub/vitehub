@@ -496,10 +496,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object.prototype.hasOwnProperty.call(stream, "locked")
     || Object.prototype.hasOwnProperty.call(stream, "getReader")) return false
   const locked = nativeStreamIntrinsic(stream, "locked", nativeStreamLocked, "locked")
-  const getReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
-  if (!locked || !getReader
-    || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader", false, false)
-    || (getReader.owner !== locked.owner && !hasNativeDelegationSource(getReader.value))) return false
+  const discoveredGetReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
+  if (!locked || !discoveredGetReader
+    || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(discoveredGetReader.value, nativeStreamGetReader, "getReader", false, false)
+    || discoveredGetReader.owner !== locked.owner) return false
   if (Reflect.apply(locked.value, stream, [])) return false
   // The Web Streams API exposes the disturbed state only through brand checks:
   // constructing a Response rejects a stream that has already been consumed,
@@ -546,11 +546,12 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations from the stream's realm, never caller-supplied methods.
   const locked = nativeStreamIntrinsic(body, "locked", nativeStreamLocked, "locked")
-  const getReaderIntrinsic = nativeStreamIntrinsic(body, "getReader", nativeStreamGetReader, "getReader")
+  const discoveredGetReaderIntrinsic = nativeStreamIntrinsic(body, "getReader", nativeStreamGetReader, "getReader")
+  const getReaderIntrinsic = discoveredGetReaderIntrinsic
   if (!locked || !getReaderIntrinsic
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false)
     || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)
-    || (getReaderIntrinsic.owner !== locked.owner && !hasNativeDelegationSource(getReaderIntrinsic.value))) throw new Error("Non-native response stream")
+    || discoveredGetReaderIntrinsic.owner !== locked.owner) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
