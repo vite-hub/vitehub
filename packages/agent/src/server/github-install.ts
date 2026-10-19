@@ -14,6 +14,7 @@ const manifest = v.object({ packageManager: v.optional(v.string()) });
 const systemError = v.object({ errno: v.pipe(v.number(), v.integer(), v.maxValue(-1)) });
 const exists = async (path: string) => await access(path).then(() => true, () => false);
 const isSystemError = (error: unknown) => v.safeParse(systemError, error).success;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export class GitHubWorkspaceInstallError extends Error {
   constructor(cause: unknown, readonly retryable = true) { super(`Frozen dependency installation failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
@@ -24,39 +25,104 @@ export interface GitHubInstallRunner {
   (input: { cwd: string; command: string[]; env: NodeJS.ProcessEnv; fingerprint: string }): Promise<Record<string, unknown> | void>;
 }
 
-let installationTail: Promise<void> = Promise.resolve();
+/**
+ * A frozen install rejected the lockfile itself. It stays rejected until the pull request changes it,
+ * so a timer retry only repeats the checkout and the install.
+ */
+export function isGitHubLockfileDefect(error: unknown): boolean {
+  const parts: unknown[] = [];
+  const seen = new Set<unknown>();
+  const collect = (value: unknown): void => {
+    if (value === null || value === undefined || seen.has(value)) return;
+    if (typeof value === "object" || typeof value === "function") seen.add(value);
+    parts.push(value instanceof Error ? value.message : isRecord(value) && typeof value.message === "string" ? value.message : String(value));
+    if (value instanceof Error) collect(value.cause);
+    if (isRecord(value)) {
+      collect(value.cause);
+      collect(value.stderr);
+    }
+  };
+  collect(error);
+  const text = parts.join("\n");
+  return /ERR_PNPM_(?:BROKEN_LOCKFILE|OUTDATED_LOCKFILE|LOCKFILE_\w+|MISSING_TARBALL_INTEGRITY)|Map keys must be unique/.test(text);
+}
+
+/** Host capacity for frozen installs. Each install can use several GiB of host memory. */
+export interface GitHubInstallSlots {
+  /** Waits for a free slot and returns its release function. */
+  acquire(signal?: AbortSignal): Promise<() => void>;
+}
+
+export interface GitHubInstallSlotOptions {
+  /** Installs that run at the same time. Defaults to 1. */
+  concurrency?: number;
+  /** How long a waiting install may queue before it fails as retryable. Defaults to two minutes. */
+  queueTimeoutMs?: number;
+}
+
+/**
+ * Creates first-in, first-out install capacity. Installs share one package store, which handles
+ * concurrent installs. A cancelled waiter leaves the queue without holding up later installs.
+ */
+export function createGitHubInstallSlots({ concurrency = 1, queueTimeoutMs = 2 * 60_000 }: GitHubInstallSlotOptions = {}): GitHubInstallSlots {
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("Install concurrency must be a positive integer.");
+  if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs <= 0) throw new TypeError("Install queue timeout must be positive.");
+  let running = 0;
+  const waiters: Array<() => void> = [];
+  const release = () => {
+    running--;
+    waiters.shift()?.();
+  };
+  const waited = queueTimeoutMs % 60_000 === 0 ? `${queueTimeoutMs / 60_000} minute${queueTimeoutMs === 60_000 ? "" : "s"}` : `${Math.round(queueTimeoutMs / 1000)} seconds`;
+  return {
+    acquire(signal) {
+      signal?.throwIfAborted();
+      if (running < concurrency) {
+        running++;
+        return Promise.resolve(release);
+      }
+      return new Promise((resolve, reject) => {
+        const waiter = () => {
+          cleanup();
+          running++;
+          resolve(release);
+        };
+        const fail = (error: unknown) => {
+          cleanup();
+          const index = waiters.indexOf(waiter);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(error);
+        };
+        const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
+        const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(new Error(`Dependency installer capacity remained busy for ${waited}; retry when capacity is available.`))), queueTimeoutMs);
+        const cleanup = () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener("abort", abort);
+        };
+        waiters.push(waiter);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    },
+  };
+}
+
+const defaultInstallSlots = createGitHubInstallSlots();
+
+export interface GitHubInstallOptions {
+  /** Install capacity shared with other installs. Defaults to one install at a time, queued for two minutes. */
+  slots?: GitHubInstallSlots;
+}
 
 /** Install frozen dependencies before entering the provider's network sandbox. */
-export async function installGitHubPullRequestWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner): Promise<void> {
+export async function installGitHubPullRequestWorkspace(target: string, signal?: AbortSignal, run?: GitHubInstallRunner, options: GitHubInstallOptions = {}): Promise<void> {
   signal?.throwIfAborted();
   if (!(await exists(join(target, "package.json"))) && !(await exists(join(target, "pnpm-workspace.yaml")))) return;
   signal?.throwIfAborted();
-  const previous = installationTail;
-  let release!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; });
-  // An aborted waiter releases its own reservation, but later work still waits
-  // for every predecessor. Installers can each use multiple GiB of host memory.
-  installationTail = previous.then(() => held);
-  let abort!: () => void;
-  let queueTimeout: ReturnType<typeof setTimeout> | undefined;
+  const release = await (options.slots ?? defaultInstallSlots).acquire(signal);
   try {
-    await Promise.race([
-      previous,
-      new Promise<never>((_resolve, reject) => {
-        queueTimeout = setTimeout(() => reject(new GitHubWorkspaceInstallError(new Error("Dependency installer capacity remained busy for two minutes; retry when capacity is available."))), 2 * 60_000);
-      }),
-      new Promise<never>((_resolve, reject) => {
-        abort = () => reject(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
-        signal?.addEventListener("abort", abort, { once: true });
-        if (signal?.aborted) abort();
-      }),
-    ]);
-    clearTimeout(queueTimeout);
     signal?.throwIfAborted();
     await installWorkspace(target, signal, run);
   } finally {
-    clearTimeout(queueTimeout);
-    signal?.removeEventListener("abort", abort);
     release();
   }
 }
@@ -155,7 +221,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     await writeFile(record, JSON.stringify({ status: "failed", command: command ? [command, ...args] : undefined, at: new Date().toISOString(), reason })).catch(() => undefined);
     if (signal?.aborted) throw error;
     // Filesystem errors remain recoverable even when they occur during input validation.
-    throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error));
+    throw new GitHubWorkspaceInstallError(error, !isGitHubLockfileDefect(error) && (retryable || isSystemError(error)));
   } finally {
     try {
       try { if (yarnConfig) await rm(yarnConfig, { force: true }); }

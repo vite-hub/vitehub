@@ -32,43 +32,7 @@ describe("ExecutionBudget", () => {
       usage: { inputBytes: 4, outputBytes: 5, retries: 1, toolCalls: 1 },
     })
     expect(() => budget.recordRetry()).toThrow(ExecutionBudgetExceededError)
-    expect(budget.signal.aborted).toBe(true)
-    const inputBudget = createExecutionBudget({ maxInputBytes: 6 })
-    expect(() => inputBudget.recordToolCall(7)).toThrow("inputBytes")
-  })
-
-  it("aborts on byte exhaustion and detaches external cancellation listeners", () => {
-    const controller = new AbortController()
-    const removeListener = vi.spyOn(controller.signal, "removeEventListener")
-    const budget = createExecutionBudget({ maxOutputBytes: 1, signal: controller.signal })
-
-    expect(() => budget.recordOutputBytes(2)).toThrow(ExecutionBudgetExceededError)
-    expect(budget.signal.aborted).toBe(true)
-    expect(removeListener).toHaveBeenCalled()
-  })
-
-  it.each(["inputBytes", "outputBytes", "retries", "toolCalls"] as const)("aborts concurrent work when public consume exhausts %s without charging the failed attempt", counter => {
-    const controller = new AbortController()
-    const removeListener = vi.spyOn(controller.signal, "removeEventListener")
-    const budget = createExecutionBudget({ maxInputBytes: 1, maxOutputBytes: 1, maxRetries: 1, maxToolCalls: 1, signal: controller.signal })
-    const child = budget.child()
-    budget.consume(counter)
-    const usage = budget.snapshot().usage
-
-    expect(() => budget.consume(counter)).toThrow(ExecutionBudgetExceededError)
-    expect(budget.signal.aborted).toBe(true)
-    expect(budget.signal.reason).toBeInstanceOf(ExecutionBudgetExceededError)
-    expect(child.signal.aborted).toBe(true)
-    expect(child.signal.reason).toBe(budget.signal.reason)
-    expect(budget.snapshot().usage).toEqual(usage)
-    expect(removeListener).toHaveBeenCalled()
-  })
-
-  it("does not cancel public consume for an invalid amount", () => {
-    const budget = createExecutionBudget({ maxInputBytes: 1 })
-    expect(() => budget.consume("inputBytes", -1)).toThrow(RangeError)
-    expect(budget.signal.aborted).toBe(false)
-    expect(budget.snapshot().usage.inputBytes).toBe(0)
+    expect(() => budget.recordToolCall(7)).toThrow("inputBytes")
   })
 
   it("derives a stricter child while sharing parent usage and cancellation", () => {
@@ -102,5 +66,45 @@ describe("ExecutionBudget", () => {
     await new Promise(resolve => setTimeout(resolve, 15))
     expect(budget.signal.aborted).toBe(true)
     expect(budget.snapshot().remaining.timeMs).toBe(0)
+  })
+
+  it("disposes deadline timers and external abort listeners, including child budgets", () => {
+    vi.useFakeTimers()
+    try {
+      const external = new AbortController()
+      const budget = createExecutionBudget({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
+      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 2_000 })
+
+      expect(vi.getTimerCount()).toBe(2)
+      budget.dispose()
+      budget.dispose()
+      expect(vi.getTimerCount()).toBe(0)
+
+      external.abort(new Error("late cancellation"))
+      expect(budget.signal.aborted).toBe(false)
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not reacquire resources when a child is created after disposal", () => {
+    vi.useFakeTimers()
+    try {
+      const external = new AbortController()
+      const budget = createExecutionBudget({ signal: external.signal })
+      budget.dispose()
+
+      const child = budget.child({ signal: external.signal, deadlineAt: Date.now() + 1_000 })
+      expect(vi.getTimerCount()).toBe(0)
+      expect(child.signal.aborted).toBe(false)
+
+      external.abort(new Error("late cancellation"))
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 })

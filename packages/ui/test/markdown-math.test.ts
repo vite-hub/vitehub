@@ -3,25 +3,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { defineComponent, h, Suspense } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
-import { AgentMarkdown } from "../src/components/agent-markdown.ts";
-import { Markdown } from "@comark/vue";
+import { Markdown } from "../src/components/markdown.ts";
+import { Markdown as ComarkMarkdown } from "@comark/vue";
 
 async function render(value: string) {
   const wrapper = mount(defineComponent({
     props: { value: String, streaming: Boolean },
-    setup(props) { return () => h(Suspense, null, { default: () => h(AgentMarkdown, props) }); },
+    setup(props) { return () => h(Suspense, null, { default: () => h(Markdown, props) }); },
   }), { props: { value } });
   await vi.waitFor(() => expect(wrapper.text()).not.toBe(""));
   return wrapper;
 }
 
-describe("AgentMarkdown math", () => {
+describe("Markdown math", () => {
   it("registers caller plugins once alongside math", async () => {
     const topLevelPlugin = vi.fn();
     const secondPlugin = vi.fn();
     const wrapper = mount(defineComponent({
       setup() {
-        return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
+        return () => h(Suspense, null, { default: () => h(Markdown, {
           value: "Plugin registration $x^2$",
           plugins: [
             { name: "first-test", markdownItPlugins: [topLevelPlugin] },
@@ -33,7 +33,7 @@ describe("AgentMarkdown math", () => {
     await vi.waitFor(() => expect(wrapper.find(".katex").exists()).toBe(true));
     expect(topLevelPlugin).toHaveBeenCalledTimes(1);
     expect(secondPlugin).toHaveBeenCalledTimes(1);
-    expect(wrapper.findComponent(Markdown).props("options")).not.toHaveProperty("plugins");
+    expect(wrapper.findAllComponents(ComarkMarkdown).at(-1)!.props("options")).not.toHaveProperty("plugins");
     wrapper.unmount();
   });
 
@@ -41,14 +41,14 @@ describe("AgentMarkdown math", () => {
     const customTaskList = { name: "task-list", markdownItPlugins: [vi.fn()] };
     const wrapper = mount(defineComponent({
       setup() {
-        return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
+        return () => h(Suspense, null, { default: () => h(Markdown, {
           value: "- [x] replaced",
           plugins: [customTaskList],
         }) });
       },
     }));
-    await vi.waitFor(() => expect(wrapper.findComponent(Markdown).exists()).toBe(true));
-    const plugins = wrapper.findComponent(Markdown).props("plugins") as Array<{ name: string }>;
+    await vi.waitFor(() => expect(wrapper.findAllComponents(ComarkMarkdown).at(-1)!.exists()).toBe(true));
+    const plugins = wrapper.findAllComponents(ComarkMarkdown).at(-1)!.props("plugins") as Array<{ name: string }>;
     expect(plugins.filter(plugin => plugin.name === "task-list")).toEqual([customTaskList]);
     wrapper.unmount();
   });
@@ -85,7 +85,7 @@ SS = z\sqrt{L\sigma_w^2 + \mu_w^2\sigma_L^2} + A
     expect(wrapper.get(".vh-math-fallback").text()).toContain("notARealMathCommand");
     await wrapper.setProps({ value: "\\[x", streaming: true });
     await flushPromises();
-    expect(wrapper.findComponent(Markdown).props("streaming")).toBe(true);
+    expect(wrapper.findAllComponents(ComarkMarkdown).at(-1)!.props("streaming")).toBe(true);
     expect(wrapper.text()).toContain("x");
     await wrapper.setProps({ value: "\\[x^2\\]", streaming: false });
     await vi.waitFor(() => expect(wrapper.find(".katex-display").exists()).toBe(true));

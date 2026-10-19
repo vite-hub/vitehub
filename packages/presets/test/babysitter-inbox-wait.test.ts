@@ -103,7 +103,8 @@ test('persisted waits are validated by both snapshot readers', async t => {
   db.prepare('UPDATE vitehub_babysitter_pull_requests SET value=? WHERE repository=? AND number=?')
     .run(JSON.stringify({ ...snapshot, wait: { ...snapshot.wait, reason: '' } }), repository, 7)
   await assert.rejects(async () => inbox.get(repository, 7))
-  await assert.rejects(async () => inbox.all())
+  // Queue-wide reads skip the invalid row instead of failing for every PR.
+  assert.deepEqual(await inbox.all(), [])
 })
 
 test('host reconciliation wakes new feedback and old owners cannot release replacements', async t => {

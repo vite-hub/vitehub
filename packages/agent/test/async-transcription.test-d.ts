@@ -29,7 +29,7 @@ it("exports the asynchronous transcription contract", () => {
 it("keeps transcription error details closed", () => {
   transcriptionError.details?.provider satisfies string | undefined
   // @ts-expect-error Transcription details do not expose arbitrary keys.
-  transcriptionError.details?.token
+  void transcriptionError.details?.token
 })
 
 it("keeps provider completion handling exhaustive", async () => {
