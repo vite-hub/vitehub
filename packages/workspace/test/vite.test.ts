@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
@@ -345,6 +345,70 @@ describe("hubWorkspace", () => {
       }),
       workspace: "docs",
     }))
+  })
+
+  it("forwards Workspace history reads into a dev-only Nitro route", async () => {
+    const root = await createViteRoot()
+    const handlers: Connect.NextHandleFunction[] = []
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const { readViteHubDevToken, viteHubDevTokenHeader } = await import("@vite-hub/internal/dev-token")
+    const history = await import("../src/history-dev.ts")
+    const plugin = hubWorkspace()
+    const config = mergedConfigHook(plugin.config) as (
+      config: { nitro?: Record<string, unknown>, root: string },
+      env: { command: "build" | "serve", mode: string },
+    ) => Promise<{ nitro?: { handlers?: Array<{ handler: string, route: string }> } }>
+
+    const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
+    const route = served.nitro?.handlers?.find(handler => handler.route === history.workspaceHistoryDevRuntimeRoute)
+    expect(route?.handler).toMatch(/[/\\]\.vitehub[/\\]nitro[/\\]workspace[/\\]history-dev[/\\][\w-]+\.ts$/)
+    const serverId = route!.handler.replace(/^.*[/\\]|\.ts$/g, "")
+    const source = await readFile(route!.handler, "utf8")
+    expect(source).toContain("import { handleWorkspaceHistoryDevRequest as handleViteHubDevRequest } from \"@vite-hub/workspace/internal/runtime/history-dev\"")
+    expect(source).toContain(`"serverId":"${serverId}"`)
+
+    const built = await mergedConfigHook(hubWorkspace().config)({ nitro: {}, root } as never, { command: "build", mode: "production" }) as { nitro?: { handlers?: Array<{ route: string }> } }
+    expect(built.nitro?.handlers ?? []).not.toContainEqual(expect.objectContaining({ route: history.workspaceHistoryDevRuntimeRoute }))
+    const discovered = await mergedConfigHook(hubWorkspace().config)({ nitro: {}, root, vitehubCliDiscovery: true } as never, { command: "serve", mode: "development" }) as { nitro?: { handlers?: Array<{ route: string }> } }
+    expect(discovered.nitro?.handlers ?? []).not.toContainEqual(expect.objectContaining({ route: history.workspaceHistoryDevRuntimeRoute }))
+    expect(await readdir(join(root, ".vitehub", "nitro", "workspace", "history-dev"))).toEqual([`${serverId}.ts`])
+
+    const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+    await configResolved({ command: "serve", root })
+    const dispatchFetch = vi.fn(async (request: Request) => Response.json({
+      body: await request.json(),
+      path: new URL(request.url).pathname,
+      serverId: request.headers.get(history.workspaceHistoryDevTokenServerHeader),
+    }))
+    await configurePluginServer(plugin, {
+      config: { root, server: { port: 3000 } },
+      environments: { nitro: { dispatchFetch } },
+      middlewares: {
+        use: vi.fn((handler: Connect.NextHandleFunction) => handlers.push(handler)),
+      },
+      resolvedUrls: { local: ["http://localhost:3000/"] },
+      ssrLoadModule: vi.fn(async () => ({ default: {} })),
+      watcher: { on: vi.fn() },
+    })
+    const token = await readViteHubDevToken(root, { namespace: history.workspaceHistoryDevTokenNamespace, serverId })
+    expect(token).toEqual(expect.any(String))
+    const headers = {
+      "content-type": "application/json",
+      [history.workspaceHistoryDevHeader]: history.workspaceHistoryDevHeaderValue,
+      [history.workspaceHistoryDevTokenServerHeader]: serverId,
+      [viteHubDevTokenHeader]: token,
+    }
+
+    let response: ServerResponse | undefined
+    const output = await invokeMiddleware(handlers[1]!, { operation: "refs", workspace: "docs" }, history.workspaceHistoryDevRoute, headers, { onResponse: res => { response = res } })
+    expect(response?.statusCode).toBe(200)
+    expect(JSON.parse(output)).toEqual({ body: { operation: "refs", workspace: "docs" }, path: history.workspaceHistoryDevRuntimeRoute, serverId })
+
+    const forbidden = await invokeMiddleware(handlers[1]!, { operation: "refs", workspace: "docs" }, history.workspaceHistoryDevRoute, { ...headers, [viteHubDevTokenHeader]: "wrong" }, { onResponse: res => { response = res } })
+    expect(response?.statusCode).toBe(403)
+    expect(forbidden).toBe("Forbidden Workspace History token.")
+    expect(dispatchFetch).toHaveBeenCalledTimes(1)
+    expect(runWorkspaceDevCommand).not.toHaveBeenCalled()
   })
 
   it("streams Workspace Dev command progress from the Vite endpoint", async () => {

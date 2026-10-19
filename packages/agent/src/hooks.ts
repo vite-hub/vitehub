@@ -17,7 +17,7 @@ function errorMetadata(error: unknown): AgentHookObserverEvent["error"] {
   return normalizeRuntimeDiagnosticError(error, { maxDepth: 4, maxErrors: 8, maxStringLength: 512 })
 }
 
-export async function notifyAgentHookObservers(
+async function notifyAgentHookObservers(
   hooks: AgentHookObserverHooks | undefined,
   event: AgentHookObserverEvent,
 ): Promise<void> {

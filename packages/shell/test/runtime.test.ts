@@ -13,7 +13,6 @@ import {
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
 } from "../src/workspace/index.ts"
-import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 
 import type {
   ShellExecutionProvider,
@@ -77,9 +76,6 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(import("@vite-hub/shell/providers/just-bash")).resolves.toMatchObject({
       createJustBashProvider: expect.any(Function),
     })
-    await expect(import("@vite-hub/shell/providers/cloudflare")).resolves.toMatchObject({
-      createCloudflareShellProvider: expect.any(Function),
-    })
   })
 
   it("creates stateful shell sessions with boundary metadata and one-shot exec sugar", async () => {
@@ -127,6 +123,32 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
     await expect(session.startProcess("sleep 10")).rejects.toThrow("does not support long-running processes")
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("bounds streaming callbacks for limited sessions", async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const runtime = createShellRuntime({
+      provider: {
+        boundary: {
+          cwd: true, env: true, filesystem: { writable: false }, network: false,
+          processes: { background: false, interactive: false }, streaming: true,
+          timeout: { enforcedBy: "runtime", supported: true },
+        },
+        async exec(_command, options) {
+          options?.onStdout?.("abcdef")
+          options?.onStdout?.("ghi")
+          options?.onStderr?.("123456")
+          return { event: "command_finished", exitCode: 0, stderr: "123456", stdout: "abcdefghi" }
+        },
+      },
+    })
+    await runtime.createSession({ policy: { maxOutputLength: 4 } }).exec("echo", {
+      onStdout: value => stdout.push(value),
+      onStderr: value => stderr.push(value),
+    })
+    expect(stdout.join("")).toBe("abcd")
+    expect(stderr.join("")).toBe("1234")
   })
 
   it.each([
@@ -828,94 +850,26 @@ describe("@vite-hub/shell just-bash runtime", () => {
   })
 })
 
-describe("@vite-hub/shell cloudflare runtime", () => {
-  it("preserves quoted arguments, escaped spaces and trailing backslashes when forwarding commands", async () => {
-    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
-    const provider = createCloudflareShellProvider({
-      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
-    })
-
-    await provider.exec("printf 'hello world' \"a|b\" space\\ value trailing\\")
-
-    expect(exec).toHaveBeenCalledWith("printf", ["hello world", "a|b", "space value", "trailing\\"], expect.any(Object))
-  })
-
-  it("rejects unterminated quotes before forwarding commands", async () => {
-    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
-    const provider = createCloudflareShellProvider({
-      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
-    })
-
-    await expect(provider.exec("cat 'unfinished")).rejects.toThrow("unterminated quote")
-    expect(exec).not.toHaveBeenCalled()
-  })
-
-  it("delegates to the cloudflare sandbox client", async () => {
-    const sandbox = {
-      exec: vi.fn(async (_command: string, _args?: string[], options?: {
-        onStderr?: (data: string) => void
-        onStdout?: (data: string) => void
-      }) => {
-        options?.onStdout?.("out")
-        options?.onStderr?.("err")
-        return {
-          exitCode: 0,
-          ok: true,
-          stderr: "err",
-          stdout: "out",
-        }
-      }),
-      provider: "cloudflare",
-      supports: {
-        deleteFile: true,
-        env: true,
-        execCwd: true,
-        execEnv: true,
-        execSudo: false,
-        exists: true,
-        listFiles: true,
-        moveFile: true,
-        readFileStream: true,
-        startProcess: true,
-      },
-    }
-
-    const runtime = createShellRuntime({
-      provider: createCloudflareShellProvider({
-        sandbox,
-      }),
-    })
-    const onStdout = vi.fn()
-    const onStderr = vi.fn()
-    const command = "ls -la /workspace | head -n 1"
-    const result = await runtime.exec(command, {
-      cwd: "/workspace",
-      env: { FOO: "bar" },
-      onStderr,
-      onStdout,
-      stdin: "input",
-      timeout: 100,
-    })
-
-    expect(result).toMatchObject({
-      command,
-      event: "command_finished",
-      exitCode: 0,
-      stderr: "err",
-      stdout: "out",
-    })
-    expect(sandbox.exec).toHaveBeenCalledWith("ls", ["-la", "/workspace", "|", "head", "-n", "1"], expect.objectContaining({
-      cwd: "/workspace",
-      env: { FOO: "bar" },
-      stdin: "input",
-      timeout: 100,
-    }))
-    expect(onStdout).toHaveBeenCalledWith("out")
-    expect(onStderr).toHaveBeenCalledWith("err")
-  })
-})
-
 describe("@vite-hub/shell analyzer", () => {
+  it("ignores pipeline operators inside shell comments", async () => {
+    await expect(analyzeShellCommand("echo hi # | cat")).resolves.toMatchObject({
+      commands: ["echo"],
+      hasPipelines: false,
+      ok: true,
+    })
+  })
+
+  it.each([
+    ["echo foo\\ #bar", ["echo"]],
+    ["echo foo\\|#bar | cat", ["echo", "cat"]],
+  ] as const)("preserves hashes after escaped shell separators in %s", async (command, commands) => {
+    await expect(analyzeShellCommand(command)).resolves.toMatchObject({
+      commands,
+      hasPipelines: command.includes(" | "),
+      ok: true,
+    })
+  })
+
   it.each([
     ["echo 'a|b'", ["echo"], false],
     ["echo a\\|b", ["echo"], false],

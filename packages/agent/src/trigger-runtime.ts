@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import {
   channelDeliveryEffectsContextKey,
   channelDeliveryFinishEffectsContextKey,
@@ -311,7 +312,7 @@ export function isResolvedAgentTriggerHandledInvocation<
 >(
   invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
 ): invocation is ResolvedAgentTriggerHandledInvocation<TRuntimeConfig, CALL_OPTIONS> {
-  return "response" in invocation && invocation.response instanceof Response
+  return "response" in invocation && isResponse(invocation.response)
 }
 
 export interface AgentWebhookVerificationResult {
@@ -342,16 +343,51 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
+async function hmacSha256Digest(secret: Uint8Array<ArrayBuffer>, value: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const key = await globalThis.crypto.subtle.importKey("raw", secret, { hash: "SHA-256", name: "HMAC" }, false, ["sign"])
+  return new Uint8Array(await globalThis.crypto.subtle.sign("HMAC", key, value))
+}
+
+function hexDigest(digest: Uint8Array): string {
+  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  const key = await globalThis.crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"],
-  )
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, value)
-  return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("")
+  return hexDigest(await hmacSha256Digest(new TextEncoder().encode(secret), value))
+}
+
+type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
+
+function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
+  if (signature === "github-sha256") return { preset: "hmac-sha256", prefix: "sha256=" }
+  if (isRecord(signature) && "preset" in signature && signature.preset === "hmac-sha256") return signature
+  return undefined
+}
+
+/** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
+export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
+  let binary: string
+  try {
+    binary = atob(value)
+  }
+  catch {
+    return undefined
+  }
+  if (!binary.length || btoa(binary).replace(/=+$/, "") !== value.replace(/=+$/, "")) return undefined
+  return Uint8Array.from(binary, character => character.charCodeAt(0))
+}
+
+// Verifies `<prefix><digest>`, where the digest is the HMAC-SHA256 of the raw body in hex or base64.
+async function verifyHmacSignature(signature: HmacSignaturePreset, secret: string, header: string, rawBody: Uint8Array<ArrayBuffer>): Promise<boolean> {
+  const prefix = signature.prefix ?? ""
+  if (!header.startsWith(prefix)) return false
+  const key = signature.secretEncoding === "base64" ? decodeBase64Key(secret) : new TextEncoder().encode(secret)
+  if (!key) return false
+  const digest = await hmacSha256Digest(key, rawBody)
+  const received = header.slice(prefix.length)
+  if (signature.encoding === "base64") return await constantTimeEqual(btoa(String.fromCharCode(...digest)), received)
+  return await constantTimeEqual(hexDigest(digest), received.toLowerCase())
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
@@ -458,7 +494,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       registration,
     }))
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored verifier callbacks require runtime validation at the webhook boundary.
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
@@ -485,7 +520,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (secretToken === false) {
       return { registration, verified: true }
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
       const rawBody = await readRawBody()
       if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
@@ -505,10 +539,9 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       }
       continue
     }
-    if (registration.signature === "github-sha256") {
-      const body = (await readRawBody()).buffer
-      const expected = `sha256=${await hmacSha256(secretToken, body)}`
-      if (await constantTimeEqual(expected, headerValue)) {
+    const hmacSignature = hmacSignaturePreset(registration.signature)
+    if (hmacSignature) {
+      if (await verifyHmacSignature(hmacSignature, secretToken, headerValue, await readRawBody())) {
         return { registration, verified: true }
       }
       continue
@@ -608,16 +641,35 @@ export async function resolveAgentTriggerInvocation<
       validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
     }
   }
-  const invoked = await trigger.invoke(validatedInput)
-  if (invoked instanceof Response) return resolveAgentTriggerInvocationResult(invoked, trigger)
+  const result = await trigger.invoke(validatedInput)
+  if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
+  const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
+  const invoked = withWebhookDeliveryRun({
+    ...result,
+    ...(invokedRun ? { run: invokedRun } : {}),
+  }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
+  const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
-    ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
-    : invoked.run
+    ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
+    : inheritedRun
   return resolveAgentTriggerInvocationResult({
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger)
+}
+
+/**
+ * A Channel trigger result with `webhook.deliveryId` runs under that ID. Unset `run.runId` and
+ * `run.channelId` default to the delivery ID and the Channel, so a retried delivery keeps one Invocation.
+ */
+function withWebhookDeliveryRun<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "channelId">,
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  const deliveryId = invoked.webhook?.deliveryId
+  if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
+  return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
 }
 
 export function resolveAgentTriggerInvocationResult<
@@ -628,7 +680,7 @@ export function resolveAgentTriggerInvocationResult<
   invocation: AgentTriggerInvokeResult<CALL_OPTIONS>,
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS>,
 ): ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS> {
-  if (invocation instanceof Response) {
+  if (isResponse(invocation)) {
     return {
       response: invocation,
       trigger: trigger as never,
@@ -639,8 +691,24 @@ export function resolveAgentTriggerInvocationResult<
     metadata: invocation.metadata,
     run: invocation.run,
     trigger: trigger as never,
-    webhook: invocation.webhook,
+    webhook: withSerializedWebhook(invocation.webhook, trigger),
   }
+}
+
+/** `webhook.serialize: key` is `{ concurrencyKey: key, concurrencyLimit: 1 }`. */
+function withSerializedWebhook<CALL_OPTIONS>(
+  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "id">,
+): AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined {
+  if (webhook?.serialize === undefined) return webhook
+  const { serialize, ...ownership } = webhook
+  if (!isRuntimeString(serialize) || !serialize.trim()) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize must be a non-empty string.`)
+  }
+  if (ownership.concurrencyKey !== undefined || ownership.concurrencyLimit !== undefined) {
+    throw new TypeError(`[vitehub] Trigger "${trigger.id}" webhook.serialize replaces concurrencyKey and concurrencyLimit. Set only one of them.`)
+  }
+  return { ...ownership, concurrencyKey: serialize, concurrencyLimit: 1 }
 }
 
 export async function runAgentTriggerWith<

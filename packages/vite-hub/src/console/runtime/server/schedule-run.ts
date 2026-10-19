@@ -1,4 +1,5 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
+import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { getConsoleSchedules } from "./definitions.ts"
@@ -147,8 +148,8 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-const consoleGuardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+const consoleGuardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req), { section: "schedules" })
 const guardedHandler = (event: H3Event): Promise<Response> => hasViteHubDispatch(event.req.headers)
-  ? handleDispatchScheduleRunRequest(event.req)
+  ? handleDispatchScheduleRunRequest(event.req, getCloudflareEnv(event, { fallback: false }))
   : consoleGuardedHandler(event)
 export default guardedHandler

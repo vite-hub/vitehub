@@ -10,6 +10,17 @@ export function jsonResponse(value: unknown, status = 200) {
   })
 }
 
+/** The `authorization` header of a stubbed `fetch` call. */
+export function requestAuthorization(init: RequestInit | undefined) {
+  return new Headers(init?.headers).get("authorization") ?? undefined
+}
+
+/** A GitHub archive request: the authenticated API tarball or the anonymous codeload download. */
+export function isArchiveRequest(url: unknown) {
+  const requestUrl = String(url)
+  return requestUrl.startsWith("https://codeload.github.com/") || requestUrl.includes("/tarball/")
+}
+
 export interface StubGitHubSourceOptions {
   apiStatus?: number
   archiveStatus?: number
@@ -67,6 +78,11 @@ function needsPaxPath(path: string) {
   return Buffer.byteLength(path) > 100 || [...path].some(char => char.charCodeAt(0) > 0x7F)
 }
 
+/** The fields of `GET /repos/{repo}` that the Forge client reads. */
+export function repositoryResponse(url: string, defaultBranch: string | null = "main") {
+  return { default_branch: defaultBranch, full_name: url.replace("https://api.github.com/repos/", "") }
+}
+
 export function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
   const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
   const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
@@ -80,12 +96,18 @@ export function stubGitHubSource(files: Record<string, string>, options: StubGit
       return new Response(createTarGz(files))
     }
 
+    // The API tarball redirects to a signed codeload URL. Its rate limit is the API limit.
+    const tarball = requestUrl.match(/^https:\/\/api\.github\.com\/repos\/(?<repo>[^/]+\/[^/]+)\/tarball\/(?<ref>.+)$/)?.groups
+    if (tarball && apiStatus === 200) {
+      return new Response(null, { headers: { location: `https://codeload.github.com/${tarball.repo}/legacy.tar.gz/${tarball.ref}?token=signed` }, status: 302 })
+    }
+
     if (apiStatus !== 200) {
       return jsonResponse({ message: "not found" }, apiStatus)
     }
 
     if (requestUrl === "https://api.github.com/repos/acme/app" || requestUrl === "https://api.github.com/repos/acme/private") {
-      return jsonResponse({ default_branch: "main" })
+      return jsonResponse(repositoryResponse(requestUrl))
     }
 
     if (requestUrl.endsWith("/commits/main")) {

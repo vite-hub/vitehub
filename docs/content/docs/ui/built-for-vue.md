@@ -8,7 +8,7 @@ icon: i-simple-icons-vuedotjs
 ---
 
 `@vite-hub/ui` is ViteHub's Vue component package. It contains the chat,
-session, invocation, trace, diff, and file components used by the ViteHub
+session, trace, diff, and file components used by the ViteHub
 Console. Use them in a Vue or Nuxt application when you need those interfaces.
 
 The server packages work independently of Vue. A React application, a server
@@ -18,9 +18,9 @@ Choose your frontend separately from your server features.
 ## Start with a complete block
 
 The [Chat App](/docs/ui/blocks/chat-app) combines a session list and chat view.
-The [Invocation Dashboard](/docs/ui/blocks/invocation-dashboard) shows Agent
-runs and their recorded steps. Start with one of these blocks, then replace
-its slots when your app needs different controls.
+The [Code Review](/docs/ui/blocks/code-review) block shows a diff next to its
+trace. Start with one of these blocks, then replace its slots when your app
+needs different controls.
 
 The components use Vue props, events, and slots. Nuxt integration registers
 them for your app. Read [Installation](/docs/ui/installation) for the setup

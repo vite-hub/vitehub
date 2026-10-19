@@ -1,7 +1,62 @@
 import { describe, expect, it } from "vitest"
-import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
+import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it("preserves native Blob bodies", async () => {
+    const blob = new Blob(["test"], { type: "text/plain" })
+
+    const response = toResponse(blob)
+    expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(await response.text()).toBe("test")
+  })
+
+  it("keeps spoofed and hostile Blob-shaped values on the JSON path", async () => {
+    const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)) }
+    Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("boom") } })
+
+    expect(await toResponse(spoof).json()).toEqual({ size: 4, type: "text/plain" })
+    expect(await toResponse(hostile).json()).toEqual({})
+    expect(await toResponse([1, 2]).json()).toEqual([1, 2])
+  })
+
+
+  it("does not execute spoofed Blob methods", async () => {
+    const spoof = { slice: () => spoof, stream: () => { throw new Error("spoof") }, type: "text/plain" }
+    expect(await toResponse(spoof).json()).toEqual({ type: "text/plain" })
+
+    const distinctPrototype = {
+      slice(this: object) { return Object.create(Object.getPrototypeOf(this), { type: { value: "text/plain" } }) },
+      stream() { throw new Error("distinct spoof") },
+      get size() { return 0 },
+    }
+    const distinct = Object.create(distinctPrototype, { type: { value: "text/plain", enumerable: true } })
+    expect(await toResponse(distinct).json()).toEqual({ type: "text/plain" })
+  })
+
+  it("does not add a content type for an untyped Blob", async () => {
+    const blob = new Blob(["test"])
+    const response = toResponse(blob)
+
+    expect(response.headers.has("content-type")).toBe(false)
+    expect(await response.text()).toBe("test")
+  })
+
+  it("normalizes a Response-shaped impostor instead of returning it", () => {
+    const foreignPrototype = {
+      [Symbol.toStringTag]: "Response",
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+      clone() { return this },
+    }
+    const foreign = Object.assign(Object.create(foreignPrototype), {
+      body: null, headers: { get: () => null, [Symbol.toStringTag]: "Headers" }, status: 200, statusText: "",
+    }) as Response
+    const normalized = toResponse(foreign)
+    expect(normalized).not.toBe(foreign)
+    expect(normalized.headers).toBeInstanceOf(Headers)
+    expect(normalized.status).toBe(200)
+  })
+
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
     const restored = deserializeResponse(await serializeResponse(new Response(null, { status })))
     expect(restored.status).toBe(status)
@@ -59,11 +114,19 @@ describe("durable Response representation", () => {
     expect(isSerializedResponse({ ...serialized, status: 200 })).toBe(false)
     expect(isSerializedResponse({ ...serialized, headers: [["x-test", "value"]] })).toBe(false)
     expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: "YQ==" } })).toBe(false)
+    if (type !== "opaqueredirect") {
+      expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
+    }
   })
 
   it("rejects malformed records", () => {
     expect(isSerializedResponse({})).toBe(false)
     expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+  })
+
+  it("rejects URLs on ordinary response records", async () => {
+    const serialized = await serializeResponse(new Response("ok"))
+    expect(isSerializedResponse({ ...serialized, url: "https://unexpected.example" })).toBe(false)
   })
 
   it("rejects sparse header arrays", () => {

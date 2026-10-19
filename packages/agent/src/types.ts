@@ -11,6 +11,8 @@ import type {
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
@@ -20,6 +22,7 @@ import type {
   OpenTelemetryLogRecordView,
   OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
+
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -29,7 +32,7 @@ import type {
   WorkspaceRules,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
-import type { BoxDefinition, BoxToolchain } from "@vite-hub/box"
+import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 import type {
@@ -41,6 +44,8 @@ import type {
 } from "./channels.ts"
 
 export type {
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   MaybePromise,
   MaybeResolvable,
   Resolvable,
@@ -65,12 +70,12 @@ export type AgentCapabilities = RuntimeCapabilities
 
 export interface AgentRuntimeConfig {}
 
-/** Box used by a built-in provider Driver. Callbacks resolve once per invocation. */
-export type AgentBoxDefinition<
+/** Sandbox used by a built-in provider Driver. Callbacks resolve once per invocation. */
+export type AgentSandboxDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
-> = BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
+> = SandboxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
 
 export interface AgentHostIdentity {
   readonly name: string
@@ -143,13 +148,10 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 
 declare global {
   interface ViteHubAgentInvocationContextValues {
-    "agent.channels": string[]
     "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
     "agent.invocation.traceId": string
-    "agent.name": string
     "agent.output.eventObserver": (event: StreamEvent) => void
     "agent.output.progressSummary": boolean
-    "agent.schedule.turn": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
@@ -234,6 +236,8 @@ export interface AgentRunInput<
   TData = unknown,
 > {
   abortSignal?: AbortSignal
+  /** Invocation-owned execution limits. The runtime creates one shared budget for the run. */
+  executionBudget?: Omit<ExecutionBudgetOptions, "signal">
   context?: TContext
   /**
    * Structured Invocation input. `defineAgent({ data })` validates it before Capabilities, hooks, and the Driver run.
@@ -449,6 +453,7 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "superseded"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
@@ -622,13 +627,27 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
+  /**
+   * Waits `delayMs` before the queued delivery runs. A later delivery with the same `key` replaces a
+   * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
+   */
+  debounce?: { delayMs: number, key: string }
+  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
-  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
-  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>> }
-  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never }
+  | { busy: "steer", concurrencyKey: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>, serialize?: undefined }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit: number, rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>, serialize?: undefined }
+  | { busy?: undefined, concurrencyKey?: string, concurrencyLimit?: undefined, rehydrate?: never, serialize?: undefined }
+  | {
+    busy?: "steer"
+    concurrencyKey?: undefined
+    concurrencyLimit?: undefined
+    rehydrate?: () => MaybePromise<AgentWebhookRehydrateResult<CALL_OPTIONS>>
+    /** Queues the delivery and runs it only when no other delivery with this key runs. Same as `{ concurrencyKey: key, concurrencyLimit: 1 }`. */
+    serialize: string
+  }
 )
 
 type AgentWebhookRehydrateResult<CALL_OPTIONS = unknown> =
@@ -657,6 +676,18 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   path?: string
   provider: string
   signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+    /**
+     * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
+     * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
+     */
+    preset: "hmac-sha256"
+    /** Digest encoding in the header. Defaults to `"hex"`, compared case-insensitively. */
+    encoding?: "hex" | "base64"
+    /** Text before the digest, such as `"sha256="`. Defaults to no prefix. */
+    prefix?: string
+    /** How `secretToken` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
+    secretEncoding?: "utf8" | "base64"
+  } | {
     preset: "stripe-sha256"
     /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
     toleranceSeconds?: number
@@ -1108,7 +1139,7 @@ export interface AgentCapabilityCliExecutionResult<TOutput = unknown> {
 }
 
 export interface AgentCapabilityRequirement {
-  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
+  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "skills" | "workspace" | (string & {})
   workspace?: {
     mode?: AgentCapabilityMode
     paths?: string[]
@@ -1121,6 +1152,8 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
@@ -1546,10 +1579,10 @@ export interface AgentProviderDriverOptions<
   sessionStorePath?: string
   /**
    * Node.js and package manager pinned by the prepared checkout, with the same declaration as
-   * `box.toolchain`. ViteHub provisions them on this host and puts them first on the PATH of the
-   * provider and every command it starts. With `defineAgent({ box })`, declare `box.toolchain` instead.
+   * `sandbox.toolchain`. ViteHub provisions them on this host and puts them first on the PATH of the
+   * provider and every command it starts. With `defineAgent({ sandbox })`, declare `sandbox.toolchain` instead.
    */
-  toolchain?: BoxToolchain
+  toolchain?: SandboxToolchain
 }
 
 export interface AgentProviderSealedCredential {
@@ -1829,6 +1862,16 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
+/**
+ * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
+ * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
+ * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
+ */
+export interface AgentInvocationsHostSettings {}
+
+/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
+export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1840,8 +1883,10 @@ type AgentSharedSettings<
   TIntercept = never,
   TDataInput = TData,
 > = {
-  /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
-  box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Run the built-in provider Driver inside this Sandbox. Each invocation opens a new Sandbox session. */
+  sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   /**
    * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
    * and the pull request checkout and `git()` use its token.
@@ -1858,7 +1903,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocations
+  invocations?: AgentInvocationsInput
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -1919,7 +1964,9 @@ export interface AgentDefinition<
   TInterceptOutput = TOutput,
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
-  box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
@@ -2037,6 +2084,15 @@ export interface AgentPreparationOptions {
   route?: string
 }
 
+export interface AgentShutdownOptions {
+  /**
+   * Default for `VITEHUB_SHUTDOWN_DRAIN_MS`: how long a stop signal waits for inline Chat
+   * invocations and active webhook queue deliveries. The variable wins when it is set.
+   * Defaults to 0, which interrupts the work at once.
+   */
+  drainMs?: number
+}
+
 export interface AgentModuleOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
@@ -2048,11 +2104,17 @@ export interface AgentModuleOptions {
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
+  /**
+   * Drain Agent work on SIGTERM and SIGINT on a persistent Node host, then exit.
+   * Set `false` when the application installs its own stop handler.
+   */
+  shutdown?: false | AgentShutdownOptions
 }
 
 export interface ResolvedAgentModuleOptions {
   preparation?: AgentPreparationOptions
   execution: AgentExecution
+  shutdown: false | AgentShutdownOptions
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>
   providers: {
@@ -2103,7 +2165,13 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | {
+  maxAgeMs?: number
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  maxImages?: number
+  maxMessages: number
+  source: "thread"
+}
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -2228,6 +2296,11 @@ export interface AgentChatFinishExtension {
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
+  /**
+   * With `concurrency: "steer"`, wait this many milliseconds after the first message of a burst,
+   * then start one handler with every message received in that window. Unset keeps the default behavior.
+   */
+  debounceMs?: number
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
@@ -2242,8 +2315,10 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
-    delivery: "new-message"
+    delivery: "new-message" | "placeholder"
   }
+  /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
+  allowBots?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {
@@ -2263,6 +2338,8 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   timeout?: number
+  /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
+  timeZone?: string
   transcripts?: TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string
@@ -2488,6 +2565,11 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   /** Past messages that `replayChannel()` and `vitehub channels replay` send through a trigger. */
   history?: AgentChannelHistory
   identity?: IdentityResolver
+  /**
+   * Trusted Markdown that ViteHub adds to the Agent instructions for each Invocation that this Channel starts.
+   * It is read from code when the Invocation runs, so a queued delivery uses the current text.
+   */
+  instructions?: string
   kind: string
   listener?: { kind: "telegram-polling" }
   /** Methods that hooks call through `event.message`. */
@@ -2670,7 +2752,7 @@ export interface AgentInspectionProviderMetadata {
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   sessionStore?: "sqlite"
-  toolchain?: BoxToolchain
+  toolchain?: SandboxToolchain
 }
 
 export interface AgentInspectionDriverMetadata {
@@ -2766,6 +2848,45 @@ export interface AgentUsageRecord {
   usage?: AgentUsage
 }
 
+export interface AgentBudgetTokenLimits {
+  input?: number
+  output?: number
+  total?: number
+}
+
+export interface AgentBudgetOptions {
+  /** Token limits for one Agent Invocation. A number is a total-token limit. */
+  tokens?: number | AgentBudgetTokenLimits
+  /** Maximum estimated or provider-reported cost in US dollars. */
+  usd?: number | string
+  /** Driver admission for concurrent Invocations. This field applies to the top-level Agent option. */
+  capacity?: AgentDriverCapacityOptions
+  /** Report exceedance or reject the completed Invocation. */
+  mode?: "observe" | "enforce"
+  /** Optional pricing resolver used when the provider does not report a cost. */
+  pricing?: false | ((context: {
+    model?: AgentUsageRecord["model"]
+    provider?: AgentUsageRecord["provider"]
+    response?: AgentUsageRecord["response"]
+    run?: Partial<AgentRunMetadata>
+    transport?: AgentUsageRecord["transport"]
+    usage: AgentUsage
+  }) => MaybePromise<{ estimated: boolean, source: string, usd: string } | undefined>)
+  id?: string
+}
+
+export interface AgentBudgetExceeded {
+  actual: number | string
+  limit: number | string
+  metric: "inputTokens" | "outputTokens" | "totalTokens" | "usd"
+}
+
+export interface AgentBudgetSnapshot {
+  exceeded: readonly AgentBudgetExceeded[]
+  limits: AgentBudgetOptions
+  usage?: AgentUsageRecord
+}
+
 /** Verified mounted Sources available to an invocation's instruction resolver. */
 export interface AgentSourceProvenance {
   mount: string
@@ -2800,8 +2921,11 @@ export interface AgentAdapterRunContext<
   actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
+  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

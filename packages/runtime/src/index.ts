@@ -25,6 +25,17 @@ export {
 
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
+export {
+  createExecutionBudget,
+  ExecutionBudgetExceededError,
+  type ExecutionBudget,
+  type ExecutionBudgetCounter,
+  type ExecutionBudgetLimits,
+  type ExecutionBudgetOptions,
+  type ExecutionBudgetSnapshot,
+  type ExecutionBudgetUsage,
+} from "./execution-budget.ts"
+
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
@@ -54,7 +65,27 @@ export {
   type ViteHubErrorShape,
 } from "./errors.ts"
 
+export {
+  defineErrors,
+  type DefineErrorsOptions,
+  type ErrorCatalog,
+  type Result,
+  type ResultError,
+} from "./result.ts"
+
 export type MaybePromise<T> = T | Promise<T>
+
+// Capture platform methods before application callbacks run. As with the other
+// platform brand checks, the host must supply intact intrinsics at import time.
+const webAssemblyModuleConstructor = (() => {
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  return hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+})()
+const webAssemblyModuleExports = hasRuntimeType(webAssemblyModuleConstructor, "function")
+  ? Object.getOwnPropertyDescriptor(webAssemblyModuleConstructor, "exports")?.value
+  : undefined
 
 export interface AccessAuthorizationContext {
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
@@ -101,60 +132,61 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const authority = value as Record<string, unknown>
-  const filesystem = authority.filesystem
-  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
-  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-  const files = filesystem as Record<string, unknown>
-  return hasRuntimeType(authority.credentials, "string")
-    && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && hasRuntimeType(authority.environment, "string")
-    && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && hasRuntimeType(files.access, "string")
-    && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && hasRuntimeType(files.scope, "string")
-    && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && hasRuntimeType(authority.isolation, "string")
-    && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && hasRuntimeType(authority.network, "string")
-    && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && hasRuntimeType(authority.processes, "string")
-    && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
+  return inspectExecutionAuthority(value) !== undefined
 }
+
+interface InspectedExecutionAuthority {
+  authority: ExecutionAuthority
+  filesystem: object
+}
+
+function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority | undefined {
+  try {
+    if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return undefined
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const authority = value as Record<string, unknown>
+    const filesystem = authority.filesystem
+    if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return undefined
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    const files = filesystem as Record<string, unknown>
+    const credentials = authority.credentials
+    const environment = authority.environment
+    const access = files.access
+    const scope = files.scope
+    const isolation = authority.isolation
+    const network = authority.network
+    const processes = authority.processes
+    if (!(hasRuntimeType(credentials, "string") && ["ambient", "none", "provisioned", "unknown"].includes(credentials)
+      && hasRuntimeType(environment, "string") && ["ambient", "none", "selected", "unknown"].includes(environment)
+      && hasRuntimeType(access, "string") && ["none", "read-only", "read-write", "unknown"].includes(access)
+      && hasRuntimeType(scope, "string") && ["host", "none", "sandbox", "unknown", "workspace"].includes(scope)
+      && hasRuntimeType(isolation, "string") && ["container", "microvm", "none", "process", "unknown"].includes(isolation)
+      && hasRuntimeType(network, "string") && ["none", "restricted", "unrestricted", "unknown"].includes(network)
+      && hasRuntimeType(processes, "string") && ["arbitrary", "none", "restricted", "unknown"].includes(processes))) return undefined
+    return {
+      authority: { credentials, environment, filesystem: { access, scope }, isolation, network, processes } as ExecutionAuthority,
+      filesystem,
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+const canonicalExecutionAuthorities = new WeakSet<object>([noExecutionAuthority, unknownExecutionAuthority])
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
-  if (!isExecutionAuthority(value)) {
+  if (isRuntimeObject(value) && canonicalExecutionAuthorities.has(value)) {
+    // SAFETY: Only module-owned frozen authority snapshots enter this registry.
+    return value as ExecutionAuthority
+  }
+  const inspected = inspectExecutionAuthority(value)
+  if (!inspected) {
     throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
-  if (
-    hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
-    && hasCanonicalFrozenProperties(value.filesystem, ["access", "scope"])
-  ) return value
-  return Object.freeze({
-    credentials: value.credentials,
-    environment: value.environment,
-    filesystem: Object.freeze({
-      access: value.filesystem.access,
-      scope: value.filesystem.scope,
-    }),
-    isolation: value.isolation,
-    network: value.network,
-    processes: value.processes,
-  })
-}
-
-function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
-  if (!isRuntimeObject(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
-  const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
-  return keys.every((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
-  })
+  const authority = Object.freeze({ ...inspected.authority, filesystem: Object.freeze({ ...inspected.authority.filesystem }) })
+  canonicalExecutionAuthorities.add(authority)
+  return authority
 }
 
 export type RuntimeWaitUntil = (task: Promise<unknown>) => void
@@ -371,6 +403,15 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
   if (hasRuntimeType(value, "string")) return value
+  if (isRuntimeObject(value)) {
+    try {
+      // Date.prototype's intrinsic methods recognize Date objects from other realms.
+      return Reflect.apply(Date.prototype.toISOString, value, [])
+    }
+    catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
   return new Date().toISOString()
 }
 
@@ -418,18 +459,194 @@ function isCryptoKey(value: unknown): boolean {
 
 function isWebAssemblyModule(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
-  const constructor = hasRuntimeType(namespace, "object")
-    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
-    : undefined
-  return hasRuntimeType(constructor, "function") && value instanceof constructor
+  if (!hasRuntimeType(webAssemblyModuleConstructor, "function")) return false
+  if (value instanceof webAssemblyModuleConstructor) return true
+  try {
+    if (!hasRuntimeType(webAssemblyModuleExports, "function")) return false
+    Reflect.apply(webAssemblyModuleExports, webAssemblyModuleConstructor, [value])
+    return true
+  }
+  catch {
+    return false
+  }
 }
+
+// Exact native source signatures reject user functions, bound functions and proxies.
+// This boundary uses the host Function intrinsic rather than a payload-owned method.
+const intrinsicFunctionToString = Function.prototype.toString
+const nativeFunctionToString = (() => {
+  try {
+    // Built-in functions have no own `prototype` property. Keep this check
+    // independent of the formatter's reported source.
+    if (Object.prototype.hasOwnProperty.call(intrinsicFunctionToString, "prototype")) return false
+    // A replacement can selectively delegate calls while forging only the
+    // operation signatures below. Check immutable function metadata before
+    // accepting any formatter output; this rejects the usual forged callable
+    // even when its self-source and probe responses look native.
+    if (intrinsicFunctionToString.name !== "toString" || intrinsicFunctionToString.length !== 1) return false
+    if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
+    // A replacement can forge native-looking source for selected functions. Probe
+    // the ordinary source and required TypeError behavior before trusting it.
+    function probe() { return 1 }
+    if (intrinsicFunctionToString.call(probe) !== "function probe() { return 1 }") return false
+    // Probe every operation name used below with user-defined functions. A
+    // formatter that only forges native signatures for buffer operations must
+    // still expose their ordinary source when presented with these lookalikes.
+    const namedProbes = [
+      function ArrayBuffer() {},
+      function SharedArrayBuffer() {},
+      function DataView() {},
+      function Memory() {},
+    ]
+    for (const namedProbe of namedProbes) {
+      if (intrinsicFunctionToString.call(namedProbe).includes("[native code]")) return false
+    }
+    const getterProbe = Object.getOwnPropertyDescriptor(
+      { get byteLength() { return 0 } },
+      "byteLength",
+    )?.get
+    if (!getterProbe || intrinsicFunctionToString.call(getterProbe).includes("[native code]")) return false
+    try {
+      intrinsicFunctionToString.call(null)
+      return false
+    }
+    catch {
+      return true
+    }
+  }
+  catch {
+    return false
+  }
+})()
+
+function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
+  if (!nativeFunctionToString || !hasRuntimeType(value, "function")) return false
+  try {
+    return intrinsicFunctionToString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
+  }
+  catch {
+    return false
+  }
+}
+
+function captureSharedBufferByteLength(): (() => unknown) | undefined {
+  try {
+    let sample: unknown
+    const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+    if (isNativeBufferOperation(constructor, "SharedArrayBuffer")) {
+      sample = Reflect.construct(constructor, [0])
+    }
+    else {
+      const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+      if (!isRuntimeObject(namespace)) return
+      const memoryConstructor = Object.getOwnPropertyDescriptor(namespace, "Memory")?.value
+      if (!isNativeBufferOperation(memoryConstructor, "Memory")) return
+      const memory = Reflect.construct(memoryConstructor, [{ initial: 0, maximum: 1, shared: true }])
+      const memoryBuffer = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(memory), "buffer")?.get
+      if (!isNativeBufferOperation(memoryBuffer, "get buffer")) return
+      sample = memoryBuffer.call(memory)
+    }
+    if (!isRuntimeObject(sample)) return
+    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
+    if (!isNativeBufferOperation(getter, "get byteLength")) return
+    if (getter.call(sample) !== 0) return
+    // A genuine buffer getter requires the receiver's internal slot. A forged
+    // getter that returns a number for arbitrary objects must not become the
+    // shared-memory brand used for trace privacy.
+    // Probe several unrelated non-buffer receivers. A forged receiver-aware
+    // getter must reject every ordinary object before it can be cached as the
+    // shared-memory brand.
+    const receiverProbes: object[] = [{}, Object.create(null)]
+    for (const receiver of receiverProbes) {
+      try {
+        getter.call(receiver)
+        return
+      }
+      catch {
+        // Expected for a non-buffer receiver.
+      }
+    }
+    return getter
+  }
+  catch {
+    return
+  }
+}
+
+function captureOrdinaryBufferOperations(): {
+  byteLength: () => unknown
+  dataView: (...args: never[]) => unknown
+} | undefined {
+  try {
+    const arrayBuffer = Object.getOwnPropertyDescriptor(globalThis, "ArrayBuffer")?.value
+    const dataView = Object.getOwnPropertyDescriptor(globalThis, "DataView")?.value
+    if (!isNativeBufferOperation(arrayBuffer, "ArrayBuffer") || !isNativeBufferOperation(dataView, "DataView")) return
+    const sample = Reflect.construct(arrayBuffer, [0])
+    const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
+    if (!isNativeBufferOperation(byteLength, "get byteLength") || byteLength.call(sample) !== 0) return
+    Reflect.construct(dataView, [sample, 0, 0])
+    try {
+      Reflect.construct(dataView, [{}, 0, 0])
+      return
+    }
+    catch {
+      return { byteLength, dataView }
+    }
+  }
+  catch {
+    return
+  }
+}
+
+const sharedBufferByteLength = captureSharedBufferByteLength()
+const ordinaryBufferOperations = captureOrdinaryBufferOperations()
 
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
-  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
-  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+  if (sharedBufferByteLength) {
+    try {
+      // When the native ordinary-buffer probes are available, prove the value
+      // has a genuine buffer internal slot before consulting the shared getter.
+      // This prevents a receiver-aware forged getter from branding arbitrary
+      // objects as shared memory.
+      if (ordinaryBufferOperations) {
+        Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
+      }
+      return hasRuntimeType(sharedBufferByteLength.call(value), "number")
+    }
+    catch {
+      return false
+    }
+  }
+  // If native operation validation was tampered with before module load, fail closed.
+  // Treating unknown objects as shared keeps trace payloads private in that case.
+  if (!ordinaryBufferOperations) {
+    try {
+      const prototype = Object.getPrototypeOf(value)
+      if (prototype === Object.prototype) return false
+      const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
+      const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
+      return tag === "SharedArrayBuffer" && hasRuntimeType(byteLength, "function")
+    }
+    catch {
+      return true
+    }
+  }
+  try {
+    // The validated native DataView operation first proves a buffer internal slot.
+    // Only the validated native ArrayBuffer getter's rejection then proves shared memory.
+    Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
+    try {
+      ordinaryBufferOperations.byteLength.call(value)
+      return false
+    }
+    catch {
+      return true
+    }
+  }
+  catch {
+    return false
+  }
 }
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
@@ -465,6 +682,33 @@ function reflectedRegExpState(value: unknown): { flags: string, lastIndex: numbe
     const lastIndex = Reflect.get(value, "lastIndex")
     if (!hasRuntimeType(source, "string") || !hasRuntimeType(flags, "string") || !hasRuntimeType(lastIndex, "number")) return
     return { flags, lastIndex, source }
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedArrayBufferViewState(value: unknown): { byteLength: number, kind: string } | undefined {
+  if (!ArrayBuffer.isView(value)) return
+  try {
+    const bufferConstructor = Object.getOwnPropertyDescriptor(globalThis, "Buffer")?.value ?? globalThis.Buffer
+    const isBuffer = hasRuntimeType(bufferConstructor, "function")
+      ? Object.getOwnPropertyDescriptor(bufferConstructor, "isBuffer")?.value
+      : undefined
+    const isNodeBuffer = hasRuntimeType(isBuffer, "function")
+      && Reflect.apply(isBuffer, bufferConstructor, [value]) === true
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    if (isNodeBuffer) {
+      const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get?.call(value)
+      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: "Buffer" } : undefined
+    }
+    const typedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag)?.get?.call(value)
+    if (hasRuntimeType(typedArrayTag, "string")) {
+      const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get?.call(value)
+      return hasRuntimeType(byteLength, "number") ? { byteLength, kind: typedArrayTag } : undefined
+    }
+    const dataViewByteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")?.get?.call(value)
+    return hasRuntimeType(dataViewByteLength, "number") ? { byteLength: dataViewByteLength, kind: "DataView" } : undefined
   }
   catch {
     return
@@ -546,10 +790,11 @@ function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = ne
   if (seen.has(source)) return seen.get(source) === snapshot
   seen.set(source, snapshot)
 
-  if (ArrayBuffer.isView(source)
-    && (!ArrayBuffer.isView(snapshot)
-      || Object.getPrototypeOf(source) !== Object.getPrototypeOf(snapshot)
-      || source.byteLength !== snapshot.byteLength)) return false
+  const sourceView = reflectedArrayBufferViewState(source)
+  if (sourceView) {
+    const snapshotView = reflectedArrayBufferViewState(snapshot)
+    if (!snapshotView || sourceView.kind !== snapshotView.kind || sourceView.byteLength !== snapshotView.byteLength) return false
+  }
   if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
   const sourceRegExp = reflectedRegExpState(source)
   if (sourceRegExp) {

@@ -36,7 +36,6 @@ pnpm add @vite-hub/schedule
 
 ```ts [vite.config.ts]
 import { hubSchedule } from '@vite-hub/schedule/vite'
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -48,8 +47,6 @@ export default defineConfig({
       blob: true,
     }),
     hubSchedule({ providerOutput: 'standalone' }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
   ],
 })
 ```
@@ -70,7 +67,7 @@ For Nuxt, replace the wrapper inspection command with `find .nuxt/vitehub/agent 
 
 ## Features without a Netlify provider
 
-ViteHub does not infer Netlify providers for Queue, Rate Limit, Sandbox, or Workflow. On the `netlify` preset, `queue: true`, `rateLimit: true`, and `sandbox: true` fail the build. Workflow stays off when only `agent` enables it; an explicit `workflow` option needs `workflow.provider`. Select an external provider only when it is valid from the Netlify runtime.
+ViteHub does not infer Netlify providers for Queue, Rate Limit, Sandbox, or Workflow. On the `netlify` preset, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. Workflow stays off when only `agent` enables it; an explicit `workflow` option needs `workflow.provider`. Select an external provider only when it is valid from the Netlify runtime.
 
 The ViteHub Provision CLI does not create Netlify resources. It currently accepts Cloudflare and Vercel plans only. Netlify Blobs stores need no provisioning; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 

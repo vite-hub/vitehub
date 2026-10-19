@@ -131,8 +131,9 @@ describe("Console Schedule runs", () => {
 
   it("marks only installed manual definitions as runnable in the contributed record table", async () => {
     installSchedules()
-    const records = ["definition:sync", "definition:nightly", "runtime:sync"].map(id => ({
-      cells: { kind: id.startsWith("definition:") ? "Definition" : "Runtime", schedule: id.split(":")[1]! },
+    // The Schedule package writes these cells for each Schedule Definition record.
+    const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
+      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))
@@ -173,7 +174,7 @@ describe("Console Schedule runs", () => {
         },
       },
     })
-    expect(unavailable).toEqual({
+    expect(unavailable).toMatchObject({
       message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
       ok: false,
       status: 404,
@@ -219,6 +220,21 @@ describe("Console Schedule runs", () => {
     expect(await signed.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
     expect([replay.status, otherDeployment.status]).toEqual([401, 401])
     expect(await replay.json()).toEqual({ message: "Dispatch nonce was already used." })
+  })
+
+  it("uses the request Cloudflare environment for the generated route", async () => {
+    installSchedules()
+    const env = { VITEHUB_SECRET: "cloudflare-dispatch-secret-at-least-32-characters" }
+    const body = JSON.stringify({ name: "sync" })
+    const key = await resolveViteHubDispatchKey(env)
+    const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "worker", body, key: key!, operation: "schedule.run" }) }
+    const response = await scheduleRunRoute({
+      context: { cloudflare: { env } },
+      req: new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
   })
 
   it("never falls back to Console access for a request with a dispatch signature", async () => {

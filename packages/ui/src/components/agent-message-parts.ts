@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { defineComponent, h, type PropType, resolveComponent, type VNodeChild } from "vue";
 import { isSafeExternalUrl } from "../internal/url.ts";
-import { AgentMarkdown } from "./agent-markdown.ts";
+import { Markdown } from "./markdown.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 
 type Part = UIMessage["parts"][number];
@@ -16,6 +16,30 @@ function toolValue(part: ToolLikePart): unknown {
   if ("output" in part && part.output !== undefined) return part.output;
   if ("errorText" in part && part.errorText) return part.errorText;
   return "input" in part ? part.input : undefined;
+}
+
+function toolValueText(value: unknown): string {
+  try {
+    const ancestors: object[] = [];
+    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
+      if (typeof item === "bigint") return `${item}n`;
+      if (item === null || typeof item !== "object") return item;
+      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
+      if (ancestors.includes(item)) return "[Circular]";
+      ancestors.push(item);
+      return item;
+    }, 2) ?? String(value);
+  } catch (error) {
+    let message: unknown;
+    if ((typeof error === "object" && error !== null) || typeof error === "function") {
+      try {
+        message = (error as { message?: unknown }).message;
+      } catch {
+        // Some error-like values expose a throwing message getter.
+      }
+    }
+    return typeof message === "string" ? `[Unable to display payload: ${message}]` : "[Unable to display payload]";
+  }
 }
 
 function isToolPart(part: Part): part is ToolLikePart {
@@ -68,7 +92,7 @@ export const AgentMessageParts = defineComponent({
           if (part.type === "text") {
             return (
               slots.text?.({ index, part }) ??
-              h(AgentMarkdown, {
+              h(Markdown, {
                 key: index,
                 streaming: props.streaming || part.state === "streaming",
                 value: part.text,
@@ -101,7 +125,7 @@ export const AgentMessageParts = defineComponent({
                 },
                 {
                   default: () =>
-                    h("pre", { class: "vh-tool-value" }, JSON.stringify(toolValue(part), null, 2)),
+                    h("pre", { class: "vh-tool-value" }, toolValueText(toolValue(part))),
                 },
               )
             );
