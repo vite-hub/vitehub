@@ -130,6 +130,13 @@ describe("Auth access handlers", () => {
   })
 
   describe("foreign status, body, and separate Set-Cookie headers", () => {
+    const run = async (result: unknown) => {
+      const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+        access: { routes: [{ route: "/**", authorize: () => result as never }] },
+      }))
+      return handler(new Request("https://app.example/"))
+    }
+
     const foreign = new ForeignResponse("Policy rejected", {
       status: 409,
       statusText: "Policy conflict",

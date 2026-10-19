@@ -908,21 +908,6 @@ function isNativeUint8ArrayChunk(value: unknown): value is Uint8Array {
   catch {
     return false
   }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read!, reader, [])
-        if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
-        if (result.done) { release(); controller.close() }
-        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(new intrinsicUint8ArrayConstructor(result.value))
-      } catch (error) { release(); controller.error(error) }
-    },
-    async cancel(reason) {
-      try { await Reflect.apply(cancel!, reader, [reason]) } finally { release() }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
 }
 
 function bridgeAuthorizationBody(
@@ -1027,6 +1012,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       responsePropertyDescriptor(candidate, key)?.get === nativeResponseDescriptors[key]?.get)
     let nativeProperties = false
     let nativeBodyUnused = false
+    let nativeBodyState = false
     let foreignBodyUnused = true
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
