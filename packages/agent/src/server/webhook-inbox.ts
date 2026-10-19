@@ -140,35 +140,35 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   if (!lock) {
     return { attempts: 0, duplicate: true, id: entry.id, settle: async () => {}, release: async () => {} }
   }
-  const previous = await state.get(key)
-  const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
   try {
+    const previous = await state.get(key)
+    const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
     await state.set(key, { ...entry, attempts } satisfies StoredWebhookInboxEntry, webhookInboxRetentionMs)
     if (!previous) {
       await state.appendToList(webhookInboxIndexKey(keyPrefix), { id: entry.id, receivedAt: entry.receivedAt }, {
         ttlMs: webhookInboxRetentionMs,
       })
     }
+    return {
+      attempts,
+      id: entry.id,
+      async release() {
+        await state.releaseLock(lock).catch(() => undefined)
+      },
+      async settle() {
+        try {
+          await state.delete(key)
+        }
+        catch (error) {
+          logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
+        }
+        await state.releaseLock(lock).catch(() => undefined)
+      },
+    }
   }
   catch (error) {
     await state.releaseLock(lock).catch(() => undefined)
     throw error
-  }
-  return {
-    attempts,
-    id: entry.id,
-    async release() {
-      await state.releaseLock(lock).catch(() => undefined)
-    },
-    async settle() {
-      try {
-        await state.delete(key)
-      }
-      catch (error) {
-        logWebhookInbox("inbox.settle.failed", { deliveryScope: keyPrefix, error: errorMessage(error), inboxId: entry.id })
-      }
-      await state.releaseLock(lock).catch(() => undefined)
-    },
   }
 }
 
@@ -278,6 +278,9 @@ export async function replayWebhookInbox(
       }
       logWebhookInbox("inbox.replaying", { ...fields, receivedAt: stored.receivedAt })
       try {
+        // A previous process may have crashed while holding the admission lock. Startup replay
+        // owns recovery, so take over that lock before sending the request through the route.
+        await state.forceReleaseLock(`${key}:admission`)
         const response = await route(new Request(stored.request.url, {
           body: stored.request.body || undefined,
           headers: stored.request.headers,
