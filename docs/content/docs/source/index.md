@@ -107,6 +107,7 @@ icon: i-lucide-folder-input
   Add a file to `server/collections` to get a GET route. In Vue, `useCollection()` loads it one page at a time.
   :::
 
+
   :::product-feature-item{title="Filter and search a list" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
   `array()` adds filters, search, and counts to a list that fits in server memory.
   :::

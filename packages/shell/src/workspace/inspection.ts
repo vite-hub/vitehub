@@ -31,24 +31,22 @@ export async function runWorkspaceInspectionCommand(
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
   throwIfAborted(options.signal)
-  // Charge every attempted workspace shell call before syntax, path, and
-  // command-policy preflight can reject it.
-  options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   const maxOutputLength = options.maxOutputLength === undefined
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  const chargeRejected = () => options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
-  if (unsupportedSyntax) return limitInspectionObservation(unsupportedSyntax, maxOutputLength)
+  if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
   const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, options.signal)
-  if (preflight) return limitInspectionObservation(preflight, maxOutputLength)
+  if (preflight) { chargeRejected(); return limitInspectionObservation(preflight, maxOutputLength) }
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
-  if (pipedBroadSearch) return limitInspectionObservation(pipedBroadSearch, maxOutputLength)
+  if (pipedBroadSearch) { chargeRejected(); return limitInspectionObservation(pipedBroadSearch, maxOutputLength) }
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd, options.signal)
-  if (missingPath) return limitInspectionObservation(missingPath, maxOutputLength)
+  if (missingPath) { chargeRejected(); return limitInspectionObservation(missingPath, maxOutputLength) }
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
-  if (unsupported) return limitInspectionObservation(unsupported, maxOutputLength)
+  if (unsupported) { chargeRejected(); return limitInspectionObservation(unsupported, maxOutputLength) }
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -65,9 +63,8 @@ export async function runWorkspaceInspectionCommand(
   const result = await runtime.exec(command, {
     budget: options.budget,
     cwd,
-    signal: options.signal,
     timeout,
-    recordInputBytes: false,
+    signal: options.signal,
     workspacePaths: workspaceSessionPaths(command, cwd),
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
