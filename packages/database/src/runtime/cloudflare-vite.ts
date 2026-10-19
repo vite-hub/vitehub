@@ -12,7 +12,7 @@ export function createDbCloudflareWorker(options: DatabaseCloudflareWorkerOption
   return createCloudflareHostedWorker({
     app: options.app,
     label: "database",
-    async onRequest({ env, executionContext, handle }: { env: CloudflareWorkerEnv, executionContext: CloudflareWorkerExecutionContext, handle: () => Promise<Response> }) {
+    async onRequest({ env, executionContext: _executionContext, handle }: { env: CloudflareWorkerEnv, executionContext: CloudflareWorkerExecutionContext | undefined, handle: (handlerContext?: Record<string, unknown>) => Promise<Response> }) {
       return await runWithActiveCloudflareEnv(env, () => handle())
     },
   })
