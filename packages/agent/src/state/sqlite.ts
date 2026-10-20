@@ -370,7 +370,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return claimed.length > 0
   }
 
-  async markWebhookDeliveryFailure(scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false }): Promise<boolean> {
+  async markWebhookDeliveryFailure(scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false, publicErrorCode?: "TIMEOUT" }): Promise<boolean> {
     const marked = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
       return await this.transaction(async tx => {
