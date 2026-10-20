@@ -36,7 +36,7 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/code-host-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
 
 `teams()` instructs the Agent to cite sources with descriptive Markdown links to verified URLs. Chat SDK Channel delivery labels unresolved native web citations as `[source link unavailable]`, including during streaming. Codex app-server does not supply a citation-ID-to-URL map, so ViteHub cannot recover those links from the IDs. Ordinary source links remain intact.
 
@@ -80,6 +80,22 @@ teams({
 ```
 
 An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
+## Steer with other participants
+
+With `messages.concurrency: 'steer'`, a later message steers the active Agent Invocation only when it comes from the same invoker. A message from another person waits and then starts its own Invocation. Set `messages.steerFromParticipants: true` to let other people in the same thread steer the active work:
+
+```ts
+teams({
+  messages: {
+    concurrency: 'steer',
+    durable: false,
+    steerFromParticipants: true,
+  },
+})
+```
+
+The message must pass admission first, so group conversations still require a mention, and `messages.filter` and `access()` still apply. Only human authors in the same thread steer, also when `lockScope` covers more than one thread. The Invocation keeps the invoker of the first message, with its identity and authority. The steered message is input only, and its message header names its author. When the Driver does not support live steering, the message starts its own Invocation after the active one, the same as for one invoker. This applies to inline steering. With durable Workflow delivery, a message from another invoker still queues as a separate Invocation.
 
 ## Act on the Channel message in hooks
 
@@ -157,6 +173,37 @@ The Console shows the recorded call, such as `label(["Receipts"])`. The call tex
 On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/api/_vitehub/agents/:agent/webhooks/:webhook` route. Both paths use the same handler, authentication, HEAD probe, and Channel history export. Other application routes keep their request body.
 
 If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
+
+`webhooks.aliases` adds more paths to the same registration, such as an old URL that a provider still calls.
+
+### Give a Channel its own route
+
+A Channel does not need an Agent to own its webhook. Put it in `server/channels/<name>/index.ts`, default-export `defineChannel()`, and set `webhooks.path`. ViteHub serves the path without an Agent Definition. The trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+
+```ts [server/channels/tickets/index.ts]
+import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+import triage from '../../agents/triage'
+import { ticketEvent } from './events'
+
+export default defineChannel('tickets', {
+  messages: false,
+  triggers: {
+    webhook: defineChannelTrigger({
+      input: ticketEvent,
+      tasks: { triage: { agent: triage } },
+      invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
+    }),
+  },
+  webhooks: { path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] },
+})
+```
+
+- The Channel name comes from the folder, as for [outbound Channels](/docs/channels/get-started). A file such as `server/channels/tickets.ts` also works. In a folder with an `index` module, the other files, such as `events.ts`, are helpers. They are never Channels.
+- One `index` module can also export `connectors`, so one folder can be the outbound and the inbound `tickets` Channel.
+- ViteHub reads `webhooks.path` and `webhooks.aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
+- A module that has no `webhooks.path`, or that exports a function that returns a Channel, is not served on its own. Attach it to an Agent in `channels`. Do not do both with one Channel.
+- The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
+- Standalone Channels need a Nitro host. Restart the development server after you add or remove one.
 
 ### Verify a webhook signature
 
@@ -652,6 +699,18 @@ messages: {
   final: { delivery: 'new-message' },
 }
 ```
+
+In group chats and channel threads, some messages do not need an answer. Set `messages.allowSilentReply: true` to give the Agent a `skip_reply` tool. When the Agent calls it with a short reason, the Invocation finishes without the final reply and ViteHub removes the loading message. Errors still post the error reply, and messages that the Agent already sent are not removed. The option requires `messages.loading` and cannot be combined with `delivery: 'manual'`, because only a held-back final reply can be skipped.
+
+```ts
+messages: {
+  allowSilentReply: true,
+  final: { delivery: 'placeholder' },
+  loading: { text: 'Thinking…' },
+}
+```
+
+The Invocation records the skip as a final reply delivery effect with `channel.effect.skipped: "skip_reply: <reason>"`, so `vitehub agent invocations export` lists it under `deliveries`.
 
 ## Inspect delivery custody
 

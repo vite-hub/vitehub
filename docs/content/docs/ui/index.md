@@ -13,6 +13,11 @@ The package owns presentation, layout, and interaction defaults. Your app owns t
 
 ## A Console with the defaults
 
+Select a session to read its messages and reply. This example uses the package styles and built-in layouts.
+
+::component-preview{name="ChatAppBlock" flush reset}
+::
+
 Select an Invocation to read its messages, tool calls, and result. The inspector shows its configuration and activity. This example uses the package styles and built-in layouts.
 
 ::component-preview{name="InvocationDashboardBlock" flush reset}

@@ -3,7 +3,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { blobArrayBuffer, blobSize, blobType, getMessageText, isArrayBufferValue, isAttachmentData, isAttachmentPart, isBlobValue, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -118,7 +118,7 @@ function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { ty
 type UserContentPart = Exclude<UserContent, string>[number]
 
 function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
-  if (part.data && !isBlobValue(part.data)) return part.data
+  if (part.data && !isAttachmentBlob(part.data)) return part.data
   if (part.url) {
     try {
       const url = new URL(part.url)
@@ -128,7 +128,7 @@ function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob
       // Invalid URLs are not model input.
     }
   }
-  if (isBlobValue(part.data)) {
+  if (isAttachmentBlob(part.data)) {
     throw agentDiagnostics.AGENT_R0004({ message: "[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL." })
   }
   if (part.fetchData) {
@@ -361,14 +361,14 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (isBlobValue(data)) return blobSize(data)
+  if (isAttachmentBlob(data)) return blobSize(data)
   if (isArrayBufferValue(data)) return data.byteLength
   if (isUint8ArrayValue(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (isBlobValue(data) && blobType(data).startsWith("image/")) return blobType(data)
+  if (isAttachmentBlob(data) && blobType(data).startsWith("image/")) return blobType(data)
   if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
@@ -411,9 +411,12 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
     throw agentDiagnostics.AGENT_R0008({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
   }
   if (!resolved) return { byteLength: 0 }
-  const byteLength = attachmentDataByteLength(resolved) ?? 0
+  assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
+  const data = isAttachmentBlob(resolved)
+    ? new Uint8Array(await blobArrayBuffer(resolved)).buffer
+    : resolved
+  const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
-  const data = isBlobValue(resolved) ? await blobArrayBuffer(resolved) : resolved
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)

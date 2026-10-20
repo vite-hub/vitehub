@@ -700,10 +700,19 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
    */
   ackTimeoutMs?: number | false
   adapter?: string
+  /**
+   * More paths that reach this registration, such as an old URL that a provider still calls. In a Channel module
+   * in `server/channels`, ViteHub reads them from the source, so they must be string literals.
+   */
+  aliases?: string[]
   channelId?: string
   durableState?: boolean
   id?: string
   method?: "POST" | (string & {})
+  /**
+   * The webhook route. In a Channel module in `server/channels`, a `path` makes the Channel serve its own webhooks
+   * without an Agent Definition. ViteHub reads it from the source, so it must be a string literal there.
+   */
   path?: string
   provider: string
   /**
@@ -2503,6 +2512,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
    * then start one handler with every message received in that window. Unset keeps the default behavior.
    */
   debounceMs?: number
+  /**
+   * With inline `concurrency: "steer"`, a message from another human in the same thread steers the active
+   * Agent Invocation. The Invocation keeps the invoker of the first message. Defaults to false.
+   */
+  steerFromParticipants?: boolean
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
@@ -2521,6 +2535,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }
   /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
   allowBots?: boolean
+  /**
+   * Give the Agent a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply
+   * and the loading message is removed. Errors and messages that the Agent sent explicitly are still delivered.
+   * Requires `loading` without `delivery: "manual"`.
+   */
+  allowSilentReply?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {

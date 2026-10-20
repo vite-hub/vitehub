@@ -24,8 +24,8 @@ const diffProps = {
   },
 };
 
-export const AgentPatchDiff = defineComponent({
-  name: "AgentPatchDiff",
+export const PatchDiff = defineComponent({
+  name: "PatchDiff",
   inheritAttrs: false,
   props: {
     ...diffProps,
@@ -36,8 +36,8 @@ export const AgentPatchDiff = defineComponent({
   },
 });
 
-export const AgentMultiFileDiff = defineComponent({
-  name: "AgentMultiFileDiff",
+export const MultiFileDiff = defineComponent({
+  name: "MultiFileDiff",
   inheritAttrs: false,
   props: {
     ...diffProps,
@@ -49,8 +49,8 @@ export const AgentMultiFileDiff = defineComponent({
   },
 });
 
-export const AgentFileDiff = defineComponent({
-  name: "AgentFileDiff",
+export const FileDiff = defineComponent({
+  name: "FileDiff",
   inheritAttrs: false,
   props: {
     ...diffProps,
@@ -61,8 +61,8 @@ export const AgentFileDiff = defineComponent({
   },
 });
 
-export const AgentFile = defineComponent({
-  name: "AgentFile",
+export const FileView = defineComponent({
+  name: "FileView",
   inheritAttrs: false,
   props: {
     file: { required: true, type: pierrePropTypes.fileContents },
@@ -78,8 +78,8 @@ export const AgentFile = defineComponent({
   },
 });
 
-export const AgentUnresolvedFile = defineComponent({
-  name: "AgentUnresolvedFile",
+export const UnresolvedFile = defineComponent({
+  name: "UnresolvedFile",
   inheritAttrs: false,
   props: {
     file: { required: true, type: pierrePropTypes.fileContents },
@@ -100,8 +100,8 @@ export const AgentUnresolvedFile = defineComponent({
   },
 });
 
-export const AgentCodeView = defineComponent({
-  name: "AgentCodeView",
+export const CodeView = defineComponent({
+  name: "CodeView",
   inheritAttrs: false,
   props: {
     items: { required: true, type: pierrePropTypes.codeViewItems },
