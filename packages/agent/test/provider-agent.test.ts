@@ -4800,7 +4800,14 @@ cli_auth_credentials_store = "keyring"
     })
 
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
-    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({ AGENT_BROWSER_SESSION: "managed", AGENT_BROWSER_SOCKET_DIR: "/managed/socket", VITEHUB_BROWSER_ACTIVE: "1", PATH: "/managed/bin:/caller/bin", LD_LIBRARY_PATH: "/managed/lib:/caller/lib" }) }))
+    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({
+      AGENT_BROWSER_SESSION: "managed",
+      AGENT_BROWSER_SOCKET_DIR: "/managed/socket",
+      VITEHUB_BROWSER_ACTIVE: "1",
+      PATH: "/managed/bin:/caller/bin",
+      LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
+      TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
+    }) }))
   })
 
   it.each([

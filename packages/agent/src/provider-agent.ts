@@ -2989,6 +2989,10 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
+    browserRuntimeEnvironment(context.context),
+    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
+  )
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
@@ -3147,7 +3151,7 @@ async function* runProvider<
         },
       })
       clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => {
-        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = workspaceSession!.exec(command, args, {
           ...execOptions,
           ...(execOptions?.cwd === undefined && workspaceCommandCwd !== "/workspace" ? { cwd: workspaceCommandCwd } : {}),
@@ -3167,7 +3171,7 @@ async function* runProvider<
         const cwd = resolve(root, suffix)
         if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
         const { abortSignal, ...hostOptions } = execOptions || {}
-        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
           ...hostOptions,
           ...(environment ? { env: environment } : {}),
