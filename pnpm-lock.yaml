@@ -2717,6 +2717,9 @@ importers:
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(d5b8adbe928df484f2d4150c805749ae)
+      '@tiptap/vue-3':
+        specifier: catalog:realtime
+        version: 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3))
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
