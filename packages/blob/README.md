@@ -117,7 +117,7 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 
 `blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. `handleUpload()` stores file names as written, without URL-decoding.
 
 Browser clients:
 
