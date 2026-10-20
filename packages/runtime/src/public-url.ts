@@ -40,6 +40,7 @@ function configuredAgentUrl(config: PublicUrlConfig, name: string): string | und
 
 function isInternalRequestHost(hostname: string): boolean {
   const host = hostname.toLowerCase()
+  if (host === "internal") return true
   if (host.endsWith(".internal") || host.endsWith(".svc")) return true
   const octets = host.split(".").map(Number)
   if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false

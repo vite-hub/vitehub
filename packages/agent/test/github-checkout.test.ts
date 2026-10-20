@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import * as fs from 'node:fs/promises'
@@ -69,16 +70,17 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
   await expect(prepareGitHubPullRequestWorkspace(source, target, { signal: AbortSignal.abort() })).rejects.toThrow()
 })
 
-it('supplies Git credentials without running the GitHub CLI', async () => {
+it('supplies Git credentials only for the scoped repository without running the GitHub CLI', async () => {
   const { source } = await fixture()
   const host = createGitHubHost({ credentials: () => ({ token: 'test-token' }) })
-  const { env } = await host.access()
-  const result = await new Promise<string>((resolve, reject) => {
-    const child = execFile('git', ['credential', 'fill'], { cwd: source, env: { ...process.env, ...env } }, (error, stdout) => error ? reject(error) : resolve(stdout))
-    child.stdin!.end('protocol=https\nhost=github.com\n\n')
+  const { env } = await host.access({ repository: 'acme/base' })
+  const header = async (url: string) => await new Promise<string>((resolve) => {
+    execFile('git', ['config', '--get-urlmatch', 'http.extraheader', url], { cwd: source, env: { ...process.env, ...env } }, (error, stdout) => resolve(error ? '' : stdout.trim()))
   })
-  expect(result).toContain('username=x-access-token')
-  expect(result).toContain('password=test-token')
+  expect(await header('https://github.com/acme/base.git/info/refs')).toBe(`AUTHORIZATION: basic ${Buffer.from('x-access-token:test-token').toString('base64')}`)
+  expect(await header('https://github.com/other/repo.git/info/refs')).toBe('')
+  expect(Object.values(env).filter(value => value.includes('basic'))).toHaveLength(1)
+  expect((await host.access()).env).not.toHaveProperty('GIT_CONFIG_KEY_1')
 })
 
 it('records repair publication before post-push validation while retaining source head leases', async () => {
