@@ -432,6 +432,20 @@ describe("createConnectionsHandler", () => {
       const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
       expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
     });
+
+    it("keeps request-origin behavior for an alternate public host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://alternate.example.com/_vitehub/connections/callback");
+      const request = new Request("https://alternate.example.com/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "https://alternate.example.com" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(200);
+    });
   });
 
   it("gives non-JSON requests their own code", async () => {

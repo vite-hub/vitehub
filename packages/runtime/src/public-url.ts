@@ -38,12 +38,20 @@ function configuredAgentUrl(config: PublicUrlConfig, name: string): string | und
   return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
 }
 
+function isInternalRequestHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  if (host.endsWith(".internal") || host.endsWith(".svc")) return true
+  const octets = host.split(".").map(Number)
+  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
+  return octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168)
+}
+
 /**
  * Resolve the public origin of this deployment.
  *
  * Order: the Agent's origin from `vitehub({ publicUrl })`, the single configured
- * origin, the configured origin with the same host as the request, and then the
- * request origin. Returns `undefined` when nothing is configured and no request exists.
+ * origin, the configured origin with the same host as the request, the configured
+ * origin for an internal request host, and then the request origin.
  */
 export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url"> }): string
 export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url"> }): string | undefined
@@ -59,7 +67,7 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   const request = new URL(options.request.url)
   const configuredAgents = Object.values(config.agents ?? {})
   return configuredAgents.find(url => new URL(url).host === request.host)
-    ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
+    ?? (configuredAgents.length === 1 && isInternalRequestHost(request.hostname) ? configuredAgents[0] : request.origin)
 }
 
 /** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */
