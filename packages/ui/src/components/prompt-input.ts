@@ -83,7 +83,6 @@ export const PromptInput = defineComponent({
     };
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;
-      // A text-only prompt lets the browser paste normally and never converts files.
       if (!props.attachments || !clipboard) return;
       const hasText = clipboard.getData("text/plain").length > 0;
       const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/") || !hasText);
@@ -125,8 +124,6 @@ export const PromptInput = defineComponent({
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",
             "data-slot": "prompt-input-textarea",
-            // Let the native control grow with multiline content instead of scrolling internally.
-            style: { fieldSizing: "content" },
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
             // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
             onKeydown: (event: KeyboardEvent) => {
@@ -155,7 +152,6 @@ export const PromptInput = defineComponent({
               tabindex: -1,
               type: "file",
             }),
-            slots["footer-leading"]?.(),
             slots.actions?.() ??
               (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
@@ -168,6 +164,7 @@ export const PromptInput = defineComponent({
                 type: "button",
                 variant: "outline",
               })),
+            slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
               h(UButton, {

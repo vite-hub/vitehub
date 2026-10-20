@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -5,7 +6,9 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories } from "../src/internal/pull-request-checkout.ts"
+import { forgeAccessKey, forgeGitEnvironment } from "../src/internal/forge-access.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutPlan, pullRequestRepositories } from "../src/internal/pull-request-checkout.ts"
+import type { AgentCallbackContext } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const fixtures: string[] = []
@@ -115,46 +118,35 @@ describe("pull request checkout", () => {
     expect(await git(fixture.bare, ["rev-parse", "refs/heads/feature"])).toBe(fixture.headSha)
   })
 
-  it("selects base and fork credentials by remote URL without persisting tokens", async () => {
+  it("sends base and fork credentials only to their own remote URLs", async () => {
     const fixture = await githubFixture()
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      const token = input?.repository === "contributor/vitehub" ? "fork-token" : "base-token"
-      return {
-        env: {
-          GH_TOKEN: token,
-          GIT_CONFIG_COUNT: "2",
-          GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
-          GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
-          GIT_CONFIG_VALUE_0: "",
-          GIT_CONFIG_VALUE_1: '!f() { printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; }; f',
-        },
-        token,
-      }
-    })
+    const access = vi.fn(async (_context: AgentCallbackContext, scope: { repository: string }) => scope.repository === "contributor/vitehub" ? "fork-token" : "base-token")
     const signal = new AbortController().signal
-    const env = cleanEnv(await pullRequestCheckoutEnvironment({ access }, "vite-hub/vitehub", signal, "contributor/vitehub"))
-    expect(access.mock.calls).toEqual([
-      [{ repository: "vite-hub/vitehub", signal }],
-      [{ repository: "contributor/vitehub", signal }],
+    const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
+    const env = cleanEnv(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, { repository: "vite-hub/vitehub", headRepository: "contributor/vitehub" }, signal))
+    expect(access.mock.calls.map(([, scope]) => scope)).toEqual([
+      { repository: "vite-hub/vitehub", signal },
+      { repository: "contributor/vitehub", signal },
     ])
     expect(env.GH_TOKEN).toBe("base-token")
-    const fill = async (repository: string) => {
-      return await new Promise<string>((resolve, reject) => {
-        const process = execFile("git", ["credential", "fill"], { cwd: fixture.workspace, env }, (error, stdout) => {
-          if (error) reject(error)
-          else resolve(stdout)
-        })
-        process.stdin?.end(`protocol=https\nhost=github.com\npath=${repository}\n\n`)
-      })
-    }
-    expect(await fill("vite-hub/vitehub.git")).toContain("password=base-token")
-    expect(await fill("contributor/vitehub.git")).toContain("password=fork-token")
-    expect(await fill("contributor/vitehub")).toContain("password=fork-token")
-    expect(await fill("other/vitehub.git")).toContain("password=base-token")
-    expect(Object.entries(env).filter(([key]) => key.startsWith("GIT_CONFIG_VALUE_")).map(([, value]) => value).join("\n")).not.toMatch(/base-token|fork-token/)
+    const header = async (url: string) => await git(fixture.workspace, ["config", "--get-urlmatch", "http.extraheader", url], env).catch(() => "")
+    const basic = (token: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+    expect(await header("https://github.com/vite-hub/vitehub.git/info/refs")).toBe(basic("base-token"))
+    expect(await header("https://github.com/vite-hub/vitehub/info/refs")).toBe(basic("base-token"))
+    expect(await header("https://github.com/contributor/vitehub.git/git-receive-pack")).toBe(basic("fork-token"))
+    expect(await header("https://github.com/other/vitehub.git/info/refs")).toBe("")
+    expect(await header("https://example.com/vite-hub/vitehub.git/info/refs")).toBe("")
   })
 
-  it("creates a real checkout that can fetch, commit, and push with the Agent GitHub environment", async () => {
+  it("has no Git credentials without forge access or a repository", async () => {
+    const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
+    const access = vi.fn(async () => "token")
+    expect(await forgeGitEnvironment(context, {}, { repository: "vite-hub/vitehub" })).toEqual({})
+    expect(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, undefined)).toEqual({})
+    expect(access).not.toHaveBeenCalled()
+  })
+
+  it("creates a real checkout that can fetch, commit, and push with the forge access environment", async () => {
     const fixture = await githubFixture()
     const plan = pullRequestCheckoutPlan({
       get: () => ({

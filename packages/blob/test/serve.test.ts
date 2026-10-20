@@ -216,7 +216,7 @@ describe("Blob response transforms", () => {
 
   it("shares and removes filesystem derivatives across pathname aliases", async () => {
     const first = event()
-    await storage.serve(first, "alias/../private/original", options)
+    await storage.serve(first, "private//original", options)
     const second = event()
     await storage.serve(second, "private/original", options)
     expect(second.res.headers.get("etag")).toBe(first.res.headers.get("etag"))
@@ -230,10 +230,15 @@ describe("Blob response transforms", () => {
     await storage.serve(event(), "private/original", options)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     const path = cache!.blobs[0]!.pathname
-    for (const pathname of ["_vitehub", "_VITEHUB/", "elsewhere/../_vitehub", "%5Fvitehub", path, `elsewhere/../${path}`, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
+    for (const pathname of ["_vitehub", "_VITEHUB/", "%5Fvitehub", path, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
       await expect(storage.put(pathname, "forged")).rejects.toThrow("reserved derived cache")
       await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved derived cache")
       await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toThrow("reserved derived cache")
+    }
+    for (const pathname of ["elsewhere/../_vitehub", `elsewhere/../${path}`]) {
+      await expect(storage.put(pathname, "forged")).rejects.toMatchObject({ code: "BLOB_R0034" })
+      await expect(storage.createMultipartUpload(pathname)).rejects.toMatchObject({ code: "BLOB_R0034" })
+      await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toMatchObject({ code: "BLOB_R0034" })
     }
     await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved derived cache")
     const [, body] = await storage.serve(event(), "private/original", options)

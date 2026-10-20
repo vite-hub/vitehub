@@ -7,18 +7,16 @@ export type AttachmentOrientation = "horizontal" | "vertical";
 
 export const Attachment = defineComponent({
   name: "Attachment",
-  inheritAttrs: false,
   props: {
     orientation: { default: "horizontal", type: String as PropType<AttachmentOrientation> },
     size: { default: "default", type: String as PropType<AttachmentSize> },
     state: { default: "done", type: String as PropType<AttachmentState> },
   },
-  setup(props, { attrs, slots }) {
+  setup(props, { slots }) {
     return () =>
       h(
         "div",
         {
-          ...attrs,
           "data-orientation": props.orientation,
           "data-size": props.size,
           "data-slot": "attachment",
@@ -33,17 +31,11 @@ export const AttachmentGroup = slotPart("AttachmentGroup", "attachment-group");
 
 export const AttachmentMedia = defineComponent({
   name: "AttachmentMedia",
-  inheritAttrs: false,
   props: {
     variant: { default: "icon", type: String as PropType<"icon" | "image"> },
   },
-  setup(props, { attrs, slots }) {
-    return () =>
-      h(
-        "div",
-        { ...attrs, "data-slot": "attachment-media", "data-variant": props.variant },
-        slots.default?.(),
-      );
+  setup(props, { slots }) {
+    return () => h("div", { "data-slot": "attachment-media", "data-variant": props.variant }, slots.default?.());
   },
 });
 
@@ -55,14 +47,10 @@ export const AttachmentActions = slotPart("AttachmentActions", "attachment-actio
 // A Nuxt UI button with the compact icon defaults of shadcn/ui's `AttachmentAction`. Other attributes go to `UButton`.
 export const AttachmentAction = defineComponent({
   name: "AttachmentAction",
-  setup(_props, { attrs, slots }) {
+  setup(_props, { slots }) {
     const UButton = resolveComponent("UButton");
     return () =>
-      h(
-        UButton,
-        { color: "neutral", size: "xs", square: true, variant: "ghost", ...attrs, "data-slot": "attachment-action" },
-        slots,
-      );
+      h(UButton, { color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost" }, slots);
   },
 });
 
@@ -70,17 +58,9 @@ export const AttachmentAction = defineComponent({
 export const AttachmentTrigger = defineComponent({
   name: "AttachmentTrigger",
   props: { as: asProp("button") },
-  setup(props, { attrs, slots }) {
+  setup(props, { slots }) {
     // A `type` attribute from the caller still overrides this default.
     return () =>
-      h(
-        props.as,
-        {
-          ...attrs,
-          "data-slot": "attachment-trigger",
-          type: props.as === "button" ? (attrs.type ?? "button") : attrs.type,
-        },
-        slots.default?.(),
-      );
+      h(props.as, { "data-slot": "attachment-trigger", type: props.as === "button" ? "button" : undefined }, slots.default?.());
   },
 });

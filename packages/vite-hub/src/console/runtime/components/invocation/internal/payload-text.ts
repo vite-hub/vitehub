@@ -13,7 +13,17 @@ export function payloadText(value: unknown): string {
       return item;
     }, 2) ?? String(value);
   } catch (error) {
-    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+    let message: string | undefined;
+    try {
+      const candidate = error as { message?: unknown };
+      const raw = candidate?.message;
+      if (typeof raw === "string") message = raw;
+      else if (raw !== undefined) {
+        try { message = String(raw); } catch {}
+      }
+    } catch {}
+    if (message === undefined) return "[Unable to display payload]";
+    try { return `[Unable to display payload: ${message}]`; }
+    catch { return "[Unable to display payload]"; }
   }
 }
-

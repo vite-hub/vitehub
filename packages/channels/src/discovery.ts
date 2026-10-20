@@ -2,28 +2,22 @@ import { readFileSync } from "node:fs"
 
 import { scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import {
-  createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  discoverServerChannelModules,
   mergeDefinitions,
-  normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from "@vite-hub/internal/definition-catalog"
-import { basename, dirname, relative, resolve } from "pathe"
+import { resolve } from "pathe"
 
 import type { Node } from "@vite-hub/internal/build/scan-module"
 import type { DiscoveredChannelDefinition } from "./types.ts"
 
 const channelSuffixPattern = /\.channel\.(?:c|m)?[jt]s$/i
-const channelIndexPattern = /^index\.(?:c|m)?[jt]sx?$/i
 
 function normalizeSuffixChannelName(rootDir: string, file: string): string {
   return normalizeSuffixDefinitionName(rootDir, file, channelSuffixPattern, { stripPrefix: "src/" })
-}
-
-function normalizeDirectoryChannelName(directory: string, file: string): string {
-  return normalizePathDefinitionName(directory, file).replace(/\.channel$/i, "")
 }
 
 function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["source"]) {
@@ -156,31 +150,9 @@ function isOutboundChannelModule(file: string): boolean {
       : callee.property.type === "Literal" && callee.property.value === "defineChannel"))
 }
 
-// A folder below `server/channels` with an `index` module is one Channel. Its other files are helpers.
-function withChannelFolders(channelRoots: string[], definitions: DiscoveredChannelDefinition[]): DiscoveredChannelDefinition[] {
-  const roots = new Set(channelRoots.map(root => resolve(root)))
-  const folders = definitions
-    .map(definition => resolve(definition.handler))
-    .filter(handler => channelIndexPattern.test(basename(handler)) && !roots.has(dirname(handler)))
-    .map(handler => dirname(handler))
-  return definitions.filter((definition) => {
-    const handler = resolve(definition.handler)
-    return !folders.some((folder) => {
-      if (handler === resolve(folder, basename(handler)) && channelIndexPattern.test(basename(handler))) return false
-      const path = relative(folder, handler)
-      return !!path && !path.startsWith("..")
-    })
-  })
-}
-
 function discoverServerChannels(scanDirs: string[]): DiscoveredChannelDefinition[] {
-  const definitions = discoverDefinitions("channel", [
-    createDirectoryDefinitionSource("server-channels", scanDirs, "channels", {
-      createDefinition: createDiscoveredChannelDefinition("server-channels"),
-      normalizeName: normalizeDirectoryChannelName,
-    }),
-  ])
-  return withChannelFolders(scanDirs.map(directory => resolve(directory, "channels")), definitions)
+  return discoverServerChannelModules(scanDirs)
+    .map(definition => ({ handler: definition.handler, name: definition.name, source: "server-channels" as const }))
     .filter(definition => isOutboundChannelModule(definition.handler))
 }
 

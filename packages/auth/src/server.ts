@@ -7,8 +7,8 @@ import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
-import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 
+import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
   AuthAccessAuthorize,
@@ -47,6 +47,7 @@ function hasConfiguredPublicUrl(): boolean {
 }
 
 
+
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
   const state = getAuthRuntimeState()
   if (definition) state.envResolvers?.set(definition as object, resolver as AuthRuntimeEnvResolver)
@@ -54,8 +55,7 @@ export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | und
 }
 
 function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | undefined {
-  return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver
-}
+  return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver}
 
 interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
@@ -191,6 +191,26 @@ function isRequestLike(value: AuthRequest): value is Request {
   }
 }
 
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  try {
+    let prototype = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    while (prototype && !seen.has(prototype)) {
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "aborted")
+      if (descriptor?.get) {
+        return typeof Reflect.apply(descriptor.get, value, []) === "boolean"
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    return false
+  }
+  return false
+}
+
 function toRequest(request: AuthRequest): Request {
   if (request instanceof Request || isRequestLike(request)) return request
   const init: RequestInitWithDuplex = {
@@ -199,7 +219,7 @@ function toRequest(request: AuthRequest): Request {
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
   init.headers = new Headers(request.headers as HeadersInit)
-  if (request.signal instanceof AbortSignal) init.signal = request.signal
+  if (isAbortSignalLike(request.signal)) init.signal = request.signal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
@@ -214,8 +234,8 @@ export function createAuthRequestRuntimeOptions(
   event?: unknown,
 ): AuthRuntimeOptions {
 
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).requestRuntimeOptions
-}
+
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).requestRuntimeOptions}
 
 function resolveDefaultDefinition(): AuthDefinition {
   if (!discoveredDefinition) {
@@ -229,8 +249,8 @@ export function createBetterAuthOptions(
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
 
-  return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions
-}
+
+  return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions}
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
   try {
@@ -255,8 +275,8 @@ export function createAuthForRequest(
   event?: unknown,
 ): ViteHubAuth {
 
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions) as ViteHubAuth
-}
+
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions) as ViteHubAuth}
 
 export function handleAuthRequest(
   definition: AuthDefinition,
@@ -310,8 +330,8 @@ export function getAuthForRequest(
     return getAuthForDefinition(definition)
   }
 
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)
-}
+
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)}
 
 export async function assertAuthOrigin(
   request: Pick<Request, "headers" | "url">,
@@ -401,6 +421,7 @@ async function createSignInResponse(
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
 
+
   const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
@@ -414,6 +435,7 @@ type AuthCheck =
 function reject(response: Response): AuthCheck {
   return { response }
 }
+
 
 const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
 const nativeResponseStatusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
@@ -759,6 +781,7 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+let undiciHeadersPromise: Promise<typeof Headers | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
@@ -768,7 +791,16 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
+async function getUndiciHeaders(): Promise<typeof Headers | undefined> {
+  if (undiciHeadersPromise) return undiciHeadersPromise
+  undiciHeadersPromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Headers as typeof Headers)
+    .catch(() => undefined)
+  return undiciHeadersPromise
+}
+
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
+
   const targets = new Set<object>([Response.prototype])
   const UndiciResponse = await getUndiciResponse()
   if (UndiciResponse) targets.add(UndiciResponse.prototype)
@@ -783,10 +815,19 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
     }
     return false
   }
+  catch { return false }
+}
+
+function isNativeFunction(value: unknown): value is (...args: never[]) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return Function.prototype.toString.call(value).includes("[native code]")
+  }
   catch {
     return false
   }
 }
+
 
 
 function isSerializableAuthorizationBody(
@@ -826,6 +867,7 @@ function isSerializableAuthorizationBody(
     return false
   }
 }
+
 
 function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
   try {
@@ -1090,9 +1132,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   let released = false
   const acquire = async () => reader
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
+
   }
   try {
     const stream = new ReadableStream<Uint8Array>({
@@ -1133,6 +1176,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
+
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -1167,19 +1211,68 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     catch {
       return
-    }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    }    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || (status !== 0 && (status < 200 || status > 599))) return
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
-    if (typeof bodyUsed !== "boolean" || bodyUsed || intrinsicBodyUsed !== false) return
-    // Response construction rejects bodies for these status codes. Check this
+
+    if (typeof bodyUsed !== "boolean" || bodyUsed || intrinsicBodyUsed !== false) return    // Response construction rejects bodies for these status codes. Check this
     // before transferring a foreign stream so a rejected candidate retains
     // ownership of its original body.
     if (body !== null && (status === 204 || status === 205 || status === 304)) return
 
     const headerCarrier = Object(headers)
+    // Require the Headers internal slots before accepting a response snapshot.
+    // Method names and prototypes can be forged, but native brand operations fail
+    // unless the value was created by a Web Headers implementation.
+    const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
+    const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
+    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
+    let headerNativePrototype = Object.getPrototypeOf(headerCarrier)
+    const seenHeaderPrototypes = new Set<object>()
+    for (let depth = 0; headerNativePrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seenHeaderPrototypes.has(headerNativePrototype)) return
+      seenHeaderPrototypes.add(headerNativePrototype)
+      const getDescriptor = Object.getOwnPropertyDescriptor(headerNativePrototype, "get")
+      const forEachDescriptor = Object.getOwnPropertyDescriptor(headerNativePrototype, "forEach")
+      if (getDescriptor?.value === headersGet && forEachDescriptor?.value === headersForEach) break
+      headerNativePrototype = Object.getPrototypeOf(headerNativePrototype)
+    }
+    if (!headerNativePrototype || !seenHeaderPrototypes.has(headerNativePrototype)) return
+    // The local Web API methods perform an internal-slot check. This rejects
+    // self-consistent forged prototypes while still allowing implementations
+    // whose own methods expose the same Headers data to be copied below.
+    let branded = false
+    let trustedGet: ((this: Headers, name: string) => string | null) | undefined
+    let trustedForEach: ((this: Headers, callback: (value: string, key: string) => void) => void) | undefined
+    let trustedGetSetCookie: ((this: Headers) => string[]) | undefined
+    // Only intrinsics obtained from trusted runtime integration may establish
+    // the Headers brand. A constructor supplied by the candidate is fully
+    // attacker-controlled, even when its prototype is self-consistent.
+    const headerTargets: (typeof Headers)[] = [Headers]
+    const UndiciHeaders = await getUndiciHeaders()
+    if (UndiciHeaders) headerTargets.push(UndiciHeaders)
+    for (const HeaderCtor of headerTargets) {
+      try {
+        const get = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value as typeof trustedGet
+        const forEach = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "forEach")!.value as typeof trustedForEach
+        const getSetCookie = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "getSetCookie")?.value as typeof trustedGetSetCookie
+        if (typeof get !== "function" || typeof forEach !== "function") continue
+        Reflect.apply(get, headers, ["content-type"])
+        Reflect.apply(forEach, headers, [() => {}])
+        branded = true
+        trustedGet = get
+        trustedForEach = forEach
+        trustedGetSetCookie = typeof getSetCookie === "function" ? getSetCookie : undefined
+        break
+      }
+      catch { /* try the next realm's intrinsic */ }
+    }
+    // Do not fall back to invoking methods supplied by the candidate. Those
+    // methods are ordinary JavaScript and can be forged to look self-consistent;
+    // only trusted Web intrinsics provide a non-spoofable internal-slot check.
+    if (!branded) return
+    if (!trustedForEach) return
     const snapshot = { status, statusText, headers, body }
     if (value instanceof Response && status === 0 && statusText === "" && body === null
       && headers instanceof Headers
@@ -1199,6 +1292,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
       nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
         && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
+
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
@@ -1257,7 +1351,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       return
     }
 
-    const forEach = Reflect.get(headerCarrier, "forEach")
+
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
@@ -1265,7 +1359,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
-    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+    Reflect.apply(trustedForEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
         if (cookies.length === 0) combinedCookies = value
         return
@@ -1274,6 +1368,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }])
     // Preserve one cookie when the fallback exposes only a combined value. A comma
     // followed by another cookie assignment at the cookie-pair boundary proves that
+
     // multiple values were merged. Also reject assignment-like text after a standard
     // cookie attribute (for example `Path=/, next=2`), which is another merged-cookie
     // boundary. Arbitrary extension attributes may legitimately contain commas.
@@ -1305,6 +1400,36 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   catch {
     return
   }
+}
+
+function splitSetCookieHeader(value: string): string[] {
+  const cookies: string[] = []
+  let start = 0
+  let quoted = false
+  let escaped = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quoted && character === "\\") {
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      quoted = !quoted
+      continue
+    }
+    if (quoted || character !== ",") continue
+    const remainder = value.slice(index + 1)
+    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
+      cookies.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  cookies.push(value.slice(start).trim())
+  return cookies.filter(Boolean)
 }
 
 async function checkAuthRequest(

@@ -93,6 +93,13 @@ describe("vitehub agent invocations --database", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "1 2026-10-06T10:00:01.000Z agent.invocation.start\n" })
   })
 
+  it("exports records from the requested local journal", async () => {
+    const path = await storeJournal()
+    const result = await run(["export", "--database", path])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim().split("\n").map(line => JSON.parse(line).id)).toEqual(["first", "second"])
+  })
+
   it("waits against the journal file without requesting the local endpoint", async () => {
     const path = await storeJournal()
     const result = await run(["wait-idle", "--database", path, "--json"])
@@ -105,7 +112,6 @@ describe("vitehub agent invocations --database", () => {
     const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
     await store.create({ ...invocation("active", "running"), updatedAt: new Date().toISOString() })
     for (let index = 0; index < 100; index++) await store.create(invocation(`done-${index}`, "completed"))
-
     const result = await run(["wait-idle", "--database", path, "--timeout", "1ms", "--json"])
     expect(result.exitCode).toBe(1)
     expect(JSON.parse(result.stdout)).toMatchObject({ event: "invocations.timeout", active: [{ id: "active", status: "running" }] })
