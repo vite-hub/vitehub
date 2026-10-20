@@ -3328,11 +3328,19 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   if (driver.kind === "run" || driver.kind === "ask") return agent
   // An explicitly declared Workspace instruction Source remains authoritative for
   // Provider Drivers, even when a colocated instructions.md is present.
-  const explicitWorkspaceInstructions = settings.workspace
-    && hasRuntimeType(settings.workspace, "object")
-    && isRuntimeRecord(settings.workspace)
-    && isRuntimeRecord(settings.workspace.sources)
-    && Object.hasOwn(settings.workspace.sources, "__vitehubAgentInstructions")
+  const workspaceOptions = (agent as AgentDefinition & {
+    __vitehubWorkspaceAgentOptions?: { workspace?: unknown }
+  }).__vitehubWorkspaceAgentOptions
+  const hasExplicitWorkspaceInstructions = (value: unknown): boolean => {
+    if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
+    const sources = isRuntimeRecord(value.sources) ? value.sources : value
+    return Object.hasOwn(sources, "__vitehubAgentInstructions")
+  }
+  const explicitWorkspaceInstructions = [
+    settings.workspace,
+    workspaceOptions?.workspace,
+    (agent as AgentDefinition & { sources?: unknown }).sources,
+  ].some(hasExplicitWorkspaceInstructions)
   if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
   const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
