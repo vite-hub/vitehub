@@ -132,6 +132,82 @@ it("does not expose invocation tools to a later run", async () => {
   expect(observed).toEqual([["send_message"], []])
 })
 
+it("adds invocation capabilities after the Agent's own for one run only", async () => {
+  const observed: string[][] = []
+  const own = defineCapability({ id: "own", tools: { own_tool: { name: "own_tool" } } })
+  const agent = defineAgent({
+    runtime: false,
+    capabilities: [own],
+    driver: { run({ tools }) {
+      observed.push(Object.keys(tools || {}))
+      return "done"
+    } },
+  })
+  const send = vi.fn(async () => "sent")
+  const delivery = defineCapability({
+    id: "job-delivery",
+    tools: { send_message: { name: "send_message", execute: send } },
+  })
+
+  await expect(runAgent(agent, { prompt: "Send the brief" }, { output: "drained", schedule, capabilities: [delivery] }))
+    .resolves.toEqual([null, "done"])
+  await expect(runAgent(agent, { prompt: "Send the brief" }, { output: "drained", schedule }))
+    .resolves.toEqual([null, "done"])
+  expect(observed).toEqual([["own_tool", "send_message"], ["own_tool"]])
+  expect(agent.capabilities?.map(capability => capability.id)).toEqual(["own"])
+})
+
+it("runs a discovered Agent inline when it receives invocation capabilities", async () => {
+  const agent = defineAgent({ driver: { run: ({ tools }) => Object.keys(tools || {}).join(",") } })
+  const delivery = defineCapability({ id: "job-delivery", tools: { send_message: { name: "send_message", execute: vi.fn() } } })
+  await expect(runAgent(agent, { prompt: "Send" }, { output: "drained", schedule, capabilities: [delivery] }))
+    .resolves.toEqual([null, "send_message"])
+})
+
+it("rejects invocation capabilities before starting an explicit Workflow", async () => {
+  const run = vi.fn(() => "unreachable")
+  const agent = defineAgent({ driver: { run }, runtime: workflow("durable-brief") })
+  const delivery = defineCapability({ id: "job-delivery", tools: { send_message: { name: "send_message", execute: vi.fn() } } })
+  await expect(runAgent(agent, { prompt: "Send" }, { output: "drained", schedule, capabilities: [delivery] }))
+    .resolves.toEqual([expect.objectContaining({ message: expect.stringContaining("Invocation capabilities cannot be used") }), null])
+  expect(run).not.toHaveBeenCalled()
+})
+
+it("rejects an invocation capability that repeats an Agent Capability id", async () => {
+  const agent = defineAgent({
+    runtime: false,
+    capabilities: [defineCapability({ id: "delivery" })],
+    driver: { run: () => "unreachable" },
+  })
+  const [error, result] = await runAgent(agent, {}, { output: "drained", capabilities: [defineCapability({ id: "delivery" })] })
+  expect(error?.message).toContain("Duplicate capability id \"delivery\"")
+  expect(result).toBeNull()
+})
+
+it("rejects an invocation capability that adds Workspace Sources", async () => {
+  const run = vi.fn(() => "unreachable")
+  const agent = defineAgent({ runtime: false, driver: { run } })
+  const [error] = await runAgent(agent, {}, {
+    output: "drained",
+    capabilities: [defineCapability({ id: "docs", workspaceSources: {} })],
+  })
+  expect(error?.message).toContain("cannot contribute workspaceSources")
+  expect(run).not.toHaveBeenCalled()
+})
+
+it("rejects unsupported behavior in nested invocation capabilities", async () => {
+  const run = vi.fn(() => "unreachable")
+  const agent = defineAgent({ runtime: false, driver: { run } })
+  const nested = defineCapability({ id: "nested-docs", workspaceSources: {} })
+  const wrapper = defineCapability({ id: "wrapper", capabilities: [nested] })
+  const [error] = await runAgent(agent, {}, {
+    output: "drained",
+    capabilities: [wrapper],
+  })
+  expect(error?.message).toContain("cannot contribute workspaceSources")
+  expect(run).not.toHaveBeenCalled()
+})
+
 it("does not pass invocation tools to a delegated Agent", async () => {
   const send = vi.fn()
   const child = defineAgent({ runtime: false, driver: { run({ tools }) {

@@ -17,6 +17,7 @@ import type {
   AgentChannelDeliveryFinishEffect,
   AgentChannelDispatchItem,
   AgentChannelDispatchOptions,
+  AgentChannelPullOptions,
   AgentChannelStateBinding,
   AgentChannels,
   AgentInput,
@@ -27,7 +28,6 @@ import type {
   AgentRuntimeContext,
   AgentTriggerAcceptedInvocation,
   AgentTriggerDefinition,
-  AgentTriggerFailedEvent,
   AgentTriggerInvokeResult,
   AgentTriggerPrepareResult,
   AgentTriggerRunInvokeResult,
@@ -44,7 +44,7 @@ import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { createAgentChannelState } from "./internal/channel-state.ts"
+import { createAgentChannelState, pullAgentChannel } from "./internal/channel-state.ts"
 import type { AgentChannelStateCommit } from "./internal/channel-state.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 
@@ -240,10 +240,6 @@ interface AgentTriggerResolutionOptions {
   /** Collects the `channelState.transaction()` writes of the invoked Channel trigger, for its caller to commit. */
   channelStateCommit?: AgentChannelStateCommit
   queuedInvocation?: AgentChannelTriggerContext["queuedInvocation"]
-  /** Raw body of the webhook request that runs the trigger. An unset `webhook.deliveryId` defaults to its SHA-256. */
-  rawBody?: string | Uint8Array
-  /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
-  deliveryId?: string
 }
 
 /** Binds trigger preparation and task callbacks to the invocation context. */
@@ -268,9 +264,8 @@ function bindAgentTriggerCallbacks<TContext>(
     if (task.agent !== undefined && !(hasAgentDefinition(task.agent) && isRuntimeString(agentName) && agentName.trim())) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" needs an Agent with a stable non-empty name.`)
     if (task.run !== undefined && !isRuntimeFunction(task.run)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" run must be a function.`)
     if (task.prepare !== undefined && !isRuntimeFunction(task.prepare)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" prepare must be a function.`)
-    const { agent, prepare: taskPrepare, run, failed } = task as { agent?: AgentInput; prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>; run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown>; failed?: (event: AgentTriggerFailedEvent) => MaybePromise<void> }
-    if (failed !== undefined && !isRuntimeFunction(failed)) throw new TypeError(`[vitehub] Task "${name}" of trigger "${id}" failed must be a function.`)
-    tasks[name] = { ...(agent ? { agent } : {}), ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}), ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}), ...(failed ? { failed } : {}) }
+    const { agent, prepare: taskPrepare, run } = task as { agent?: AgentInput; prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<AgentTriggerPrepareResult>; run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation) => MaybePromise<unknown> }
+    tasks[name] = { ...(agent ? { agent } : {}), ...(taskPrepare ? { prepare: (invocation: AgentTriggerAcceptedInvocation) => taskPrepare(context, invocation) } : {}), ...(run ? { run: (invocation: AgentTriggerAcceptedInvocation) => run(context, invocation) } : {}) }
   }
   bound.tasks = tasks
   return bound
@@ -334,34 +329,29 @@ export async function resolveAgentTriggers<
       if (triggers[id]) {
         throw agentDiagnostics.AGENT_R0870({ message: `[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".` })
       }
+      const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
+        ? queueAgentChannelItems(context, channelId, items, options)
+        : dispatchAgentChannelItems(agent, context, channelId, items, options)
+      // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
+      const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
+      const triggerContext = {
+        ...runtimeContext,
+        agentCapabilities: channelCapabilities,
+        agentName: agent.name || runtimeContext.agentIdentity?.name,
+        channel,
+        ...(queuedInvocation ? { queuedInvocation } : {}),
+        ...(triggerState ? { channelState: triggerState } : {}),
+        dispatch,
+        pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
+          pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
+        trigger: { channelId, id, name, source: "channel" as const },
+      }
       triggers[id] = {
         channelId,
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: (input) => {
-          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
-            ? queueAgentChannelItems(context, channelId, items, options)
-            : dispatchAgentChannelItems(agent, context, channelId, items, options)
-          // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
-          const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
-          const triggerContext = {
-            ...runtimeContext,
-            agentCapabilities: channelCapabilities,
-            agentName: agent.name || runtimeContext.agentIdentity?.name,
-            channel,
-            ...(queuedInvocation ? { queuedInvocation } : {}),
-            ...(triggerState ? { channelState: triggerState } : {}),
-            dispatch,
-            trigger: {
-              channelId,
-              id,
-              name,
-              source: "channel",
-            },
-          }
-          return trigger.invoke(triggerContext as never, input as never)
-        },
+        invoke: input => trigger.invoke(triggerContext as never, input as never),
         ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,
@@ -454,8 +444,8 @@ function missingBearerSecretError(registration: AgentWebhookRegistrationDefiniti
   return new AgentHttpError(500, `[vitehub] Channel "${registration.channelId || registration.id || registration.provider}" uses signature "bearer", but its secretToken resolved to no secret. Configure the secret, or return false from secretToken to disable verification.`)
 }
 
-async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
-  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value
+async function sha256(value: string): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(value)
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
@@ -769,13 +759,9 @@ export async function resolveAgentTriggerInvocation<
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
-  const webhook = options?.deliveryId && result.webhook && result.webhook.deliveryId === undefined
-    ? { ...result.webhook, deliveryId: options.deliveryId }
-    : await withBodyDeliveryId(result.webhook, options?.rawBody)
   const invoked = withWebhookDeliveryRun({
     ...result,
     ...(invokedRun ? { run: invokedRun } : {}),
-    ...(webhook ? { webhook } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const inheritedRun = invoked.run && { ...invoked.run }
@@ -786,35 +772,6 @@ export async function resolveAgentTriggerInvocation<
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger)
-}
-
-/**
- * A webhook delivery without `deliveryId` is identified by the SHA-256 (hex) of its raw body, so an identical retried
- * body is the same delivery. The queue stores the body as text, so a replay hashes the same value.
- */
-async function withBodyDeliveryId<CALL_OPTIONS>(
-  webhook: AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined,
-  rawBody: string | Uint8Array | undefined,
-): Promise<AgentWebhookInvocationOwnership<CALL_OPTIONS> | undefined> {
-  if (!webhook || webhook.deliveryId !== undefined || rawBody === undefined) return webhook
-  return { ...webhook, deliveryId: hexBytes(await sha256(rawBody)) }
-}
-
-/** Applies the body `deliveryId` default to the result of `webhook.rehydrate()` during a queued replay. */
-export async function withRehydratedBodyDeliveryId<CALL_OPTIONS>(
-  result: AgentTriggerInvokeResult<CALL_OPTIONS>,
-  rawBody: string | Uint8Array,
-  fallbackDeliveryId?: string,
-): Promise<AgentTriggerInvokeResult<CALL_OPTIONS>> {
-  if (isResponse(result) || !result.webhook) return result
-  const webhook = result.webhook.deliveryId === undefined && fallbackDeliveryId
-    ? { ...result.webhook, deliveryId: fallbackDeliveryId }
-    : await withBodyDeliveryId(result.webhook, typeof rawBody === "string" ? new TextEncoder().encode(rawBody) : rawBody)
-  return { ...result, webhook }
-}
-
-function hexBytes(bytes: Uint8Array): string {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /**
@@ -844,16 +801,15 @@ export function resolveAgentTriggerInvocationResult<
       trigger: trigger as never,
     }
   }
-  const normalized = withWebhookDeliveryRun(invocation, trigger)
-  const task = normalized.task === undefined ? undefined : agentTriggerTask(trigger, normalized.task)
+  const task = invocation.task === undefined ? undefined : agentTriggerTask(trigger, invocation.task)
   return {
     ...(task?.agent ? { agent: task.agent } : {}),
-    input: withAgentTriggerContext(normalized.input, trigger, normalized.delivery, normalized.message),
-    metadata: normalized.metadata,
-    run: normalized.run,
-    ...(normalized.task !== undefined ? { task: normalized.task } : {}),
+    input: withAgentTriggerContext(invocation.input, trigger, invocation.delivery, invocation.message),
+    metadata: invocation.metadata,
+    run: invocation.run,
+    ...(invocation.task !== undefined ? { task: invocation.task } : {}),
     trigger: trigger as never,
-    webhook: withSerializedWebhook(normalized.webhook, trigger),
+    webhook: withSerializedWebhook(invocation.webhook, trigger),
   }
 }
 
@@ -939,6 +895,5 @@ export async function streamAgentTriggerWith<
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
-  const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
-  return await executor(executionAgent, withTaskAgentIdentity({ ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.agent), invocation.input, { output })
+  return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })
 }

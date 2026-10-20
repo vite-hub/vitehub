@@ -16,6 +16,7 @@ interface CloudflareQueueProducer {
 export interface CloudflareR2Bucket {
   binding: string
   bucket_name: string
+  jurisdiction?: string
   [key: string]: unknown
 }
 

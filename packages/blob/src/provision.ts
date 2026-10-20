@@ -10,11 +10,16 @@ import { readEnv } from "@vite-hub/internal/env"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { CloudflareProvisionRequest, ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
-import type { BlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
+import type { BlobModuleOptions, CloudflareR2Jurisdiction, ResolvedBlobStoreConfig } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface CloudflareR2Bucket {
   name?: string
+}
+
+interface CloudflareR2BucketTarget {
+  jurisdiction?: CloudflareR2Jurisdiction
+  name: string
 }
 
 interface VercelBlobStore {
@@ -47,7 +52,12 @@ const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
 const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
 
-async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest): Promise<Set<string>> {
+// The R2 API reads and writes the default jurisdiction unless this header names another one.
+function jurisdictionHeaders(jurisdiction: CloudflareR2Jurisdiction | undefined): Record<string, string> | undefined {
+  return jurisdiction ? { "cf-r2-jurisdiction": jurisdiction } : undefined
+}
+
+async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest, jurisdiction: CloudflareR2Jurisdiction | undefined): Promise<Set<string>> {
   const names = new Set<string>()
   const cursors = new Set<string>()
   let cursor: string | undefined
@@ -58,6 +68,7 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
     }
     if (cursor) query.cursor = cursor
     const listed = await request<{ buckets?: CloudflareR2Bucket[] }>("/r2/buckets", {
+      headers: jurisdictionHeaders(jurisdiction),
       parse: parseCloudflareBuckets,
       query,
     })
@@ -78,15 +89,17 @@ async function listCloudflareR2BucketNames(request: CloudflareProvisionRequest):
   }
 }
 
-async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, bucketName: string): Promise<void> {
+async function createCloudflareR2Bucket(request: CloudflareProvisionRequest, { jurisdiction, name: bucketName }: CloudflareR2BucketTarget): Promise<void> {
+  const headers = jurisdictionHeaders(jurisdiction)
   try {
-    await request("/r2/buckets", { method: "POST", body: { name: bucketName } })
+    await request("/r2/buckets", { method: "POST", body: { name: bucketName }, headers })
   }
   catch (error) {
     const duplicate = error instanceof ProvisionRequestError
       && (error.status === 409 || (error.status === 400 && error.codes.includes(10004)))
     if (!duplicate) throw error
     const existing = await request<CloudflareR2Bucket>(`/r2/buckets/${encodeURIComponent(bucketName)}`, {
+      headers,
       parse: parseCloudflareBucket,
     })
     if (existing.result?.name !== bucketName) throw error
@@ -191,9 +204,13 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
     async plan(context) {
-      const buckets = resolvedStores(resolveOptions(), context.env)
-        .flatMap(store => store.driver === "cloudflare-r2" && store.bucketName ? [store.bucketName] : [])
-      if (!buckets.length) return []
+      // A bucket name is unique only inside its jurisdiction.
+      const buckets = new Map<string, CloudflareR2BucketTarget>()
+      for (const store of resolvedStores(resolveOptions(), context.env)) {
+        if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
+        buckets.set(`${store.jurisdiction ?? "default"}/${store.bucketName}`, { jurisdiction: store.jurisdiction, name: store.bucketName })
+      }
+      if (!buckets.size) return []
 
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
@@ -203,19 +220,23 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       }
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const existing = await listCloudflareR2BucketNames(request)
+      const existing = new Map<CloudflareR2Jurisdiction | undefined, Set<string>>()
+      for (const { jurisdiction } of buckets.values()) {
+        if (!existing.has(jurisdiction)) existing.set(jurisdiction, await listCloudflareR2BucketNames(request, jurisdiction))
+      }
 
-      return [...new Set(buckets)].map((bucketName): ProvisionAction => ({
-        kind: "cloudflare-r2-bucket",
-        name: bucketName,
-        exists: existing.has(bucketName),
-        apply: async () => {
-          if (!existing.has(bucketName)) {
-            await createCloudflareR2Bucket(request, bucketName)
-          }
-          return {}
-        },
-      }))
+      return [...buckets.values()].map((bucket): ProvisionAction => {
+        const exists = existing.get(bucket.jurisdiction)?.has(bucket.name) ?? false
+        return {
+          kind: "cloudflare-r2-bucket",
+          name: bucket.jurisdiction ? `${bucket.name} (${bucket.jurisdiction})` : bucket.name,
+          exists,
+          apply: async () => {
+            if (!exists) await createCloudflareR2Bucket(request, bucket)
+            return {}
+          },
+        }
+      })
     },
   }
 }

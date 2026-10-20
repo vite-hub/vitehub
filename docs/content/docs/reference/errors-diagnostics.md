@@ -124,9 +124,9 @@ Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects wit
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
-Code Host uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Code Host diagnostics](/docs/agents/capabilities/code-host#diagnostics).
+Forge uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
-The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed host requests, and activity errors. See [Code Host Channels](/docs/agents/code-host-channels#limits).
+The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
 
 ## Agent public errors
 
@@ -163,6 +163,7 @@ private response data.
 | `AGENT_BUDGET_EXCEEDED` | An Invocation used more tokens or estimated USD than its `budget` policy allows in `enforce` mode. `details.limits` contains the configured token and USD limits. `details.exceeded` lists each metric with its `actual` usage and `limit`. |
 | `APPROVAL_REQUIRED` | A Capability needs approval before it can continue. `requestId` identifies the approval request when available. |
 | `HOST_RESTARTED` | The host restarted while an inline Chat invocation ran. `details.retry` is `pending` when ViteHub retries the message after the restart, or `exhausted` after a second interruption. |
+| `TIMEOUT` | A Chat invocation, or a queued webhook invocation, reached its `timeout` before it finished. Chat replies say the Agent ran out of time instead of the generic `INTERNAL` text. |
 | `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
 | `INTERNAL` | The failure has no approved public mapping. The message stays generic. |
 

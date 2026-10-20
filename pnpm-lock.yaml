@@ -969,6 +969,10 @@ importers:
       vue:
         specifier: 3.5.44
         version: 3.5.44(typescript@6.0.3)
+    peerDependencies:
+      undici:
+        specifier: ^8.12.2
+        version: 8.12.2
 
   packages/blob:
     dependencies:
@@ -2832,9 +2836,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vite-hub/sandbox':
+      '@vite-hub/box':
         specifier: workspace:*
-        version: link:../sandbox
+        version: link:../box
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source

@@ -346,6 +346,9 @@ After a create or a terminal update, the adapter measures the file when the byte
 
 Deletes free pages inside the file. The file shrinks only when it uses `auto_vacuum = INCREMENTAL`. The adapter sets that mode when it creates a new file, and after a size prune it returns up to 1,000 free pages to the file system. A file created before this mode keeps its largest size until a `VACUUM` rebuilds it, but its free pages are reused for new records.
 
+
+To shrink such a file, run [`vitehub agent invocations compact`](#compact-a-journal-file) once. It rebuilds the file to its live data and sets `auto_vacuum = INCREMENTAL`, so later size prunes shrink it without help.
+
 ### Choose how storage failures affect a run
 
 The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
@@ -541,6 +544,22 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 
 Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
 
+
+#### Compact a journal file
+
+A journal file that the adapter created before it set `auto_vacuum = INCREMENTAL` keeps its largest size. Its deletes only free pages inside the file. Run `compact` once to rebuild the file with `VACUUM` and set the mode:
+
+```sh
+vitehub agent invocations compact --database /data/console.sqlite --dry-run
+vitehub agent invocations compact --database /data/console.sqlite --json
+```
+
+`compact` measures the file, its WAL, the page count, the free pages, and the `auto_vacuum` mode. Then it runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`, and prints the size before and after, the reclaimed bytes, and the new mode. `--dry-run` prints the measurements, the projected size, and the free space check, and changes nothing. It exits with 1 when compact would refuse to run. Prune first, so that the rebuilt file holds only the records that you keep.
+
+- Only a local SQLite file can be compacted. A remote libSQL URL and an in-memory database fail with `AGENT_R0931`.
+- `VACUUM` writes a copy of the live data to the SQLite temporary directory, then a journal or WAL of about the same size next to the database. Compact refuses to run when a volume has less free space than 1.1 times the live data for each of these files, plus the current WAL. When both are on the same volume, it needs both. Set `SQLITE_TMPDIR` to put the temporary copy on another volume.
+- `VACUUM` needs the write lock for its full duration, and the server waits to write until it finishes. Stop the server or run compact during a quiet window. When another process holds the lock for more than 5 seconds, compact fails and changes nothing.
+
 `list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or a Console session. This works inside a running container, where the journal is on local disk:
 
 ```sh
@@ -659,6 +678,10 @@ For a scheduled invocation, pass the schedule context and request a drained resu
 Trusted code can install tools for one inline invocation with the options argument: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. For a standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })` returns `[error, text]` after the stream finishes. These tools join the agent's tool set for that invocation and are never serialized into `input`. A name collision with an existing tool fails setup. Callable tools select inline execution when the agent only has a host-discovered Workflow default; an explicit `workflow(...)` binding rejects them before starting. Workflow runs continue to return a Workflow Run for calls with a Runtime Context, so `output: 'drained'` only drains inline output.
 
 A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module at startup on Node, Cloudflare, and Vercel. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+
+To give one invocation more Agent Capabilities, pass them in `capabilities`: `runAgent(agent, { prompt }, { schedule, output: 'drained', capabilities: [delivery] })`. They join the run after the agent's own Capabilities. The Agent Definition does not change, and a later run without the option does not get them. Use this when a background job runs one registered agent with job-specific tools, such as a delivery tool, so that you do not define one agent for each job. A Capability id that the agent already uses fails setup. These Capabilities cannot add triggers, Workspace Sources, or chat access, because those are fixed when the agent is defined. Like invocation tools, they select inline execution, and an explicit `workflow(...)` binding rejects them before starting.
+
+`capabilities` and `runtimeContext.capabilities` are different options. `capabilities` adds Agent Capabilities, which give the agent tools and behavior. `runtimeContext.capabilities` replaces host runtime values, such as Connections or KV, that Capabilities read.
 
 Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot schemas are converted to JSON Schema for model tool discovery while their Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod schemas use their Standard JSON Schema converter. Other Standard Schema implementations must provide `~standard.jsonSchema.input` for Provider Agent tools.
 
