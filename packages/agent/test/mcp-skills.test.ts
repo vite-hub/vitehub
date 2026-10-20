@@ -38,12 +38,13 @@ function skillServer(pages: string[][], files: Record<string, string> = {}) {
   }
 }
 
-async function resolveWithWorkspace(capability: ReturnType<typeof mcp>, sources: Record<string, WorkspaceSourceInput> = {}) {
+async function resolveWithWorkspace(capability: ReturnType<typeof mcp>, sources: Record<string, WorkspaceSourceInput> = {}, colocatedSkills?: Record<string, WorkspaceSourceInput>) {
   const name = `mcp-skills-${crypto.randomUUID()}`
   const definition = defineWorkspace({ store: { provider: "memory" }, sources })
   registerWorkspace(name, definition)
   const workspace = useWorkspace(name, { mode: "write" })
   const context = createAgentInvocationContextStore()
+  if (colocatedSkills) context.set("agent.colocatedSkills", colocatedSkills)
   await setAgentTelemetryConfiguration(context, { capabilities: [{ id: "mcp" }], driver: { kind: "run" }, runtime: { name: "unknown" } })
   const resolved = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
     context,
@@ -128,6 +129,24 @@ describe("mcp() Skills", () => {
     try {
       await expect(resolved.workspace!.fs.readFile(".agents/skills/review/SKILL.md")).resolves.toBe("# Own review")
       await expect(resolved.workspace!.fs.readFile(".agents/skills/shared/SKILL.md")).resolves.toBe("# Shared from first")
+      await expect(resolved.workspace!.fs.readFile(".agents/skills/extra/SKILL.md")).resolves.toBe("# Extra")
+    }
+    finally {
+      await resolved.close()
+    }
+  })
+
+  it("keeps a provider Agent's own Skill that only the invocation context carries", async () => {
+    const server = skillServer([["skill://review/SKILL.md", "skill://extra/SKILL.md"]], {
+      "skill://review/SKILL.md": "# Review from MCP",
+      "skill://extra/SKILL.md": "# Extra",
+    })
+    const { resolved } = await resolveWithWorkspace(mcp({ servers: { docs: server } }), {}, {
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: "# Own review", materialize: "startup", mount: "", workspacePath: ".agents/skills/review/SKILL.md" },
+    })
+    try {
+      // The provider Driver writes the Agent's own Skill into its working directory, so the Workspace does not hold it.
+      await expect(resolved.workspace!.fs.exists(".agents/skills/review/SKILL.md")).resolves.toBe(false)
       await expect(resolved.workspace!.fs.readFile(".agents/skills/extra/SKILL.md")).resolves.toBe("# Extra")
     }
     finally {

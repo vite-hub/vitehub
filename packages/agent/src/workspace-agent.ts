@@ -97,6 +97,7 @@ const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
 const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -288,14 +289,16 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  // A Provider Driver writes the bundled Skills and instructions into its working directory itself.
+  const storesBundledFiles = Reflect.get(workspaceAgent, baseAgentDriverKind) !== "provider"
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
-  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const colocatedSkills = storesBundledFiles ? Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined : undefined
   const sources: Record<string, WorkspaceSourceInput> = {
     ...colocatedSkills,
     ...ownedWorkspace.sources,
   }
-  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
-    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  if (storesBundledFiles && colocatedInstructions && !Object.hasOwn(sources, colocatedAgentInstructionsSourceKey)) {
+    sources[colocatedAgentInstructionsSourceKey] = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: colocatedAgentInstructionsWorkspacePath }
   }
   const workspaceOptions = {
     ...options,
@@ -374,7 +377,7 @@ export function workspaceDefinitionFromOptions<
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
     withDefaultMaterialize(workspace, materialize),
     staticAgentCapabilities(options.capabilities),
-  ))
+  ), options)
 }
 
 const workspaceMaterializeModes = new Set<unknown>(["build", "startup", "lazy", "none"] satisfies WorkspaceMaterializeMode[])
@@ -458,9 +461,13 @@ function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boole
   }
 }
 
-function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
+function withColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(workspace: NormalizedWorkspaceOptions, options: WorkspaceAgentOptions<TRuntimeConfig, Name>): NormalizedWorkspaceOptions {
   if (!hasColocatedAgentInstructions(workspace.sourceRootDir)) return workspace
   if (workspace.sources && colocatedAgentInstructionsSourceKey in workspace.sources) return workspace
+  if (providerDriverHasInstructions(options)) return workspace
   return {
     ...workspace,
     sources: {
@@ -534,6 +541,18 @@ function shouldUseColocatedAgentInstructions<
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
   return modelDriverInstructions(options) === undefined
     && workspaceAgentDriverKind(options) === "model"
+}
+
+/** A Provider Driver writes its own instructions into its working directory, so the Workspace needs no AGENTS.md copy. */
+function providerDriverHasInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  if ((asUnknownBoundary(options) as { driver?: unknown }).driver === undefined) return false
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const driver = normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>)
+  return driver.kind === "provider" && driver.instructions !== undefined
 }
 
 function workspaceAgentDriverKind<

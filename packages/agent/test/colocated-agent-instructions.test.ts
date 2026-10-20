@@ -148,6 +148,20 @@ describe("colocated Agent instructions", () => {
     expect(agentWithColocatedInstructions(runAgent, "Run instructions.")).toBe(runAgent)
   })
 
+  it("adds instructions to provider Agents with a Workspace", () => {
+    const agent = defineAgent({ driver: "codex", runtime: false, workspace: {} })
+    const resolved = agentWithColocatedInstructions(agent, "Workspace instructions.")
+
+    expect(resolved).not.toBe(agent)
+    expect(settings(resolved)?.driver?.instructions).toBe("Workspace instructions.")
+    const explicit = defineAgent({
+      driver: { instructions: "Use explicit instructions.", kind: "codex" },
+      runtime: false,
+      workspace: {},
+    })
+    expect(agentWithColocatedInstructions(explicit, "Workspace instructions.")).toBe(explicit)
+  })
+
   it.each([true, false])("binds the Console journal without reconfiguring a preset (explicit: %s)", async (explicit) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-preset-"))
     try {
@@ -240,6 +254,44 @@ describe("colocated Agent instructions", () => {
         workspacePath: "AGENTS.md",
       })
       expect(new TextDecoder().decode(sources["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["discovered", "explicit", "override"] as const)("delivers colocated instructions and skills to a provider Driver outside the Workspace store with %s sources", async (sourceConfiguration) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-provider-workspace-"))
+    const handler = join(root, "support", "agent.ts")
+    try {
+      await mkdir(join(root, "support", "skills", "review"), { recursive: true })
+      await writeFile(handler, "export default {}", "utf8")
+      await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
+      await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+      const explicitInstructions = {
+        materialize: "build" as const,
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      }
+      const agent = defineAgent({
+        workspace: {
+          ...(sourceConfiguration !== "discovered" ? { sourceRootDir: join(root, "support") } : {}),
+          ...(sourceConfiguration === "override" ? { sources: { __vitehubAgentInstructions: explicitInstructions } } : {}),
+        },
+        driver: "codex",
+      })
+      const server = { config: { plugins: [] }, ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
+
+      const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
+      const sources = (loaded.default.sources ?? {}) as Record<string, unknown>
+      const skills = Reflect.get(loaded.default, Symbol.for("vitehub.agent.colocatedSkills")) as Record<string, { content: Uint8Array }> | undefined
+
+      expect(Object.keys(sources).filter(key => key.startsWith("__vitehubAgentSkill:"))).toEqual([])
+      if (sourceConfiguration === "override") expect(sources.__vitehubAgentInstructions).toEqual(explicitInstructions)
+      else expect(sources).not.toHaveProperty("__vitehubAgentInstructions")
+      expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ instructions: "Support the local invocation.\n", kind: "provider" })
+      expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content)).toBe("# Review\n")
     }
     finally {
       await rm(root, { force: true, recursive: true })

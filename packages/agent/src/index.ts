@@ -3331,7 +3331,9 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
     && "template" in configured && !("mode" in configured)
     ? configured
     : undefined
-  if (template ? template.content !== undefined : configured !== undefined || settings.workspace) return agent
+  // A model Driver with a Workspace reads the document from AGENTS.md in the Workspace.
+  // A Provider Driver gets it as Driver instructions, so the Workspace stores no copy.
+  if (template ? template.content !== undefined : configured !== undefined || (settings.workspace && driver.kind !== "provider")) return agent
   const resolvedInstructions = template ? { ...template, content: instructions } : instructions
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
@@ -3345,6 +3347,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
+  // It also owns its Sources: a Provider Driver with instructions needs no AGENTS.md Source.
+  if (decorations.__vitehubWorkspaceAgent) delete decorations.sources
   const originalRun: unknown = decorations.run?.value
   if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
   // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.
