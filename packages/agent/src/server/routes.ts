@@ -5683,6 +5683,7 @@ interface InlineChatTurn {
   settleDelivery?: (delivery: AgentChannelDeliveryTracker) => Promise<void>
   steeredDeliveries?: AgentChannelDeliveryTracker[]
   runId?: string
+  threadId: string
 }
 
 const inlineChatTurns = new Map<string, InlineChatTurn>()
@@ -6193,12 +6194,16 @@ async function handleChatSdkMessage(
               if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
             },
             invoker,
+            threadId: thread.id,
           }
           inlineChatTurns.set(inlineKey, inlineTurn)
           break
         }
         waitedForActiveTurn = true
-        if (active.runId && sameInlineInvoker(active.invoker, invoker)) {
+        // A participant's message steers as input only. The active run keeps its invoker.
+        const steersActiveTurn = sameInlineInvoker(active.invoker, invoker) ||
+          (options?.steerFromParticipants === true && active.threadId === thread.id && message.author.isBot !== true)
+        if (active.runId && steersActiveTurn) {
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
