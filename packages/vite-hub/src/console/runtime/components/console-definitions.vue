@@ -346,7 +346,7 @@ onBeforeUnmount(() => request?.abort());
               </div>
               <dl class="divide-y divide-default">
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                  <dt class="text-xs text-dimmed">
                     Name
                   </dt>
                   <dd class="break-all font-mono text-xs text-highlighted">
@@ -354,7 +354,7 @@ onBeforeUnmount(() => request?.abort());
                   </dd>
                 </div>
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                  <dt class="text-xs text-dimmed">
                     Source
                   </dt>
                   <dd class="text-xs text-highlighted">
@@ -362,7 +362,7 @@ onBeforeUnmount(() => request?.abort());
                   </dd>
                 </div>
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                  <dt class="text-xs text-dimmed">
                     File
                   </dt>
                   <dd class="break-all font-mono text-xs text-highlighted">
@@ -374,7 +374,7 @@ onBeforeUnmount(() => request?.abort());
                   :key="field.label"
                   class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
                 >
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                  <dt class="text-xs text-dimmed">
                     {{ field.label }}
                   </dt>
                   <dd class="whitespace-pre-wrap break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
@@ -408,7 +408,7 @@ onBeforeUnmount(() => request?.abort());
                     <th
                       v-for="column in recordColumns"
                       :key="column.key"
-                      class="h-10 px-3 text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
+                      class="h-10 px-3 text-xs text-dimmed"
                       scope="col"
                     >
                       {{ column.label }}
@@ -441,7 +441,7 @@ onBeforeUnmount(() => request?.abort());
                   :key="field.label"
                   class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
                 >
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                  <dt class="text-xs text-dimmed">
                     {{ field.label }}
                   </dt>
                   <dd class="break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>

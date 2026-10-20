@@ -1,52 +1,64 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+/* Geist and Geist Mono ship inside the Console bundle, so the Console looks the same on every host. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @source "../components";
 @source "../../app.config.ts";
 
+@theme {
+  --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/*
+ * The shadcn/ui neutral palette. Hierarchy comes from four text tones, not from size:
+ * highlighted for names, default for body text, muted for descriptions, and dimmed for meta.
+ */
 :root {
   color-scheme: light;
-  --ui-bg: #fdfdfd;
-  --ui-bg-muted: #fafafa;
-  --ui-bg-elevated: #f4f4f5;
-  --ui-bg-accented: #ededee;
-  --ui-border: #e4e4e7;
-  --ui-border-muted: #f4f4f5;
-  --ui-border-accented: #d4d4d8;
-  --ui-text: #27272a;
-  --ui-text-muted: #71717a;
-  --ui-text-dimmed: #71717a;
-  --ui-text-highlighted: #18181b;
+  --ui-bg: oklch(1 0 0);
+  --ui-bg-muted: oklch(0.985 0 0);
+  --ui-bg-elevated: oklch(0.97 0 0);
+  --ui-bg-accented: oklch(0.94 0 0);
+  --ui-border: oklch(0.922 0 0);
+  --ui-border-muted: oklch(0.96 0 0);
+  --ui-border-accented: oklch(0.87 0 0);
+  --ui-text: oklch(0.371 0 0);
+  --ui-text-toned: oklch(0.439 0 0);
+  --ui-text-muted: oklch(0.556 0 0);
+  --ui-text-dimmed: oklch(0.708 0 0);
+  --ui-text-highlighted: oklch(0.205 0 0);
+  --ui-radius: 0.5rem;
+  /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
+  --ui-primary: oklch(0.205 0 0);
   /* Popovers, menus, and tooltips use a translucent surface over the page. */
-  --vitehub-console-floating: rgb(255 255 255 / 86%);
-  --vitehub-console-scrollbar: #d4d4d8;
-  --vitehub-console-scrollbar-hover: #a1a1aa;
+  --vitehub-console-floating: rgb(255 255 255 / 92%);
+  --vitehub-console-scrollbar: oklch(0.87 0 0);
+  --vitehub-console-scrollbar-hover: oklch(0.708 0 0);
   background: var(--ui-bg);
   color: var(--ui-text);
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 .dark {
   color-scheme: dark;
   --ui-bg: #0a0a0a;
-  --ui-bg-muted: #101010;
-  --ui-bg-elevated: rgb(255 255 255 / 4%);
-  --ui-bg-accented: rgb(255 255 255 / 7%);
-  --ui-border: rgb(255 255 255 / 6%);
-  --ui-border-muted: rgb(255 255 255 / 4%);
-  --ui-border-accented: rgb(255 255 255 / 10%);
-  --ui-text: #f4f4f5;
-  --ui-text-muted: #a1a1aa;
-  --ui-text-dimmed: #71717a;
-  --ui-text-highlighted: #fafafa;
+  --ui-bg-muted: #111111;
+  --ui-bg-elevated: rgb(255 255 255 / 5%);
+  --ui-bg-accented: rgb(255 255 255 / 8%);
+  --ui-border: rgb(255 255 255 / 9%);
+  --ui-border-muted: rgb(255 255 255 / 5%);
+  --ui-border-accented: rgb(255 255 255 / 14%);
+  --ui-text: oklch(0.87 0 0);
+  --ui-text-toned: oklch(0.8 0 0);
+  --ui-text-muted: oklch(0.708 0 0);
+  --ui-text-dimmed: oklch(0.556 0 0);
+  --ui-text-highlighted: oklch(0.985 0 0);
+  --ui-primary: oklch(0.985 0 0);
   /* Dark floating surfaces sit one step above the page instead of matching it. */
-  --vitehub-console-floating: rgb(24 24 27 / 84%);
+  --vitehub-console-floating: rgb(23 23 23 / 92%);
   --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
   --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
 }
@@ -55,17 +67,19 @@
   :root:not(.light):not(.dark) {
     color-scheme: dark;
     --ui-bg: #0a0a0a;
-    --ui-bg-muted: #101010;
-    --ui-bg-elevated: rgb(255 255 255 / 4%);
-    --ui-bg-accented: rgb(255 255 255 / 7%);
-    --ui-border: rgb(255 255 255 / 6%);
-    --ui-border-muted: rgb(255 255 255 / 4%);
-    --ui-border-accented: rgb(255 255 255 / 10%);
-    --ui-text: #f4f4f5;
-    --ui-text-muted: #a1a1aa;
-    --ui-text-dimmed: #71717a;
-    --ui-text-highlighted: #fafafa;
-    --vitehub-console-floating: rgb(24 24 27 / 84%);
+    --ui-bg-muted: #111111;
+    --ui-bg-elevated: rgb(255 255 255 / 5%);
+    --ui-bg-accented: rgb(255 255 255 / 8%);
+    --ui-border: rgb(255 255 255 / 9%);
+    --ui-border-muted: rgb(255 255 255 / 5%);
+    --ui-border-accented: rgb(255 255 255 / 14%);
+    --ui-text: oklch(0.87 0 0);
+    --ui-text-toned: oklch(0.8 0 0);
+    --ui-text-muted: oklch(0.708 0 0);
+    --ui-text-dimmed: oklch(0.556 0 0);
+    --ui-text-highlighted: oklch(0.985 0 0);
+    --ui-primary: oklch(0.985 0 0);
+    --vitehub-console-floating: rgb(23 23 23 / 92%);
     --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
     --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
   }
@@ -93,6 +107,11 @@ body {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Numbers line up in tables, counts, and costs. */
+:where(td, th, time, [data-numeric]) {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Thin scrollbars keep dense lists from showing a wide system gutter. */
