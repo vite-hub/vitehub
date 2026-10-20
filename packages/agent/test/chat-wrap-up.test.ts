@@ -56,6 +56,7 @@ function slowAgent(timeout: number, wrapUp?: false | AgentChatWrapUpOptions) {
     const answer = new Promise<string>((resolve) => {
       steered = resolve
     })
+    const timeoutHandle = setTimeout(() => steered("Timed out"), timeout)
     const unregister = registerAgentInvocationInputHandler(runId, {
       sendInput: (input) => {
         sendInput(input as { prompt?: unknown }, { mode: "steer" })
@@ -68,6 +69,7 @@ function slowAgent(timeout: number, wrapUp?: false | AgentChatWrapUpOptions) {
       return await answer
     }
     finally {
+      clearTimeout(timeoutHandle)
       unregister()
     }
   })
