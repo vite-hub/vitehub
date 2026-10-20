@@ -2496,6 +2496,13 @@ export interface AgentChatFinishExtension {
   sendMessage: AgentChatSendMessage
 }
 
+export interface AgentChatWrapUpOptions {
+  /** How long before `timeout` to steer the Invocation. Defaults to 120000 (2 minutes). */
+  beforeMs?: number
+  /** The steering text. Defaults to a time check that asks for the final reply now. */
+  prompt?: string
+}
+
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
@@ -2552,6 +2559,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   timeout?: number
+  /**
+   * Before `timeout` cancels a chat Invocation, steer it to send its final reply with what it found.
+   * On by default for timeouts of 5 minutes or more, 2 minutes before the timeout. `false` turns it off.
+   * Drivers that cannot be steered mid-turn keep only the hard timeout.
+   */
+  wrapUp?: false | AgentChatWrapUpOptions
   /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
   timeZone?: string
   transcripts?: TranscriptsConfig

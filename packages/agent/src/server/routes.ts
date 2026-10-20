@@ -133,6 +133,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentDefinition,
   PublishedAgentDeliveryArtifact,
   AgentInput,
@@ -5598,6 +5599,31 @@ interface InlineChatTurn {
   threadId: string
 }
 
+const chatWrapUpBeforeMs = 120_000
+const chatWrapUpMinimumTimeoutMs = 300_000
+
+/** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
+function scheduleChatWrapUp(
+  runId: string | undefined,
+  timeout: number | undefined,
+  option: false | AgentChatWrapUpOptions | undefined,
+): ReturnType<typeof setTimeout> | undefined {
+  if (!runId || timeout === undefined || option === false) return
+  if (!option && timeout < chatWrapUpMinimumTimeoutMs) return
+  const beforeMs = isRuntimeNumber(option?.beforeMs) ? option.beforeMs : chatWrapUpBeforeMs
+  if (!(beforeMs > 0) || beforeMs >= timeout) return
+  const minutes = Math.max(1, Math.round(beforeMs / 60_000))
+  const prompt = isRuntimeString(option?.prompt)
+    ? option.prompt
+    : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
+  const timer = setTimeout(() => {
+    // A Driver that cannot take input mid-turn answers "unsupported"; the timeout still applies.
+    void sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => undefined)
+  }, timeout - beforeMs)
+  timer.unref?.()
+  return timer
+}
+
 const inlineChatTurns = new Map<string, InlineChatTurn>()
 
 async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
@@ -6050,6 +6076,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
+  let wrapUpTimer: ReturnType<typeof setTimeout> | undefined
   let inlineOwnershipAbort: AbortController | undefined
   let inlineRestartEntry: InlineChatInvocation | undefined
   const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
@@ -6894,6 +6921,11 @@ async function handleChatSdkMessage(
       ),
       chatFinish,
     )
+    wrapUpTimer = scheduleChatWrapUp(
+      run?.runId,
+      maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
+      options?.wrapUp,
+    )
     if (!streamsPhasedReplies) {
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
@@ -7046,6 +7078,7 @@ async function handleChatSdkMessage(
     await postChatErrorFallback(inlineRestartEntry?.interrupted ? hostRestartedError("pending") : error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline, await invocationReference)
     throw error
   } finally {
+    if (wrapUpTimer) clearTimeout(wrapUpTimer)
     try {
       // An interrupted invocation keeps its restart record for the next process.
       if (inlineRestartEntry && !inlineRestartEntry.interrupted) await inlineRestartEntry.forget()
