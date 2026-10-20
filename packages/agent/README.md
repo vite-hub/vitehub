@@ -369,6 +369,8 @@ for the code format and an application catalog example.
 
 Non-streaming chat replies answer the triggering message as a native reply when the Chat SDK adapter supports it, such as Telegram `reply_parameters`. Natively streamed replies, retries after a host restart, and adapters without native replies post a new thread message.
 
+Set `messages.allowSilentReply: true` together with `messages.loading` to give the Agent a `skip_reply` tool. A call finishes the Invocation without the final reply, removes the loading message, and records a skipped `chat.final-reply` delivery effect with the reason. Error replies and messages that the Agent already sent are still delivered.
+
 Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
 
 With inline `messages.concurrency: "steer"`, only the same invoker steers the active Agent Invocation. Set `messages.steerFromParticipants: true` to let an admitted message from another human in the same thread steer it too. The Invocation keeps the first invoker. Durable Workflow delivery still queues messages from other invokers separately.
