@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const invocation: AgentInvocationView = {
@@ -25,6 +26,7 @@ const invocation: AgentInvocationView = {
 </script>
 
 <template>
+
   <div class="mx-auto h-[36rem] min-w-0 bg-default">
     <AgentInvocationInspector :invocation="invocation" class="h-full border-x border-default" />
   </div>

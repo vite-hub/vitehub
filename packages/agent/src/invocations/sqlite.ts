@@ -840,11 +840,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     let bytes = await liveBytes(executor)
     const ids: string[] = []
     if (bytes <= budget) return { afterBytes: bytes, ids }
-    let rows = numberValue((await executor.execute({
-      args: [...terminalStatuses],
-      sql: `SELECT count(*) AS count FROM ${table} WHERE status IN (${terminalPlaceholders})`,
-    })).rows[0]?.count)
-    while (bytes > budget && rows > 0) {
+    let rows = numberValue((await executor.execute(`SELECT count(*) AS count FROM ${table}`)).rows[0]?.count)
+    for (let round = 0; round < 16 && bytes > budget; round += 1) {
       const averageRowBytes = bytes / Math.max(1, rows)
       const batch = Math.min(500, Math.max(1, Math.ceil((bytes - budget) / averageRowBytes * 1.1)))
       const deleted = await executor.execute({
@@ -969,10 +966,12 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         await prepareWrite()
         const claimToken = globalThis.crypto.randomUUID()
         const expectedClaimIds = options?.expectedClaimIds === undefined ? null : JSON.stringify(options.expectedClaimIds)
+        const expectedTraceId = options?.expectedTraceId ?? null
+        const expectedCursor = options?.expectedCursor === undefined ? null : Number(options.expectedCursor)
         const result = await client.execute({
-          args: [id, claimId, claimToken, leaseMs, id, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
+          args: [id, claimId, claimToken, leaseMs, id, expectedCursor, expectedCursor, expectedTraceId, expectedTraceId, expectedClaimIds, expectedClaimIds, expectedClaimIds, options?.replaceExisting ? 1 : 0, options?.replaceClaimToken ?? null, options?.replaceClaimToken ?? null],
           sql: `INSERT INTO ${table}_claims (id, claim_id, claim_token, claimed_at, expires_at)
-            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ?)
+            SELECT ?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER), CAST(unixepoch('subsec') * 1000 AS INTEGER) + ? WHERE EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND (? IS NULL OR sequence = ?) AND (? IS NULL OR json_extract(record, '$.traceId') = ?))
             ON CONFLICT(id) DO UPDATE SET claim_id = excluded.claim_id, claim_token = excluded.claim_token, claimed_at = excluded.claimed_at, expires_at = excluded.expires_at
             WHERE (? IS NOT NULL AND ${table}_claims.claim_id IN (SELECT value FROM json_each(?)))
               OR (? IS NULL AND (? = 1 OR (? IS NOT NULL AND ${table}_claims.claim_token = ?) OR ${table}_claims.claim_id = excluded.claim_id

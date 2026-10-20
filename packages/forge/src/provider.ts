@@ -1,4 +1,5 @@
 import type { ForgeProvider } from "forges"
+import type { GitHubProvider } from "forges/github"
 
 /** The Forges that ViteHub supports. */
 export type ForgeKind = "github" | "gitlab" | "forgejo"
@@ -13,9 +14,17 @@ export interface ForgeConnection {
   fetch?: typeof fetch
   /** Default "vitehub". */
   userAgent?: string
+  /** Request timeout in milliseconds. Default 30000. */
+  timeout?: number
 }
 
-/** Create the library provider for one Forge. Internal to ViteHub packages: never return it from a public API. */
+/**
+ * Create the library provider for one Forge. Internal to ViteHub packages: return it from a public API only
+ * where the API owns the Forge credentials, such as `GitHubHost.forge()` in `@vite-hub/agent`.
+ * A GitHub provider also has `graphql()`.
+ */
+export async function forgeProvider(connection: ForgeConnection & { forge: "github" }): Promise<GitHubProvider>
+export async function forgeProvider(connection: ForgeConnection): Promise<ForgeProvider>
 export async function forgeProvider(connection: ForgeConnection): Promise<ForgeProvider> {
   const auth = connection.token
     ? { type: "token" as const, token: connection.token }
@@ -24,6 +33,7 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
     ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
     ...(connection.fetch ? { fetch: connection.fetch } : {}),
     userAgent: connection.userAgent ?? "vitehub",
+    ...(connection.timeout === undefined ? {} : { timeout: connection.timeout }),
     ...(connection.readOnly === undefined ? {} : { readOnly: connection.readOnly }),
     auth,
   }

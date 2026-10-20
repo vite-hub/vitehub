@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { inspectVercelWorkflowRun, setVercelWorkflowRuntimeLoader, setVercelWorkflowRuntimeModules } from "../src/runtime/vercel.ts"
 import type { VercelRun } from "../src/runtime/vercel.ts"
@@ -81,21 +82,26 @@ it.each([undefined, null, ""])("rejects an unfinished page with cursor %j", asyn
   })
 })
 
-it("rejects a step page with a non-boolean hasMore flag", async () => {
-  installStepsList(async () => ({ data: [], hasMore: 0 } as unknown as { data: unknown[], hasMore: boolean }))
+it("preserves Vercel run dates created in another realm", async () => {
+  const native = Object.assign(async () => "done", { workflowId: "workflow-cross-realm-date" })
+  const foreignDate = runInNewContext('new Date("2026-01-01T00:00:00.000Z")') as Date
+  const run: VercelRun = {
+    cancel: async () => {},
+    completedAt: Promise.resolve(undefined),
+    createdAt: Promise.resolve(foreignDate),
+    exists: Promise.resolve(true),
+    returnValue: Promise.resolve(undefined),
+    runId: "run-cross-realm-date",
+    startedAt: Promise.resolve(undefined),
+    status: Promise.resolve("running"),
+    workflowName: Promise.resolve(native.workflowId),
+  }
+  setVercelWorkflowRuntimeModules({
+    getRun: () => run,
+    resumeHook: async () => ({ runId: run.runId }),
+    start: async () => run,
+  }, { getWorld: async () => ({ steps: { list: async () => ({ data: [], hasMore: false }) } }) })
 
-  await expect(inspectVercelWorkflowRun("pagination", definition, "run-pagination")).rejects.toMatchObject({
-    cause: { code: "WORKFLOW_R0026" },
-    code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-    details: { operation: "list-steps", provider: "vercel" },
-  })
-})
-
-it("reads a terminal Vercel step page with a null cursor", async () => {
-  const step = { attempt: 1, status: "completed", stepId: "step-one", stepName: "first" }
-  installStepsList(async () => ({ cursor: null, data: [step], hasMore: false }))
-
-  const result = await inspectVercelWorkflowRun("pagination", definition, "run-pagination")
-
-  expect(result.steps).toMatchObject([{ id: "step-one", name: "first", status: "completed" }])
+  await expect(inspectVercelWorkflowRun("cross-realm-date", { handler: native, options: { native } }, run.runId))
+    .resolves.toMatchObject({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
 })

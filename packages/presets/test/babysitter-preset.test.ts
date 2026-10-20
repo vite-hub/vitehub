@@ -326,7 +326,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     mergeabilityRetryDelayMs: 1,
   });
   const passes: Array<{ tools: string[]; descriptions: Record<string, string | undefined>; schemas: Record<string, unknown>; prompt: string; session: string; instructions: string; runtimeMode: string | undefined; approvalPolicy: string | undefined; install?: string }> = [];
-  let operation: "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
+  const operationResults: unknown[] = [];
+  let operation: "readFeedback" | "readRepairState" | "resolveReviewThread" | "commitRepair" | "pushRepair" | "requestAutoMerge" | "updatePullRequest" | "readBaseCheckEvidence" | "readBaseCheckLogs" | undefined;
   let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async (options: { settings?: { launchArgs?: string }; environment?: NodeJS.ProcessEnv }) => {
     let threadId = `pass-${passes.length}`;
@@ -385,6 +386,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             await onRepair?.();
             for (let count = 0; count < (preset.operationCount ?? 1); count++) {
               const result = await client.callTool({ name: operation, arguments: preset.operationInputs?.[count] ?? operationArguments });
+              operationResults.push(result);
               if (preset.expectedOperationErrorAt === count || onAdmission && !preset.allowOperationAfterAdmission) expect(result.isError, JSON.stringify(result)).toBe(true);
               else if (!checkoutController.signal.aborted) expect(result.isError, JSON.stringify(result)).not.toBe(true);
             }
@@ -445,6 +447,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     runtime,
     reconcile,
     passes,
+    operationResults,
     errors,
     events,
     commit,
@@ -1232,6 +1235,32 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("exposes scoped host state and the verified pushed head through MCP", async () => {
+    const f = await fixture();
+    f.choose("readRepairState");
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("assignedHead");
+      expect(JSON.stringify(f.operationResults[0])).toContain("a".repeat(40));
+      expect(f.passes[0]?.tools).toContain("readFeedback");
+    } finally { await f.runtime.inbox.close(); }
+    const pushed = await fixture();
+    pushed.choose("pushRepair");
+    try {
+      await pushed.reconcile();
+      expect(JSON.stringify(pushed.operationResults[0])).toContain("b".repeat(40));
+    } finally { await pushed.runtime.inbox.close(); }
+  });
+
+  it("reads the full assigned review body through the injected MCP tool", async () => {
+    const f = await fixture();
+    f.choose("readFeedback", { kind: "review", id: "41" });
+    try {
+      await f.reconcile();
+      expect(JSON.stringify(f.operationResults[0])).toContain("Fix value");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("preserves the dependency installation opt-out in the configured preset", () => {
     const agent = defineAgent({ extends: babysitter, options: { install: false } });
     expect(agent.install).toBe(false);
@@ -1688,6 +1717,34 @@ describe("Babysitter preset runtime", () => {
       finally { now.mockRestore(); }
       expect(f.passes).toHaveLength(1);
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("records installer capacity as preparation waiting without spending the model budget", async () => {
+    const f = await fixture(false, false, { gitWorkspace: true });
+    await writeFile(join(f.checkout, "package.json"), "{}");
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
+      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
+    try {
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reasonCode: "install-capacity", retryAt: expect.any(Number) });
+      expect(waiting?.progressBudget?.count ?? 0).toBe(0);
+      expect(f.passes).toHaveLength(0);
+      expect(f.errors).not.toHaveBeenCalled();
+      expect(f.events).toHaveBeenCalledWith("babysitter.install.waiting", expect.objectContaining({ reason: "install-capacity" }));
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("keeps durable intake while a host prerequisite blocks model admission", async () => {
+    const f = await fixture(false, false, { admission: async () => ({ accepting: false, hostOnly: true, reason: "host-prerequisite", detail: "Install Corepack" }) });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      await f.runtime.inbox.ingest("feedback-during-preflight", "issue_comment", { repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} }, comment: { id: 99, body: "Please fix this", user: { login: "maintainer" } } });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(0);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.comments["99"]?.body).toBe("Please fix this");
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it("parks a malformed lockfile without retrying unchanged installation inputs", async () => {

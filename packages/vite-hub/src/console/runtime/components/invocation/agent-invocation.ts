@@ -1,7 +1,7 @@
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { useMounted, useNow } from "@vueuse/core";
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
+import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
+import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,
@@ -1427,7 +1427,20 @@ function renderInvocationActivities(
   ].filter(item => item !== null);
 }
 
-export const AgentInvocation = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported components spell out the prop and emit options that `defineComponent` infers.
+type AgentInvocationPropOptions = {
+  header: { default: boolean; type: BooleanConstructor };
+  invocation: { required: true; type: PropType<AgentInvocationView> };
+  selectedActivityId: { default: undefined; type: StringConstructor };
+  workspaceInspectable: { default: boolean; type: BooleanConstructor };
+};
+
+type AgentInvocationEmits = {
+  inspect: (target: InspectTarget, path?: string) => boolean;
+};
+
+const agentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
     inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
@@ -1601,7 +1614,22 @@ export const AgentInvocation = defineComponent({
   },
 });
 
-export const AgentInvocationInspector = defineComponent({
+export const AgentInvocation: DefineComponent<AgentInvocationPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationEmits> = agentInvocation;
+
+type AgentInvocationInspectorPropOptions = {
+  invocation: { required: true; type: PropType<AgentInvocationView> };
+  showStatus: { default: boolean; type: BooleanConstructor };
+  showCapabilities: { default: boolean; type: BooleanConstructor };
+  showTimeline: { default: boolean; type: BooleanConstructor };
+  showSources: { default: boolean; type: BooleanConstructor };
+  showError: { default: boolean; type: BooleanConstructor };
+};
+
+type AgentInvocationInspectorEmits = {
+  selectActivity: (id: string) => boolean;
+};
+
+const agentInvocationInspector = defineComponent({
   name: "AgentInvocationInspector",
   emits: {
     selectActivity: (id: string) => Boolean(id),
@@ -1622,10 +1650,10 @@ export const AgentInvocationInspector = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
-      messages: conversation.value.kind === "activities"
-        ? conversation.value.activities.filter(activity => activity.kind === "message").length
-        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup]
-          .filter(activity => activity.kind === "message").length,
+      messages: (conversation.value.kind === "activities"
+        ? conversation.value.activities
+        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup])
+        .filter(activity => activity.kind === "message").length,
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,
@@ -1804,3 +1832,5 @@ export const AgentInvocationInspector = defineComponent({
     };
   },
 });
+
+export const AgentInvocationInspector: DefineComponent<AgentInvocationInspectorPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationInspectorEmits> = agentInvocationInspector;

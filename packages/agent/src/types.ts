@@ -4,6 +4,7 @@ import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
+import type { AgentRetentionPolicy } from "./retention.ts"
 import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
@@ -638,8 +639,15 @@ interface AgentWebhookInvocationOwnershipBase {
    * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
    */
   debounce?: { delayMs: number, key: string }
-  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
-  deliveryId: string
+  /**
+   * Provider delivery ID. It deduplicates retried deliveries. On a Channel trigger, an unset `run.runId` defaults to it
+   * and an unset `run.channelId` to the Channel.
+   *
+   * When a webhook route runs the trigger, it defaults to the SHA-256 (hex) of the raw request body, so a retried
+   * identical body is the same delivery. Set it when the provider sends an event ID, or when two different events can
+   * have the same body.
+   */
+  deliveryId?: string
   /**
    * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
    * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
@@ -673,12 +681,24 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
  * A static secret, a callback, or an object with its own `resolve` method.
  * Inherited `resolve` methods, including class prototype methods, are rejected.
  * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, `false` to disable verification, or `undefined`.
+ * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
  */
 export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<string | false | undefined, AgentCallbackContext<TRuntimeConfig>>
+  MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /**
+   * How long the route can take to answer, in milliseconds from the request's arrival. Defaults to 5000.
+   * `false` waits for admission. Chat message webhooks always wait.
+   *
+   * With durable webhook State, the route stores the verified request at `<scope>inbox:<delivery ID or body SHA-256>`
+   * before `invoke` runs. If admission still runs at the budget, the route answers
+   * `202 { accepted: true, deferred: true, ok: true }` and admission finishes in the background. The provider then
+   * does not get the trigger's own answer, such as `ignored()` or a returned `Response`. The row is removed when
+   * admission settles. At startup, the next process sends a row that did not settle, or that ended in a 5xx, through
+   * the route again with its signature checked again, for at most 3 admissions in total.
+   */
+  ackTimeoutMs?: number | false
   adapter?: string
   channelId?: string
   durableState?: boolean
@@ -686,7 +706,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
+   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
+   */
+  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
      * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
@@ -739,11 +763,32 @@ export interface AgentChannelDispatchItem {
   input: unknown
   /** Stable key, such as the provider message ID. The Invocation ID derives from it. */
   key: string
+  /**
+   * Queued dispatch only. The item is skipped with reason `"stale"`, before the trigger runs, unless `version` is
+   * greater than the last version admitted or answered for `key` through the same trigger. The new version commits
+   * with the item's admission. An item whose trigger throws or answers 400 or above does not advance it.
+   */
+  order?: AgentChannelDispatchOrder
+}
+
+/** The position of a dispatch item in the stream of changes to one entity, such as one record. */
+export interface AgentChannelDispatchOrder {
+  /** The entity, such as a record ID. */
+  key: string
+  /** A finite number that grows with each change of `key`, such as a provider sequence number. */
+  version: number
 }
 
 export interface AgentChannelDispatchOptions {
-  /** Record Channel message writes in the trace instead of calling the provider. */
+  /** Record Channel message writes in the trace instead of calling the provider. Not available with `queue`. */
   dryRun?: boolean
+  /**
+   * Admit each item to the webhook queue instead of running it now, as if it arrived as its own webhook delivery.
+   * The trigger must answer with `webhook.deliveryId` and a concurrency limit (or `serialize`). Items are admitted in
+   * order, and the first item that cannot be admitted throws. Available while the Channel's webhook route runs the
+   * calling trigger with a queue-capable State, such as SQLite or libSQL.
+   */
+  queue?: boolean
   /** Trigger of the same Channel that receives each item. */
   trigger: string
 }
@@ -816,6 +861,7 @@ export interface AgentChannelTriggerContext<
   /**
    * Starts one Invocation per item through another trigger of this Channel, for a webhook that carries several messages.
    * Items use the same Invocation IDs as `replayChannel()`, so an item that already has an Invocation is skipped.
+   * With `queue: true`, each item is admitted to the webhook queue instead, and `order` applies.
    */
   dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
   trigger: {
@@ -1135,6 +1181,8 @@ export interface AgentRunContext<
   adapter?: AgentAdapter<CALL_OPTIONS>
   actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
@@ -1644,6 +1692,12 @@ export interface AgentProviderUsageLimits {
   unavailable?: { reason: "unsupported" | "probeFailed" }
 }
 
+/** A provider-owned readiness dimension. Unknown means the provider did not expose evidence. */
+export interface AgentProviderReadinessCheck {
+  status: "ready" | "unavailable" | "unknown" | "unsupported"
+  reason?: string
+}
+
 export interface AgentProviderStatus {
   /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
   account?: { id: string, kind: "credential" | "account" }
@@ -1658,6 +1712,10 @@ export interface AgentProviderStatus {
   missingCommands?: string[]
   reason?: string
   usageLimits?: AgentProviderUsageLimits
+  /** Evidence for the configured model, when the provider reports its model catalogue. */
+  modelCompatibility?: AgentProviderReadinessCheck
+  /** Evidence for workspace or project spending capacity, when the provider reports it. */
+  workspaceCapacity?: AgentProviderReadinessCheck
 }
 
 export interface AgentProviderDriverOptions<
@@ -1807,6 +1865,13 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /**
+   * Limits for the Codex home: rollouts, logs, thread history, and temporary files that Codex keeps.
+   * The oldest data goes first until every limit holds. `maxAge` and `maxSize` count all of it; `maxRecords` counts sessions.
+   * Retention needs a persistent home: a credential profile, `providerSettings.homePath`, or `CODEX_HOME`.
+   * It runs in the background on the first invocation, then at most every 10 minutes.
+   */
+  retention?: AgentRetentionPolicy
 }
 export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
 
@@ -1845,6 +1910,7 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -1875,6 +1941,7 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
@@ -1934,6 +2001,7 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  retention?: never
   sessionStorePath?: never
   toolchain?: never
   run?: never
@@ -2890,6 +2958,8 @@ export interface AgentInspectionProviderMetadata {
   requirements?: readonly string[]
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
+  /** Codex home retention. maxAge is milliseconds; maxSize is bytes or a percent such as "45%". Only set limits appear. */
+  retention?: { maxAge?: number, maxRecords?: number, maxSize?: number | string }
   sessionStore?: "sqlite"
   toolchain?: SandboxToolchain
 }
@@ -3062,6 +3132,8 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
+  /** Whether the enclosing Invocation requested execution-budget constraints. */
+  executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
