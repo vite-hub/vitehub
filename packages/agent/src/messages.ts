@@ -74,10 +74,10 @@ export function arrayBufferByteLength(value: ArrayBuffer): number {
 }
 
 export function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  if (!typedArrayTagGetter) return false
+  if (!typedArrayTagGetter || !typedArrayByteLengthGetter) return false
   try {
     return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+      && Reflect.apply(typedArrayByteLengthGetter, value, []) >= 0
   } catch {
     return false
   }
@@ -200,12 +200,14 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
+export const isAttachmentBlob: (value: unknown) => value is Blob = isBlobValue
+
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
     : isArrayBufferValue(value)
       ? value.byteLength > 0
-      : isBlobValue(value)
+      : isAttachmentBlob(value)
         ? true
         : isUint8ArrayValue(value) && value.byteLength > 0
 }

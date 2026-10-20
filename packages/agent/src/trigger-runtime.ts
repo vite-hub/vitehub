@@ -329,34 +329,28 @@ export async function resolveAgentTriggers<
       if (triggers[id]) {
         throw agentDiagnostics.AGENT_R0870({ message: `[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".` })
       }
+      const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
+        ? queueAgentChannelItems(context, channelId, items, options)
+        : dispatchAgentChannelItems(agent, context, channelId, items, options)
+      const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
+      const triggerContext = {
+        ...runtimeContext,
+        agentCapabilities: channelCapabilities,
+        agentName: agent.name || runtimeContext.agentIdentity?.name,
+        channel,
+        ...(queuedInvocation ? { queuedInvocation } : {}),
+        ...(triggerState ? { channelState: triggerState } : {}),
+        dispatch,
+        pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
+          pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
+        trigger: { channelId, id, name, source: "channel" as const },
+      }
       triggers[id] = {
         channelId,
         definition: trigger as never,
         id,
         input: trigger.input,
         invoke: (input) => {
-          const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
-            ? queueAgentChannelItems(context, channelId, items, options)
-            : dispatchAgentChannelItems(agent, context, channelId, items, options)
-          // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
-          const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
-          const triggerContext = {
-            ...runtimeContext,
-            agentCapabilities: channelCapabilities,
-            agentName: agent.name || runtimeContext.agentIdentity?.name,
-            channel,
-            ...(queuedInvocation ? { queuedInvocation } : {}),
-            ...(triggerState ? { channelState: triggerState } : {}),
-            dispatch,
-            pull: <TCursor extends string | number>(pullOptions: AgentChannelPullOptions<TCursor>) =>
-              pullAgentChannel({ channelState: triggerState, dispatch, trigger: { id } }, pullOptions),
-            trigger: {
-              channelId,
-              id,
-              name,
-              source: "channel",
-            },
-          }
           return trigger.invoke(triggerContext as never, input as never)
         },
         ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),

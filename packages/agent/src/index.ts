@@ -1,4 +1,5 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
+export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
@@ -81,7 +82,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { type AgentMessagePhase, type Message, blobArrayBuffer, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -627,6 +628,8 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
+// The Agent Dev Loop sets this on an Agent that runs one Capability CLI command directly.
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
@@ -1056,7 +1059,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (isBlobValue(data)) data = await blobArrayBuffer(data)
+      if (isAttachmentBlob(data)) data = new Uint8Array(await blobArrayBuffer(data))
       if (isArrayBufferValue(data)) data = new Uint8Array(data)
       const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
@@ -4889,7 +4892,8 @@ async function createAgentInvocationContext<
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
         if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
-        transformed = resolveCapabilityCli
+        // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
+        transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
           ? { tools: availableTools, originalNames: new Map(Object.keys(availableTools || {}).map(name => [name, name])) }
           : await applyCapabilityToolTransforms(availableTools, capabilities.toolTransforms)
       }

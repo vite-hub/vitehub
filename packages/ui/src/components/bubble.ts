@@ -12,17 +12,17 @@ export const Bubble = defineComponent({
     align: { default: "start", type: String as PropType<BubbleAlign> },
     variant: { default: "default", type: String as PropType<BubbleVariant> },
   },
-  setup(props, { attrs, slots }) {
+  setup(props, { slots }) {
     return () =>
-      h("div", { ...attrs, "data-align": props.align, "data-slot": "bubble", "data-variant": props.variant }, slots.default?.());
+      h("div", { "data-align": props.align, "data-slot": "bubble", "data-variant": props.variant }, slots.default?.());
   },
 });
 
 export const BubbleContent = defineComponent({
   name: "BubbleContent",
   props: { as: asProp("div") },
-  setup(props, { attrs, slots }) {
-    return () => h(props.as, { ...attrs, "data-slot": "bubble-content" }, slots.default?.());
+  setup(props, { slots }) {
+    return () => h(props.as, { "data-slot": "bubble-content" }, slots.default?.());
   },
 });
 
@@ -32,8 +32,8 @@ export const BubbleReactions = defineComponent({
     align: { default: "end", type: String as PropType<BubbleAlign> },
     side: { default: "bottom", type: String as PropType<"top" | "bottom"> },
   },
-  setup(props, { attrs, slots }) {
+  setup(props, { slots }) {
     return () =>
-      h("div", { ...attrs, "data-align": props.align, "data-side": props.side, "data-slot": "bubble-reactions" }, slots.default?.());
+      h("div", { "data-align": props.align, "data-side": props.side, "data-slot": "bubble-reactions" }, slots.default?.());
   },
 });

@@ -30,8 +30,8 @@ function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) 
   ]);
 }
 
-export const AgentToolList = defineComponent({
-  name: "AgentToolList",
+export const ToolList = defineComponent({
+  name: "ToolList",
   emits: {
     /** Emitted with a used tool's name when the viewer asks to see its calls. */
     select: (name: string) => Boolean(name),

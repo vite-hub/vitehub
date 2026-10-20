@@ -173,6 +173,29 @@ Hosts can persist external delivery evidence with `await invocations.appendObser
 
 `permissions` accepts `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"` and defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly when provider actions should run without approval. Approval decisions use the existing Agent message approval part, and structured provider questions accept a `data-agent-input` part with `{ requestId, answers }` through invocation input mode `"respond"`. Provider-backed invocations accept live input through invocation input mode `"steer"` when the provider adds the input to its active turn. Put Agent-owned Skills under `server/agents/<name>/skills/`; use `skills()` for Workspace-backed or external Source Skills.
 
+## Invocation budgets
+
+Set `budget` on `defineAgent()` when every Invocation should share token or cost limits:
+
+```ts
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  budget: {
+    tokens: { total: 80_000, output: 12_000 },
+    usd: '0.10',
+    mode: 'observe',
+  },
+})
+```
+
+Use `budget()` from `@vite-hub/agent/capabilities` when the policy belongs in a reusable Capability list. `observe` is the default and records limits and exceedance in the `budget` finish extension. `mode: 'enforce'` fails the Invocation with `AGENT_BUDGET_EXCEEDED` after normalized usage is available. See the [Budget guide](https://vitehub.dev/docs/agents/capabilities/budget) for the full options and finish extension shape.
+
+The `output` token limit is passed to AI SDK model calls as `maxOutputTokens` when the provider supports it. USD uses provider-reported cost or a Models.dev estimate, so the check is post-call telemetry and does not reserve spend before a request.
+
+`budget.capacity` controls process-local admission and takes precedence over `driver.capacity`. A capacity-only top-level budget does not install the budget Capability or token and USD checks. The Capability form accepts token and USD limits; use Driver capacity or process capacity for host admission.
+
 ## Driver capacity
 
 Set `driver.capacity` when one Agent Definition must bound concurrent Driver work inside a process:
@@ -346,6 +369,8 @@ for the code format and an application catalog example.
 Non-streaming chat replies answer the triggering message as a native reply when the Chat SDK adapter supports it, such as Telegram `reply_parameters`. Natively streamed replies, retries after a host restart, and adapters without native replies post a new thread message.
 
 Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
+
+With inline `messages.concurrency: "steer"`, only the same invoker steers the active Agent Invocation. Set `messages.steerFromParticipants: true` to let an admitted message from another human in the same thread steer it too. The Invocation keeps the first invoker. Durable Workflow delivery still queues messages from other invokers separately.
 
 Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel to answer human replies without an @mention in subscribed threads. The default is `false`. Mentions subscribe the conversation. Programmatically created bot threads must be subscribed through the same Agent chat state before replies can be admitted. Unmentioned messages in other threads and messages from other bots remain ignored. `messages.filter` receives `deliveryKind: "subscribed"` for these replies. Provider permissions must still allow the bot to receive channel messages.
 

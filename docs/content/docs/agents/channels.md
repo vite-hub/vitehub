@@ -81,6 +81,22 @@ teams({
 
 An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
 
+## Steer with other participants
+
+With `messages.concurrency: 'steer'`, a later message steers the active Agent Invocation only when it comes from the same invoker. A message from another person waits and then starts its own Invocation. Set `messages.steerFromParticipants: true` to let other people in the same thread steer the active work:
+
+```ts
+teams({
+  messages: {
+    concurrency: 'steer',
+    durable: false,
+    steerFromParticipants: true,
+  },
+})
+```
+
+The message must pass admission first, so group conversations still require a mention, and `messages.filter` and `access()` still apply. Only human authors in the same thread steer, also when `lockScope` covers more than one thread. The Invocation keeps the invoker of the first message, with its identity and authority. The steered message is input only, and its message header names its author. When the Driver does not support live steering, the message starts its own Invocation after the active one, the same as for one invoker. This applies to inline steering. With durable Workflow delivery, a message from another invoker still queues as a separate Invocation.
+
 ## Act on the Channel message in hooks
 
 The Channel defines the connector. The Agent reacts in its hooks. `agent:finish` and `agent:error` hooks receive `event.message`, a handle for the Channel message that started the Invocation.
