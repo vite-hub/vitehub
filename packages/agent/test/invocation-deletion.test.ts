@@ -317,7 +317,7 @@ describe("vitehub agent invocations delete and prune", () => {
     vi.mocked(createClient).mockClear()
 
     await expect(runAgentInvocationsCli(["delete", "old-completed", "--dry-run"], { env: {}, rootDir, ...io })).resolves.toBe(1)
-    expect(io.chunks.stderr).toContain("--dry-run is only supported for prune.")
+    expect(io.chunks.stderr).toContain("--dry-run is only supported for prune and compact.")
     expect(io.chunks.stdout).toContain("Usage: vitehub agent invocations")
     expect(createClient).not.toHaveBeenCalled()
     await expect(read.get("old-completed")).resolves.toMatchObject({ status: "completed" })

@@ -332,6 +332,7 @@ export async function resolveAgentTriggers<
       const dispatch = (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => options?.queue
         ? queueAgentChannelItems(context, channelId, items, options)
         : dispatchAgentChannelItems(agent, context, channelId, items, options)
+      // Transactions stage into the caller's commit, which writes them with the queue admission of the result.
       const triggerState = channelState && createAgentChannelState(channelState, channelStateCommit)
       const triggerContext = {
         ...runtimeContext,
@@ -350,9 +351,7 @@ export async function resolveAgentTriggers<
         definition: trigger as never,
         id,
         input: trigger.input,
-        invoke: (input) => {
-          return trigger.invoke(triggerContext as never, input as never)
-        },
+        invoke: input => trigger.invoke(triggerContext as never, input as never),
         ...bindAgentTriggerCallbacks(id, trigger as never, triggerContext),
         name,
         output: trigger.output,

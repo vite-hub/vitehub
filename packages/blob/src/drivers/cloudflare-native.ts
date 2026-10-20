@@ -1,5 +1,5 @@
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
-import { runtimeValue } from "./cloudflare-runtime.ts"
+import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
@@ -110,7 +110,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
     if (signOptions.contentType) headers["Content-Type"] = signOptions.contentType
     if (signOptions.createOnly) headers["If-None-Match"] = "*"
   }
-  const url = new URL(`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
+  const url = new URL(`${r2S3Endpoint(accountId, options.jurisdiction)}/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
   url.searchParams.set("X-Amz-Expires", String(signOptions.expiresIn))
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
   const signed = await client.sign(url, {
