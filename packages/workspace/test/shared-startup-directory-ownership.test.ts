@@ -147,6 +147,7 @@ it("transfers shared directory ownership after reopening a persistent Store", as
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
