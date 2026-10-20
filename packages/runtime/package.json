@@ -72,7 +72,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/runtime#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {

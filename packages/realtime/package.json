@@ -56,7 +56,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/realtime#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/realtime#build && vp test"
   },
   "dependencies": {
