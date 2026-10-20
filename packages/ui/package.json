@@ -41,7 +41,8 @@
     },
     "./avatar-stack": {
       "types": "./dist/avatar-stack.d.ts",
-      "import": "./dist/avatar-stack.js"
+      "import": "./dist/avatar-stack.js",
+      "default": "./dist/avatar-stack.js"
     },
     "./bubble": {
       "types": "./dist/bubble.d.ts",
@@ -70,23 +71,28 @@
     },
     "./code-view": {
       "types": "./dist/code-view.d.ts",
-      "import": "./dist/code-view.js"
+      "import": "./dist/code-view.js",
+      "default": "./dist/code-view.js"
     },
     "./connection-status": {
       "types": "./dist/connection-status.d.ts",
-      "import": "./dist/connection-status.js"
+      "import": "./dist/connection-status.js",
+      "default": "./dist/connection-status.js"
     },
     "./file-diff": {
       "types": "./dist/file-diff.d.ts",
-      "import": "./dist/file-diff.js"
+      "import": "./dist/file-diff.js",
+      "default": "./dist/file-diff.js"
     },
     "./file-tree": {
       "types": "./dist/file-tree.d.ts",
-      "import": "./dist/file-tree.js"
+      "import": "./dist/file-tree.js",
+      "default": "./dist/file-tree.js"
     },
     "./file-view": {
       "types": "./dist/file-view.d.ts",
-      "import": "./dist/file-view.js"
+      "import": "./dist/file-view.js",
+      "default": "./dist/file-view.js"
     },
     "./headless": {
       "types": "./dist/headless.d.ts",
@@ -116,7 +122,8 @@
     },
     "./multi-file-diff": {
       "types": "./dist/multi-file-diff.d.ts",
-      "import": "./dist/multi-file-diff.js"
+      "import": "./dist/multi-file-diff.js",
+      "default": "./dist/multi-file-diff.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -126,7 +133,8 @@
     },
     "./patch-diff": {
       "types": "./dist/patch-diff.d.ts",
-      "import": "./dist/patch-diff.js"
+      "import": "./dist/patch-diff.js",
+      "default": "./dist/patch-diff.js"
     },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
@@ -141,11 +149,13 @@
     },
     "./sync-status": {
       "types": "./dist/sync-status.d.ts",
-      "import": "./dist/sync-status.js"
+      "import": "./dist/sync-status.js",
+      "default": "./dist/sync-status.js"
     },
     "./tool-list": {
       "types": "./dist/tool-list.d.ts",
-      "import": "./dist/tool-list.js"
+      "import": "./dist/tool-list.js",
+      "default": "./dist/tool-list.js"
     },
     "./trace": {
       "types": "./dist/trace.d.ts",
@@ -154,11 +164,13 @@
     },
     "./trace-run": {
       "types": "./dist/trace-run.d.ts",
-      "import": "./dist/trace-run.js"
+      "import": "./dist/trace-run.js",
+      "default": "./dist/trace-run.js"
     },
     "./unresolved-file": {
       "types": "./dist/unresolved-file.d.ts",
-      "import": "./dist/unresolved-file.js"
+      "import": "./dist/unresolved-file.js",
+      "default": "./dist/unresolved-file.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
