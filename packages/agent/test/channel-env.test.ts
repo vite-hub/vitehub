@@ -1288,6 +1288,19 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "app-id", appPassword: "app-password", appTenantId: "tenant-id", userName: "support" })
   })
 
+  it("resolves a runtime Teams appId before building the adapter", async () => {
+    vi.resetModules()
+    vi.doMock("#vitehub/env/server", () => ({ useServerEnv: () => ({ teams: {} }) }))
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    const { teams } = await import("../src/channels.ts")
+    const channel = teams({ adapter: { appId: () => "resolved-app-id" } })
+
+    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "teams" })
+    expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "resolved-app-id" })
+  })
+
   it("reads Teams host bindings without hubEnv()", async () => {
     vi.resetModules()
     const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))

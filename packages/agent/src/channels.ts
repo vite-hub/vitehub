@@ -520,13 +520,10 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   reconcile?: boolean | {
     /** Maximum concurrent reconciled webhook deliveries for one pull request. Defaults to 1. */
     concurrencyLimit?: number
-    /** Wait this long before running a reconciled delivery; a later delivery for the same pull request replaces a queued one. */
-    debounceMs?: number
     /** Trigger on every human PR comment when no configured mention is present. */
     comments?: boolean | {
       events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
       filter?: GitHubPullRequestFilter
-      noFindingsReviews?: readonly string[]
       prompt?: string
       reviewStates?: readonly string[]
       when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
@@ -546,11 +543,7 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
 export interface GitHubPullRequestTrigger {
   events: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
   filter?: GitHubPullRequestFilter
-  /** Wait this long before running a matching delivery; a later delivery from this trigger for the same pull request replaces a queued one. */
-  debounceMs?: number
   mentions?: readonly string[]
-  /** Body prefixes of `commented` reviews that report no findings, such as `"> ✅ No new issues found."`. Those reviews do not match. */
-  noFindingsReviews?: readonly string[]
   prompt?: string
   reviewStates?: readonly string[]
 }
@@ -724,6 +717,11 @@ export interface TeamsSendOptions {
   thread?: { key: string, root?: string }
   /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
   idempotencyKey?: string
+  /**
+   * With `idempotencyKey`, edits the message stored for the key to this text and returns its receipt.
+   * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
+   */
+  update?: boolean
 }
 
 export interface TeamsConnector {
@@ -1007,8 +1005,6 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
 
 interface GitHubPullRequestReconcileInput {
   command: GitHubPullRequestCommand
-  /** Debounce of the matched trigger; `trigger` is its index, so triggers keep separate keys. */
-  debounce?: { delayMs: number, trigger: number }
   payload: GitHubIssueCommentPayload
 }
 
@@ -1044,20 +1040,6 @@ function githubPullRequestReconcileConcurrencyLimit(
 ): number {
   if (!reconcile || reconcile === true) return 1
   return reconcile.concurrencyLimit ?? 1
-}
-
-function githubPullRequestReconcileDebounce(
-  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
-  key: string,
-): { debounce: { delayMs: number, key: string } } | undefined {
-  if (!reconcile || reconcile === true || reconcile.debounceMs === undefined) return undefined
-  return { debounce: { delayMs: reconcile.debounceMs, key } }
-}
-
-function githubPullRequestReviewWithoutFindings(payload: GitHubIssueCommentPayload, prefixes: readonly string[] | undefined): boolean {
-  if (!prefixes?.length || githubPullRequestReviewState(payload) !== "commented") return false
-  const body = maybeString(payload.review?.body)?.trimStart() || ""
-  return prefixes.some(prefix => prefix && body.startsWith(prefix))
 }
 
 function githubPullRequestReviewBody(payload: GitHubIssueCommentPayload): string | undefined {
@@ -1156,7 +1138,6 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
       const events = Array.isArray(candidate.events) ? candidate.events : []
       if (!events.includes(event || "issue_comment")) continue
       if (event === "pull_request_review" && Array.isArray(candidate.reviewStates) && !candidate.reviewStates.includes(githubPullRequestReviewState(payload) || "")) continue
-      if (event === "pull_request_review" && githubPullRequestReviewWithoutFindings(payload, candidate.noFindingsReviews)) continue
       if (!await githubPullRequestMatchesFilter(candidate, payload, app, context, services)) continue
       if (Array.isArray(candidate.mentions) && maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot") continue
       if (Array.isArray(candidate.mentions) && !(body && githubMentionCommand(body, candidate.mentions))) continue
@@ -1201,7 +1182,6 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
         repo,
         repository,
       },
-      ...(trigger?.debounceMs === undefined ? {} : { debounce: { delayMs: trigger.debounceMs, trigger: triggerOptions.indexOf(trigger) } }),
       payload,
     }
   }
@@ -2748,12 +2728,12 @@ async function createTeamsAdapterFromEnv(options: TeamsAdapterOptions, context: 
     throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
   }
   const env = await channelEnv("teams", context)
-  const adapterConfig: Record<string, unknown> = { ...options }
-  const appId = hasRuntimeType(options.appId, "function")
-    ? await resolveRuntimeValue(options.appId, context as never)
-    : options.appId
+  // SAFETY: the adapter resolver receives the Agent callback context at runtime;
+  // BuiltInEnvContext only describes the host bindings read by channelEnv.
+  const appId = options.appId === undefined ? env.appId : await resolveRuntimeValue(options.appId, context as AgentCallbackContext<AgentRuntimeConfig>)
+  const adapterConfig: Record<string, unknown> = { ...options, appId }
   for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
-    const value = cleanSecret((field === "appId" ? appId : options[field]) ?? env[field])
+    const value = cleanSecret(adapterConfig[field] ?? env[field])
     if (value) adapterConfig[field] = value
     else delete adapterConfig[field]
   }
@@ -2851,22 +2831,26 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
     return adapter
   }
   return {
-    async send(text, { recipient, thread, idempotencyKey }) {
+    async send(text, { recipient, thread, idempotencyKey, update }) {
       if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
       if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
       const teams = await useAdapter()
       if (!thread) {
-        const post = async () => {
-          if (!recipient.startsWith("user:")) return { id: (await teams.postMessage(recipient, { markdown: text })).id }
+        const target = async () => {
+          if (!recipient.startsWith("user:")) return recipient
           if (!teams.openDM) throw new TypeError("[vitehub] The Teams adapter cannot open direct messages.")
-          return { id: (await teams.postMessage(await teams.openDM(recipient.slice(5)), { markdown: text })).id }
+          return await teams.openDM(recipient.slice(5))
         }
+        const post = async () => ({ id: (await teams.postMessage(await target(), { markdown: text })).id })
         if (!idempotencyKey) return await post()
         const kv = await teamsKV()
         const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
         return await withTeamsLock(receiptKey, async () => {
           const stored = await teamsKVGet(kv, receiptKey)
-          if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
+          if (hasRuntimeType(stored?.id, "string")) {
+            if (update) await teams.editMessage(await target(), stored.id, { markdown: text })
+            return { id: stored.id }
+          }
           const receipt = await post()
           await teamsKVSet(kv, receiptKey, receipt)
           return receipt
@@ -2882,9 +2866,13 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
       const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
       return await withTeamsLock(key, async () => {
         const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
-        if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
         const savedRoot = await teamsKVGet(kv, `${key}:root`)
         let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (hasRuntimeType(stored?.id, "string")) {
+          // Inside a channel thread, Teams edits a message through the root thread ID, also when the message is the root.
+          if (update && threadId) await teams.editMessage(threadId, stored.id, { markdown: text })
+          return { id: stored.id }
+        }
         if (!threadId) {
           const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
           if (!root.id) throw new Error("[vitehub] Teams did not return a root message ID.")
@@ -3193,9 +3181,6 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           concurrencyGroup: `${command.repository}#${command.issueNumber}`,
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
           deliveryId: command.deliveryId,
-          ...(reconciled.debounce
-            ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.trigger}` } }
-            : githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`)),
         } : undefined
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequestContext = githubPullRequestRunContext(command, {
