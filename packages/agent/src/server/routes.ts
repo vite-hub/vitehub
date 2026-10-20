@@ -1568,10 +1568,12 @@ async function deliverQueuedWebhookFailure(
   invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
   invocationStarted = true,
 ): Promise<boolean> {
+  const publicErrorCode = toAgentPublicError(error, "http").code === "TIMEOUT" ? "TIMEOUT" as const : undefined
   const failure = {
     error: error instanceof Error ? error.message : String(error),
     attempts,
     ...(!invocationStarted ? { invocationStarted: false as const } : {}),
+    ...(publicErrorCode ? { publicErrorCode } : {}),
   }
   if (state.markWebhookDeliveryFailure && state.beginWebhookFailureNotification) {
     // A notification claim is permanent. If completion failed after dispatch,
@@ -1604,7 +1606,10 @@ async function executeQueuedWebhookDelivery(
     // SAFETY: The queue persists invocation input and run metadata from this route contract.
     let recoveredInvocation = delivery.invocation as { input?: AgentRunInput, run?: AgentRunMetadata } | undefined
     if (delivery.failure.invocationStarted === false) recoveredInvocation = { input: recoveredInvocation?.input }
-    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, new Error(delivery.failure.error), delivery.failure.attempts, recoveredInvocation)
+    const recoveredError = delivery.failure.publicErrorCode === "TIMEOUT"
+      ? agentDiagnostics.AGENT_R0820({ message: delivery.failure.error })
+      : new Error(delivery.failure.error)
+    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, recoveredError, delivery.failure.attempts, recoveredInvocation)
     if (delivered) {
       const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
       if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, delivery.failure.invocationStarted === false ? undefined : "failed", "failed", {
