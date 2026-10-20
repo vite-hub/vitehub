@@ -202,7 +202,7 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
-  "@netlify/blobs@11.1.3": patches/@netlify__blobs@11.1.3.patch
+  "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch
