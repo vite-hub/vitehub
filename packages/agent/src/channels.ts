@@ -2728,9 +2728,12 @@ async function createTeamsAdapterFromEnv(options: TeamsAdapterOptions, context: 
     throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
   }
   const env = await channelEnv("teams", context)
-  const adapterConfig: Record<string, unknown> = { ...options }
+  // SAFETY: the adapter resolver receives the Agent callback context at runtime;
+  // BuiltInEnvContext only describes the host bindings read by channelEnv.
+  const appId = options.appId === undefined ? env.appId : await resolveRuntimeValue(options.appId, context as AgentCallbackContext<AgentRuntimeConfig>)
+  const adapterConfig: Record<string, unknown> = { ...options, appId }
   for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
-    const value = cleanSecret(options[field] ?? env[field])
+    const value = cleanSecret(adapterConfig[field] ?? env[field])
     if (value) adapterConfig[field] = value
     else delete adapterConfig[field]
   }
