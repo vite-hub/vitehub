@@ -11,7 +11,6 @@ interface D1HttpQuery {
 }
 
 type D1HttpMethod = "run" | "all" | "values" | "get"
-
 type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
 
 interface D1HttpPayload {
@@ -19,13 +18,11 @@ interface D1HttpPayload {
   result?: Array<{
     error?: string
     errors?: D1HttpErrorInfo[]
-    results?: unknown
+    results?: { rows?: unknown[][] }
     success?: boolean
   }>
   success?: boolean
 }
-
-type D1HttpResult = NonNullable<D1HttpPayload["result"]>[number]
 
 interface D1HttpErrorInfo {
   message?: string
@@ -38,8 +35,10 @@ interface D1HttpErrorSource {
 
 function getD1HttpErrorDetail(...sources: Array<D1HttpErrorSource | undefined>) {
   const messages = sources.flatMap(source => [
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- D1 JSON error fields are untrusted; only strings can enter diagnostics.
     ...(typeof source?.error === "string" ? [source.error] : []),
     ...(Array.isArray(source?.errors) ? source.errors : [])
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- D1 JSON error messages are untrusted; only strings can enter diagnostics.
       .map(error => typeof error?.message === "string" ? error.message : undefined),
   ]).filter((message): message is string => Boolean(message?.trim()))
   return messages.join("; ")
@@ -63,11 +62,7 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
   if (!isRecord(value)) return false
   const result = "result" in value ? value.result : undefined
   return result === undefined
-    || (Array.isArray(result) && result.every(isD1HttpResult))
-}
-
-function isD1HttpResult(value: unknown): value is D1HttpResult {
-  return isRecord(value) && (value.success === undefined || typeof value.success === "boolean")
+    || (Array.isArray(result) && result.every(item => isRecord(item)))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -125,7 +120,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
     catch {
       throw cloudflareD1HttpError(response)
     }
-    if (!isD1HttpPayload(value)) throw cloudflareD1HttpError(response)
+    if (!isD1HttpPayload(value)) throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
     const payload = value
 
     if (!response.ok || payload.success !== true || !Array.isArray(payload.result)) {
@@ -137,19 +132,17 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 
     return payload.result.map((result, index) => {
       const query = queries[index]!
-      if (result.success === false) {
+      if (result.success !== true) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (query.method === "run" && result.results === undefined) return []
-      if (!isRecord(result.results)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
-      }
+      if (!isRecord(result.results)) throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       if (!("rows" in result.results) || result.results.rows === undefined) {
         if (query.method === "run") return []
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (!isRowMatrix(result.results.rows)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+        throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
       }
       return result.results.rows
     })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 const route = useRoute();
 const normalizedRoutePath = computed(() => normalizeDocsPath(route.path));
@@ -13,7 +13,7 @@ const isLandingRoute = computed(() => isDocsLandingPath(docsManifest.sections, r
 // It stays on narrow screens for the menu. The support matrix has no sidebar, so it keeps the header.
 const hidesOnWideScreens = computed(() => isDocsRoute.value
   && !isLandingRoute.value
-  && !route.path.startsWith("/docs/frameworks-hosts/support-matrix"));
+  && normalizedRoutePath.value !== "/docs/frameworks-hosts/support-matrix");
 
 // Agents is one product in the docs rail and catalog, so the header links only to site areas.
 const navLinks = [

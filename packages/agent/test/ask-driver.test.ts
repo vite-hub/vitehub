@@ -18,19 +18,25 @@ type FakeQuestions = Record<string, { criteria?: Record<string, unknown>, type: 
 
 const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown>, useRequestBindings: false, resolveEnv: undefined as (() => unknown) | undefined }))
 
-/** A fake advocaat module: no network. Each choice answers with its first label. */
-const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQuestions, _options?: unknown) =>
+/** A fake TypeSafe API: no network. It receives SDK questions; each choice answers with its first label. */
+const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQuestions, _options?: unknown): Promise<Record<string, unknown>> =>
   Object.fromEntries(Object.entries(questions).map(([name, question]) => {
     const labels = Object.keys(question.criteria ?? {})
     if (question.type === "choice") {
       return [name, { choice: labels[0], confidence: 0.8, probabilities: Object.fromEntries(labels.map((label, index) => [label, index ? 0.1 : 0.9])), type: "choice" }]
     }
-    if (question.type === "switch") return [name, labels[0]]
-    if (question.type === "if") return [name, true]
-    return [name, { chance: 0.7, type: "chance" }]
+    return [name, { noul: 0.7, type: "noul" }]
   }))))
 
-vi.mock("advocaat", () => ({ ask: askJev }))
+vi.mock("advocaat", () => ({
+  typesafe: (options: Record<string, unknown>) => ({
+    systemOne: async (request: { questions: FakeQuestions, state: unknown }, init?: Record<string, unknown>) => ({
+      answers: await askJev(request.state, request.questions, { ...options, ...init }),
+      model: "jev-test",
+      usage: { input_tokens: 10 * Object.keys(request.questions).length, output_tokens: 2 },
+    }),
+  }),
+}))
 vi.mock("../src/internal/server-env.ts", () => ({
   importServerEnvModule: async () => ({
     useServerEnv: (event?: unknown) => fake.resolveEnv ? fake.resolveEnv() : fake.useRequestBindings
@@ -174,8 +180,8 @@ describe("ask Driver", () => {
     })
     expect(askJev).toHaveBeenCalledWith("Invoice 42", {
       label: { criteria: { invoice: "Bills and receipts.", none: "No label fits." }, instructions: "Label for Invoice 42", type: "choice" },
-      reply: { criteria: { no: null, yes: null }, instructions: "Reply?", type: "switch" },
-      spam: { instructions: "Is it spam?", threshold: 0.5, type: "if" },
+      reply: { criteria: { no: null, yes: null }, instructions: "Reply?", type: "choice" },
+      spam: { instructions: "Is it spam?", type: "noul" },
       urgent: { criteria: { true: "Needs action today." }, instructions: "Is it urgent?", type: "noul" },
     }, expect.objectContaining({ apiKey: "ts-key", model: "jev-latest", provider: "typesafe" }))
   })
@@ -300,7 +306,7 @@ describe("Jev decisions for ask Driver Agents", () => {
 
     await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledOnce()
-    expect(askJev.mock.calls[0]?.[1]).toEqual({ spam: { instructions: "Is it spam?", threshold: 0.5, type: "if" } })
+    expect(askJev.mock.calls[0]?.[1]).toEqual({ spam: { instructions: "Is it spam?", type: "noul" } })
   })
 
   it.each(["gate", "route"] as const)("uses request Cloudflare bindings for the %s decision and main Driver", async (kind) => {

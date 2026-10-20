@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -20,6 +20,10 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  /** Review-driven pushes on this PR. Set when `budgets.reviewPushes` is configured. */
+  reviewPushBudget?: ReviewPushBudget
+  /** Model passes in the last 24 hours. Set when `budgets.dailyPasses` is configured. */
+  dailyPassBudget?: DailyPassBudget
   /** Generation of the last human comment or review. A wait rejected before it stays free. */
   humanFeedbackGeneration?: number
   recoveryHead?: string
@@ -42,6 +46,9 @@ export interface GitHubInboxSummary {
   mergeReady?: boolean
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  state?: string; dirtyAt?: number
+  reviewPushBudget?: ReviewPushBudget
+  dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
@@ -84,6 +91,8 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
+  if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
+  if (input.dailyPassBudget !== undefined) parseDailyPassBudget(input.dailyPassBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
     if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
@@ -131,14 +140,16 @@ const legacyWaitSchema = v.object({ headSha: v.pipe(v.string(), v.minLength(1)),
 const summarySchema = v.object({
   repository: v.string(), number: v.number(), head: v.optional(v.string()), mergeReady: v.optional(v.boolean()), generation: v.number(), handled: v.number(),
   status: v.picklist(['ready', 'working', 'waiting', 'terminal']), reasons: v.array(v.string()), wait: v.optional(v.unknown()),
-  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()),
+  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()), reviewPushBudget: v.optional(v.unknown()), dailyPassBudget: v.optional(v.unknown()),
   stackBlocked: v.optional(v.boolean()), stackParent: v.optional(v.object({ number: v.number(), state: v.string() })),
 })
 function parseSummary(value: unknown): GitHubInboxSummary {
-  const { wait, progressBudget, ...summary } = v.parse(summarySchema, value)
+  const { wait, progressBudget, reviewPushBudget, dailyPassBudget, ...summary } = v.parse(summarySchema, value)
   const parsed: GitHubInboxSummary = summary
   if (wait !== undefined) parsed.wait = parseWait(wait)
   if (progressBudget !== undefined) parsed.progressBudget = parseProgressBudget(progressBudget)
+  if (reviewPushBudget !== undefined) parsed.reviewPushBudget = parseReviewPushBudget(reviewPushBudget)
+  if (dailyPassBudget !== undefined) parsed.dailyPassBudget = parseDailyPassBudget(dailyPassBudget)
   return parsed
 }
 
@@ -191,10 +202,23 @@ export function looksMergeReady(s: Snapshot): boolean {
   return signals.length > 0 && signals.every(signal => signal.status === 'completed' && passing.has(signal.conclusion))
 }
 
+/** Wait reasons of PRs that a Babysitter budget parked. Their `lastResult` says how to resume them. */
+export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget'])
+
+/** PRs that a budget parked, with the recorded reason and, for a timed budget, when they resume. */
+export function budgetParks(queue: readonly GitHubInboxSummary[]): Array<{ repository: string; number: number; budget: string; reason: string; resumeAt?: string }> {
+  return queue.flatMap(item => item.status === 'waiting' && item.wait && budgetWaitReasons.has(item.wait.reason)
+    ? [{ repository: item.repository, number: item.number, budget: item.wait.reason, reason: item.lastResult ?? '',
+        ...item.wait.retryAt === undefined ? {} : { resumeAt: new Date(item.wait.retryAt).toISOString() } }]
+    : [])
+}
+
 function summaryOf(s: Snapshot): GitHubInboxSummary {
   return { repository: s.repository, number: s.number, head: s.pr?.head?.sha, mergeReady: looksMergeReady(s),
     generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget }
+    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget,
+    ...(s.reviewPushBudget ? { reviewPushBudget: s.reviewPushBudget } : {}),
+    ...(s.dailyPassBudget ? { dailyPassBudget: s.dailyPassBudget } : {}) }
 }
 
 /**
@@ -1161,6 +1185,22 @@ export class PullRequestInbox {
       return true
     })
   }
+  /**
+   * Records that a claimed pass started the model, with the exemption that let it run past
+   * `budgets.dailyPasses`. It changes no evidence, so the claim stays current.
+   */
+  async recordModelPass(claim: Claim, exemption?: string): Promise<boolean> {
+    if (this.budgets.dailyPasses === undefined) return false
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
+      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, this.clock(), s.humanFeedbackGeneration, exemption)
+      s.revision = (s.revision ?? 0) + 1
+      await this.put(tx, s)
+      Object.assign(claim.snapshot, { dailyPassBudget: structuredClone(s.dailyPassBudget), revision: s.revision })
+      return true
+    })
+  }
   /** Checks the durable claim fence immediately before an irreversible provider action. */
   async isClaimCurrent(claim: Claim): Promise<boolean> {
     return await this.transaction(async tx => {
@@ -1178,6 +1218,8 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
+      // A push reached GitHub even when the evidence below rejects its wait, so it always counts.
+      this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
@@ -1261,6 +1303,12 @@ export class PullRequestInbox {
     const budget = s.progressBudget
     if (!budget?.exhausted || budget.head !== s.pr?.head?.sha || budget.grants?.includes(grant)) return
     s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, resetReason: grant, grants: [...budget.grants ?? [], grant] }
+  }
+  private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
+    const limit = this.budgets.reviewPushes
+    if (limit === undefined || !progress) return
+    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
@@ -1350,14 +1398,15 @@ export class PullRequestInbox {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
-    const rows = await this.read(`SELECT p.repository, p.number, p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+    const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
         AND json_extract(CASE WHEN json_valid(parent.value) THEN parent.value ELSE '{}' END, '$.pr.head.repo.full_name') = COALESCE(json_extract(CASE WHEN json_valid(p.value) THEN p.value ELSE '{}' END, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.flatMap(row => {
-      const summary = this.parseRow(row, parseSummary, 'summary')
-      if (!summary) return []
+      const parsed = this.parseRow(row, parseSummary, 'summary')
+      if (!parsed) return []
+      const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
       if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })

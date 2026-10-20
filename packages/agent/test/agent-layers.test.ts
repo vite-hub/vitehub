@@ -1,4 +1,5 @@
 import { github } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { describe, expect, it, vi } from "vitest"
 import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
 import { withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
@@ -106,6 +107,20 @@ describe("Agent definition layers", () => {
     expect(child.__vitehubWorkspaceAgentOptions.workspace).toEqual({ name: "registered" })
   })
 
+  it.each(["parent", "child"] as const)("inherits owned Workspace fields when the %s has an inherited name", (layer) => {
+    const source = github({ repo: "owner/base" })
+    const parentWorkspace = { mode: "write" as const, sourceRootDir: "/parent/source", sources: { docs: source } }
+    const childWorkspace = { mode: "read" as const }
+    Object.setPrototypeOf(layer === "parent" ? parentWorkspace : childWorkspace, { name: "inherited" })
+    const base = defineAgent({ driver: "codex", workspace: parentWorkspace })
+    const child = defineAgent({ extends: base, workspace: childWorkspace })
+
+    expect(child.__vitehubWorkspaceAgentOptions.workspace).toMatchObject({
+      mode: "read", sourceRootDir: "/parent/source", sources: { docs: source },
+    })
+    expect(child.__vitehubWorkspaceAgentOptions.workspace).not.toHaveProperty("name")
+  })
+
   it("resolves colocated Skills that discovery attaches after a child extends the parent", async () => {
     const seen: unknown[] = []
     const base = defineAgent({
@@ -131,6 +146,54 @@ describe("Agent definition layers", () => {
     })
     expect(Reflect.get(changelog, Symbol.for("vitehub.agent.colocatedSkills"))).toEqual(seen[0])
     expect(() => agentWithSkills(changelog, { "../escape": "x" })).toThrow(/Invalid Skill name/)
+  })
+
+  it("passes inherited driver requirements to a child function and replaces them with an array", () => {
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", requirements: ["git", "gh"] } })
+    const appended = defineAgent({ extends: base, driver: { requirements: inherited => [...inherited, "kubectl"] } })
+    const grandchild = defineAgent({ extends: appended, driver: { requirements: inherited => inherited.filter(command => command !== "gh") } })
+    const replaced = defineAgent({ extends: base, driver: { requirements: ["unzip"] } })
+    const standalone = defineAgent({ workspace: {}, driver: { kind: "codex", requirements: inherited => [...inherited, "git"] } })
+    expect(appended.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git", "gh", "kubectl"] })
+    expect(grandchild.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git", "kubectl"] })
+    expect(replaced.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["unzip"] })
+    expect(standalone.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git"] })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git", "gh"] })
+  })
+
+  it("combines a child Capability with the inherited one through extend()", () => {
+    const parent = { id: "notes", metadata: { tags: ["parent"] } }
+    const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, capabilities: [parent] })
+    const child = defineAgent({
+      extends: base,
+      capabilities: [{ id: "notes", extend: inherited => ({ id: "notes", metadata: { tags: [...(inherited.metadata?.tags as string[] ?? []), "child"] } }) }],
+    })
+    expect(child.capabilities?.find(capability => capability.id === "notes")?.metadata).toEqual({ tags: ["parent", "child"] })
+    const invalid = { id: "notes", extend: () => ({ id: "other" }) }
+    expect(() => defineAgent({ extends: base, capabilities: [invalid] })).toThrow("must return a Capability with the same id")
+  })
+
+  it("applies workspace.materialize to every Source without its own mode, including inherited Sources", () => {
+    const base = defineAgent({
+      driver: "codex",
+      workspace: {
+        materialize: "startup",
+        sources: {
+          docs: github({ repo: "owner/docs" }),
+          pinned: github({ repo: "owner/pinned", materialize: "lazy" }),
+        },
+      },
+    })
+    const child = defineAgent({
+      extends: base,
+      workspace: { materialize: "none", sources: { extra: github({ repo: "owner/extra" }) } },
+    })
+    const modes = (agent: { sources?: Record<string, unknown> }) => Object.fromEntries(
+      normalizeWorkspaceSourcesMetadata(agent.sources as never).map(source => [source.key, source.materialize]),
+    )
+    expect(modes(base)).toEqual({ docs: "startup", pinned: "lazy" })
+    expect(modes(child)).toEqual({ docs: "none", extra: "none", pinned: "lazy" })
+    expect(() => defineAgent({ driver: "codex", workspace: { materialize: "eager" as never } })).toThrow("materialize must be one of")
   })
 
   it("rejects arbitrary parents instead of copying a live agent runtime", () => {

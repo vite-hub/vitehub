@@ -40,7 +40,7 @@ interface ViteHubCliStreams {
 
 interface ViteHubCliStream {
   flush?: () => unknown
-  write: (chunk: string | Uint8Array) => unknown
+  write: (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => unknown
 }
 
 type ViteHubCliEntrypointStream =

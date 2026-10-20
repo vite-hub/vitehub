@@ -4,7 +4,7 @@ import { importSealKey, unseal } from "@vite-hub/env/seal"
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveActivityRetention } from "./internal/activity-retention.ts"
 
 import type { EnvAccessStore, EnvBridge, EnvSecretStore } from "@vite-hub/env/bridge"
@@ -110,14 +110,14 @@ function parseJson(value: string): unknown {
     return JSON.parse(value)
   }
   catch {
-    throw new ConnectionError("invalid", "Stored Connection data is invalid.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "data" })
   }
 }
 
 function stringArray(value: string): string[] {
   const parsed = parseJson(value)
   const result = v.safeParse(v.array(v.string()), parsed)
-  if (!result.success) throw new ConnectionError("invalid", "Stored Connection scopes are invalid.")
+  if (!result.success) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_STORED_DATA({ problem: "scopes" })
   return result.output
 }
 
@@ -328,7 +328,7 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
       async recover(before) {
         await initialize()
         await db.run(
-          sql`UPDATE vitehub_connection_approvals SET status = 'failed', error = 'CONNECTION_EXECUTION_UNKNOWN' WHERE status = 'approved' AND (execution_expires_at <= ${before} OR (execution_expires_at IS NULL AND (decided_at IS NULL OR decided_at <= ${new Date(Date.parse(before) - 5 * 60_000).toISOString()})))`,
+          sql`UPDATE vitehub_connection_approvals SET status = 'failed', error = 'CONNECTIONS_EXECUTION_UNKNOWN' WHERE status = 'approved' AND (execution_expires_at <= ${before} OR (execution_expires_at IS NULL AND (decided_at IS NULL OR decided_at <= ${new Date(Date.parse(before) - 5 * 60_000).toISOString()})))`,
         )
       },
       async renew(id, expiresAt) {

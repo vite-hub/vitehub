@@ -543,6 +543,12 @@
       "require": "./dist/console.js",
       "default": "./dist/console.js"
     },
+    "./console/ui": {
+      "types": "./dist/console/ui.d.ts",
+      "import": "./dist/console/ui.js",
+      "require": "./dist/console/ui.js",
+      "default": "./dist/console/ui.js"
+    },
     "./console/auth": {
       "types": "./dist/console/auth.d.ts",
       "import": "./dist/console/auth.js",
@@ -837,6 +843,12 @@
       "require": "./dist/source/file.js",
       "default": "./dist/source/file.js"
     },
+    "./source/files": {
+      "types": "./dist/source/files.d.ts",
+      "import": "./dist/source/files.js",
+      "require": "./dist/source/files.js",
+      "default": "./dist/source/files.js"
+    },
     "./source/github": {
       "types": "./dist/source/github.d.ts",
       "import": "./dist/source/github.js",
@@ -1108,7 +1120,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
+    "typecheck": "vp run --cache -t vite-hub#build && tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
