@@ -13,6 +13,7 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import isBlob from "./internal/is-blob.ts"
+import { assertValidPathname } from "./internal/pathname.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
@@ -37,21 +38,21 @@ function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
   return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
 }
 
-function normalizePathname(pathname: string): string {
+// Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
+function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+  let decoded: string
   try {
-    return decodeURIComponent(pathname).replace(/^\/+/, "")
+    decoded = decodeURIComponent(pathname)
   }
   catch {
-    return pathname.replace(/^\/+/, "")
+    decoded = pathname
   }
+  return assertValidPathname(decoded.replace(/^\/+/, ""), options)
 }
 
+// Expects a pathname checked by assertValidPathname, so it has no dot segments.
 function assertWritablePath(pathname: string) {
-  const parts: string[] = []
-  for (const part of pathname.replaceAll("\\", "/").split("/")) {
-    if (part === "..") parts.pop()
-    else if (part && part !== ".") parts.push(part)
-  }
+  const parts = pathname.split(/[/\\]/).filter(Boolean)
   if (parts[0]?.toLowerCase() === "_vitehub" && (parts.length === 1 || parts[1]?.toLowerCase() === "derived")) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses the reserved derived cache namespace." })
   }
@@ -134,9 +135,10 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     ? `${name}-${globalThis.crypto.randomUUID().split("-")[0]}${ext}`
     : `${name}${ext}`
   const normalized = joinPath(dir, filename)
-  return options.prefix
+  // The prefix and the suffix can change the pathname, so check the final value.
+  return assertValidPathname(options.prefix
     ? joinPath(options.prefix, normalized)
-    : normalized
+    : normalized)
 }
 
 export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name): BlobStorage {
@@ -195,7 +197,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
-      const normalizedPrefix = options.prefix ? normalizePathname(options.prefix) : options.prefix
+      const normalizedPrefix = options.prefix ? normalizePathname(options.prefix, { prefix: true }) : options.prefix
       return blobResult("list", store, () => driver.list({
         ...options,
         prefix: normalizedPrefix,
