@@ -64,6 +64,7 @@ const previewHeights = new Map(Object.entries({
   CodeBlockTraceExample: 16,
   CodeBlockWrapExample: 13,
   CodeReviewBlock: 34,
+  CollaborativeEditorBlock: 21,
   CodeViewExample: 24,
   FileDiffExample: 24,
   FileExample: 20,

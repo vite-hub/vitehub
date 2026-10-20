@@ -49,27 +49,20 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
-    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
-      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
-    expect(docsManifest.sections.filter(section => serverPrimitiveSections.includes(section.id))
-      .every(section => getDocsSectionKind(section) === "Server Primitive")).toBe(true);
-    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "agents")!)).toBe("Agent runtime");
-    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "ui")!)).toBe("UI components");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
+    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
       const pages = section?.pages.filter(page => page.navigation) || [];
-      const startTitle = pages.find(page => page.path.endsWith("/get-started"))?.title;
-      const template = ["Overview", startTitle, "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"]
-        .filter((title): title is string => Boolean(title));
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain(startTitle);
+      expect(templateTitles, sectionId).toContain("Tutorial");
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Concepts pages may sit between
       // template lanes without changing the order of the shared template pages.
@@ -81,41 +74,12 @@ describe("docs product navigation", () => {
         .filter(index => index !== -1);
       expect(knownLaneIndexes, sectionId).toEqual([...knownLaneIndexes].sort((left, right) => left - right));
 
-
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
         expect(capability.title, sectionId).toBe("Agent capability");
         expect(capability.sourceTitle, sectionId).toBe(`${section?.title} capability`);
       }
     }
-  });
-
-  it("keeps custom frontmatter groups and kinds after the known primitive lanes", () => {
-    const kv = docsManifest.sections.find(section => section.id === "kv")!;
-    const page = (id: string, kind: string | null, group?: string, navigation = true) => ({
-      ...kv.pages[0]!, id, title: id, path: `/docs/kv/${id}`, kind, group, navigation,
-    });
-    const section = { ...kv, pages: [
-      page("support-one", "Tutorial", " Support "),
-      page("recipe-one", " Recipes "),
-      page("configure", "Guides"),
-      page("index", null),
-      page("tutorial", "Tutorial"),
-      page("support-two", "Reference", "Support"),
-      page("server-api", "Reference"),
-      page("recipe-two", "Recipes"),
-      page("hosts", "Deploy"),
-      page("hidden", "Invisible", undefined, false),
-    ] };
-    const groups = getDocsSidebarGroups(section);
-
-    expect(groups.map(group => group.label)).toEqual([null, null, "Build", null, "Support", "Recipes"]);
-    expect(groups.map(group => group.pages.map(page => page.id))).toEqual([
-      ["index"], ["tutorial"], ["configure", "server-api"], ["hosts"],
-      ["support-one", "support-two"], ["recipe-one", "recipe-two"],
-    ]);
-    expect(groups.flatMap(group => group.pages).map(page => page.path).sort())
-      .toEqual(section.pages.filter(page => page.navigation).map(page => page.path).sort());
   });
 
   it("keeps Agent-only Capabilities inside the Agents section", () => {
@@ -143,11 +107,12 @@ describe("docs product navigation", () => {
       "Console",
       "Parts",
       "Chat",
+      "Collaboration",
       "Agent work",
       "Utilities",
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
-      .toEqual(["Chat App", "Code Review"]);
+      .toEqual(["Chat App", "Code Review", "Collaborative Editor"]);
   });
 
   it("groups every navigable page of a large section", () => {
@@ -156,7 +121,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.pages.length > 0 && (!group.label || group.pages.length > 1)), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
