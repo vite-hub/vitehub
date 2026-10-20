@@ -83,7 +83,6 @@ export const PromptInput = defineComponent({
     };
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;
-      // A text-only prompt lets the browser paste normally and never converts files.
       if (!props.attachments || !clipboard) return;
       const hasText = clipboard.getData("text/plain").length > 0;
       const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/") || !hasText);
@@ -153,7 +152,6 @@ export const PromptInput = defineComponent({
               tabindex: -1,
               type: "file",
             }),
-            slots["footer-leading"]?.(),
             slots.actions?.() ??
               (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
@@ -166,6 +164,7 @@ export const PromptInput = defineComponent({
                 type: "button",
                 variant: "outline",
               })),
+            slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
               h(UButton, {

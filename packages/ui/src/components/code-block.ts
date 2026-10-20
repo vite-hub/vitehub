@@ -37,13 +37,11 @@ export const CodeBlockCopyButton = defineComponent({
       try {
         const clipboard = navigator.clipboard;
         if (!clipboard || typeof clipboard.writeText !== "function") return;
-        void clipboard.writeText(props.value)
-          .then(() => {
-            copied.value = true;
-            clearTimeout(timeout);
-            timeout = setTimeout(() => (copied.value = false), 2_000);
-          })
-          .catch(() => {});
+        void clipboard.writeText(props.value).then(() => {
+          copied.value = true;
+          clearTimeout(timeout);
+          timeout = setTimeout(() => (copied.value = false), 2_000);
+        }).catch(() => {});
       } catch {
         return;
       }
@@ -63,9 +61,7 @@ export const CodeBlockCopyButton = defineComponent({
           const listener = attrs.onClick;
           if (Array.isArray(listener)) {
             for (const handler of listener) if (typeof handler === "function") handler(event);
-          } else if (typeof listener === "function") {
-            listener(event);
-          }
+          } else if (typeof listener === "function") listener(event);
           void copy();
         },
       }),
