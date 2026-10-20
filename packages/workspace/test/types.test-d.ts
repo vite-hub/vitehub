@@ -128,7 +128,7 @@ describe("workspace types", () => {
         rules: { "/docs/**": { write: "update" } },
       } satisfies WorkspacePlugin],
     })
-    // @ts-expect-error execution runtime belongs to Box
+    // @ts-expect-error execution runtime belongs to Sandbox
     defineWorkspace({ runtime: "trusted-host" })
     file({
       workspacePath: "AGENTS.md",
@@ -309,7 +309,7 @@ describe("workspace types", () => {
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     // SAFETY: This type-only fixture is never evaluated and exists to exercise the session surface.
     const session: Awaited<ReturnType<typeof writable.startSession>> = undefined!
-    // @ts-expect-error runtime selection belongs to Box, not Workspace session options
+    // @ts-expect-error runtime selection belongs to Sandbox, not Workspace session options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
     expectTypeOf(session.mkdir).toBeFunction()

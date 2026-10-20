@@ -7,9 +7,10 @@ import type {
   AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
+import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { executionBudgetCharged, executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 
 interface WorkspaceCommandInput {
   args?: string[]
@@ -38,7 +39,7 @@ interface WorkspaceCommandToolOptions {
   executionBudget?: ExecutionBudget
 }
 
-interface BoxCommandOptions {
+interface SandboxCommandOptions {
   abortSignal?: AbortSignal
   check?: boolean
   commitMessage?: string
@@ -155,7 +156,7 @@ export async function executeWorkspaceCommand(
   workspace: unknown,
   command: string,
   args: string[] = [],
-  options: BoxCommandOptions = {},
+  options: SandboxCommandOptions = {},
   context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   const activeExecute = context && activeAgentWorkspaceCommands(context)
@@ -173,7 +174,7 @@ export async function executeWorkspaceCommand(
     })
     options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
+      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "SandboxCommandError" })
     }
     return result
   }
@@ -197,7 +198,7 @@ export async function executeWorkspaceCommand(
       throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
         exitCode: result.exitCode,
-        name: "BoxCommandError",
+        name: "SandboxCommandError",
         stderr: result.stderr,
         stdout: result.stdout,
       })
@@ -231,8 +232,7 @@ export function workspaceCommandTools(
   const commandNames = entries.map(entry => entry.command)
   const toolName = options.toolName || "workspace_exec"
   const summary = entries.map(entry => entry.description ? `${entry.command} (${entry.description})` : entry.command).join(", ")
-  return {
-    [toolName]: defineInternalTool({
+  const tool = defineInternalTool({
       description: options.description || (unrestricted
         ? "Run any executable in the Workspace Session."
         : `Run one configured command in the Workspace Session at the workspace root. Allowed commands: ${summary}.`),
@@ -261,15 +261,20 @@ export function workspaceCommandTools(
         const env = envRecord(value.env)
         const commandTimeout = normalizeWorkspaceCommandTimeout(value.timeout, `${toolName} timeout`) ?? timeout ?? defaultWorkspaceCommandTimeout
         assertWorkspace(workspace, options.missingWorkspaceMessage || "[vitehub] workspaceShell({ commands }) requires an execution-capable writable Workspace Session.")
+        const budgetContext = execution as (AgentToolExecutionContext & { [executionBudgetCharged]?: boolean, [executionBudgetOverride]?: ExecutionBudget }) | undefined
+        const executionBudget = budgetContext?.[executionBudgetOverride] ?? options.executionBudget
         return await executeWorkspaceCommand(workspace, value.command, args, {
           ...(mode === "write" ? { commitMessage: options.commitMessage || "workspace shell command" } : {}),
           abortSignal: execution?.abortSignal,
           cwd,
           env,
           timeout: commandTimeout,
-          executionBudget: options.executionBudget,
+          executionBudget: budgetContext?.[executionBudgetCharged] ? undefined : executionBudget,
         }, options.context)
       },
-    }),
+    })
+  if (options.executionBudget) markExecutionBudgetHandled(tool, options.executionBudget)
+  return {
+    [toolName]: tool,
   }
 }

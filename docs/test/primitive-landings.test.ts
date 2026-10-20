@@ -165,15 +165,15 @@ describe("Sandbox landing projects", () => {
       expect(variant.illustrative).toBe(false);
       const files = new Map(variant.files.map(file => [file.path, file.content]));
       const manifest = JSON.parse(files.get("package.json")!);
-      for (const dependency of ["vite-hub", "@vite-hub/sandbox", "@vercel/sandbox", ...(variant.framework === "nuxt" ? ["nuxt"] : ["vite", "nitro"])]) {
+      for (const dependency of ["vite-hub", "@vite-hub/sandbox-task", "@vercel/sandbox", ...(variant.framework === "nuxt" ? ["nuxt"] : ["vite", "nitro"])]) {
         expect(manifest.dependencies[dependency]).toBeTruthy();
       }
       const config = files.get(variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts");
-      expect(config).toContain('preset: "vercel", sandbox: true');
-      expect(files.get("server/sandboxes/release-notes/index.ts")).toContain("export default async function");
-      expect(files.get("server/sandboxes/release-notes/index.ts")).not.toContain("defineSandbox");
-      expect(files.get("server/release-notes.ts")).toContain('runSandbox("release-notes", { notes: "ship it" })');
-      expect(JSON.parse(files.get("server/sandboxes/release-notes/package.json")!).type).toBe("module");
+      expect(config).toContain('preset: "vercel", sandboxTask: true');
+      expect(files.get("server/sandbox-tasks/release-notes/index.ts")).toContain("export default async function");
+      expect(files.get("server/sandbox-tasks/release-notes/index.ts")).not.toContain("defineSandboxTask");
+      expect(files.get("server/release-notes.ts")).toContain('runSandboxTask("release-notes", { notes: "ship it" })');
+      expect(JSON.parse(files.get("server/sandbox-tasks/release-notes/package.json")!).type).toBe("module");
     }
   });
 });

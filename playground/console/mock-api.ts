@@ -23,14 +23,16 @@ import manifest from "./package.json" with { type: "json" }
 import { playgroundConsoleContributions } from "./sections.ts"
 
 const fixture = parseConsoleFixture(fixtureDocument)
-const agents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
+const invocationAgents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
+// `meal-logger` stands for a retired Agent. Its sessions stay in invocation history, but the application no longer registers it.
+const agents = invocationAgents.filter(agent => agent !== "meal-logger")
 const store = createMemoryAgentInvocationStore()
 for (const record of fixture.invocations) {
   const { cursor: _cursor, ...input } = record
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
+const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"] as const
 const definitions = {
   "rate-limits": [
     {
@@ -58,18 +60,18 @@ const definitions = {
       source: "require-rate-limit",
     },
   ],
-  sandboxes: [
+  "sandbox-tasks": [
     {
       fields: [{ label: "Kind", value: "Definition" }],
-      file: "server/sandboxes/release-check.ts",
+      file: "server/sandbox-tasks/release-check.ts",
       name: "release-check",
-      source: "sandbox",
+      source: "server-sandbox-tasks",
     },
     {
       fields: [{ label: "Kind", value: "Package entry" }],
-      file: "node_modules/@vite-hub/sandbox/dist/providers/node.js",
+      file: "node_modules/@vite-hub/sandbox-task/dist/providers/node.js",
       name: "node",
-      source: "sandbox",
+      source: "server-sandbox-tasks",
     },
   ],
   workspaces: [
@@ -294,14 +296,14 @@ async function handleConnections(request: IncomingMessage, response: ServerRespo
   const approval = connectionApprovals.find(entry => entry.id === input.id)
   switch (input.action) {
     case "list": return json(response, { connections: [...connections.values()] })
-    case "inspect": return connection ? json(response, { connection }) : json(response, { error: { code: "CONNECTION_INVALID", message: `No Connection Definition was discovered for "${input.name}".` } }, 400)
+    case "inspect": return connection ? json(response, { connection }) : json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: `No Connection Definition was discovered for "${input.name}".` } }, 404)
     case "revoke":
-      if (!connection) return json(response, { error: { code: "CONNECTION_INVALID", message: "Unknown Connection." } }, 400)
+      if (!connection) return json(response, { error: { code: "CONNECTIONS_NOT_FOUND", message: "Unknown Connection." } }, 404)
       Object.assign(connection, { scopes: { ...connection.scopes, granted: [], missing: connection.scopes.declared }, status: "revoked" })
       return json(response, { connection })
     case "set-key":
       // The synthetic API keeps no key. It only marks the API key Connection as connected.
-      if (connection?.credential !== "api-key" || !input.key) return json(response, { error: { code: "CONNECTION_INVALID", message: "Set a key only on an API key Connection." } }, 400)
+      if (connection?.credential !== "api-key" || !input.key) return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "Set a key only on an API key Connection." } }, 400)
       Object.assign(connection, { connectedAt: new Date().toISOString(), status: "connected" })
       return json(response, { connection })
     case "activity": return json(response, { activity: input.before ? [] : connectionActivity.filter(event => event.key === `connection/${input.name}`) })
@@ -315,11 +317,11 @@ async function handleConnections(request: IncomingMessage, response: ServerRespo
     case "approve-summary":
     case "deny":
     case "deny-summary":
-      if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTION_INVALID", message: "This approval is not pending." } }, 400)
+      if (!approval || approval.status !== "pending") return json(response, { error: { code: "CONNECTIONS_INVALID_REQUEST", message: "This approval is not pending." } }, 400)
       Object.assign(approval, { decidedAt: new Date().toISOString(), decidedBy: "user:local", status: input.action === "approve" || input.action === "approve-summary" ? "executed" : "denied" })
       if (input.action === "approve-summary" || input.action === "deny-summary") return json(response, { approval: approvalView(approval) })
       return json(response, input.action === "approve" ? { approval, result: { id: "msg_synthetic" } } : { approval })
-    default: return json(response, { error: { code: "CONNECTION_INVALID", message: "Invalid Connections request." } }, 400)
+    default: return json(response, { error: { code: "CONNECTIONS_UNKNOWN_ACTION", message: "Invalid Connections request." } }, 400)
   }
 }
 
@@ -428,6 +430,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   if (path === "/api/_vitehub/console/agents") {
     json(response, {
       agents,
+      invocationAgents,
       // Every Agent accepts a new chat from the Console composer. The profiles are synthetic Invoker Profiles.
       invocation: Object.fromEntries(agents.map(agent => [agent, { profiles: agent === "product-reviewer"
         ? [{ id: "reviewer", label: "Reviewer" }, { id: "maintainer", label: "Maintainer" }]
@@ -689,7 +692,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       json(response, { kind: "record-table", records: scheduleRecords, section })
       return true
     }
-    if (section !== "queues" && section !== "workflows" && section !== "rate-limits" && section !== "sandboxes" && section !== "workspaces") {
+    if (section !== "queues" && section !== "workflows" && section !== "rate-limits" && section !== "sandbox-tasks" && section !== "workspaces") {
       json(response, { error: "A valid definition section is required" }, 400)
       return true
     }
@@ -706,8 +709,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       json(response, { message: "Schedule run requires a Schedule Definition name." }, 400)
       return true
     }
-    const runnable = scheduleRecords.some(record => record.cells.kind === "Definition"
-      && record.cells.schedule === name
+    const runnable = scheduleRecords.some(record => record.cells.schedule === name
       && record.fields.some(field => field.label === "Manual" && field.value === "Enabled"))
     if (!runnable) {
       json(response, { message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation." }, 404)

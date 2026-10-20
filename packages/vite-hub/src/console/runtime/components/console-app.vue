@@ -6,7 +6,7 @@ import {
   agentInvocationExternalUrl,
   agentInvocationProject,
   agentInvocationTitle,
-} from "@vite-hub/ui";
+} from "./invocation";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -18,6 +18,7 @@ import {
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
+  resolveConsoleAgentCatalog,
   resolveConsoleAgentRows,
 } from "./console-agent-list";
 
@@ -26,7 +27,7 @@ import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
   AgentInvocationView,
-} from "@vite-hub/ui";
+} from "./invocation";
 import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
@@ -58,6 +59,7 @@ import {
 } from "./console-session-bootstrap";
 import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
+import "./invocation/invocation.css";
 
 const route = useRoute();
 const router = useRouter();
@@ -85,6 +87,9 @@ const capabilitiesLoading = ref(false);
 const capabilitiesError = ref<unknown>();
 const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
+// Names that appear only in invocation history. Their sessions stay browsable, but they are not listed as Agents.
+const historicalAgentNames = ref<string[]>([]);
+const sessionAgentNames = computed(() => [...agentNames.value, ...historicalAgentNames.value]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
 interface ConsoleAgentProfile {
@@ -158,7 +163,7 @@ const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
 const { selectAgentName } = useConsoleSessionBootstrap({
-  agentNames,
+  agentNames: sessionAgentNames,
   firstInvocation: computed(() => list.invocations.value[0]),
   initialBootstrapPending,
   isUsageRoute,
@@ -628,13 +633,10 @@ async function loadAgents(): Promise<void> {
   agentsLoading.value = true;
   try {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
-    const names = Array.isArray(value?.agents)
-      ? value.agents.filter((name): name is string => {
-          return typeof name === "string" && Boolean(name.trim());
-        })
-      : [];
+    const catalog = resolveConsoleAgentCatalog(value);
     if (agentsRequest === controller) {
-      agentNames.value = [...new Set(names)];
+      agentNames.value = catalog.agents;
+      historicalAgentNames.value = catalog.historicalAgents;
       const invocation = record(value?.invocation);
       agentInvocationOptions.value = Object.fromEntries(
         agentNames.value.flatMap((name) => {
@@ -816,7 +818,7 @@ watch(
 );
 
 watch(
-  [routeAgent, agentNames, isUsageRoute, initialBootstrapPending],
+  [routeAgent, sessionAgentNames, isUsageRoute, initialBootstrapPending],
   async ([requestedAgent, names, usageRoute, bootstrapPending]) => {
     if (usageRoute) return;
     if (!names.length) return;
@@ -1167,7 +1169,6 @@ onBeforeUnmount(() => {
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
-          :remaining-statuses="list.remainingStatuses.value"
           group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"
@@ -1208,6 +1209,7 @@ onBeforeUnmount(() => {
     <ConsoleSearch
       :actions="searchActions"
       :agent-names="agentNames"
+      :historical-agent-names="historicalAgentNames"
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
       :kv-base="kvBase"
@@ -1219,7 +1221,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel
       v-else
-      id="agent-session"
+      id="chat-session"
       class="vitehub-console__session-panel"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >

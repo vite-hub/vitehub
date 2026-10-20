@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { delimiter, join } from "node:path"
+import { findPackageJSON } from "node:module"
+import { pathToFileURL } from "node:url"
 
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
@@ -66,13 +68,27 @@ function toConfigPath(rootDir: string, file: string): string {
   return isAbsolute(file) ? relative(rootDir, file) || file : file
 }
 
-function withProjectBinPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") || "PATH"
-  const processPathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") || "PATH"
-  return {
-    ...env,
-    [pathKey]: [join(rootDir, "node_modules", ".bin"), env[pathKey] ?? process.env[processPathKey]].filter(Boolean).join(delimiter),
+/** Finds the drizzle-kit bin file in the dependencies of the project, so the command does not depend on PATH. */
+function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
+  for (const projectRoot of projectRoots) {
+    const drizzleKitBin = resolveDrizzleKitBinFromRoot(projectRoot)
+    if (drizzleKitBin) return drizzleKitBin
   }
+  return undefined
+}
+
+function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
+  let packageJsonFile: string | undefined
+  try {
+    packageJsonFile = findPackageJSON("drizzle-kit", pathToFileURL(resolve(projectRoot, "package.json")))
+  }
+  catch {
+    return
+  }
+  if (!packageJsonFile) return
+  const { bin } = JSON.parse(readFileSync(packageJsonFile, "utf8")) as { bin?: string | Record<string, string> }
+  const file = typeof bin === "string" ? bin : bin?.["drizzle-kit"]
+  return file ? resolve(dirname(packageJsonFile), file) : undefined
 }
 
 async function runDrizzleKit(
@@ -82,26 +98,36 @@ async function runDrizzleKit(
   getConfig?: ResolvedDBViteConfigProvider,
 ): Promise<number> {
   const config = await getConfig?.({ strict: feature === "generate" })
+  // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
+  // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
+  const projectRoot = config?.rootDir ?? context.rootDir
+  // Prefer the Database root because the generated config and working directory
+  // belong to it. Fall back to the invoking Vite root for external Database roots.
+  const drizzleKitBin = resolveDrizzleKitBin([projectRoot, context.rootDir])
+  if (!drizzleKitBin) {
+    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
+    return 1
+  }
   const runs = config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
   for (const { configFile, database } of runs) {
-    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, context)
-    const result = await runDrizzleKitWithConfig(feature, args, context, toConfigPath(context.rootDir, configFile))
+    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
+    const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
     if (result !== 0) return result
   }
   return 0
 }
 
 /** libSQL does not create parent directories, so the first `db migrate` needs the local data directory to exist. */
-async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, context: ViteHubCliContext) {
+async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
   if (database.cloudflare?.http && database.cloudflare.databaseId) return
   const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
   if (!url || url === ":memory:" || /^(?:libsql:|https?:|wss?:)/i.test(url)) return
   const path = resolveLocalSqlitePath(url)
   if (!path || path === ":memory:") return
-  await mkdir(dirname(resolve(context.rootDir, path)), { recursive: true })
+  await mkdir(dirname(resolve(projectRoot, path)), { recursive: true })
 }
 
 // drizzle-kit generate catches schema load and diff errors, logs them with console.error, and exits 0.
@@ -119,16 +145,22 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
-async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string): Promise<number> {
+async function runDrizzleKitWithConfig(
+  feature: "generate" | "migrate",
+  args: string[],
+  context: ViteHubCliContext,
+  { bin, configFile, projectRoot }: { bin: string, configFile: string, projectRoot: string },
+): Promise<number> {
   const drizzleArgs = [
+    bin,
     feature,
     "--config",
     configFile,
     ...forwardDrizzleArgs(args),
   ]
-  const env = withProjectBinPath(context.rootDir, context.env)
-  const result = await context.spawn("drizzle-kit", drizzleArgs, {
-    cwd: context.rootDir,
+  const env = context.env ?? process.env
+  const result = await context.spawn(process.execPath, drizzleArgs, {
+    cwd: projectRoot,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
     stderr: "inherit",
     stdout: "inherit",

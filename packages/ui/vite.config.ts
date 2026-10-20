@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
 export default defineConfig({
   pack: {
@@ -22,7 +23,20 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      ...new Set(componentNames.map((name) => `src/${componentEntryName(name)}.ts`)),
       "src/index.ts",
+      "src/attachment.ts",
+      "src/bubble.ts",
+      "src/chat.ts",
+      "src/chat-message.ts",
+      "src/chat-session.ts",
+      "src/code-block.ts",
+      "src/markdown.ts",
+      "src/marker.ts",
+      "src/message.ts",
+      "src/message-parts.ts",
+      "src/prompt-input.ts",
+      "src/trace.ts",
       "src/headless.ts",
       "src/nuxt.ts",
       "src/primitive-rail.ts",
@@ -39,7 +53,19 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...normalizePackageExports(publicExports), "./styles.css": "./dist/styles.css" };
+        const normalized = normalizePackageExports(publicExports);
+        for (const key of Object.keys(normalized)) {
+          if (key !== "." && key !== "./headless" && key !== "./nuxt" && key !== "./primitive-rail" && key !== "./vite") {
+            const entry = normalized[key];
+            if (entry && typeof entry === "object") delete entry.require;
+          }
+        }
+        const remapped = Object.fromEntries(
+          Object.entries(normalized).map(([key, value]) =>
+            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
+          ),
+        );
+        return { ...remapped, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

@@ -47,10 +47,11 @@ export default defineEventHandler(() => {
 ```ts
 // vite.config.ts
 import { hubDb } from "@vite-hub/database/vite"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubDb()],
+  plugins: [hubDb(), nitro()],
 })
 ```
 
@@ -69,7 +70,7 @@ await db.batch([
 
 Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
-`@vite-hub/database/drizzle` is resolved by the Vite integration for server code and provider output. Plain `node` execution of files that import it is not a supported local runtime path.
+`@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
 
 Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
 
@@ -81,24 +82,20 @@ Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or 
 
 ## Contributed tables
 
-Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
+Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry gives a `module` (absolute path or package specifier), an optional `export` that holds an object of tables, and an optional `database`. Without `database`, the tables go to the default or only Database:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    databases: () => [{
-      name: "history",
-      definition: { module: "my-package/schema", export: "historySchema" },
-      reason: "Stores Workspace history.",
-    }],
+    databases: () => [{ module: "my-package/schema", export: "historySchema" }],
   },
 }
 ```
 
-A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup.
+Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A key or SQL table name used twice fails with `DATABASE_B0010`. A missing or ambiguous target fails with `DATABASE_B0011` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
-Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_B0010`. A missing or ambiguous target fails with `DATABASE_B0011` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
+Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
 ## Remote D1 development
 

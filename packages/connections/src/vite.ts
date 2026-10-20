@@ -16,12 +16,13 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
+import { resolveActivityRetention } from "./internal/activity-retention.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
 import type { Plugin, ResolvedConfig } from "vite";
-import type { DiscoveredConnectionDefinition } from "./types.ts";
+import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
 export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
@@ -230,6 +231,11 @@ async function recordGeneratedOwners(projectRoot: string, origin: string, hash: 
 
 export interface ConnectionsVitePluginOptions {
   /**
+   * How long the database keeps Connection activity, one event per provider request. Defaults to
+   * 14 days and at most 10,000 events. `false` keeps all activity.
+   */
+  activityRetention?: ConnectionActivityRetention | false;
+  /**
    * Module whose default export is the access policy of the management API, in development and
    * production. Export a function that authenticates the `Request` and returns `user:<id>`, or
    * `undefined` to deny it. Export `"development"` to allow the development server without Auth.
@@ -266,8 +272,10 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
 function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
+  activityRetention: Required<ConnectionActivityRetention> | false,
 ): string {
   return [
+    `export const activityRetention = ${JSON.stringify(activityRetention)}`,
     "const registry = Object.create(null)",
     ...definitions.map(
       (definition) =>
@@ -334,6 +342,7 @@ function isConnectionDefinitionFile(
 export function hubConnections(options: ConnectionsVitePluginOptions = {}): ConnectionsVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
+  const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];
   let serverDirs: string[] | undefined;
@@ -364,7 +373,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           const types = renderRegistryTypes(definitions);
           await Promise.all([
             writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database))] : []),
+            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
           ]);
           await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
           return;
@@ -382,7 +391,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const types = renderRegistryTypes(definitions);
         await Promise.all([
           writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database))] : []),
+          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
         ]);
         await recordGeneratedOwners(projectRoot, defaultProjectRoot, typeHash(types), generationSession, owners);
         await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
@@ -433,7 +442,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const handlerFile = resolve(generatedDir, "handler.ts");
       await writeFileIfChanged(
         nitroRegistryFile,
-        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database),
+        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database, activityRetention),
       );
 
       const nitroInput: unknown = Reflect.get(config, "nitro");
@@ -561,7 +570,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
     },
     load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database);
+      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention);
     },
   };
 }

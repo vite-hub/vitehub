@@ -17,6 +17,10 @@ export interface AgentWebhookQueueDelivery {
   invocation?: {
     input: unknown
     run?: unknown
+    /** The Channel trigger that admitted a queued dispatch item. Its `failed` callback runs for the item. */
+    trigger?: string
+    /** Ordering marker owned by a queued Channel dispatch item. */
+    order?: { key: string, version: number, previous?: number }
   }
   leaseTtlMs: number
   rehydrate?: true
@@ -134,7 +138,15 @@ interface AgentWebhookQueueRegistrar<Options> {
 }
 
 export interface AgentWebhookQueue<Options> {
-  admit: (registration: AgentWebhookQueueRegistration<Options>, delivery: AgentWebhookQueueDelivery) => Promise<boolean>
+  /**
+   * Queues `delivery` and registers its scope. `enqueue` replaces `state.enqueueWebhookDelivery()`, such as to commit
+   * Channel State writes in the same transaction. It returns whether the delivery was newly queued.
+   */
+  admit: (
+    registration: AgentWebhookQueueRegistration<Options>,
+    delivery: AgentWebhookQueueDelivery,
+    enqueue?: (delivery: AgentWebhookQueueDelivery) => Promise<boolean>,
+  ) => Promise<boolean>
   idle: () => Promise<void>
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   resume: (
@@ -159,10 +171,29 @@ interface TrackedQueueState<Options> {
 
 const webhookQueueStopMessage = "[vitehub] Webhook queue stopped during Agent execution."
 
+/**
+ * True when a webhook queue stop caused this error. The queue keeps the delivery and runs it
+ * again under the same run ID, so the stop is an interruption and not an outcome.
+ */
+export function isWebhookQueueStop(error: unknown): boolean {
+  const seen = new Set<object>()
+  for (let current = error; isRuntimeObject(current) && !seen.has(current); current = Reflect.get(current, "cause")) {
+    seen.add(current)
+    if (Reflect.get(current, "code") === "AGENT_R0594") return true
+  }
+  return false
+}
+
 const stoppingWebhookQueues = new Set<Promise<void>>()
 
+/**
+ * The queue that registered each scope by name, such as a Channel's `stateScope`, by queue ID. Only that queue's
+ * Agent declares the webhook registration that the scope's deliveries restore, so other queues leave the scope alone.
+ */
+const namedScopeOwners = new Map<string, object>()
+
 /** Grace budget for active deliveries on stop, from VITEHUB_SHUTDOWN_DRAIN_MS. */
-function webhookQueueStopGraceMs(): number {
+export function webhookQueueStopGraceMs(): number {
   const value = Number(globalThis.process?.env?.VITEHUB_SHUTDOWN_DRAIN_MS)
   return Number.isFinite(value) && value > 0 ? value : 0
 }
@@ -176,6 +207,9 @@ export function createAgentWebhookQueue<Options>(
   ownerOptions: AgentWebhookQueueOwnerOptions<Options>,
 ): AgentWebhookQueue<Options> {
   const retryMs = ownerOptions.retryMs ?? 1_000
+  const owner = {}
+  // Scopes found only through a tracked scope prefix, with the earliest time of their first drain.
+  const discovered = new Map<string, number>()
   const registrations = new Map<string, AgentWebhookQueueRegistration<Options>>()
   const trackedStates = new Map<AgentWebhookQueueStateAdapter, TrackedQueueState<Options>>()
   const draining = new Set<string>()
@@ -187,6 +221,10 @@ export function createAgentWebhookQueue<Options>(
   let stopped = false
 
   const queueId = (registration: AgentWebhookQueueRegistration<Options>) => `${registration.backendId}:${registration.scope}`
+  const ownedByOtherQueue = (id: string) => {
+    const named = namedScopeOwners.get(id)
+    return named !== undefined && named !== owner
+  }
 
   let drain: (id: string) => Promise<void>
   const schedule = (id: string, at: number, waitUntil?: (task: Promise<void>) => void) => {
@@ -213,6 +251,18 @@ export function createAgentWebhookQueue<Options>(
   const drainOnce = async (id: string) => {
     const registration = registrations.get(id)
     if (stopped || !registration) return
+    const firstDrainAt = discovered.get(id)
+    if (firstDrainAt !== undefined) {
+      if (ownedByOtherQueue(id)) {
+        registrations.delete(id)
+        discovered.delete(id)
+        return
+      }
+      if (Date.now() < firstDrainAt) {
+        schedule(id, firstDrainAt)
+        return
+      }
+    }
     if (draining.has(id)) {
       pending.add(id)
       return
@@ -221,9 +271,26 @@ export function createAgentWebhookQueue<Options>(
     try {
       const waitUntil = await ownerOptions.resolveWaitUntil(registration.options)
       while (!stopped) {
+        // A named registration may arrive while this prefix-discovered queue is draining.
+        // Drop the discovered registration before claiming any subsequent delivery.
+        if (discovered.has(id) && ownedByOtherQueue(id)) {
+          discovered.delete(id)
+          registrations.delete(id)
+          break
+        }
         const delivery = await registration.state.claimWebhookDelivery(registration.scope)
         if (!delivery) {
           if (![...active.values()].some(item => item.queueId === id)) schedule(id, Date.now() + retryMs)
+          break
+        }
+        // Ownership can change while claimWebhookDelivery is pending. Return this lease
+        // without executing it, then stop draining this prefix-discovered scope.
+        if (discovered.has(id) && ownedByOtherQueue(id)) {
+          await registration.state
+            .retryWebhookDelivery(registration.scope, delivery.deliveryId, delivery.leaseToken, Date.now(), { incrementAttempts: false })
+            .catch(() => undefined)
+          discovered.delete(id)
+          registrations.delete(id)
           break
         }
         if (stopped) {
@@ -268,21 +335,33 @@ export function createAgentWebhookQueue<Options>(
     return task
   }
 
-  const register = async (registration: AgentWebhookQueueRegistration<Options>) => {
+  const add = async (registration: AgentWebhookQueueRegistration<Options>, discoveredByPrefix: boolean) => {
     if (!hasAgentWebhookQueue(registration.state)) return false
+    const id = queueId(registration)
+    if (discoveredByPrefix) {
+      if (ownedByOtherQueue(id)) return false
+      if (registrations.has(id)) return true
+      // Wait one retry interval, so the queue that registers the scope by name can register first after a restart.
+      const firstDrainAt = Date.now() + retryMs
+      discovered.set(id, firstDrainAt)
+      registrations.set(id, registration)
+      schedule(id, firstDrainAt, await ownerOptions.resolveWaitUntil(registration.options))
+      return true
+    }
+    namedScopeOwners.set(id, owner)
     const tracked = trackedStates.get(registration.state)
     if (tracked?.scopes) tracked.scopes.set(registration.scope, registration.backendId)
     else if (!tracked) trackedStates.set(registration.state, {
       options: registration.options,
       scopes: new Map([[registration.scope, registration.backendId]]),
     })
-    const id = queueId(registration)
     registrations.set(id, registration)
     const task = drain(id)
     const waitUntil = await ownerOptions.resolveWaitUntil(registration.options)
     waitUntil?.(task)
     return true
   }
+  const register = async (registration: AgentWebhookQueueRegistration<Options>) => await add(registration, false)
 
   const track = (state: StateAdapter, options: Options, scopePrefix?: string) => {
     if (!hasAgentWebhookQueue(state)) return
@@ -302,7 +381,7 @@ export function createAgentWebhookQueue<Options>(
       const backendId = await ownerOptions.resolveBackendId(state)
       const scopePrefix = tracked.scopePrefix ?? defaultScopePrefix
       for (const scope of persisted) {
-        if (!scopePrefix || scope.startsWith(scopePrefix)) await register({ backendId, options: tracked.options, scope, state })
+        if (!scopePrefix || scope.startsWith(scopePrefix)) await add({ backendId, options: tracked.options, scope, state }, true)
       }
     }
   }
@@ -315,6 +394,9 @@ export function createAgentWebhookQueue<Options>(
 
   const stop = async () => {
     stopped = true
+    for (const [id, named] of namedScopeOwners) {
+      if (named === owner) namedScopeOwners.delete(id)
+    }
     for (const timer of scheduled.values()) {
       clearTimeout(timer.timer)
       timer.resolve()
@@ -346,8 +428,8 @@ export function createAgentWebhookQueue<Options>(
   }
 
   return {
-    async admit(registration, delivery) {
-      const admitted = await registration.state.enqueueWebhookDelivery(delivery)
+    async admit(registration, delivery, enqueue) {
+      const admitted = enqueue ? await enqueue(delivery) : await registration.state.enqueueWebhookDelivery(delivery)
       await register(registration)
       return admitted
     },

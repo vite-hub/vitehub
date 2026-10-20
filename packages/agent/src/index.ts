@@ -1,4 +1,5 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
+export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
@@ -6,6 +7,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -45,7 +47,7 @@ import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAge
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
@@ -80,7 +82,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { type AgentMessagePhase, type Message, blobArrayBuffer, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -129,10 +131,13 @@ import {
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
   traceAgentChannelDeliveryReminder,
+  traceAgentEvent,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
+import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope, scopedAgentAsyncIterable } from "./internal/invocation-scope.ts"
+import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
   resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
@@ -271,11 +276,11 @@ export type {
   AgentInvocationRecordStatus,
   AgentInvocationRerunInput,
   AgentInvocationRerunUnavailableReason,
-  AgentInvocationRetentionOptions,
   AgentInvocationSummary,
   AgentInvocations,
   AgentInvocationStore,
 } from "./invocations.ts"
+export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
 
 export type {
   AgentInvocationControlOutcome,
@@ -396,7 +401,9 @@ export type {
   AgentChannelMessageOf,
   AgentChannelReplyCalls,
   AgentChannelTriggerContext,
+  AgentChannelTriggerDefinition,
   AgentDefinitionHooks,
+  AgentDurableChannelTriggerContext,
   AgentGitHubMessageCalls,
   AgentChannels,
   AgentDeliveryArtifact,
@@ -488,6 +495,7 @@ export type {
   AgentRegistry,
   AgentRegistryModule,
   AgentRunContext,
+  AgentRunActivity,
   AgentRunCallbackContext,
   AgentRunDriver,
   AgentRunHandler,
@@ -532,7 +540,10 @@ export type {
   AgentToolInspection,
   AgentTriggerContext,
   AgentTriggerDefinition,
+  AgentTriggerAcceptedInvocation,
   AgentTriggerFailedEvent,
+  AgentTriggerPrepareResult,
+  AgentTriggerTask,
   AgentTriggerInvokeResult,
   AgentTriggerRunInvokeResult,
   AgentToolResolver,
@@ -540,6 +551,7 @@ export type {
   AgentToolStep,
   AgentWaitUntil,
   AgentProviderCredentialContext,
+  AgentProviderReadinessCheck,
   AgentProviderStatus,
   AgentProviderUsageLimits,
   AgentProviderCredentialResolver,
@@ -614,6 +626,8 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
+// The Agent Dev Loop sets this on an Agent that runs one Capability CLI command directly.
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
@@ -825,7 +839,11 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
-  /** Runtime context values supplied by trusted standalone callers, such as generated host capabilities. */
+  /**
+   * Runtime context values supplied by trusted standalone callers. Inside a running host, a standalone run
+   * already gets the runtime capabilities that the generated routes give Agents; `runtimeContext.capabilities`
+   * overrides them key by key.
+   */
   runtimeContext?: Partial<AgentRuntimeContext>
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
@@ -1031,7 +1049,7 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (isBlobValue(data)) data = await blobArrayBuffer(data)
+      if (isAttachmentBlob(data)) data = new Uint8Array(await blobArrayBuffer(data))
       if (isArrayBufferValue(data)) data = new Uint8Array(data)
       const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
@@ -2181,34 +2199,34 @@ function agentRequiresWritableWorkspace(options: {
     .some(channel => capabilitiesRequireWritableWorkspace(channel.capabilities))
 }
 
-/** Check Agent Box combinations that cannot run the provider inside the Box. */
-function validateAgentBox(
-  box: unknown,
+/** Check Agent Sandbox combinations that cannot run the provider inside the Sandbox. */
+function validateAgentSandbox(
+  sandbox: unknown,
   driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly launch?: unknown, readonly toolchain?: unknown },
   options: { hasWorkspace: boolean },
 ) {
-  if (!hasRuntimeType(box, "object") || box === null || !("runtime" in box) || box.runtime === undefined) {
-    throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ box }) requires a Box definition with a runtime." })
+  if (!hasRuntimeType(sandbox, "object") || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
+    throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ sandbox }) requires a Sandbox definition with a runtime." })
   }
   if (driver.kind !== "provider") {
-    throw agentDiagnostics.AGENT_R0955({ message: "[vitehub] defineAgent({ box }) requires a built-in provider Driver such as { kind: \"codex\" } or { kind: \"claude-code\" }." })
+    throw agentDiagnostics.AGENT_R0955({ message: "[vitehub] defineAgent({ sandbox }) requires a built-in provider Driver such as { kind: \"codex\" } or { kind: \"claude-code\" }." })
   }
   if (driver.launch !== undefined) {
-    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.launch. The Box starts the provider." })
+    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.launch. The Sandbox starts the provider." })
   }
   if (driver.credentials !== undefined || driver.credentialProfile !== undefined) {
-    throw agentDiagnostics.AGENT_R0957({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.credentials or driver.credentialProfile. Write provider credentials with box.home.files or box.env." })
+    throw agentDiagnostics.AGENT_R0957({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.credentials or driver.credentialProfile. Write provider credentials with sandbox.home.files or sandbox.env." })
   }
   if (driver.toolchain !== undefined) {
-    throw agentDiagnostics.AGENT_R0972({ message: "[vitehub] defineAgent({ box }) cannot be combined with driver.toolchain. Declare box.toolchain so the Box provisions it." })
+    throw agentDiagnostics.AGENT_R0972({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with driver.toolchain. Declare sandbox.toolchain so the Sandbox provisions it." })
   }
   if (options.hasWorkspace) {
-    throw agentDiagnostics.AGENT_R0958({ message: "[vitehub] defineAgent({ box }) cannot be combined with an Agent Workspace. Use box.checkout or box.cwd for the provider working tree." })
+    throw agentDiagnostics.AGENT_R0958({ message: "[vitehub] defineAgent({ sandbox }) cannot be combined with an Agent Workspace. Use sandbox.checkout or sandbox.cwd for the provider working tree." })
   }
   const navigator: unknown = Reflect.get(globalThis, "navigator")
   const userAgent = isRuntimeObject(navigator) ? Reflect.get(navigator, "userAgent") : undefined
   if (Reflect.get(globalThis, "Deno") !== undefined || userAgent === "Cloudflare-Workers") {
-    throw agentDiagnostics.AGENT_R0959({ message: "[vitehub] defineAgent({ box }) requires a Node.js host. Workers and Deno hosts cannot start provider Drivers." })
+    throw agentDiagnostics.AGENT_R0959({ message: "[vitehub] defineAgent({ sandbox }) requires a Node.js host. Workers and Deno hosts cannot start provider Drivers." })
   }
 }
 
@@ -2221,7 +2239,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { box, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
   const capabilitiesResolver = hasRuntimeType(capabilities, "function")
@@ -2254,7 +2272,7 @@ function defineBaseAgent<
     hasWorkspace: false,
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
-  if (box !== undefined) validateAgentBox(box, driver, { hasWorkspace: Boolean(workspace) })
+  if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
@@ -2266,7 +2284,7 @@ function defineBaseAgent<
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
           ? await (providerAdapter ??= import("#vitehub/agent/provider-agent").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
-            box,
+            sandbox,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
             cwd: driver.cwd,
@@ -2282,6 +2300,7 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
+            retention: driver.retention,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
           })))
@@ -2307,7 +2326,7 @@ function defineBaseAgent<
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
-    box,
+    sandbox,
     ...(options.budget ? { budget: options.budget } : {}),
     channels,
     chat,
@@ -2328,7 +2347,7 @@ function defineBaseAgent<
     async status(context, statusOptions) {
       const checkedAt = new Date().toISOString()
       if (driver.kind !== "provider") return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported" }
-      if (box) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Box is not supported." }
+      if (sandbox) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Sandbox is not supported." }
       const { inspectAgentProvider } = await import("#vitehub/agent/provider-agent")
       return inspectAgentProvider(driver, {
         ...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
@@ -2388,12 +2407,27 @@ function createSyntheticWorkspaceRun<
   definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>,
 ): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
   const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-    let release = await acquireAgentCapacity(definition, context.input.abortSignal)
+    // Keep the budget passed to the invocation context owned by this synthetic
+    // run, including unconstrained runs where the context's default is used.
+    const executionBudget = createExecutionBudget({
+      ...(context.input.executionBudget || {}),
+      ...(context.input.timeout !== undefined && context.input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + context.input.timeout } : {}),
+      signal: context.input.abortSignal,
+    })
+    const invocationInput = {
+      ...context.input,
+      abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+    }
+    let release: (() => void) | undefined
+    let budgetDeferred = false
+    const disposeBudget = () => executionBudget?.dispose()
     try {
+      context = { ...context, input: invocationInput }
+      release = await acquireAgentCapacity(definition, invocationInput.abortSignal)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input, "run", undefined, undefined, executionBudget)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2413,21 +2447,22 @@ function createSyntheticWorkspaceRun<
         await Promise.allSettled([...new Set(eagerStreams)].map(stream => cancellableAsyncIterableSource(stream).cancel()))
       }
       const output = textOutput ?? result
-      if (!release) return output
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
-        const response = await withResponseCleanup(output, async () => finish(), { abortSignal: context.input.abortSignal })
+        const response = await withResponseCleanup(output, async () => { disposeBudget(); finish?.() }, { abortSignal: context.input.abortSignal })
+        budgetDeferred = true
         release = undefined
         return response
       }
       if (isAsyncIterable(output)) {
         const finish = release
         const source = cancellableAsyncIterableSource(output)
-        const streamed = withCapabilityCleanup(source.stream, async () => finish(), {
+        const streamed = withCapabilityCleanup(source.stream, async () => { disposeBudget(); finish?.() }, {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
+        budgetDeferred = true
         release = undefined
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
@@ -2444,7 +2479,8 @@ function createSyntheticWorkspaceRun<
           finished = true
           context.input.abortSignal?.removeEventListener("abort", onAbort)
           await Promise.allSettled([...sources].filter(source => source !== completedSource).map(source => source.cancel(reason)))
-          capacityRelease()
+          capacityRelease?.()
+          disposeBudget()
         }
         const onAbort = () => void finish(context.input.abortSignal?.reason).catch(() => {})
         const wrapStream = (stream: AsyncIterable<unknown>) => {
@@ -2549,6 +2585,7 @@ function createSyntheticWorkspaceRun<
           else context.input.abortSignal?.addEventListener("abort", onAbort, { once: true })
           const preserved = resultWithPreservedProperties(output, descriptors)
           release = undefined
+          budgetDeferred = true
           return preserved
         }
       }
@@ -2556,6 +2593,7 @@ function createSyntheticWorkspaceRun<
     }
     finally {
       release?.()
+      if (!budgetDeferred) disposeBudget()
     }
   }
   return Object.assign(run, { [syntheticWorkspaceRun]: true })
@@ -3481,6 +3519,7 @@ type AgentInvocationContext<
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
   executionBudget?: ReturnType<typeof createExecutionBudget>
+  executionBudgetActive: boolean
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4419,7 +4458,9 @@ async function parseAgentInputData<TInput extends AgentRunInput<unknown>>(
 ): Promise<TInput> {
   const schema = definition?.[baseAgentData]
   if (!schema) return input
-  return copyAgentInvocationCallerAbortSignal(input, { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") })
+  const parsed = { ...input, data: await parseStandardSchema(schema, input.data, "Agent input data") }
+  transferParsedAgentWorkflowInput(input, parsed)
+  return copyAgentInvocationCallerAbortSignal(input, parsed)
 }
 
 // Controller cancellation is internal unless the caller supplied its own signal.
@@ -4433,7 +4474,13 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget?: ReturnType<typeof createExecutionBudget>,
+  executionBudget: ReturnType<typeof createExecutionBudget> | undefined = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -4833,7 +4880,8 @@ async function createAgentInvocationContext<
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
         if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
-        transformed = resolveCapabilityCli
+        // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
+        transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
           ? { tools: availableTools, originalNames: new Map(Object.keys(availableTools || {}).map(name => [name, name])) }
           : await applyCapabilityToolTransforms(availableTools, capabilities.toolTransforms)
       }
@@ -4856,7 +4904,8 @@ async function createAgentInvocationContext<
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
+    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object")
+      && !(Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string"))
       ? configuredWorkspace.commit
       : undefined
     const workspaceInstructions = workspaceOptions && activeWorkspace
@@ -4946,6 +4995,7 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       executionBudget,
+      executionBudgetActive: executionBudget !== undefined,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
@@ -5001,8 +5051,9 @@ async function createAgentInvocationContext<
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
     capabilityPreparationPending = false
     await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
+    const parentAttributes = await linkAgentInvocationParent(invocation)
     await traceAgentInvocationStart(toTraceContext(invocation), replayInput, replayHasContext,
-      capabilities.input.abortSignal !== input.abortSignal ? true : replayCallerAbortSignal)
+      capabilities.input.abortSignal !== input.abortSignal ? true : replayCallerAbortSignal, parentAttributes)
     try {
       await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
     }
@@ -5127,6 +5178,90 @@ function toTraceContext<
   }
 }
 
+/** The scope in which an Invocation runs its Driver and outcome hooks. An Invocation started in it becomes a child. */
+function agentInvocationScope<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AgentInvocationScope {
+  const journal = invocation.invocationJournal
+  return {
+    ...(invocation.telemetryAgent.name ? { agentName: invocation.telemetryAgent.name } : {}),
+    ...(journal
+      ? {
+          journal: {
+            id: journal.id,
+            // The trace ID before the journal derives the stored ID from it, so a child derives the same stored ID.
+            get traceId() { return journal.context.trace?.id },
+            get contextTraceId() { return invocation.context.trace?.id },
+          },
+        }
+      : {}),
+    ...(invocation.run?.runId ? { runId: invocation.run.runId } : {}),
+    trace: async event => await traceAgentEvent(toTraceContext(invocation), event),
+  }
+}
+
+const agentInvocationParents = new WeakMap<object, AgentInvocationScope>()
+
+/**
+ * Links an Invocation to the one whose Driver or outcome hook started it. The parent records
+ * `agent.invocation.child.start`, and the returned `agent.invocation.parent.*` attributes go on the child's
+ * `agent.invocation.start`.
+ */
+async function linkAgentInvocationParent<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<Record<string, string>> {
+  const parent = activeAgentInvocationScope()
+  if (!parent) return {}
+  agentInvocationParents.set(invocation, parent)
+  await parent.trace({
+    attributes: {
+      ...agentInvocationLinkAttributes(agentInvocationScope(invocation), "agent.invocation.child"),
+      "gen_ai.operation.name": "invoke_agent",
+      ...(invocation.telemetryAgent.name ? { "gen_ai.agent.name": invocation.telemetryAgent.name } : {}),
+    },
+    name: "agent.invocation.child.start",
+    type: "run",
+  })
+  return agentInvocationLinkAttributes(parent, "agent.invocation.parent")
+}
+
+/** Records the outcome of a child Invocation on its parent as `agent.invocation.child.finish`. */
+async function traceAgentInvocationChildFinish<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  invocation: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  status: "cancelled" | "completed" | "failed",
+  durationMs: number,
+  error?: unknown,
+): Promise<void> {
+  const parent = agentInvocationParents.get(invocation)
+  if (!parent) return
+  await parent.trace({
+    attributes: {
+      ...agentInvocationLinkAttributes(agentInvocationScope(invocation), "agent.invocation.child"),
+      "agent.invocation.child.durationMs": durationMs,
+      "agent.invocation.child.status": status,
+      ...(error !== undefined ? { "error.message": agentErrorMessage(error) } : {}),
+      "gen_ai.operation.name": "invoke_agent",
+      ...(invocation.telemetryAgent.name ? { "gen_ai.agent.name": invocation.telemetryAgent.name } : {}),
+    },
+    name: "agent.invocation.child.finish",
+    type: status === "failed" ? "error" : "run",
+  })
+}
+
+/** A structured result that `result.text` cannot carry, such as `driver.ask` answers: a plain object or an array. */
+function agentStructuredResult(result: unknown, text: string | undefined): unknown {
+  if (text !== undefined || result === undefined) return undefined
+  if (Array.isArray(result)) return result
+  if (!isRuntimeRecord(result)) return undefined
+  const prototype: unknown = Object.getPrototypeOf(result)
+  return prototype === Object.prototype || prototype === null ? result : undefined
+}
+
 
 function maybeTraceAgentStream<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -5221,7 +5356,7 @@ function withEagerStreamUsageExtensions<
         const usageRecord = usageRecordFromStreamChunk(chunk, result)
         if (!usageRecord) {
           if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-            const fallbackUsage = await runExtensions(await resolveAgentUsageRecord(result, context.run))
+            const fallbackUsage = await runExtensions(await resolveAgentUsageRecordDuringStream(result, context.run))
             if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk
@@ -6730,11 +6865,12 @@ async function finishAgentInvocation<
             owner: "agent",
             phase: failed ? "error" : "finish",
           }, async () => {
-            outcomeHookResult = failed
+            // An Invocation that the hook starts, such as `runAgent()` in `agent:finish`, becomes a child of this one.
+            outcomeHookResult = await runInAgentInvocationScope(agentInvocationScope(context), async () => failed
               // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
               ? await outcomeHook?.(await createAgentErrorHookEvent(hookFinishEvent, hookContext) as never)
               // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-              : await outcomeHook?.(await createAgentFinishHookEvent(hookFinishEvent, hookContext) as never)
+              : await outcomeHook?.(await createAgentFinishHookEvent(hookFinishEvent, hookContext) as never))
           })
           if (outcomeHookResult && !hookContext.input.abortSignal?.aborted) {
             const outcomeHookIntents: AgentChannelDeliveryEffectIntent[] = []
@@ -6766,6 +6902,7 @@ async function finishAgentInvocation<
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         ...(context.intercepted ? { "agent.intercepted": true, "result.output": context.intercepted.value } : {}),
+        ...(!context.intercepted && agentStructuredResult(result, text) !== undefined ? { "result.output": result } : {}),
         "result.hasValue": result !== undefined,
         "result.text": text,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
@@ -6776,6 +6913,7 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
+    await traceAgentInvocationChildFinish(context, status, durationMs, failed ? error : undefined)
     await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
@@ -6795,6 +6933,7 @@ async function finishAgentInvocation<
     if (status === "cancelled") {
       await traceAgentInvocationCancelled(toTraceContext(context))
     }
+    await traceAgentInvocationChildFinish(context, status, durationMs, failed ? error : finishError)
     await context.activity?.update(status, failed ? error : finishError)
     await context.invocationJournal?.finish(status, failed ? error : finishError)
     if (closeError !== undefined && !throwingCloseError) {
@@ -7126,6 +7265,9 @@ async function executeAgentInvocationWithCapacityLease<
         options.onFinish?.({ error, status: "error" })
         throw error
       }
+      finally {
+        executionBudget?.dispose()
+      }
     },
   )
 
@@ -7163,8 +7305,10 @@ async function executeAgentInvocationWithCapacityLease<
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
       throw new Error("Could not persist the Invocation running state.")
     }
+    // An Invocation that the Driver starts with `runAgent()` becomes a child of this one.
+    const scope = agentInvocationScope(invocation)
     if (customRun) {
-      result = await agent.run(invocation)
+      result = await runInAgentInvocationScope(scope, () => agent.run(invocation))
     }
     else if (options.kind === "stream"
       && adapter?.stream
@@ -7172,13 +7316,16 @@ async function executeAgentInvocationWithCapacityLease<
         invocation.context.get(finalChannelOutputContextKey) !== true
         || invocation.context.get(progressSummaryOutputContextKey) === true
       )) {
+      const stream = adapter.stream.bind(adapter)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      result = await adapter.stream(adapterContext as never)
+      result = await runInAgentInvocationScope(scope, () => stream(adapterContext as never))
     }
     else {
+      const generate = adapter!.generate.bind(adapter)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      result = await adapter!.generate(adapterContext as never)
+      result = await runInAgentInvocationScope(scope, () => generate(adapterContext as never))
     }
+    if (isAsyncIterable(result)) result = scopedAgentAsyncIterable(scope, result)
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
@@ -7209,7 +7356,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.messages = reminderTranscript
             invocation.prompt = undefined
             try {
-              result = await agent.run(invocation)
+              result = await runInAgentInvocationScope(agentInvocationScope(invocation), () => agent.run(invocation))
             }
             finally {
               invocation.input = original.input
@@ -7223,7 +7370,7 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.messages = reminderTranscript
             reminderContext.prompt = undefined
             if (options.kind === "run" && !options.renderOutput) reminderContext.nativeStructuredOutput = false
-            result = await adapter!.generate(reminderContext as never)
+            result = await runInAgentInvocationScope(agentInvocationScope(invocation), () => adapter!.generate(reminderContext as never))
           }
         }
       }
@@ -7264,7 +7411,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.input = reminderInput
             invocation.messages = reminderTranscript
             invocation.prompt = undefined
-            try { nextResult = await agent.run(invocation) }
+            try { nextResult = await runInAgentInvocationScope(agentInvocationScope(invocation), () => agent.run(invocation)) }
             finally { invocation.input = original.input; invocation.messages = original.messages; invocation.prompt = original.prompt }
           }
           else {
@@ -7272,7 +7419,7 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.input = reminderInput
             reminderContext.messages = reminderTranscript
             reminderContext.prompt = undefined
-            nextResult = await adapter!.generate(reminderContext as never)
+            nextResult = await runInAgentInvocationScope(agentInvocationScope(invocation), () => adapter!.generate(reminderContext as never))
           }
           const settled = await settleDeliveryReminderResult(nextResult, customRun, invocation)
           if (settled) {
@@ -8358,24 +8505,23 @@ async function executeAgentInvocation<
   }
   const executionBudget = executionBudgetHasConstraints(input)
     ? createExecutionBudget({
-      ...(input.executionBudget || {}),
-      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Timeout is an optional compatibility input that tightens the shared budget.
-      ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-      signal: input.abortSignal,
-    })
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
     : undefined
-  if (executionBudget) {
-    const callerAbortSignal = agentInvocationCallerAbortSignal(input)
-    const budgetedInput = {
-      ...input,
-      abortSignal: input.abortSignal
+  const callerAbortSignal = agentInvocationCallerAbortSignal(input)
+  const budgetInput = {
+    ...input,
+    abortSignal: executionBudget
+      ? input.abortSignal
         ? AbortSignal.any([input.abortSignal, executionBudget.signal])
-        : executionBudget.signal,
-    }
-    transferParsedAgentWorkflowInput(input, budgetedInput)
-    input = budgetedInput
-    markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
+        : executionBudget.signal
+      : input.abortSignal,
   }
+  markAgentInvocationCallerAbortSignal(budgetInput, callerAbortSignal)
+  transferParsedAgentWorkflowInput(input, budgetInput)
+  input = budgetInput
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
@@ -8405,15 +8551,20 @@ async function executeAgentInvocation<
       : undefined
   }
   catch (error) {
-    if (preparedInvocation) {
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
-      await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+    try {
+      if (preparedInvocation) {
+        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+        const workflowExecution = Boolean((context as AgentRuntimeContext & { [agentWorkflowExecutionContextKey]?: boolean })[agentWorkflowExecutionContextKey])
+        await finishPreparedInvocationFailure(preparedInvocation, error, workflowExecution)
+      }
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      throw error
     }
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    throw error
+    finally {
+      executionBudget.dispose()
+    }
   }
   if (!release) {
     try {
@@ -8425,10 +8576,15 @@ async function executeAgentInvocation<
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity, executionBudget)
     }
     catch (error) {
-      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-      await invocationJournal?.finish(status, error)
-      await activity?.update(status, error)
-      throw error
+      try {
+        const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+        await invocationJournal?.finish(status, error)
+        await activity?.update(status, error)
+        throw error
+      }
+      finally {
+        executionBudget.dispose()
+      }
     }
   }
 
@@ -8458,11 +8614,16 @@ async function executeAgentInvocation<
     }, preparedInvocation, invocationJournal, activity, executionBudget)
   }
   catch (error) {
-    const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
-    await invocationJournal?.finish(status, error)
-    await activity?.update(status, error)
-    releaseOnce()
-    throw error
+    try {
+      const status = invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed"
+      await invocationJournal?.finish(status, error)
+      await activity?.update(status, error)
+      releaseOnce()
+      throw error
+    }
+    finally {
+      executionBudget.dispose()
+    }
   }
 }
 
@@ -8779,7 +8940,13 @@ export async function runAgent<
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
   // Preserve the caller's runtime-config subtype through standalone context creation.
-  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
+  // that the generated routes give Agents. Capabilities from the caller override them key by key.
+  const hostCapabilities = agentHostCapabilities()
+  const runtimeContext = hostCapabilities
+    ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
+    : callerContext
   const runtime = createRuntimeContext({
     ...runtimeContext,
     runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,

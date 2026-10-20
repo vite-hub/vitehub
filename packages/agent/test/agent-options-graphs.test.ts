@@ -116,7 +116,8 @@ it("preserves array accessors in callback and public option copies", () => {
 })
 
 it("preserves non-writable array length in callback and public option copies", () => {
-  const entries = [1, , 3]
+  const entries = [1, 2, 3]
+  delete entries[1]
   Object.defineProperty(entries, "length", { writable: false })
   const configure = vi.fn((_options: { entries: (number | undefined)[] }) => defineAgent({ driver: "codex" }))
   const preset = defineAgent({ options: { entries }, configure })

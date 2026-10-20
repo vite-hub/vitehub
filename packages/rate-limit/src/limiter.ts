@@ -152,6 +152,11 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   }
 }
 
+// A prototype must not set a policy field, so read only own properties.
+function ownOption(options: CreateRateLimiterOptions, key: "enforcement" | "failure" | "limit" | "window"): unknown {
+  return Object.hasOwn(options, key) ? Reflect.get(options, key) : undefined
+}
+
 function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
   policy: CreateRateLimiterOptions
   capabilities: RateLimitDriverCapabilities
@@ -167,17 +172,19 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
   }
   const peek = Reflect.get(driver, "peek") as CreateRateLimiterOptions["driver"]["peek"]
   const reset = Reflect.get(driver, "reset") as CreateRateLimiterOptions["driver"]["reset"]
+  // SAFETY: normalizeRateLimitPolicy() validates every policy field of this snapshot.
+  const policy = {
+    driver,
+    limit: ownOption(options, "limit"),
+    window: ownOption(options, "window"),
+    enforcement: ownOption(options, "enforcement"),
+    failure: ownOption(options, "failure"),
+    name: Reflect.get(options, "name"),
+  } as CreateRateLimiterOptions
   const capabilities = Reflect.get(driver, "capabilities") as RateLimitDriverCapabilities
   if (!capabilities || typeof capabilities !== "object") {
     return {
-      policy: {
-        driver,
-        limit: Reflect.get(options, "limit"),
-        window: Reflect.get(options, "window"),
-        enforcement: Reflect.get(options, "enforcement"),
-        failure: Reflect.get(options, "failure"),
-        name: Reflect.get(options, "name"),
-      },
+      policy,
       capabilities,
       driverName: Reflect.get(driver, "name"),
       consume,
@@ -193,14 +200,7 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
   }
   if (windows !== undefined) Object.assign(inspectedCapabilities, { windows })
   return {
-    policy: {
-      driver,
-      limit: Reflect.get(options, "limit"),
-      window: Reflect.get(options, "window"),
-      enforcement: Reflect.get(options, "enforcement"),
-      failure: Reflect.get(options, "failure"),
-      name: Reflect.get(options, "name"),
-    },
+    policy,
     capabilities: inspectedCapabilities,
     driverName: Reflect.get(driver, "name"),
     consume,

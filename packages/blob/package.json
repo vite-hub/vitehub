@@ -153,12 +153,6 @@
       "require": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
-    "./runtime/cloudflare-vite": {
-      "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js",
-      "require": "./dist/runtime/cloudflare-vite.js",
-      "default": "./dist/runtime/cloudflare-vite.js"
-    },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
       "import": "./dist/runtime/dev.js",
@@ -170,12 +164,6 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/vercel-vite": {
-      "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js",
-      "require": "./dist/runtime/vercel-vite.js",
-      "default": "./dist/runtime/vercel-vite.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
@@ -200,7 +188,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/blob#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {

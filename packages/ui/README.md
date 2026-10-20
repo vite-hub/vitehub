@@ -9,15 +9,14 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | Import                  | Use it for                                                                                | Application responsibility                                                                     |
 | ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `@vite-hub/ui`          | Styled chat, prompt, Markdown, session, invocation, trace, diff, and file-tree components | State, transport, persistence, routes, and authorization                                       |
+| `@vite-hub/ui/agent-chat` | Import an individual component such as `AgentChat` without the root barrel | State, transport, persistence, routes, and authorization |
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, and message jumps            | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/nuxt`     | Nuxt module setup                                                                         | Installs the Nuxt UI module, registers ViteHub UI components, and loads the package stylesheet |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 
 `@vite-hub/ui/primitive-rail` holds the icon rail and the square primitive icons that ViteHub docs and the Console share. It is internal: it can change in any release and the Nuxt module does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
 
-The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Import them from `@vite-hub/ui`, for example `import { Trace, TraceLine } from "@vite-hub/ui"`. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Set the Nuxt module's `prefix` option, for example `viteHubUI: { prefix: "Vh" }`, when the application already has a `Message` or `Trace` component.
-
-Import every component from the package root. The package marks only `styles.css` as a side effect, so bundlers remove the components that you do not use.
+Component entries use kebab-case and export the same component object as the package root. Use them when a development import should stay out of the root barrel; the root remains the default for applications that use several components.
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
@@ -38,7 +37,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `AgentChat`, `AgentMarkdown`, and `AgentInvocation`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
+The module installs Nuxt UI, includes `@vite-hub/ui/styles.css`, and auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. It also adds the icons that these components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed.
 
 ## Vue with Vite
 
@@ -123,6 +122,8 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - [Diff](https://vitehub.dev/docs/ui/diff) and [file-tree views](https://vitehub.dev/docs/ui/file-tree)
 
 ## Capability inspector
+
+The Agent Invocation list, view, inspector, timeline, and Capability inspector render ViteHub runtime records, so they live in the Console in `vite-hub`. Build an application-owned inspection page from the parts, such as `Trace` and `CodeBlock`, and from `ToolList`, which also documents Capability tool contracts. `ToolList` emits `select` with the tool name when a viewer chooses one. The model maker and provider marks of the Console come from [Lobe Icons](https://github.com/lobehub/lobe-icons) (MIT). `src/internal/brand-icons.ts` keeps their license notice.
 
 `AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
 

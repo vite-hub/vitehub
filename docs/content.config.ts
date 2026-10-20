@@ -21,6 +21,8 @@ const pageSchema = z.object({
   icon: z.string().optional(),
   image: z.string().optional(),
   layout: z.enum(["article", "tutorial"]).optional(),
+  /** Shows the file tree and code of the current step in a sticky panel beside the prose. */
+  codePanel: z.boolean().optional(),
   links: z.array(z.object({
     label: z.string(),
     icon: z.string(),

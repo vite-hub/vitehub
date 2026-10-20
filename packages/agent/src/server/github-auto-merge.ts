@@ -7,17 +7,17 @@ import { branchRules, getReviewThread, repoRef, type CiRunRef, type GitHubProvid
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
-interface GithubMentionToken {
+interface GitHubMentionToken {
   attrSet: (name: string, value: string) => void
-  children?: GithubMentionToken[] | null
+  children?: GitHubMentionToken[] | null
   content: string
   info: string
   markup: string
   type: string
 }
 
-interface GithubMentionState {
-  tokens: GithubMentionToken[]
+interface GitHubMentionState {
+  tokens: GitHubMentionToken[]
 }
 
 const actor = v.nullable(v.object({ login: v.string(), __typename: v.string() }))
@@ -121,7 +121,7 @@ export interface GitHubPullRequestOperations {
   readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
   resolveThread(id: string): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
-  push(): Promise<void>
+  push(): Promise<string>
   refreshDependencies(): Promise<void>
   commitRepair(input: GitHubRepairCommit): Promise<string>
 }
@@ -169,7 +169,7 @@ async function githubMentionTokens(body: string): Promise<string[]> {
       markdownItPlugins: [md => {
         // Remove actual inline comments before Comark falls back to raw text.
         // Escaped or entity-encoded delimiters remain visible text tokens.
-        md.core.ruler.after("linkify", "github-mention-comments", (state: GithubMentionState) => {
+        md.core.ruler.after("linkify", "github-mention-comments", (state: GitHubMentionState) => {
           for (const token of state.tokens) {
             if (!token.children) continue
             token.children = token.children.filter(child => child.type !== "html_inline" || !child.content.startsWith("<!--"))
@@ -487,6 +487,7 @@ export function createGitHubPullRequestOperations(
       const pushedHead = await options.push()
       if (!/^[a-f\d]{40}$/i.test(pushedHead)) throw new Error("The host push did not return a verified commit SHA.")
       expectedHeadOid = pushedHead
+      return pushedHead
     },
   }
 }

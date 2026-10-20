@@ -2899,7 +2899,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
             input: {
               ...accepted.input,
               ...pullRequestCommandInput(acceptedCommand, refreshed),
-              context: { ...accepted.input.context, github: acceptedCommand, pullRequest: refreshed },
+              context: { ...accepted.input.context, forge: accepted.input.context?.forge || accepted.input.context?.codeHost, github: acceptedCommand, pullRequest: refreshed },
             },
             webhook: {
               ...ownership,
@@ -3239,9 +3239,11 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
   })
   if (appOptions) {
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
-    const access: ForgeAccess = async (context, scope) =>
+    const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
+      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
+      return token ? { token, baseUrl: appOptions.apiBaseUrl } : undefined
+    }
     Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
   }
   return channel

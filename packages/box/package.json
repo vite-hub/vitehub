@@ -59,7 +59,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/box#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/box#build && vp test"
   },
   "dependencies": {
@@ -68,6 +68,7 @@
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",

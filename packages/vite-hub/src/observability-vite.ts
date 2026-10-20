@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 
@@ -132,8 +132,7 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         nitro?: { preset?: string }
       }
       const agent = resolved.agent ?? target.agent
-      const hosting = [resolved.vitehub?.preset, resolved.preset, resolved.nitro?.preset, target.hosting, process.env.VITEHUB_HOSTING]
-        .map(preset => getHostingProvider(preset)).find(Boolean)
+      const hosting = resolveHost({ hosting: resolved.vitehub?.preset ?? resolved.preset ?? target.hosting, nitro: resolved.nitro })
       if (agent && ((typeof agent === "object" && agent.runtime === "deno") || hosting === "netlify")) {
         throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability currently requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported." })
       }

@@ -59,7 +59,7 @@ it("releases public KV listings for every cached store and allows fresh use", as
   await populate("archive")
   vi.useFakeTimers()
   const [error, page] = await kv.list({ limit: 1 })
-  expect(error).toBeNull()
+  expect(error).toBeUndefined()
   expect(page?.cursor).toBeDefined()
   expect((await kv.store("archive").list({ limit: 1 }))[1]?.cursor).toBeDefined()
   expect(vi.getTimerCount()).toBe(2)
@@ -71,7 +71,7 @@ it("releases public KV listings for every cached store and allows fresh use", as
   for (const directory of fixture.opened) {
     await expect(directory.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
   }
-  expect((await kv.list({ limit: 1, cursor: page?.cursor }))[0]?.cause).toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+  expect((await kv.list({ limit: 1, cursor: page?.cursor }))[0]).toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
   expect((await kv.list({ limit: 1 }))[1]?.cursor).toBeDefined()
 })
 
@@ -101,7 +101,7 @@ it("releases a public listing that opens its directory after teardown", async ()
   resume()
 
   const [error] = await listing
-  expect(error?.cause).toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+  expect(error).toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
   await expect(fixture.opened[0]!.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
 })
 
@@ -109,6 +109,6 @@ it("does not open a lazy driver when teardown starts during store initialization
   await populate()
   const listing = kv.list({ limit: 1 })
   await disposeKVStores()
-  expect((await listing)[0]).not.toBeNull()
+  expect((await listing)[0]).toMatchObject({ code: "KV_OPERATION_FAILED" })
   expect(fixture.opened).toHaveLength(0)
 })

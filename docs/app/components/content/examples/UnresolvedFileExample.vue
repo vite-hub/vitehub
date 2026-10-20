@@ -17,5 +17,5 @@ ${end} incoming
 </script>
 
 <template>
-  <AgentUnresolvedFile :file="file" />
+  <UnresolvedFile :file="file" />
 </template>

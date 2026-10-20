@@ -8,6 +8,9 @@
   --vh-toc-width: 12rem;
   /* The reading measure of prose. Code, tables, and examples are wider. */
   --vh-content-width: 46rem;
+  /* DESIGN.md: Geist for product and docs UI. @nuxt/fonts serves both families. */
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --vh-ink: #09090b;
   --vh-paper: #fafafa;
 }
@@ -84,13 +87,19 @@ body {
   scroll-margin-top: calc(var(--ui-header-height, 56px) + 2rem);
 }
 
+/* The page header already spaces the body. The first block skips its top margin. A hidden duplicate h1 may come first. */
+.docs-content > [data-content-id] > :first-child,
+.docs-content > [data-content-id] > h1:first-child + * {
+  margin-top: 0;
+}
+
 .docs-content h2 + p,
 .docs-content h3 + p {
   margin-top: 0.75rem;
 }
 
 .docs-content table {
-  font-size: 0.925rem;
+  font-size: 0.875rem;
 }
 
 /* Long identifiers in prose break instead of widening the page on narrow phones. */
@@ -99,12 +108,9 @@ body {
   overflow-wrap: break-word;
 }
 
-.docs-content :where(h1, h2, h3) {
-  letter-spacing: 0;
-}
-
 .docs-content th {
-  font-weight: 650;
+  color: var(--ui-text-highlighted);
+  font-weight: 600;
 }
 
 @media (max-width: 640px) {

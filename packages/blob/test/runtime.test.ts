@@ -3,14 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
 import { blob } from "../src/runtime/storage.ts"
-import { createBlobCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import {
+  clearActiveCloudflareEnv,
+  runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
   setBlobRuntimeConfig,
   setBlobRuntimeStorage,
 } from "../src/runtime/state.ts"
-import type { BlobEnsureOptions, BlobResult } from "../src/types.ts"
+import type { BlobEnsureOptions, BlobResult, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 it("forwards response options through the runtime Blob helper", async () => {
   const storage = { serve: vi.fn(async () => [null, null] as const) }
@@ -20,6 +21,19 @@ it("forwards response options through the runtime Blob helper", async () => {
   expect(await blob.serve(event, "original", options)).toEqual([null, null])
   expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
 })
+
+/** Runs one request the way the Nitro Cloudflare middleware does: the request env is active for the whole handler. */
+async function cloudflareRequest<T>(blobConfig: ResolvedBlobModuleOptions, env: Record<string, unknown>, handler: () => Promise<T>): Promise<T> {
+  return await runWithActiveCloudflareEnv(env, async () => {
+    try {
+      setBlobRuntimeConfig(blobConfig)
+      return await handler()
+    }
+    finally {
+      clearActiveCloudflareEnv()
+    }
+  })
+}
 
 function expectBlobSuccess<TResult>(result: BlobResult<TResult>): TResult {
   const [error, value] = result
@@ -1055,59 +1069,37 @@ describe("blob runtime", () => {
     ])
   })
 
-  it("binds Blob access inside the Cloudflare worker wrapper", async () => {
-    const worker = createBlobCloudflareWorker({
-      app: async (request) => {
-        const url = new URL(request.url)
-        if (url.pathname === "/put") {
-          expectBlobSuccess(await blob.put("notes/worker.txt", "hello"))
-          return Response.json({ ok: true })
-        }
-
-        return Response.json(expectBlobSuccess(await blob.list()))
-      },
-      blob: {
-        store: {
-          binding: "BLOB",
-          bucketName: "assets",
-          driver: "cloudflare-r2",
-        },
-      },
-    })
-
+  it("binds Blob access to the active Cloudflare request env", async () => {
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
     const env = { BLOB: createMemoryBucket() }
-    const put = await worker.fetch(new Request("https://example.com/put"), env, {})
-    const list = await worker.fetch(new Request("https://example.com/list"), env, {})
+    await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.put("notes/worker.txt", "hello")))
+    const list = await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))
 
-    expect(await put.json()).toEqual({ ok: true })
-    expect(await list.json()).toMatchObject({
+    expect(list).toMatchObject({
       blobs: [{
         pathname: "notes/worker.txt",
       }],
     })
   })
 
-  it("rehydrates R2 HTTP fallback secrets from the Cloudflare worker env", async () => {
-    const worker = createBlobCloudflareWorker({
-      app: async () => Response.json(expectBlobSuccess(await blob.list())),
-      blob: {
-        store: {
-          accountId: "********",
-          accessKeyId: "********",
-          binding: "BLOB",
-          bucketName: "********",
-          driver: "cloudflare-r2",
-          secretAccessKey: "********",
-        },
+  it("rehydrates R2 HTTP fallback secrets from the Cloudflare request env", async () => {
+    const config: ResolvedBlobModuleOptions = {
+      store: {
+        accountId: "********",
+        accessKeyId: "********",
+        binding: "BLOB",
+        bucketName: "********",
+        driver: "cloudflare-r2",
+        secretAccessKey: "********",
       },
-    })
+    }
 
-    await worker.fetch(new Request("https://example.com/list"), {
+    await cloudflareRequest(config, {
       CLOUDFLARE_R2_ACCESS_KEY_ID: "worker-access-key",
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: "worker-secret-key",
       R2_ACCOUNT_ID: "worker-account",
       R2_BUCKET_NAME: "worker-assets",
-    }, {})
+    }, async () => expectBlobSuccess(await blob.list()))
 
     expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
       accountId: "worker-account",
@@ -1117,33 +1109,30 @@ describe("blob runtime", () => {
     }))
   })
 
-  it("keeps R2 HTTP fallback credentials isolated across worker envs", async () => {
-    const worker = createBlobCloudflareWorker({
-      app: async () => Response.json(expectBlobSuccess(await blob.list())),
-      blob: {
-        store: {
-          accountId: "********",
-          accessKeyId: "********",
-          binding: "BLOB",
-          bucketName: "********",
-          driver: "cloudflare-r2",
-          secretAccessKey: "********",
-        },
+  it("keeps R2 HTTP fallback credentials isolated across request envs", async () => {
+    const config: ResolvedBlobModuleOptions = {
+      store: {
+        accountId: "********",
+        accessKeyId: "********",
+        binding: "BLOB",
+        bucketName: "********",
+        driver: "cloudflare-r2",
+        secretAccessKey: "********",
       },
-    })
+    }
 
-    await worker.fetch(new Request("https://example.com/list"), {
+    await cloudflareRequest(config, {
       CLOUDFLARE_R2_ACCESS_KEY_ID: "first-access-key",
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: "first-secret-key",
       R2_ACCOUNT_ID: "first-account",
       R2_BUCKET_NAME: "first-assets",
-    }, {})
-    await worker.fetch(new Request("https://example.com/list"), {
+    }, async () => expectBlobSuccess(await blob.list()))
+    await cloudflareRequest(config, {
       CLOUDFLARE_R2_ACCESS_KEY_ID: "second-access-key",
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: "second-secret-key",
       R2_ACCOUNT_ID: "second-account",
       R2_BUCKET_NAME: "second-assets",
-    }, {})
+    }, async () => expectBlobSuccess(await blob.list()))
 
     expect(filesSdkMock.r2).toHaveBeenNthCalledWith(1, expect.objectContaining({
       accountId: "first-account",
@@ -1159,43 +1148,21 @@ describe("blob runtime", () => {
     }))
   })
 
-  it("keeps the Cloudflare binding available for waitUntil Blob tasks", async () => {
-    const waitUntilPromises: Promise<unknown>[] = []
-    const worker = createBlobCloudflareWorker({
-      app: async (request, context) => {
-        const workerContext = context as { waitUntil?: (promise: Promise<unknown>) => void } | undefined
-        const url = new URL(request.url)
-        if (url.pathname === "/defer") {
-          workerContext?.waitUntil?.((async () => {
-            await Promise.resolve()
-            expectBlobSuccess(await blob.put("notes/deferred.txt", "hello"))
-          })())
-          return Response.json({ ok: true })
-        }
-
-        return Response.json(expectBlobSuccess(await blob.list()))
-      },
-      blob: {
-        store: {
-          binding: "BLOB",
-          bucketName: "assets",
-          driver: "cloudflare-r2",
-        },
-      },
-    })
-
+  it("keeps the Cloudflare binding available for deferred Blob tasks", async () => {
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
     const env = { BLOB: createMemoryBucket() }
-    const deferred = await worker.fetch(new Request("https://example.com/defer"), env, {
-      waitUntil(promise) {
-        waitUntilPromises.push(promise)
-      },
+    let deferred: Promise<void> | undefined
+    await cloudflareRequest(config, env, async () => {
+      deferred = (async () => {
+        await Promise.resolve()
+        expectBlobSuccess(await blob.put("notes/deferred.txt", "hello"))
+      })()
     })
 
-    await Promise.all(waitUntilPromises)
-    const list = await worker.fetch(new Request("https://example.com/list"), env, {})
+    await deferred
+    const list = await cloudflareRequest(config, env, async () => expectBlobSuccess(await blob.list()))
 
-    expect(await deferred.json()).toEqual({ ok: true })
-    expect(await list.json()).toMatchObject({
+    expect(list).toMatchObject({
       blobs: [{
         pathname: "notes/deferred.txt",
       }],
@@ -1203,31 +1170,16 @@ describe("blob runtime", () => {
   })
 
   it("keeps Cloudflare bindings isolated across overlapping requests", async () => {
-    const worker = createBlobCloudflareWorker({
-      app: async (request) => {
-        const url = new URL(request.url)
-        const delay = Number(url.searchParams.get("delay") || "0")
-        if (delay > 0) {
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        expectBlobSuccess(await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname))
-        return Response.json({ ok: true })
-      },
-      blob: {
-        store: {
-          binding: "BLOB",
-          bucketName: "assets",
-          driver: "cloudflare-r2",
-        },
-      },
-    })
-
+    const config: ResolvedBlobModuleOptions = { store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } }
     const envA = { BLOB: createMemoryBucket() }
     const envB = { BLOB: createMemoryBucket() }
 
     await Promise.all([
-      worker.fetch(new Request("https://example.com/slow?delay=25"), envA, {}),
-      worker.fetch(new Request("https://example.com/fast"), envB, {}),
+      cloudflareRequest(config, envA, async () => {
+        await new Promise(resolve => setTimeout(resolve, 25))
+        expectBlobSuccess(await blob.put("notes/slow.txt", "/slow"))
+      }),
+      cloudflareRequest(config, envB, async () => expectBlobSuccess(await blob.put("notes/fast.txt", "/fast"))),
     ])
 
     setActiveCloudflareEnv(envA)

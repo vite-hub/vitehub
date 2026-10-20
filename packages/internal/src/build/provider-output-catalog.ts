@@ -52,9 +52,6 @@ interface ProviderRuntimeModulesByProduct {
     vercel?: string
     "vercel-definition-defaults"?: string
   }
-  "rate-limit": {
-    cloudflare?: string
-  }
 }
 
 export type ProviderOutputProduct = keyof ProviderRuntimeModulesByProduct
@@ -152,6 +149,14 @@ export class ProviderOutputCatalog {
 
   resetRuntimeContributions(): void {
     this.#runtimeContributions.clear()
+  }
+
+  resetRuntimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): void {
+    if (!generation) {
+      this.#runtimeContributions.delete(product)
+      return
+    }
+    this.#runtimeContributionsByGeneration.get(generation)?.delete(product)
   }
 
   createDeploymentGeneration(): ProviderDeploymentOutputGeneration {

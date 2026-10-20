@@ -228,9 +228,17 @@ const editor = useEditor({
 | Client call | Endpoint | Result |
 | --- | --- | --- |
 | Idle save | none | 2 s after the last edit, at most 10 s, and when the last client leaves. See [Configure](/docs/realtime/configure#control-saves). |
-| `realtime.save()` | `POST …?document=save` | Saves now, including every edit this client sent. Resolves `{ digest, document, issues, savedAt, savedBy, error }`. |
-| `realtime.refresh()` | `POST …?document=refresh` | Reloads the stored digest. If it changed, re-seeds the room and resets clients. Resolves `{ digest, reseeded }`. |
-| `realtime.history.checkpoint()` | `POST …?history=checkpoint` | Saves, then records a history entry through the adapter, in one room operation. Resolves the save plus `snapshot`. |
+| `realtime.save()` | `POST …?document=save` | Saves now, including every edit this client sent. Returns `[error, saved]`, where `saved` is `{ digest, document, issues, savedAt, savedBy, error }`. |
+| `realtime.refresh()` | `POST …?document=refresh` | Reloads the stored digest. If it changed, re-seeds the room and resets clients. Returns `[error, { digest, reseeded }]`. |
+| `realtime.history.checkpoint()` | `POST …?history=checkpoint` | Saves, then records a history entry through the adapter, in one room operation. Returns `[error, checkpoint]`, where `checkpoint` is the save plus `snapshot`. |
+
+Each call returns `[error, data]` and does not throw. `error.code` is a `RealtimeRequestErrorCode`; see [Realtime limits and errors](/docs/realtime/limits-and-errors).
+
+```ts
+const [error, saved] = await realtime.save()
+if (error) console.warn(error.code, error.why)
+else console.log(saved.digest)
+```
 
 Save and checkpoint requests send the client's Yjs state. The server answers
 `409` with `REALTIME_SYNC_PENDING` until it has received that state; the
@@ -266,6 +274,6 @@ retries; a path changed both locally and remotely takes the remote version and
 re-seeds the room.
 
 Disabling the composable destroys its document provider, disconnects Workspace
-events, clears queued notifications, and makes requests reject with
-`Realtime is disabled.` Enabling it reconnects both providers for the current
+events, clears queued notifications, and makes requests return
+`REALTIME_DISABLED`. Enabling it reconnects both providers for the current
 document.

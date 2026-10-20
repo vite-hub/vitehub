@@ -22,7 +22,9 @@ export interface ForgeAccessScope {
 }
 
 /** Resolves a repository-scoped GitHub token. A github() Channel with an `app` supplies one to its Agent. */
-export type ForgeAccess = (context: AgentCallbackContext, scope: ForgeAccessScope) => Promise<string | undefined>
+export interface ForgeAccessResult { token: string, baseUrl?: string }
+
+export type ForgeAccess = (context: AgentCallbackContext, scope: ForgeAccessScope) => Promise<ForgeAccessResult | undefined>
 
 /** Private key of the forge access on a github() Channel and on the Agent runtime context. */
 export const forgeAccessKey = Symbol.for("vitehub.agent.forgeAccess")
@@ -67,6 +69,15 @@ function isGitHubDotCom(baseUrl: string | undefined): boolean {
   return baseUrl === undefined || new URL(baseUrl).href === "https://api.github.com/"
 }
 
+function sameGitHubHost(left: string | undefined, right: string | undefined): boolean {
+  const root = (value: string | undefined) => {
+    if (!value) return "https://github.com"
+    const url = new URL(value)
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/api\/v3\/?$/, "").replace(/\/+$/, "")}`
+  }
+  return root(left) === root(right)
+}
+
 /**
  * Forge connection for one repository. GitHub on github.com uses the forge access of the Agent's
  * github() Channel first. Other forges, and Agents without that access, read Server Env.
@@ -76,10 +87,10 @@ export async function forgeConnection(
   input: { forge: ForgeKind, repository: string, baseUrl?: string, signal?: AbortSignal },
 ): Promise<{ forge: ForgeKind, baseUrl?: string, token: string }> {
   const { forge: kind, repository, baseUrl, signal } = input
-  const access = kind === "github" && isGitHubDotCom(baseUrl) ? readForgeAccess(context.runtimeContext) : undefined
+  const access = kind === "github" ? readForgeAccess(context.runtimeContext) : undefined
   if (access) {
-    const token = await access(context, { repository, signal })
-    if (token) return { forge: kind, baseUrl, token }
+    const result = await access(context, { repository, signal })
+    if (result && sameGitHubHost(baseUrl, result.baseUrl)) return { forge: kind, baseUrl: result.baseUrl ?? baseUrl, token: result.token }
   }
   const specs = forgeEnv[kind]
   // Keep the capability context object: Server Env is cached by its identity for one Invocation.
@@ -119,8 +130,8 @@ export interface ForgeGitScope {
 }
 
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
-function gitAuthEntries(repository: string, token: string): { key: string, value: string }[] {
-  const header = forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository, token }))
+function gitAuthEntries(repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
+  const header = forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository, token, baseUrl }))
   if (!header) return []
   const withoutSuffix = header.key.replace(/\.git\.extraheader$/, ".extraheader")
   return [header, { key: withoutSuffix, value: header.value }]
@@ -141,13 +152,14 @@ export async function forgeGitEnvironment(
   const access = readForgeAccess(runtimeContext)
   const repository = scope?.repository
   if (!access || !repository) return {}
-  const token = await access(context, signal ? { repository, signal } : { repository })
-  if (!token) return {}
-  const entries = gitAuthEntries(repository, token)
+  const result = await access(context, signal ? { repository, signal } : { repository })
+  if (!result) return {}
+  const { token, baseUrl } = result
+  const entries = gitAuthEntries(repository, token, baseUrl)
   const headRepository = scope.headRepository
   if (headRepository && headRepository.toLowerCase() !== repository.toLowerCase()) {
     const headToken = await access(context, signal ? { repository: headRepository, signal } : { repository: headRepository })
-    if (headToken) entries.push(...gitAuthEntries(headRepository, headToken))
+    if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
   }
   const env: Record<string, string> = {
     GH_TOKEN: token,

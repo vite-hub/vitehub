@@ -25,9 +25,9 @@ function createMissingDatabaseProxy<TSchema extends Record<string, unknown>>(nam
   // SAFETY: This unavailable-database proxy throws on every property read; no incomplete database escapes through it.
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
     get() {
-      throw databaseErrorDiagnostics.DATABASE_R0015({ message: name === "default"
-        ? "[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `database !== false`."
-        : `[vitehub] Database "${name}" is not configured.` })
+      throw name === "default"
+        ? databaseErrorDiagnostics.DATABASE_DISABLED()
+        : databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
     },
   }) as RuntimeDrizzleDatabase<TSchema>
 }
@@ -43,7 +43,7 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
 
   return createDrizzleSqliteAdapter(config, schema, {
     libsql: { createClient, drizzle: drizzleLibsql as never },
-    missingConnectionMessage: () => `[vitehub] Database "${name}" requires a Cloudflare D1 binding or \`db.connection.url\`.`,
+    missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
     resolveLocalUrl: resolveLocalSqliteUrl,
   })

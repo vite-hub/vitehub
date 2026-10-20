@@ -37,7 +37,7 @@ function checkDownloadSource(value: string): void {
 }
 const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links"]);
 const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern"]);
-const workspaceFields = new Set(["packages", "catalog", "catalogs", "catalogMode", "overrides", "packageExtensions", "patchedDependencies", "onlyBuiltDependencies", "ignoredBuiltDependencies", "neverBuiltDependencies", "allowBuilds"]);
+const workspaceFields = new Set(["packages", "catalog", "catalogs", "catalogMode", "overrides", "peerDependencyRules", "minimumReleaseAge", "minimumReleaseAgeExclude", "packageExtensions", "patchedDependencies", "onlyBuiltDependencies", "ignoredBuiltDependencies", "neverBuiltDependencies", "allowBuilds"]);
 
 function supportedSetting(key: string, value: unknown): boolean {
   const normalized = key.replace(/\[\]$/, "").replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);

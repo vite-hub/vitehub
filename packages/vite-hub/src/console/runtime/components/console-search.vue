@@ -6,7 +6,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
-import type { AgentInvocationListItem } from "@vite-hub/ui"
+import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
@@ -17,6 +17,7 @@ import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route
 import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import { resolveConsoleAgentCatalog } from "./console-agent-list";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -58,6 +59,8 @@ const props = defineProps<{
   /** Commands of the current page. Search lists them first, in an "Actions" group. */
   actions?: CommandPaletteItem[]
   agentNames?: string[]
+  /** Agent names that appear only in invocation history. Search lists them apart from the Agents. */
+  historicalAgentNames?: string[]
   agentsBase: string
   definitionsBase: string
   kvBase: string
@@ -74,6 +77,7 @@ const debouncedSearchTerm = ref("")
 const sections = ref<ConsoleSectionId[]>([])
 const installedNavigation = shallowRef<ConsoleNavigation>()
 const discoveredAgentNames = ref<string[]>([])
+const discoveredHistoricalAgentNames = ref<string[]>([])
 const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
 const kvItems = ref<ConsoleKVSearchItem[]>([])
 const kvSearchTruncated = ref(false)
@@ -87,6 +91,9 @@ const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
 
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value);
+const availableHistoricalAgentNames = computed(() =>
+  props.agentNames ? props.historicalAgentNames ?? [] : discoveredHistoricalAgentNames.value,
+);
 const inactiveSearchFilter: ConsoleSearchFilter = {};
 const searchFilter = computed<ConsoleSearchFilter>(() => {
   if (!agentsEnabled.value || !sessionSearchEnabled.value) return inactiveSearchFilter;
@@ -197,6 +204,17 @@ const groups = computed<CommandPaletteGroup[]>(() => [
           onSelect: () => selectAgent(name),
         })),
         label: "Agents",
+      }]
+    : []),
+  ...(agentsEnabled.value && availableHistoricalAgentNames.value.length
+    ? [{
+        id: "historical-agents",
+        items: availableHistoricalAgentNames.value.map(name => ({
+          icon: "i-ph-clock-counter-clockwise-light",
+          label: name,
+          onSelect: () => selectAgent(name),
+        })),
+        label: "Invocation history",
       }]
     : []),
   ...(definitionSearchItems.value.length
@@ -330,6 +348,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   navigationLoading.value = true
   if (discoverContent) {
     discoveredAgentNames.value = []
+    discoveredHistoricalAgentNames.value = []
     definitionItems.value = []
     kvItems.value = []
     kvSearchTruncated.value = false
@@ -345,13 +364,10 @@ async function loadNavigation(discoverContent = false): Promise<void> {
 
     if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
       const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
-      const names = Array.isArray(agentsValue?.agents)
-        ? agentsValue.agents.filter((name): name is string => {
-            return typeof name === "string" && Boolean(name.trim());
-          })
-        : [];
+      const catalog = resolveConsoleAgentCatalog(agentsValue)
       if (navigationRequest !== controller) return;
-      discoveredAgentNames.value = [...new Set(names)];
+      discoveredAgentNames.value = catalog.agents;
+      discoveredHistoricalAgentNames.value = catalog.historicalAgents;
     }
     if (discoverContent) await loadContent(installed, controller.signal)
     navigationError.value = undefined

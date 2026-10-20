@@ -595,7 +595,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain('"databases":{"definitions":[]')
+      // Without its own Database Definition, the app gets only the implicit default Database.
+      expect(generated).toContain('"name":"default","source":"implicit-default"')
       expect(generated).not.toContain("inherited/server/databases/config.ts")
     }
     finally {
@@ -1346,18 +1347,18 @@ describe("Agent invocation console", () => {
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["sandboxes", "workspaces"],
+        sections: ["sandbox-tasks", "workspaces"],
       })
       const config: {
         nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
         root: string
-        sandbox?: boolean
+        sandboxTask?: boolean
         workspace?: boolean
-      } = { root, sandbox: true, workspace: true }
+      } = { root, sandboxTask: true, workspace: true }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      config.sandbox = false
+      config.sandboxTask = false
       config.workspace = false
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
@@ -1379,15 +1380,15 @@ describe("Agent invocation console", () => {
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["databases", "sandboxes", "workspaces"],
+        sections: ["databases", "sandbox-tasks", "workspaces"],
       })
       const config: {
         database: false
         nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
         root: string
-        sandbox: false
+        sandboxTask: false
         workspace: false
-      } = { database: false, root, sandbox: false, workspace: false }
+      } = { database: false, root, sandboxTask: false, workspace: false }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
 
@@ -1410,14 +1411,14 @@ describe("Agent invocation console", () => {
       await mkdir(join(viteRoot, "src"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(projectRoot, "src/unrelated.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
-      await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["rate-limits", "sandboxes", "schedules"],
+        sections: ["rate-limits", "sandbox-tasks", "schedules"],
       })
       const config: { nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
 
@@ -1428,7 +1429,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
-      expect(generated).toContain(`"file":"app/src/preview.sandbox.ts","name":"preview","source":"vite-suffix"`)
+      expect(generated).toContain(`"file":"app/src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"`)
       expect(generated).not.toContain(`"name":"unrelated"`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/adhoc.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"file":"../`)
@@ -1439,17 +1440,17 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("serializes discovered Sandbox Definition metadata without starting a Sandbox", async () => {
+  it("serializes discovered Sandbox Task Definition metadata without starting a Sandbox", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-sandbox-host-"))
     try {
       await mkdir(join(root, "src"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(root, "src/preview.sandbox.ts"), `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
+      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["sandboxes"],
+        sections: ["sandbox-tasks"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1463,7 +1464,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandboxes":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")
     }
     finally {
@@ -1903,11 +1904,13 @@ describe("Agent invocation console", () => {
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
       agents: ["billing"],
+      invocationAgents: [],
     })
 
     scope[consoleProjectRootKey] = "/first"
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
       agents: ["review", "support"],
+      invocationAgents: [],
     })
   })
 
@@ -1930,7 +1933,8 @@ describe("Agent invocation console", () => {
     })
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: ["current"],
+      invocationAgents: ["archived"],
     })
     expect(store.list).not.toHaveBeenCalled()
   })
@@ -2117,7 +2121,7 @@ describe("Agent invocation console", () => {
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
   })
 
-  it("keeps persisted Agent names alongside discovered definitions", async () => {
+  it("lists persisted Agent names apart from registered Agents", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
       agentName: "archived",
@@ -2133,7 +2137,8 @@ describe("Agent invocation console", () => {
     installConsoleAgents(["current"], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: ["current"],
+      invocationAgents: ["archived"],
     })
   })
 
@@ -2149,7 +2154,7 @@ describe("Agent invocation console", () => {
     ], { invocations })
 
     expect(definition.invocations).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("records the discovered name for an unnamed Agent run from server code", async () => {
@@ -2244,6 +2249,7 @@ describe("Agent invocation console", () => {
 
       await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
         agents: ["support"],
+        invocationAgents: [],
         invocation: {
           support: {
             profiles: [
@@ -2257,7 +2263,7 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { projectRoot: root })
-      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2577,7 +2583,7 @@ describe("Agent invocation console", () => {
     ], { projectRoot })
 
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("rejects multiple discovered Agent invocation journals", () => {
@@ -2620,7 +2626,7 @@ describe("Agent invocation console", () => {
       { definition: { default: definition }, fallbackName: "help" },
     ], { invocations })
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"], invocationAgents: [] })
   })
 
   it("rejects Agent names beyond the persisted identity limit", () => {
@@ -2698,7 +2704,8 @@ describe("Agent invocation console", () => {
     installConsoleAgents([], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: [],
+      invocationAgents: ["archived", "current"],
     })
   })
 
@@ -4610,6 +4617,23 @@ describe("Agent invocation console", () => {
     finally {
       await rm(projectRoot, { force: true, recursive: true })
       await rm(dirname(databasePath), { force: true, recursive: true })
+    }
+  })
+
+  it("keeps the default journal in memory on Workers", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-workers-project-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    try {
+      const invocations = createConsoleInvocations(projectRoot)
+      const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
+      await runAgent(agent, runtime("console-workers"), {})
+
+      await expect(invocations.getByRunId("console-workers")).resolves.toMatchObject({ status: "completed" })
+      expect(existsSync(join(projectRoot, ".vitehub"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
     }
   })
 

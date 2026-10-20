@@ -1,9 +1,9 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { blobArrayBuffer, blobSize, blobType, getMessageText, isArrayBufferValue, isAttachmentData, isAttachmentPart, isBlobValue, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -29,6 +29,7 @@ import {
   applyAgentToolPolicies,
   copyToolWithOverrides,
   reportWorkspaceMaterialization,
+  withAgentToolExecutionBudget,
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
   toJsonCompatibleValue,
@@ -117,7 +118,7 @@ function isDataMessagePart(part: MessagePart): part is Extract<MessagePart, { ty
 type UserContentPart = Exclude<UserContent, string>[number]
 
 function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob> | URL | undefined {
-  if (part.data && !isBlobValue(part.data)) return part.data
+  if (part.data && !isAttachmentBlob(part.data)) return part.data
   if (part.url) {
     try {
       const url = new URL(part.url)
@@ -127,7 +128,7 @@ function attachmentModelData(part: AttachmentPart): Exclude<AttachmentData, Blob
       // Invalid URLs are not model input.
     }
   }
-  if (isBlobValue(part.data)) {
+  if (isAttachmentBlob(part.data)) {
     throw agentDiagnostics.AGENT_R0004({ message: "[vitehub] toAiSdkModelMessages() cannot convert a Blob synchronously. Pass the message through a model-backed Agent Driver or provide an HTTPS URL." })
   }
   if (part.fetchData) {
@@ -360,14 +361,14 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 }
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
-  if (isBlobValue(data)) return blobSize(data)
+  if (isAttachmentBlob(data)) return blobSize(data)
   if (isArrayBufferValue(data)) return data.byteLength
   if (isUint8ArrayValue(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
 function resolvedImageMediaType(data: AttachmentData): string | undefined {
-  if (isBlobValue(data) && blobType(data).startsWith("image/")) return blobType(data)
+  if (isAttachmentBlob(data) && blobType(data).startsWith("image/")) return blobType(data)
   if (hasRuntimeType(data, "string")) {
     const dataUrlMediaType = /^data:(image\/[^;,]+)[;,]/i.exec(data)?.[1]?.toLowerCase()
     if (dataUrlMediaType) return dataUrlMediaType
@@ -410,9 +411,12 @@ async function resolveModelAttachmentPart(part: AttachmentPart, maxBytes: number
     throw agentDiagnostics.AGENT_R0008({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
   }
   if (!resolved) return { byteLength: 0 }
-  const byteLength = attachmentDataByteLength(resolved) ?? 0
+  assertAttachmentWithinLimit(part, attachmentDataByteLength(resolved), maxBytes)
+  const data = isAttachmentBlob(resolved)
+    ? new Uint8Array(await blobArrayBuffer(resolved)).buffer
+    : resolved
+  const byteLength = attachmentDataByteLength(data) ?? 0
   assertAttachmentWithinLimit(part, byteLength, maxBytes)
-  const data = isBlobValue(resolved) ? await blobArrayBuffer(resolved) : resolved
   const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...rest } = part
   const mediaType = part.type === "image"
     ? resolvedImageMediaType(resolved) ?? resolvedImageMediaType(data)
@@ -557,10 +561,12 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   if (evidence.length === 0) return undefined
 
   const { generateText } = await loadAiSdk()
-  context.executionBudget?.recordRetry()
+  const budgetLimits = context.executionBudget?.snapshot().limits
+  const hasBudgetConstraints = budgetLimits ? Object.values(budgetLimits).some(value => value !== undefined) : false
+  if (hasBudgetConstraints) context.executionBudget?.recordRetry()
   const summary = await generateText({
     abortSignal: context.input.abortSignal,
-    maxRetries: context.executionBudget ? 0 : undefined,
+    maxRetries: context.executionBudgetActive ? 0 : undefined,
     instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
@@ -967,30 +973,78 @@ function withRuntimeContext(settings: Record<string, unknown>, context: AgentAda
   }
 }
 
-function createUsageCapture() {
+const MODEL_TOKEN_BYTES_ESTIMATE = 4
+
+function usageTokenCount(usage: unknown, key: "inputTokens" | "outputTokens"): number | undefined {
+  if (!usage || !hasRuntimeType(usage, "object")) return
+  const value = (usage as Record<string, unknown>)[key]
+  if (hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0) return Math.ceil(value)
+  if (value && hasRuntimeType(value, "object")) {
+    const total = (value as Record<string, unknown>).total
+    if (hasRuntimeType(total, "number") && Number.isFinite(total) && total >= 0) return Math.ceil(total)
+  }
+}
+
+function createUsageCapture(executionBudget?: ExecutionBudget) {
   let captured = false
   let capturedUsage: unknown
   let metadataSource: unknown
+  let observedInputTokens = 0
+  let observedOutputTokens = 0
+  let modelCallObserved = false
+  const seenEvents = new WeakSet<object>()
+
+  const accountUsage = (usage: unknown, cumulative = false) => {
+    const inputTokens = usageTokenCount(usage, "inputTokens")
+    const outputTokens = usageTokenCount(usage, "outputTokens")
+    if (inputTokens !== undefined) {
+      const delta = cumulative ? inputTokens - observedInputTokens : inputTokens
+      if (delta > 0) executionBudget?.recordInputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
+      if (cumulative) observedInputTokens = Math.max(observedInputTokens, inputTokens)
+      else observedInputTokens += inputTokens
+    }
+    if (outputTokens !== undefined) {
+      const delta = cumulative ? outputTokens - observedOutputTokens : outputTokens
+      if (delta > 0) executionBudget?.recordOutputBytes(delta * MODEL_TOKEN_BYTES_ESTIMATE)
+      if (cumulative) observedOutputTokens = Math.max(observedOutputTokens, outputTokens)
+      else observedOutputTokens += outputTokens
+    }
+  }
+
+  const accountEvent = (event: unknown, usage: unknown, cumulative = false) => {
+    if (event && hasRuntimeType(event, "object")) {
+      if (seenEvents.has(event)) return
+      seenEvents.add(event)
+    }
+    accountUsage(usage, cumulative)
+  }
 
   const capture = (event: unknown) => {
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
     const usage = record?.usage ?? record?.totalUsage
-    if (usage === undefined) return
+    if (usage === undefined) return undefined
     capturedUsage = usage
     metadataSource = event
     captured = true
+    return usage
   }
 
   return {
     async onEnd(event: unknown) {
       capture(event)
+      // Some AI SDK model adapters only report usage on the final callback.
+      const record = hasRuntimeType(event, "object") && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+      if (record?.totalUsage !== undefined) accountEvent(event, record.totalUsage, true)
+      else if (!modelCallObserved) accountEvent(event, capturedUsage)
     },
     async onStepEnd(event: unknown) {
       capture(event)
     },
     async onLanguageModelCallEnd(event: unknown) {
-      capture(event)
+      const eventUsage = capture(event)
+      modelCallObserved = true
+      accountEvent(event, eventUsage)
     },
     get captured() {
       return captured
@@ -1302,6 +1356,10 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudgetActive && !hasRuntimeType(wrapLanguageModel, "function")) {
+    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+  }
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1323,7 +1381,7 @@ async function createAgent(
     name: tool.name,
     type: "provider-defined",
   }]))
-  const toolSet = { ...resolvedTools, ...providerTools }
+  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
@@ -1359,19 +1417,15 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
-  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
-    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
-  }
-  const instrumentedModel = context.executionBudget && wrapLanguageModel
+  const executionBudget = context.executionBudgetActive ? context.executionBudget : undefined
+  const instrumentedModel = executionBudget && wrapLanguageModel
     ? wrapLanguageModel({
-        // SAFETY: materializeAgentModel resolves the configured model before wrapping.
         model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
-        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+        middleware: executionBudgetMiddleware(executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
       })
     : observedModel
   // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
-  const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
+  const budgetedSettings = context.executionBudgetActive ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
@@ -1386,12 +1440,25 @@ async function createAgent(
       })
     : undefined
   const toolRepairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
+  let repairBudgetError: ExecutionBudgetExceededError | undefined
+  const guardedModel = hasRuntimeType(observedModel, "object")
+    ? new Proxy(instrumentedModel as object, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver)
+          if (!hasRuntimeType(value, "function") || property !== "doGenerate" && property !== "doStream") return value
+          return (...args: unknown[]) => {
+            if (repairBudgetError) throw repairBudgetError
+            return Reflect.apply(value, target, args)
+          }
+        },
+      })
+    : observedModel
   const builtInRepairToolCall: ToolCallRepairFunction<ToolSet> | undefined = Object.keys(toolSet).length
     ? async ({ error, inputSchema, toolCall, tools }) => {
         if (toolCall.providerExecuted || !Object.hasOwn(tools, toolCall.toolName)) return null
         try {
           const schema = await inputSchema({ toolName: toolCall.toolName })
-          const usageCapture = createUsageCapture()
+          const usageCapture = createUsageCapture(context.executionBudget)
           toolRepairUsageCaptures.push(usageCapture)
           // SAFETY: AI SDK adapter normalization establishes the ToolLoopAgent settings contract assembled below.
           const toolRepairAgent = new ToolLoopAgent({
@@ -1417,8 +1484,8 @@ async function createAgent(
         }
         catch (error) {
           if (error instanceof ExecutionBudgetExceededError) {
-            // AI SDK may turn repair exceptions into tool errors; abort the run too.
-            context.executionBudget?.cancel(error)
+            // The budget aborts its shared signal when the limit is exceeded. Re-throw
+            // so AI SDK cannot turn the repair into a successful tool call.
             throw error
           }
           context.input.abortSignal?.throwIfAborted()
@@ -1427,11 +1494,17 @@ async function createAgent(
       }
     : undefined
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
-  const repairToolCall = execution?.repairToolCall === false
+  const selectedRepairToolCall = execution?.repairToolCall === false
     ? undefined
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
       : configuredRepairToolCall ?? builtInRepairToolCall
+  const repairToolCall = selectedRepairToolCall
+    ? async (...args: Parameters<NonNullable<typeof selectedRepairToolCall>>) => {
+        context.executionBudget?.recordRetry()
+        return await selectedRepairToolCall(...args)
+      }
+    : undefined
   const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
     ? outputMaxAttempts(context.output)
     : 1
@@ -1527,11 +1600,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
       }
-      const usageCapture = createUsageCapture()
+      const usageCapture = createUsageCapture(context.executionBudget)
       const repairUsageCaptures: Array<ReturnType<typeof createUsageCapture>> = []
-      const fallbackUsageCapture = createUsageCapture()
+      const fallbackUsageCapture = createUsageCapture(context.executionBudget)
       const repairCallInput = () => {
-        const usageCapture = createUsageCapture()
+        const usageCapture = createUsageCapture(context.executionBudget)
         repairUsageCaptures.push(usageCapture)
         return {
           ...callInput,
@@ -1689,7 +1762,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const usageCapture = createUsageCapture()
+      const usageCapture = createUsageCapture(context.executionBudget)
       const execution = options.execution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled

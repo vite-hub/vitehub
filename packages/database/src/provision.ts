@@ -4,6 +4,7 @@ import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
+import type { CollectedDatabaseContributions } from "./contributions.ts"
 import type { DBModulePublicOptions } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -21,13 +22,13 @@ interface PlannedDatabase {
 }
 
 function parseDatabases(value: unknown): CloudflareD1Database[] {
-  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_R0004({ message: "Cloudflare provisioning returned an invalid database list." })
+  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_PROVISION_FAILED({ problem: "list" })
   // SAFETY: D1 database fields are optional and consumers narrow them before use.
   return value as CloudflareD1Database[]
 }
 
 function parseDatabase(value: unknown): CloudflareD1Database {
-  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_R0005({ message: "Cloudflare provisioning returned an invalid database." })
+  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_PROVISION_FAILED({ problem: "database" })
   return value
 }
 
@@ -35,11 +36,17 @@ export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
   return encodeURIComponent(databaseName.trim())
 }
 
+/** Contributions and server directories that the Database plugin resolved, so plans include contributed Definitions. */
+export interface DatabaseProvisionContext {
+  contributions?: CollectedDatabaseContributions
+  serverDirs?: string[]
+}
+
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
-function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined): PlannedDatabase[] {
+function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined, context?: DatabaseProvisionContext): PlannedDatabase[] {
   const nuxtHostResource = Boolean(options && "nuxtHostResource" in options && options.nuxtHostResource === true)
   // An enabled Vite database always has a default Database. The Nuxt host resource is the Nuxt default Database.
-  const config = resolveDBViteConfig(options, rootDir, { implicitDefault: !nuxtHostResource })
+  const config = resolveDBViteConfig(options, rootDir, { implicitDefault: !nuxtHostResource, contributions: context?.contributions, serverDirs: context?.serverDirs })
   const plannedByName = new Map<string, PlannedDatabase>()
   for (const definition of config?.databaseNames ?? []) {
     const cloudflare = config?.databases[definition]?.cloudflare
@@ -60,7 +67,11 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
   return [...plannedByName.values()]
 }
 
-export function createDatabaseProvisionStep(resolveRootDir: () => string, options?: DatabaseProvisionOptions): ProvisionStep {
+export function createDatabaseProvisionStep(
+  resolveRootDir: () => string,
+  options?: DatabaseProvisionOptions,
+  resolveContext?: () => DatabaseProvisionContext,
+): ProvisionStep {
   return {
     id: "database:cloudflare-d1",
     provider: "cloudflare",
@@ -72,7 +83,7 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
         return []
       }
 
-      const planned = planDatabases(resolveRootDir(), options)
+      const planned = planDatabases(resolveRootDir(), options, resolveContext?.())
       if (!planned.length) return []
 
       const request = createCloudflareProvisionClient(config, context.fetch)
