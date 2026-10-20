@@ -36,7 +36,6 @@ const postgresEnvNames = [
   "PGUSERNAME",
   "PGUSER",
   "PGPASSWORD",
-  "PGMAX",
   "PGSSL",
   "PGSSLNEGOTIATION",
   "PGIDLE_TIMEOUT",

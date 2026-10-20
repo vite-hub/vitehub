@@ -388,7 +388,6 @@ describe("Postgres runtime", () => {
       "PGUSERNAME",
       "PGUSER",
       "PGPASSWORD",
-      "PGMAX",
       "PGSSL",
       "PGSSLNEGOTIATION",
       "PGIDLE_TIMEOUT",
