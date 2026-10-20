@@ -71,7 +71,7 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
 
 it('supplies Git credentials without running the GitHub CLI', async () => {
   const { source } = await fixture()
-  const host = createGitHubHost({ credentials: () => ({ token: 'test-token', rateLimitKey: 'test' }) })
+  const host = createGitHubHost({ credentials: () => ({ token: 'test-token' }) })
   const { env } = await host.access()
   const result = await new Promise<string>((resolve, reject) => {
     const child = execFile('git', ['credential', 'fill'], { cwd: source, env: { ...process.env, ...env } }, (error, stdout) => error ? reject(error) : resolve(stdout))
@@ -109,7 +109,7 @@ process.exit(result.status ?? 1);
   await writeFile(globalConfig, `[core]\n hooksPath = ${globalHooks}\n`)
   vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
   vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
-  const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default', rateLimitKey: repository ?? 'default' }))
+  const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
   const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
   await host.withPullRequestCheckout(pr, async checkout => {
@@ -131,7 +131,7 @@ process.exit(result.status ?? 1);
     let custody = true
     credentials.mockImplementationOnce(({ repository }) => {
       custody = false
-      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+      return { token: repository ?? 'default' }
     })
     await expect(checkout.push(target, { beforePush: () => {
       if (!custody) throw new DOMException('Lease lost', 'AbortError')
@@ -140,7 +140,7 @@ process.exit(result.status ?? 1);
     const pushController = new AbortController()
     credentials.mockImplementationOnce(({ repository }) => {
       pushController.abort(new DOMException('Lease expired', 'AbortError'))
-      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+      return { token: repository ?? 'default' }
     })
     await expect(checkout.push(target, { signal: pushController.signal })).rejects.toThrow('Lease expired')
     expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)

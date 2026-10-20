@@ -57,7 +57,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     // Runtime errors. A Drizzle query rejects with them, because Drizzle owns the query API.
     DATABASE_D1_INVALID_RESPONSE: {
-      why: "Cloudflare D1 returned a different number of results than the number of queries.",
+      why: "Cloudflare D1 returned an invalid response shape, such as a different number of results than the number of queries or malformed rows.",
       fix: "Retry the query. If it fails again, open a ViteHub issue with the query and the D1 HTTP response.",
     },
     DATABASE_D1_REQUEST_FAILED: {
@@ -88,6 +88,13 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Definition errors. `defineDatabase()` throws them.
+    DATABASE_C0001: { why: ({ message }: { message?: string }) => message || "The Database Definition name does not match its discovered identity.", fix: "Set the discovered database name." },
+    DATABASE_C0002: { why: ({ message }: { message?: string }) => message || "Database Definitions use incompatible configuration.", fix: "Fix the reported database configuration." },
+    DATABASE_C0003: { why: ({ message }: { message?: string }) => message || "Database Definitions conflict.", fix: "Keep one compatible definition." },
+    DATABASE_C0008: { why: ({ message }: { message?: string }) => message || "Database configuration conflicts.", fix: "Fix the reported database configuration conflict." },
+    DATABASE_C0009: { why: ({ message }: { message?: string }) => message || "Database layer definitions conflict.", fix: "Fix the reported layer conflict." },
+    DATABASE_C0011: { why: ({ message }: { message?: string }) => message || "The Database Definition dialect is invalid.", fix: "Set dialect to sqlite or postgresql." },
+
     DATABASE_INVALID_CASING: {
       why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
       fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",

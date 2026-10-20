@@ -83,6 +83,7 @@ const agentCapabilities = {
 } satisfies Record<string, string>;
 
 const movedLearningPages = new Map(Object.entries({
+  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
@@ -108,6 +109,7 @@ export const docsPageRedirects = {
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
+  "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",
@@ -119,7 +121,7 @@ export const docsPageRedirects = {
   "/docs/ui/chat-prompt": "/docs/ui/prompt-input",
   "/docs/ui/session": "/docs/ui/chat-session",
   // The Agent Invocation views moved from @vite-hub/ui into the Console.
-  ...Object.fromEntries(["capability-inspector", "invocation", "invocation-inspector", "invocation-list", "timeline", "blocks/invocation-dashboard"].map(page => [`/docs/ui/${page}`, "/docs/development/console"])),
+  ...Object.fromEntries(["capability-inspector", "invocation", "invocation-list", "timeline", "blocks/invocation-dashboard"].map(page => [`/docs/ui/${page}`, "/docs/development/console"])),
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),
   ...Object.fromEntries(Object.entries(primitiveCapabilities).map(([id, section]) => [`/docs/capabilities/${id}`, id === "schedule" ? "/docs/schedule" : `/docs/${section}/agent-capability`])),
   ...Object.fromEntries(Object.entries(agentCapabilities).map(([id, page]) => [`/docs/capabilities/${id}`, `/docs/agents/capabilities/${page}`])),

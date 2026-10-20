@@ -19,13 +19,6 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
-export function getDocsRailCatalog(sections: DocsSection[]) {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
-}
-
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -43,6 +36,16 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title)),
     }))
     .filter(group => group.sections.length > 0);
+}
+
+/** Compatibility helpers for the legacy rail and catalog components. */
+export const getDocsRailCatalog = getDocsCatalog;
+export function getDocsSectionKind(section: DocsSection) {
+  if (section.id === docsRootSectionId) return "Get started";
+  if (section.id === "ui") return "UI components";
+  if (section.category === "Agents") return "Agents";
+  if (section.category === "Platform") return "Platform";
+  return "Server Primitive";
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
@@ -73,16 +76,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  const ordered = [...groups].map(([label, pages]) => ({ label, pages }));
-  if (section.id === "ui") {
-    const order = ["Start", "Console", "Chat", "Agent work", "Utilities"];
-    return ordered.sort((left, right) => {
-      const leftIndex = order.indexOf(left.label || "");
-      const rightIndex = order.indexOf(right.label || "");
-      return (leftIndex === -1 ? order.length : leftIndex) - (rightIndex === -1 ? order.length : rightIndex);
-    });
-  }
-  return ordered;
+  return [...groups].map(([label, pages]) => ({ label, pages }));
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
@@ -98,6 +92,8 @@ const docsLandingCategorySet = new Set<string>(docsLandingCategories);
 
 /** Sections whose Overview stays a regular docs page even though their category is a product category. */
 const docsPageOverviewSections = new Set(["ui"]);
+const primitiveCategories = new Set<DocsCategory>(["Data", "Compute", "Access", "Delivery", "Files"]);
+const primitiveSidebarGroupOrder: Array<string | null> = [null, "Learn", "Build", "Deploy and operate"];
 
 /** True for `/docs` and for the Overview of every product section. These pages have a hero and no sidebar. */
 export function isDocsLandingPath(sections: DocsSection[], path: string) {
@@ -115,11 +111,4 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 /** Pages of a product section other than its Overview, in sidebar order. The landing page lists them as cards. */
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
-}
-
-export function getDocsSectionKind(section: DocsSection): string {
-  if (section.id === docsRootSectionId) return "Get started";
-  if (section.id === "ui") return "UI components";
-  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
-  return section.category || "Platform";
 }

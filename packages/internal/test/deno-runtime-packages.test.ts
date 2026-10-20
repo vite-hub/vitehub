@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative, resolve } from "node:path"
 import { promisify } from "node:util"
 
-import { describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it } from "vitest"
 
 import {
   acquireDenoDeploymentLock,
@@ -14,6 +14,18 @@ import {
   collectDenoRuntimePackageNames,
   finalizeDenoDeploymentOutput,
 } from "../src/build/deno-runtime-packages.ts"
+
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+async function temporaryDirectory(prefix: string) {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 const execFile = promisify(execFileCallback)
 
@@ -202,7 +214,7 @@ loader /* receiver */ . /* call */ import(path)
   })
 
   it("stages literal imports with expression options without resolving member calls", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-options-"))
+    const root = await temporaryDirectory("vitehub-deno-import-options-")
     await writeRuntimePackage(root, "data-package")
     await writeRuntimePackage(root, "commonjs-runtime")
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -295,7 +307,7 @@ import "real"
   }, 2_000)
 
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-"))
+    const root = await temporaryDirectory("vitehub-deno-schedule-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await mkdir(join(root, "server/schedules"), { recursive: true })
@@ -329,7 +341,7 @@ import "real"
   })
 
   it("stages retained Schedule sources with Deno deployment output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-sources-"))
+    const root = await temporaryDirectory("vitehub-deno-schedule-sources-")
     const publishedSource = join(root, ".vitehub/schedule/sources/workspace/report.txt")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(dirname(publishedSource), { recursive: true })
@@ -348,7 +360,7 @@ import "real"
   })
 
   it("accepts static imports of staged Deno Schedule output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-static-schedule-import-"))
+    const root = await temporaryDirectory("vitehub-deno-static-schedule-import-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -362,7 +374,7 @@ import "real"
   })
 
   it("rejects Deno Schedule entrypoints that do not start the staged server", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-server-import-"))
+    const root = await temporaryDirectory("vitehub-deno-missing-server-import-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -374,7 +386,7 @@ import "real"
   })
 
   it("rejects required Deno imports deferred inside uncalled functions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-deferred-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-deferred-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -389,7 +401,7 @@ import "real"
   })
 
   it("rejects required Deno imports deferred inside concise arrows", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-deferred-arrow-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-deferred-arrow-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -404,7 +416,7 @@ import "real"
   })
 
   it("rejects conditionally executed relocated imports", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-conditional-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-conditional-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -419,7 +431,7 @@ import "real"
   })
 
   it("rejects relocated imports beneath unbraced control statements", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-unbraced-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-unbraced-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -436,7 +448,7 @@ import "real"
   })
 
   it("bundles package import mappings into relocated entrypoints", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-imports-"))
+    const root = await temporaryDirectory("vitehub-deno-package-imports-")
     await writeJson(join(root, "package.json"), { imports: { "#config": "./config.ts", "#value": "./value.ts" } })
     await writeFile(join(root, "config.ts"), 'export { default } from "#value"\n', "utf8")
     await writeFile(join(root, "value.ts"), 'export default "mapped-config"\n', "utf8")
@@ -453,7 +465,7 @@ import "real"
   })
 
   it.each(["application", "schedule"])("stages %s externals from their original importer", async (target) => {
-    const root = await mkdtemp(join(tmpdir(), `vitehub-deno-${target}-external-importer-`))
+    const root = await temporaryDirectory(`vitehub-deno-${target}-external-importer-`)
     const helperDir = join(root, "packages/helper")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "nested-only")
@@ -489,7 +501,7 @@ import "real"
   })
 
   it.each(["application", "schedule"])("rejects package conflicts between the generated server and the %s bundle", async (target) => {
-    const root = await mkdtemp(join(tmpdir(), `vitehub-deno-${target}-server-conflict-`))
+    const root = await temporaryDirectory(`vitehub-deno-${target}-server-conflict-`)
     const helperDir = join(root, "packages/helper")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-runtime")
@@ -521,7 +533,7 @@ import "real"
   })
 
   it("does not stage package installations whose code is already bundled", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-server-inline-conflict-"))
+    const root = await temporaryDirectory("vitehub-deno-server-inline-conflict-")
     const first = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
     const second = join(root, "node_modules/.pnpm/shared-runtime@2/node_modules/shared-runtime")
     await writeJson(join(root, "package.json"), {})
@@ -538,7 +550,7 @@ import "real"
   })
 
   it("rejects computed local application imports that cannot survive relocation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -551,7 +563,7 @@ import "real"
   })
 
   it("rejects application entrypoints that do not load staged Deno Schedule output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-schedule-import-"))
+    const root = await temporaryDirectory("vitehub-deno-missing-schedule-import-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -565,7 +577,7 @@ import "real"
   })
 
   it("accepts relocated URL imports for staged Deno Schedule output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-url-schedule-import-"))
+    const root = await temporaryDirectory("vitehub-deno-url-schedule-import-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -583,7 +595,7 @@ import "real"
   })
 
   it("rejects computed local imports in relocated Schedule bundles", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-schedule-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-schedule-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -597,7 +609,7 @@ import "real"
   })
 
   it("rejects computed application imports through an intermediate base", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-base-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-base-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -610,7 +622,7 @@ import "real"
   })
 
   it("rejects computed imports whose first operand is a string literal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-string-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-string-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -632,7 +644,7 @@ import "real"
   })
 
   it("rejects computed local application imports inside template interpolations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-template-entry-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-template-entry-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -645,7 +657,7 @@ import "real"
   })
 
   it("rejects computed imports retained from bundled application helpers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-computed-helper-"))
+    const root = await temporaryDirectory("vitehub-deno-computed-helper-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -660,7 +672,7 @@ import "real"
   })
 
   it("ignores inert computed-import text in Deno application entrypoints", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-inert-import-"))
+    const root = await temporaryDirectory("vitehub-deno-inert-import-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -671,7 +683,7 @@ import "real"
   })
 
   it("rejects custom alias resolvers only when a staged entrypoint uses the alias", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-custom-alias-"))
+    const root = await temporaryDirectory("vitehub-deno-custom-alias-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -694,7 +706,7 @@ import "real"
   })
 
   it("stages external Schedule packages and their native optional dependencies", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-schedule-package-"))
+    const root = await temporaryDirectory("vitehub-deno-schedule-package-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeRuntimePackage(root, "image-package", { optionalDependencies: { "image-package-linux-x64": "9.9.9" } })
@@ -711,7 +723,7 @@ import "real"
   })
 
   it("stages external application packages and their native optional dependencies", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-entry-package-"))
+    const root = await temporaryDirectory("vitehub-deno-entry-package-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeRuntimePackage(root, "image-package", { optionalDependencies: { "image-package-linux-x64": "9.9.9" } })
@@ -729,7 +741,7 @@ import "real"
   })
 
   it("stages literal dynamic application and Schedule imports", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-attributes-"))
+    const root = await temporaryDirectory("vitehub-deno-import-attributes-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeRuntimePackage(root, "application-data-package")
@@ -749,7 +761,7 @@ import "real"
   })
 
   it("stages packages referenced through literal import.meta.resolve calls", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-meta-resolve-"))
+    const root = await temporaryDirectory("vitehub-deno-import-meta-resolve-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeRuntimePackage(root, "application-resolve-package")
@@ -767,7 +779,7 @@ import "real"
   })
 
   it("stages escaped literal imports from generated server output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-server-template-package-"))
+    const root = await temporaryDirectory("vitehub-deno-server-template-package-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeRuntimePackage(root, "server-template-package")
     await writeFile(join(root, ".output/server/index.mjs"), "await import(`server\\u002dtemplate-package`)\n", "utf8")
@@ -779,7 +791,7 @@ import "real"
   })
 
   it("preserves regex aliases while staging Deno entrypoints", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-regex-alias-"))
+    const root = await temporaryDirectory("vitehub-deno-regex-alias-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
@@ -798,7 +810,7 @@ import "real"
   })
 
   it("uses Vite resolve conditions for Deno entrypoint bundles", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-conditions-"))
+    const root = await temporaryDirectory("vitehub-deno-conditions-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
@@ -826,7 +838,7 @@ import "real"
   })
 
   it("uses Vite main fields and extensions for Deno entrypoint bundles", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-resolve-options-"))
+    const root = await temporaryDirectory("vitehub-deno-resolve-options-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeJson(join(root, "field-package/package.json"), {
@@ -850,7 +862,7 @@ import "real"
   })
 
   it("accepts top-level awaited wrappers for relocated entrypoints", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-awaited-wrapper-"))
+    const root = await temporaryDirectory("vitehub-deno-awaited-wrapper-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -861,7 +873,7 @@ import "real"
   })
 
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-platforms-"))
+    const root = await temporaryDirectory("vitehub-deno-platforms-")
     const outputNodeModules = join(root, ".output/node_modules")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "runtime-root", {
@@ -952,7 +964,7 @@ import "real"
   })
 
   it("stages reachable packages and their installed optional native dependencies", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-deno-output-"))
+    const rootDir = await temporaryDirectory("vitehub-deno-output-")
     const outputDir = join(rootDir, ".output")
     const sharpDir = join(rootDir, "node_modules", "sharp")
     const nativeDir = join(rootDir, "node_modules", "@img", "sharp-linux-x64")
@@ -1014,7 +1026,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("re-finalizes packages already staged in the existing output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-repeat-output-"))
+    const root = await temporaryDirectory("vitehub-deno-repeat-output-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeJson(join(root, ".output/node_modules/staged-runtime/package.json"), { name: "staged-runtime", version: "1" })
@@ -1027,7 +1039,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("preserves the prior output and cleans its stage when finalization fails", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-atomic-output-"))
+    const root = await temporaryDirectory("vitehub-deno-atomic-output-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), 'import "missing-runtime"\n', "utf8")
@@ -1042,14 +1054,14 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("allows unresolved lazy feature packages but keeps other references required", async () => {
-    const optionalRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-optional-dynamic-"))
+    const optionalRoot = await temporaryDirectory("vitehub-deno-optional-dynamic-")
     await writeJson(join(optionalRoot, "package.json"), {})
     await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
 
-    const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-"))
+    const requiredRoot = await temporaryDirectory("vitehub-deno-required-dynamic-")
     await writeJson(join(requiredRoot, "package.json"), {})
     await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
     for (const source of [
@@ -1067,14 +1079,14 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("allows unresolved guarded require probes but keeps top-level requires required", async () => {
-    const optionalRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-optional-require-"))
+    const optionalRoot = await temporaryDirectory("vitehub-deno-optional-require-")
     await writeJson(join(optionalRoot, "package.json"), {})
     await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'try { require("missing-feature") } catch {}\n')
 
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
 
-    const conciseRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-require-"))
+    const conciseRoot = await temporaryDirectory("vitehub-deno-concise-require-")
     await writeJson(join(conciseRoot, "package.json"), {})
     await mkdir(join(conciseRoot, ".output/server"), { recursive: true })
     await writeFile(join(conciseRoot, ".output/server/index.mjs"), 'const load = () => require("missing-feature")\n')
@@ -1091,7 +1103,7 @@ load("@img/sharp-linux-x64/sharp.node")
       await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot }), source).resolves.toBeUndefined()
     }
 
-    const requiredRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-required-require-"))
+    const requiredRoot = await temporaryDirectory("vitehub-deno-required-require-")
     await writeJson(join(requiredRoot, "package.json"), {})
     await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
     await writeFile(join(requiredRoot, ".output/server/index.mjs"), 'const feature = { value: require("missing-feature") }\n')
@@ -1110,7 +1122,7 @@ load("@img/sharp-linux-x64/sharp.node")
       'try { require("missing-feature") } finally { cleanup() }\n',
       'const lazy = () => 0\nrequire("missing-feature")\n',
     ]) {
-      const eagerRoot = await mkdtemp(join(tmpdir(), "vitehub-deno-eager-require-"))
+      const eagerRoot = await temporaryDirectory("vitehub-deno-eager-require-")
       await writeJson(join(eagerRoot, "package.json"), {})
       await mkdir(join(eagerRoot, ".output/server"), { recursive: true })
       await writeFile(join(eagerRoot, ".output/server/index.mjs"), source)
@@ -1125,7 +1137,7 @@ load("@img/sharp-linux-x64/sharp.node")
   }, 15_000)
 
   it("classifies multiline concise-arrow dynamic imports by execution", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-dynamic-"))
+    const root = await temporaryDirectory("vitehub-deno-concise-dynamic-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
 
@@ -1156,7 +1168,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("keeps required dynamic packages required across split server chunks", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-required-dynamic-chunks-"))
+    const root = await temporaryDirectory("vitehub-deno-required-dynamic-chunks-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/a-lazy.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
@@ -1168,7 +1180,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("recovers prior output left by an interrupted directory swap", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-output-"))
+    const root = await temporaryDirectory("vitehub-deno-interrupted-output-")
     const interruptedStage = join(root, "..output.vitehub-interrupted")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(interruptedStage, "previous/server"), { recursive: true })
@@ -1182,7 +1194,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("cleans a prior output backup left after a completed directory swap", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-completed-swap-"))
+    const root = await temporaryDirectory("vitehub-deno-completed-swap-")
     const completedStage = join(root, "..output.vitehub-completed")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1196,7 +1208,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("cleans an interrupted pre-swap staging directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-interrupted-stage-"))
+    const root = await temporaryDirectory("vitehub-deno-interrupted-stage-")
     const interruptedStage = join(root, "..output.vitehub-interrupted")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1210,7 +1222,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("does not recover deployment output owned by another process", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concurrent-output-"))
+    const root = await temporaryDirectory("vitehub-deno-concurrent-output-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -1222,7 +1234,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("recovers an orphaned deployment output lock", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-orphaned-lock-"))
+    const root = await temporaryDirectory("vitehub-deno-orphaned-lock-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
@@ -1235,7 +1247,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("grants one contender ownership while reclaiming a stale lock", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-contended-reclaim-"))
+    const root = await temporaryDirectory("vitehub-deno-contended-reclaim-")
     const outputDir = join(root, ".output")
     await mkdir(`${outputDir}.vitehub-lock`)
     await writeFile(join(`${outputDir}.vitehub-lock`, "owner"), "2147483647\n", "utf8")
@@ -1257,7 +1269,7 @@ load("@img/sharp-linux-x64/sharp.node")
   })
 
   it("uses the pnpm package from a bundle marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-pnpm-"))
+    const root = await temporaryDirectory("vitehub-deno-pnpm-")
     const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/sharp/package.json"), { name: "sharp", version: "1" })
@@ -1273,7 +1285,7 @@ import "sharp"
   })
 
   it("keeps an owner-selected native package over the project-root installation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-owner-native-"))
+    const root = await temporaryDirectory("vitehub-deno-owner-native-")
     const owner = join(root, "node_modules/.pnpm/aaa-owner@2/node_modules/aaa-owner/package.json")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/zzz-native/package.json"), { name: "zzz-native", version: "1" })
@@ -1291,7 +1303,7 @@ require("zzz-native")
   })
 
   it("preserves bundle-marker paths above a nested Vite root", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "vitehub-deno-monorepo-"))
+    const workspace = await temporaryDirectory("vitehub-deno-monorepo-")
     const root = join(workspace, "apps/api")
     const bundledDir = join(workspace, "node_modules/.pnpm/sharp@2/node_modules/sharp")
     await writeJson(join(root, "package.json"), {})
@@ -1310,7 +1322,7 @@ require("zzz-native")
   })
 
   it("stages a required package that also has a bundle marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-required-marker-"))
+    const root = await temporaryDirectory("vitehub-deno-required-marker-")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/plain/package.json"), { name: "plain", version: "1" })
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1324,7 +1336,7 @@ import "plain"
   })
 
   it("stages packages referenced through require.resolve", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-require-resolve-"))
+    const root = await temporaryDirectory("vitehub-deno-require-resolve-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "direct-runtime")
     await writeRuntimePackage(root, "@scope/bundled-runtime")
@@ -1341,7 +1353,7 @@ __require.resolve("@scope/bundled-runtime/entry")
   })
 
   it("stages packages loaded through createRequire aliases", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-alias-"))
+    const root = await temporaryDirectory("vitehub-deno-create-require-alias-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "aliased-runtime")
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1357,7 +1369,7 @@ load("aliased-runtime")
   })
 
   it("skips unresolved bundled packages loaded as optional createRequire probes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-optional-"))
+    const root = await temporaryDirectory("vitehub-deno-create-require-optional-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), `
@@ -1372,7 +1384,7 @@ try { load("@img/sharp-linux-x64/sharp.node") } catch {}
   })
 
   it("keeps bundle probes optional across split server chunks", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-chunks-"))
+    const root = await temporaryDirectory("vitehub-deno-create-require-chunks-")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/00-probe.mjs"), `
@@ -1390,7 +1402,7 @@ void 0
   })
 
   it("keeps bundled createRequire probes optional when their bundle marker resolves", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-create-require-bundled-optional-"))
+    const root = await temporaryDirectory("vitehub-deno-create-require-bundled-optional-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "optional-native")
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1407,7 +1419,7 @@ try { load("optional-native") } catch {}
   })
 
   it("keeps bundled native probes optional when their recorded package disappears", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-missing-bundled-optional-"))
+    const root = await temporaryDirectory("vitehub-deno-missing-bundled-optional-")
     const missingPackage = join(root, ".output/node_modules/optional-native")
     await writeJson(join(root, "package.json"), {})
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1423,7 +1435,7 @@ try { require("optional-native") } catch {}
   })
 
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-cycle-"))
+    const root = await temporaryDirectory("vitehub-deno-package-cycle-")
     const plainDir = join(root, "node_modules/plain")
     const dependencyDir = join(root, "node_modules/dependency")
     await writeJson(join(root, "package.json"), {})
@@ -1442,7 +1454,7 @@ try { require("optional-native") } catch {}
   })
 
   it("hoists required peer dependencies into the staged root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-peers-"))
+    const root = await temporaryDirectory("vitehub-deno-package-peers-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-peer")
     for (const name of ["peer-consumer-a", "peer-consumer-b"]) {
@@ -1459,7 +1471,7 @@ try { require("optional-native") } catch {}
   })
 
   it("rejects incompatible required peer installations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-peer-conflict-"))
+    const root = await temporaryDirectory("vitehub-deno-package-peer-conflict-")
     await writeJson(join(root, "package.json"), {})
     for (const [name, version] of [["peer-consumer-a", "1"], ["peer-consumer-b", "2"]]) {
       const consumerDir = join(root, "node_modules", name)
@@ -1473,7 +1485,7 @@ try { require("optional-native") } catch {}
   })
 
   it("keeps peer ownership when the matching root package was staged first", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-peer-root-"))
+    const root = await temporaryDirectory("vitehub-deno-package-peer-root-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-peer")
     await writeRuntimePackage(root, "peer-consumer", { peerDependencies: { "shared-peer": "9" } })
@@ -1486,7 +1498,7 @@ try { require("optional-native") } catch {}
   })
 
   it("does not let a skipped bundle marker claim required peer ownership", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-peer-marker-"))
+    const root = await temporaryDirectory("vitehub-deno-package-peer-marker-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-peer", { version: "1.0.0" })
     const consumerDir = join(root, "node_modules/z-peer-consumer")
@@ -1503,7 +1515,7 @@ import "z-peer-consumer"
   })
 
   it("selects one compatible installation for overlapping required peer ranges", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-compatible-peers-"))
+    const root = await temporaryDirectory("vitehub-deno-package-compatible-peers-")
     await writeJson(join(root, "package.json"), {})
     for (const [name, version] of [["peer-consumer-a", "1.1.0"], ["peer-consumer-b", "1.2.0"]]) {
       const consumerDir = join(root, "node_modules", name)
@@ -1519,7 +1531,7 @@ import "z-peer-consumer"
   })
 
   it("rejects distinct peer installations when protocol ranges cannot be resolved", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-protocol-peers-"))
+    const root = await temporaryDirectory("vitehub-deno-package-protocol-peers-")
     await writeJson(join(root, "package.json"), {})
     for (const [name, peerRange, version] of [["peer-consumer-a", "workspace:^", "1.1.0"], ["peer-consumer-b", "catalog:database", "1.2.0"]]) {
       const consumerDir = join(root, "node_modules", name)
@@ -1533,7 +1545,7 @@ import "z-peer-consumer"
   })
 
   it("accepts distinct peer installations for a bare workspace wildcard", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-workspace-peer-"))
+    const root = await temporaryDirectory("vitehub-deno-package-workspace-peer-")
     await writeJson(join(root, "package.json"), {})
     for (const [name, version] of [["peer-consumer-a", "1.1.0"], ["peer-consumer-b", "2.0.0"]]) {
       const consumerDir = join(root, "node_modules", name)
@@ -1549,7 +1561,7 @@ import "z-peer-consumer"
   })
 
   it("does not replace an explicitly imported root package with a peer", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-package-explicit-peer-"))
+    const root = await temporaryDirectory("vitehub-deno-package-explicit-peer-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-peer", { version: "1.0.0" })
     const consumerDir = join(root, "node_modules/peer-consumer")
@@ -1562,7 +1574,7 @@ import "z-peer-consumer"
   })
 
   it("does not copy nested development node_modules from runtime packages", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-nested-node-modules-"))
+    const root = await temporaryDirectory("vitehub-deno-nested-node-modules-")
     const packageDir = join(root, "node_modules/plain")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(packageDir, "package.json"), { name: "plain", version: "1" })
@@ -1579,7 +1591,7 @@ import "z-peer-consumer"
   })
 
   it("does not demote imports found before bundle markers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-import-before-marker-"))
+    const root = await temporaryDirectory("vitehub-deno-import-before-marker-")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/plain/package.json"), { name: "plain", version: "1" })
     await mkdir(join(root, ".output/server"), { recursive: true })
@@ -1592,7 +1604,7 @@ import "z-peer-consumer"
   })
 
   it("rejects a server import resolved beside a different bundle marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-cross-chunk-conflict-"))
+    const root = await temporaryDirectory("vitehub-deno-cross-chunk-conflict-")
     const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
     const importedDir = join(root, ".output/server/nested/node_modules/shared-runtime")
     await writeJson(join(root, "package.json"), {})
@@ -1607,7 +1619,7 @@ import "z-peer-consumer"
   })
 
   it("rejects an external import beside a different bundle marker in the same file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-same-chunk-conflict-"))
+    const root = await temporaryDirectory("vitehub-deno-same-chunk-conflict-")
     const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
     const importedDir = join(root, ".output/server/node_modules/shared-runtime")
     await writeJson(join(root, "package.json"), {})
@@ -1625,7 +1637,7 @@ import "z-peer-consumer"
   })
 
   it("deploys ignored output from a complete temporary stage and cleans it", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-deno-ignored-output-"))
+    const root = await temporaryDirectory("vitehub-deno-ignored-output-")
     const output = join(root, ".output")
     const bin = join(root, "bin")
     const invocationsFile = join(root, "invocations.jsonl")
@@ -1717,7 +1729,7 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
   }, 30_000)
 
   it("executes staged Sharp with Deno", async () => {
-    const output = await mkdtemp(join(tmpdir(), "vitehub-deno-sharp-runtime-"))
+    const output = await temporaryDirectory("vitehub-deno-sharp-runtime-")
     const workspaceRoot = resolve(import.meta.dirname, "../../..")
     const require = createRequire(import.meta.url)
     const sharpEntry = await realpath(require.resolve("sharp"))

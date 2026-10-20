@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const invocation: AgentInvocationView = {

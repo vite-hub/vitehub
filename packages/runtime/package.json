@@ -55,6 +55,12 @@
       "require": "./dist/internal/runtime-type.js",
       "default": "./dist/internal/runtime-type.js"
     },
+    "./internal/execution-budget": {
+      "types": "./dist/internal/execution-budget.d.ts",
+      "import": "./dist/internal/execution-budget.js",
+      "require": "./dist/internal/execution-budget.js",
+      "default": "./dist/internal/execution-budget.js"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
@@ -66,7 +72,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/runtime#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { GitHubEvidence } from "./inbox/types.ts";
 import type { PullRequestWait } from "./inbox/wait-state.ts";
+import type { DailyPassBudget } from "./inbox/budgets.ts";
 import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
@@ -182,6 +183,25 @@ export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, 
   const head = s.pr?.head?.sha;
   if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
   return work;
+}
+
+/** The daily pass exemption for a person's feedback. The record's `human` generation tracks it, not `exemptions`. */
+export const humanFeedbackExemption = "human-feedback";
+
+/**
+ * The exemption that lets a pass run after the PR spent its daily pass budget, or undefined. A
+ * person's feedback that no pass saw yet, a merge conflict on a PR without failing checks or open
+ * threads (once per head and base), and the first failing required check on a head are exempt.
+ */
+export function dailyPassExemption(s: Snapshot, requiredChecks: GitHubRequiredCheckState, budget: DailyPassBudget | undefined): string | undefined {
+  if ((s.humanFeedbackGeneration ?? 0) > (budget?.human ?? 0)) return humanFeedbackExemption;
+  const head = s.pr?.head?.sha;
+  if (!head) return undefined;
+  const used = new Set(budget?.exemptions ?? []);
+  const conflict = `conflict:${head}:${s.pr?.base?.sha ?? ""}`;
+  if (conflicted(s) && requiredChecks !== "failed" && !failureKeys(s).length && s.threads.every(thread => thread.isResolved === true) && !used.has(conflict)) return conflict;
+  const failure = `required-failure:${head}`;
+  return requiredChecks === "failed" && !used.has(failure) ? failure : undefined;
 }
 
 /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
