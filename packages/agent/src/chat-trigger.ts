@@ -240,11 +240,14 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
 
 // Invocations whose Agent called skip_reply, with the reason it gave.
 const silentReplies = new WeakMap<AgentInvocationContextStore, string>()
+// Keep the decision in the serialized invocation input so durable Workflow
+// resumes in a fresh process still suppress the final reply.
+const silentReplyContextKey = "chat.final-reply.skipped"
 const skipReplyToolName = "skip_reply"
 
 function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
   const effect = defineFinishEffect<TRuntimeConfig>((context) => {
-    if (silentReplies.has(context.context)) return
+    if (silentReplies.has(context.context) || context.input.get().context?.[silentReplyContextKey] !== undefined) return
     const text = context.text?.trim()
     const mode = chatFinalReplyMode(context.input)
     const notices = chatFinalReplyNotices(context.input)
@@ -551,6 +554,12 @@ export function defineChatCapability<
             const reason = isRuntimeRecord(input) && hasRuntimeType(input.reason, "string") ? input.reason.trim() : ""
             if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
             silentReplies.set(context.context, reason)
+            const currentInput = context.input.get()
+            context.input.set({
+              ...currentInput,
+              context: { ...currentInput.context, [silentReplyContextKey]: reason },
+            })
+            context.context.set(silentReplyContextKey, reason, { overwrite: true })
             const runtimeContext = context.runtimeContext
             if (runtimeContext) {
               await traceAgentChannelDeliveryEffect({
