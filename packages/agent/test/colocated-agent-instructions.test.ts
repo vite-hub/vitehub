@@ -224,9 +224,9 @@ describe("colocated Agent instructions", () => {
       await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
       await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
       const explicitInstructions = {
+        content: "Explicit provider instructions.\n",
         materialize: "build" as const,
         mount: "",
-        path: "instructions.md",
         workspacePath: "AGENTS.md",
       }
       const agent = defineAgent({
@@ -290,7 +290,13 @@ describe("colocated Agent instructions", () => {
       expect(Object.keys(sources).filter(key => key.startsWith("__vitehubAgentSkill:"))).toEqual([])
       if (sourceConfiguration === "override") expect(sources.__vitehubAgentInstructions).toEqual(explicitInstructions)
       else expect(sources).not.toHaveProperty("__vitehubAgentInstructions")
-      expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ instructions: "Support the local invocation.\n", kind: "provider" })
+      expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ kind: "provider" })
+      if (sourceConfiguration === "override") {
+        expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).not.toHaveProperty("instructions")
+      }
+      else {
+        expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ instructions: "Support the local invocation.\n" })
+      }
       expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content)).toBe("# Review\n")
     }
     finally {
