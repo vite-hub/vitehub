@@ -180,7 +180,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           for (const file of definitionFiles) {
             if (definitionWatchers.has(file)) continue
             try {
-              const watcher = watch(file, () => { void refreshLocalRuntime() })
+              const watcher = watch(file, () => {
+                void refreshLocalRuntime().catch(error => {
+                  console.warn(`[vitehub] Failed to refresh local Database runtime: ${error instanceof Error ? error.message : String(error)}`)
+                })
+              })
               definitionWatchers.set(file, watcher)
             }
             catch {
