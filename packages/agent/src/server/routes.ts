@@ -201,6 +201,8 @@ interface AgentRouteRuntimeOptions {
   waitUntil?: AgentWaitUntil
 }
 
+const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
+
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
@@ -1568,10 +1570,12 @@ async function deliverQueuedWebhookFailure(
   invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
   invocationStarted = true,
 ): Promise<boolean> {
+  const publicErrorCode = toAgentPublicError(error, "http").code === "TIMEOUT" ? "TIMEOUT" as const : undefined
   const failure = {
     error: error instanceof Error ? error.message : String(error),
     attempts,
     ...(!invocationStarted ? { invocationStarted: false as const } : {}),
+    ...(publicErrorCode ? { publicErrorCode } : {}),
   }
   if (state.markWebhookDeliveryFailure && state.beginWebhookFailureNotification) {
     // A notification claim is permanent. If completion failed after dispatch,
@@ -1604,7 +1608,10 @@ async function executeQueuedWebhookDelivery(
     // SAFETY: The queue persists invocation input and run metadata from this route contract.
     let recoveredInvocation = delivery.invocation as { input?: AgentRunInput, run?: AgentRunMetadata } | undefined
     if (delivery.failure.invocationStarted === false) recoveredInvocation = { input: recoveredInvocation?.input }
-    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, new Error(delivery.failure.error), delivery.failure.attempts, recoveredInvocation)
+    const recoveredError = delivery.failure.publicErrorCode === "TIMEOUT"
+      ? agentDiagnostics.AGENT_R0820({ message: delivery.failure.error })
+      : new Error(delivery.failure.error)
+    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, recoveredError, delivery.failure.attempts, recoveredInvocation)
     if (delivered) {
       const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
       if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, delivery.failure.invocationStarted === false ? undefined : "failed", "failed", {
@@ -1655,6 +1662,7 @@ async function executeQueuedWebhookDelivery(
   const request = requestFromPersistedWebhook(delivery)
   const ownershipAbort = new AbortController()
   let executionTimedOut = false
+  let executionTimeoutError: ReturnType<typeof agentDiagnostics.AGENT_R0820> | undefined
   let executionTimeoutTimer: ReturnType<typeof setTimeout> | undefined
   const executionStartedAt = Date.now()
   let rejectExecutionTimeout!: (reason: unknown) => void
@@ -1664,6 +1672,7 @@ async function executeQueuedWebhookDelivery(
   const expireExecution = (timeoutMs: number) => {
     executionTimedOut = true
     const reason = agentDiagnostics.AGENT_R0820({ message: `[vitehub] Queued webhook invocation timed out after ${timeoutMs}ms.` })
+    executionTimeoutError = reason
     ownershipAbort.abort(reason)
     return reason
   }
@@ -2015,7 +2024,8 @@ async function executeQueuedWebhookDelivery(
       const failedInvocationWithRun = { ...failedInvocation }
       if (!invocationStarted) delete failedInvocationWithRun.run
       else if (failedInvocationWithRun.run === undefined && invocationRunId) failedInvocationWithRun.run = { runId: invocationRunId }
-      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, error, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
+      const failureError = executionTimedOut && executionTimeoutError ? executionTimeoutError : error
+      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, failureError, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
         if (channelDelivery)
           await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "failed" : undefined, "failed", {
             attempt: delivery.attempts + 1,
@@ -9059,6 +9069,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         let inbox: WebhookInbox
         try {
           inbox = await openWebhookInbox(webhookDeliveryState, {
+            priorAttempts: (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxPriorAttempts]?: number })[webhookInboxPriorAttempts],
             id: await webhookInboxId(request, rawBodyBytes),
             receivedAt: new Date(webhookStartedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
@@ -9260,7 +9271,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {
         // Requests that an earlier process stored but did not finish admitting go through the route again.
-        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId) => await handler(request, webhookId, handlerOptions))
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts } as AgentChannelWebhookRouteOptions))
           .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
         inboxReplayBefore = undefined
       }

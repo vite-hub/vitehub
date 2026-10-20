@@ -89,6 +89,8 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. `list()` checks `prefix` the same way and accepts a trailing slash.
+
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
 
 ## Serve a transformed object
@@ -101,7 +103,7 @@ The optional `transform` receives the original `Blob` and returns the response `
 
 Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.del(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.del`. No background eviction runs.
 
-Filesystem cache keys normalize dot segments and separators. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
+Filesystem cache keys normalize repeated slashes. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
 
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
@@ -144,6 +146,8 @@ The cache is best effort across runtimes. Concurrent source updates can evict a 
 
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without any directory part, is the pathname.
+ViteHub stores the name as written and does not URL-decode it, so a file named
+`..%2Fevil.txt` stays inside `prefix`.
 It returns `[error, objects]`. A request without files, with too many files, or
 with a file that fails `ensure` throws an H3 400 error before anything is
 stored.

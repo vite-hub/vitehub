@@ -33,6 +33,8 @@ interface WebhookInboxEntry {
   receivedAt: string
   request: WebhookInboxRequest
   webhookId: string
+  /** Highest admission count already recorded by replay metadata. */
+  priorAttempts?: number
 }
 
 interface StoredWebhookInboxEntry extends WebhookInboxEntry {
@@ -168,7 +170,8 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   }, Math.max(1_000, webhookInboxOwnerTtlMs / 3))
   try {
     const previous = await state.get(key)
-    const attempts = (isStoredWebhookInboxEntry(previous) ? previous.attempts : 0) + 1
+    const previousAttempts = isStoredWebhookInboxEntry(previous) ? previous.attempts : 0
+    const attempts = Math.max(previousAttempts, entry.priorAttempts ?? 0) + 1
     if (!previous) {
       // Keep a complete copy in the replay index. If the process stops between the
       // row and index writes, replay can still recover the stored request.
@@ -308,23 +311,32 @@ export async function drainDeferredWebhookAdmissions(options: DrainDeferredWebho
 export async function replayWebhookInbox(
   scopes: Iterable<WebhookInboxState>,
   before: number,
-  route: (request: Request, webhookId: string) => Promise<Response>,
+  route: (request: Request, webhookId: string, priorAttempts: number) => Promise<Response>,
 ): Promise<void> {
   const states = new Map<string, StateAdapter>()
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
   for (const [keyPrefix, state] of states) {
-    const seen = new Set<string>()
+    const indexedEntries = new Map<string, { entry?: StoredWebhookInboxEntry, attempts: number }>()
     for (const indexed of await state.getList(webhookInboxIndexKey(keyPrefix))) {
-      if (!isRecord(indexed) || !isRuntimeString(indexed.id) || seen.has(indexed.id)) continue
-      seen.add(indexed.id)
-      const key = webhookInboxKey(keyPrefix, indexed.id)
+      if (!isRecord(indexed) || !isRuntimeString(indexed.id)) continue
       const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
-      const stored = await state.get(key) || indexedEntry
+      const previous = indexedEntries.get(indexed.id)
+      indexedEntries.set(indexed.id, {
+        entry: previous?.entry || indexedEntry,
+        attempts: Math.max(previous?.attempts || 0, indexedEntry?.attempts || 0),
+      })
+    }
+    for (const [id, indexed] of indexedEntries) {
+      const key = webhookInboxKey(keyPrefix, id)
+      const row = await state.get(key)
+      const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
+      const stored = storedRow || indexed.entry
       if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
-      const fields = { attempts: stored.attempts, deliveryScope: keyPrefix, inboxId: stored.id }
+      const attempts = Math.max(stored.attempts, indexed.attempts)
+      const fields = { attempts, deliveryScope: keyPrefix, inboxId: stored.id }
       const owner = await state.get(`${key}:owner`)
       if (isRecord(owner) && owner.settled === true) continue
-      if (stored.attempts >= webhookInboxMaxAttempts) {
+      if (attempts >= webhookInboxMaxAttempts) {
         logWebhookInbox("inbox.dropped", fields)
         await state.delete(key)
         continue
@@ -336,7 +348,7 @@ export async function replayWebhookInbox(
           headers: stored.request.headers,
           method: stored.request.method,
         })
-        let response = await route(makeRequest(), stored.webhookId)
+        let response = await route(makeRequest(), stored.webhookId, attempts)
         // A lock left by a crashed process is indistinguishable from a duplicate request
         // at the route boundary. If this process does not own it, take over once and retry.
         const currentOwner = await state.get(`${key}:owner`)
@@ -354,7 +366,7 @@ export async function replayWebhookInbox(
               : isRecord(currentOwner) && isRecord(takeoverOwner) && currentOwner.token === takeoverOwner.token
             if (sameOwner && !(isRecord(takeoverOwner) && takeoverOwner.settled === true)) {
               await forceReleaseLock(`${key}:admission`).catch(() => undefined)
-              response = await route(makeRequest(), stored.webhookId)
+              response = await route(makeRequest(), stored.webhookId, attempts)
             }
           }
         }

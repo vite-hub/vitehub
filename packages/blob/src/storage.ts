@@ -41,13 +41,16 @@ function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
   return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
 }
 
-function normalizePathname(pathname: string): string {
+// Decode the pathname once, then reject it before a driver, filesystem, or URL can resolve it elsewhere.
+function normalizePathname(pathname: string, options?: { prefix?: boolean }): string {
+  let decoded: string
   try {
-    return decodeURIComponent(pathname).replace(/^\/+/, "")
+    decoded = decodeURIComponent(pathname)
   }
   catch {
-    return pathname.replace(/^\/+/, "")
+    decoded = pathname
   }
+  return assertValidPathname(decoded.replace(/^\/+/, ""), options)
 }
 
 // `_vitehub/derived/` holds cached variants and `_vitehub/media/` holds media records and crop replacements.
@@ -150,9 +153,10 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     ? `${name}-${globalThis.crypto.randomUUID().split("-")[0]}${ext}`
     : `${name}${ext}`
   const normalized = joinPath(dir, filename)
-  return options.prefix
+  // The prefix and the suffix can change the pathname, so check the final value.
+  return assertValidPathname(options.prefix
     ? joinPath(options.prefix, normalized)
-    : normalized
+    : normalized)
 }
 
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
@@ -236,7 +240,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
-      const normalizedPrefix = options.prefix ? normalizePathname(options.prefix) : options.prefix
+      const normalizedPrefix = options.prefix ? normalizePathname(options.prefix, { prefix: true }) : options.prefix
       return blobResult("list", store, () => driver.list({
         ...options,
         prefix: normalizedPrefix,

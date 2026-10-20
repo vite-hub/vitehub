@@ -588,9 +588,9 @@ describe("hubBlob", () => {
     const root = await temporaryDirectory("vitehub-blob-nitro-r2-")
     const plugin = hubBlob({
       stores: {
-        default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
-        assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
-        assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+        default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
       },
     })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
@@ -599,7 +599,7 @@ describe("hubBlob", () => {
 
     config(userConfig, { command: "build" })
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
-      { binding: "ASSETS", bucket_name: "assets" },
+      { binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" },
     ])
     expect(userConfig).toHaveProperty("nitro.handlers", [{
       handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"),
@@ -610,9 +610,9 @@ describe("hubBlob", () => {
     const resolved = {
       blob: {
         stores: {
-          default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
-          assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
-          assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
+          default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+          assets: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+          assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
         },
       },
       build: { outDir: "dist" },
@@ -621,7 +621,7 @@ describe("hubBlob", () => {
         cloudflare: {
           wrangler: {
             compatibility_flags: ["custom"],
-            r2_buckets: [{ binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" }],
+            r2_buckets: [{ binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu", preview_bucket_name: "assets-preview" }],
             routes: ["example.com/*"],
           },
         },
@@ -633,7 +633,7 @@ describe("hubBlob", () => {
     await configResolved(resolved as never)
 
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
-      { binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu" },
+      { binding: "ASSETS", bucket_name: "assets", jurisdiction: "eu", preview_bucket_name: "assets-preview" },
     ])
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.routes", ["example.com/*"])
     expect(resolved).toHaveProperty("nitro.cloudflare.wrangler.compatibility_flags", ["custom", "nodejs_compat"])
@@ -651,6 +651,38 @@ describe("hubBlob", () => {
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
       { binding: "BLOB", bucket_name: "vitehub-blob" },
     ])
+  })
+
+  it("passes the R2 jurisdiction to the wrangler binding", () => {
+    const plugin = hubBlob({
+      stores: {
+        default: { bucketName: "eu-assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        archive: { binding: "ARCHIVE", bucketName: "archive", driver: "cloudflare-r2" },
+      },
+    })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = { nitro: { preset: "cloudflare-module" } }
+
+    config(userConfig, { command: "build" })
+
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.r2_buckets", [
+      { binding: "BLOB", bucket_name: "eu-assets", jurisdiction: "eu" },
+      { binding: "ARCHIVE", bucket_name: "archive" },
+    ])
+    expect(userConfig).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets.1.jurisdiction")
+  })
+
+  it("rejects a wrangler R2 binding in another jurisdiction", () => {
+    const plugin = hubBlob({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })
+    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const userConfig = {
+      nitro: {
+        cloudflare: { wrangler: { r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }] } },
+        preset: "cloudflare-module",
+      },
+    }
+
+    expect(() => config(userConfig, { command: "build" })).toThrow("Cloudflare binding \"BLOB\" from blob is already assigned to an incompatible resource.")
   })
 
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {

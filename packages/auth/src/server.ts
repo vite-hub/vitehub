@@ -1263,11 +1263,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       foreignHeadersPrototype = undefined
     }
+    const currentHeadersPrototype = Headers.prototype
+    const currentForEach = Object.getOwnPropertyDescriptor(currentHeadersPrototype, "forEach")?.value
+    const foreignForEach = foreignHeadersPrototype && Object.getOwnPropertyDescriptor(foreignHeadersPrototype, "forEach")?.value
+    const headerForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
+    const trustedForEach = headerForEach === currentForEach ? currentForEach
+      : headerForEach === foreignForEach ? foreignForEach
+      : undefined
     const nativeHeaderMethods = ["get", "forEach"].every(key => {
       const method = responsePropertyDescriptor(headerCarrier, key)?.value
-      return method === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value
+      return method === Object.getOwnPropertyDescriptor(currentHeadersPrototype, key)?.value
         || (foreignHeadersPrototype !== undefined && method === Object.getOwnPropertyDescriptor(foreignHeadersPrototype, key)?.value)
-    })
+    }) && typeof trustedForEach === "function"
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
@@ -1307,7 +1314,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // incorrectly admit the malformed authorization result.
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
-    const forEach = Reflect.get(headerCarrier, "forEach")
+    const forEach = trustedForEach
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []

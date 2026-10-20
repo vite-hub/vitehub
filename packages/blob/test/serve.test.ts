@@ -216,7 +216,7 @@ describe("Blob response transforms", () => {
 
   it("shares and removes filesystem derivatives across pathname aliases", async () => {
     const first = event()
-    await storage.serve(first, "alias/../private/original", options)
+    await storage.serve(first, "private//original", options)
     const second = event()
     await storage.serve(second, "private/original", options)
     expect(second.res.headers.get("etag")).toBe(first.res.headers.get("etag"))
