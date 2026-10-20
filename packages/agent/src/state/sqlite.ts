@@ -252,6 +252,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
             AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering', 'notifying') AND COALESCE(candidate.lease_expires_at, 0) <= ?))
+            AND (json_extract(candidate.value, '$.debounceKey') IS NULL OR NOT EXISTS (
+              SELECT 1 FROM ${this.tables.webhookQueue} AS newer
+              WHERE newer.scope = candidate.scope AND newer.status != 'completed'
+                AND newer.id > candidate.id
+                AND json_extract(newer.value, '$.debounceKey') = json_extract(candidate.value, '$.debounceKey')
+            ))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
@@ -473,6 +479,21 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+    const debounceKey = delivery.debounceKey
+    if (debounceKey) {
+      const now = Date.now()
+      // A newer delivery permanently supersedes older deliveries with the same key.
+      // Finalize queued work at admission. Active work keeps its lease; an expired
+      // active lease is safe to finalize so it cannot remain orphaned forever.
+      await execute(
+        tx,
+        `UPDATE ${this.tables.webhookQueue}
+          SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+          WHERE scope = ? AND delivery_id != ? AND json_extract(value, '$.debounceKey') = ?
+            AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ?))`,
+        [delivery.scope, delivery.deliveryId, debounceKey, now],
+      )
+    }
     const inserted = await execute(
       tx,
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
