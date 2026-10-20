@@ -1,6 +1,6 @@
 ---
 title: Runtime policy, approvals, and traces
-navigation.title: Policy and approvals
+navigation.title: Runtime policy, approvals, and traces
 description: Choose when an Agent tool can run and inspect the decision afterward.
 navigation.order: 23
 navigation.group: Core

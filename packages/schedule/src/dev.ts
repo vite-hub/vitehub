@@ -1,6 +1,3 @@
-/** Development Server route for manual Static Schedule runs. */
-export const scheduleDevRunRoute = "/__vitehub/schedule/run"
-export const scheduleDevRunHeader = "x-vitehub-schedule-run"
 /** Console route for manual Static Schedule runs on a deployment. */
 export const scheduleConsoleRunRoute = "_vitehub/schedules/run"
 
@@ -10,11 +7,17 @@ export const scheduleDevRoute = "/__vitehub/schedule/dev"
 export const scheduleDevRuntimeRoute = "/_vitehub/schedule/dev"
 export const scheduleDevHeader = "x-vitehub-schedule-dev"
 export const scheduleDevHeaderValue = "1"
+// Compatibility names used by the Static Schedule CLI.
+export const scheduleDevRunHeader: string = scheduleDevHeader
+export const scheduleDevRunRoute: string = scheduleDevRoute
 export const scheduleDevTokenNamespace = "schedule"
 export const scheduleDevTokenServerHeader = "x-vitehub-schedule-dev-server"
 
-/** Schedule operations that the dev endpoint accepts. */
-export const scheduleDevOperations = ["list", "get", "runs", "attempts", "run", "enable", "disable"] as const
+/**
+ * Schedule operations that the dev endpoint accepts. `runs` and `attempts` read recorded Schedule Runs. `run-static`
+ * starts a Static Schedule Definition that sets `manual: true`.
+ */
+export const scheduleDevOperations = ["runs", "attempts", "run-static"] as const
 
 export type ScheduleDevOperation = typeof scheduleDevOperations[number]
 

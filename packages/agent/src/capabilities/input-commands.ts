@@ -58,9 +58,9 @@ export interface InputCommand {
 
 export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
 
-export interface ViteHubInputCommandContext {}
+interface ViteHubInputCommandContext {}
 
-export interface InputCommandRuntimeContext extends AgentCapabilityRuntimeContext, ViteHubInputCommandContext {
+interface InputCommandRuntimeContext extends AgentCapabilityRuntimeContext, ViteHubInputCommandContext {
   invocation: AgentCapabilityRuntimeContext["invocation"] & { id?: string }
   reply: (body: string) => Promise<Response>
 }

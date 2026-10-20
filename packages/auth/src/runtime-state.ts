@@ -3,9 +3,17 @@ import type { AuthDefinition, ViteHubAuth } from "./types.ts"
 // The Vite plugin resets this state without loading Better Auth. Keep this module free of provider imports.
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
+export type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
+
 export interface AuthRuntimeState {
   auth?: ViteHubAuth
   definition?: AuthDefinition
+  /**
+   * Set once by the generated Nitro plugin. It lives here, not in the server module, because a dev reload re-runs the
+   * server module when the app's Auth Definition changes, and the plugin does not run again.
+   */
+  envResolver?: AuthRuntimeEnvResolver
+  envResolvers?: WeakMap<object, AuthRuntimeEnvResolver>
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {
@@ -14,6 +22,7 @@ export function getAuthRuntimeState(): AuthRuntimeState {
     [authRuntimeStateKey]?: AuthRuntimeState
   }
   globalScope[authRuntimeStateKey] ??= {}
+  globalScope[authRuntimeStateKey].envResolvers ??= new WeakMap()
   return globalScope[authRuntimeStateKey]
 }
 

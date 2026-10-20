@@ -11,7 +11,6 @@ type ConsoleProjectScope = {
 
 function sharedProcess(scope: ConsoleProjectScope): ConsoleProjectScope | undefined {
   // Vite SSR module runners isolate globalThis but retain the host Node process object.
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A shared process may come from another SSR realm.
   if (!scope.process || (typeof scope.process !== "object" && typeof scope.process !== "function")) return
   // SAFETY: The module adds only optional symbol-keyed state to the shared process.
   return scope.process as ConsoleProjectScope
@@ -20,11 +19,9 @@ function sharedProcess(scope: ConsoleProjectScope): ConsoleProjectScope | undefi
 /** Owns project selection, shared-process fallback, and ambiguity for one Console inspection. */
 export function createConsoleProjectRegistry<TValue>(keys: { root: symbol, value: symbol, registry: symbol }) {
   function projectRegistry(value: unknown): ConsoleProjectRegistry<TValue> | undefined {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console registries cross Vite SSR realms, so validate their structural contract.
     if (!value || (typeof value !== "object" && typeof value !== "function")) return
     // SAFETY: The checks below validate all registry members; only this module writes values for its configured keys.
     const registry = value as Partial<ConsoleProjectRegistry<TValue>>
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members establish the realm-independent registry contract.
     if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
     // SAFETY: Every member of ConsoleProjectRegistry was checked above.
     return registry as ConsoleProjectRegistry<TValue>

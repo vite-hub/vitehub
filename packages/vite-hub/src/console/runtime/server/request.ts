@@ -1,5 +1,6 @@
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
-export interface ConsoleHeaders {
+import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+
+interface ConsoleHeaders {
   get(name: string): string | null
 }
 
@@ -58,33 +59,38 @@ function stringByteLength(value: string): number {
 }
 
 /** Read bounded JSON across Fetch, H3 v1, and already-decoded RPC request bodies. */
+/**
+ * Reads a fetch request body as text and stops at `maximumBytes`, so an oversized body is not read in full.
+ * Throws a `413` Console request error when the body is larger.
+ */
+export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<string> {
+  const reader = fetchBody.getReader()
+  const decoder = new TextDecoder()
+  let body = ""
+  let bytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+      body += decoder.decode(chunk.value, { stream: true })
+    }
+    return body + decoder.decode()
+  }
+  catch (error) {
+    // Cleanup must not replace a size or read failure with a cancellation failure.
+    await reader.cancel().catch(() => undefined)
+    throw error
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
-  if (fetchBody) {
-    const reader = fetchBody.getReader()
-    const decoder = new TextDecoder()
-    let body = ""
-    let bytes = 0
-    try {
-      while (true) {
-        const chunk = await reader.read()
-        if (chunk.done) break
-        bytes += chunk.value.byteLength
-        if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-        body += decoder.decode(chunk.value, { stream: true })
-      }
-      body += decoder.decode()
-      return JSON.parse(body)
-    }
-    catch (error) {
-      // Cleanup must not replace a size, read, or JSON failure with a cancellation failure.
-      await reader.cancel().catch(() => undefined)
-      throw error
-    }
-    finally {
-      reader.releaseLock()
-    }
-  }
+  if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
   if (event.req?.json) {
     const body = await event.req.json()
     if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
@@ -97,21 +103,20 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
   let bytes = 0
   // SAFETY: The iterator presence check above proves this H3 v1 request can be consumed as an async byte stream.
   for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
     const chunkBytes = typeof chunk === "string" ? stringByteLength(chunk) : chunk.byteLength
     bytes += chunkBytes
     if (bytes > maximumBytes) {
       throw consoleRequestError(413, "Console request body exceeds the byte limit.")
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
     body += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true })
   }
   body += decoder.decode()
   return JSON.parse(body)
 }
 
-export function consoleRequestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0069({ message: statusMessage }), { statusCode, statusMessage })
+/** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
+export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
+  return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
@@ -134,10 +139,14 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  const headers = event.req?.headers ?? event.headers
   const header = (name: string) => {
-    const raw = headers?.get(name) ?? event.node?.req?.headers?.[name]
-    return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
+      if (!source) continue
+      let raw: string | string[] | undefined | null
+      if ("get" in source && typeof source.get === "function") raw = source.get(name)
+      else if (typeof source === "object") raw = (source as Record<string, string | string[] | undefined>)[name]
+      if (raw !== undefined && raw !== null) return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
   const host = header("x-forwarded-host") ?? header("host")

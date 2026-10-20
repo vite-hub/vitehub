@@ -56,21 +56,7 @@
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
-    },
-    "./collections": {
-      "types": "./dist/collections.d.ts",
-      "import": "./dist/collections.js",
-      "require": "./dist/collections.js",
-      "default": "./dist/collections.js"
-    },
-    "./collections/client": {
-      "types": "./dist/collections/client.d.ts",
-      "import": "./dist/collections/client.js",
-      "require": "./dist/collections/client.js",
-      "default": "./dist/collections/client.js"
+      "import": "./dist/cloudflare.js"
     },
     "./loader": {
       "types": "./dist/loader.d.ts",
@@ -95,12 +81,6 @@
       "import": "./dist/nuxt.js",
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
-    },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js",
-      "require": "./dist/publish.js",
-      "default": "./dist/publish.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -169,6 +149,10 @@
       "require": "./dist/runtime/workspace.js",
       "default": "./dist/runtime/workspace.js"
     },
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js"
+    },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",
       "import": "./dist/providers/github/store.js",
@@ -179,16 +163,17 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/workspace#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/box": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
@@ -201,7 +186,8 @@
     "valibot": "catalog:runtime",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*"
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -216,7 +202,6 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database",
     "miniflare": "4.20260730.0",
     "@libsql/client": "catalog:database"
@@ -225,7 +210,6 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database"
   },
   "peerDependenciesMeta": {
@@ -233,9 +217,6 @@
       "optional": true
     },
     "vite": {
-      "optional": true
-    },
-    "vue": {
       "optional": true
     },
     "drizzle-orm": {

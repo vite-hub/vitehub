@@ -8,6 +8,7 @@ import { Readable } from "node:stream"
 import { promisify } from "node:util"
 import { expect, it, vi } from "vitest"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
 import { defineSchedule } from "../src/index.ts"
 import { runScheduleCli, runScheduleRunCli, scheduleDevRunHeader, scheduleDevRunRoute } from "../src/cli.ts"
 import { registerScheduleDevRunEndpoint } from "../src/dev-run.ts"
@@ -92,6 +93,28 @@ it("preserves authenticated Console targeting for static run and redacts its res
   expect(JSON.parse(stdout)).toMatchObject({ status: "failed", error: { name: "access_token=[redacted]", message: "Bearer [redacted]" } })
   expect(stdout).not.toMatch(/secret-name|private-secret|secret-stack/)
   expect(stderr).toBe("")
+})
+
+it("signs a remote run with the dispatch key derived from VITEHUB_SECRET", async () => {
+  const env = { USER: "maxi", VITEHUB_SECRET: "remote-root-secret-at-least-32-characters" }
+  const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: Parameters<typeof globalThis.fetch>[1]) => Response.json({ run: { id: "srun_manual_sync_1", status: "succeeded" } }))
+  let stdout = ""
+  expect(await runScheduleRunCli(["sync", "--url", "https://app.example.com"], { env, stdout: { write: chunk => { stdout += String(chunk) } }, stderr: { write: () => {} } }, { fetch })).toBe(0)
+  const init = fetch.mock.calls[0]?.[1]
+  const headers = new Headers(init?.headers)
+  expect(headers.get("x-vitehub-dispatch-actor")).toBe("maxi")
+  await expect(verifyViteHubDispatch({ body: String(init?.body), env, headers, operation: "schedule.run" })).resolves.toEqual({ actor: "maxi", ok: true })
+  expect(stdout).toContain("succeeded sync")
+})
+
+it("prints the server message when a dispatch signature is rejected", async () => {
+  const fetch = vi.fn(async () => Response.json({ message: "Dispatch signature does not match. Use the dispatch key of this deployment." }, { status: 401 }))
+  let stderr = ""
+  const key = "a".repeat(64)
+  expect(await runScheduleRunCli(["sync", "--url", "https://app.example.com"], { env: { VITEHUB_DISPATCH_KEY: key }, stdout: { write: () => {} }, stderr: { write: chunk => { stderr += String(chunk) } } }, { fetch })).toBe(1)
+  expect(stderr).toContain("Dispatch signature does not match")
+  expect(await runScheduleRunCli(["sync", "--url", "https://app.example.com"], { env: { VITEHUB_DISPATCH_KEY: "short" }, stdout: { write: () => {} }, stderr: { write: chunk => { stderr += String(chunk) } } }, { fetch })).toBe(1)
+  expect(stderr).toContain("VITEHUB_DISPATCH_KEY must be the 64-character hex key")
 })
 
 it("rejects retained manual-run middleware after the Vite server closes", async () => {

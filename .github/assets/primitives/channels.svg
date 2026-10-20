@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 4800ms; --scene-delay: -2640ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.dashed {
+  stroke-dasharray: 2.5 3;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.ch-token { animation-name: ch-token; }
+.ch-message { animation-name: ch-message; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes ch-token {
+  0%, 8% { opacity: 0; transform: translateX(0); }
+  14% { opacity: 0.85; transform: translateX(0); }
+  46% { opacity: 0.85; transform: translateX(30px); }
+  52%, 100% { opacity: 0; transform: translateX(32px); }
+}
+@keyframes ch-message {
+  0%, 12% { opacity: 0.35; transform: translateX(0); }
+  32%, 48% { opacity: 0.8; transform: translateX(4px); }
+  68%, 100% { opacity: 0.35; transform: translateX(0); }
+}
+</style>
+      <circle cx="12" cy="20" r="5" class="line" />
+      <path d="M17 20h10M34 20h10" class="line dashed" />
+      <rect x="27" y="14" width="7" height="12" rx="1.5" class="soft a ch-message" />
+      <rect x="44" y="13" width="12" height="14" rx="2" class="line" />
+      <path d="M47 18h6M47 22h4" class="soft" />
+      <circle cx="12" cy="20" r="2" class="token a ch-token" />
+</svg>

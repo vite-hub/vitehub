@@ -85,7 +85,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `requestOrigin` | The origin of the current request. Same-origin apps do not need a separate auth URL variable. |
 | `request` | The current request headers and URL, when a request exists. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
 
 ## Storage placement metadata
 

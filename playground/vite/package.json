@@ -19,7 +19,7 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",

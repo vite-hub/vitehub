@@ -16,6 +16,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -92,9 +93,20 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
-  return { message, ok: false, status }
+  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
+  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
+  const code = text(Reflect.get(value, "code"))
+  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
+  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
+  const fix = text(Reflect.get(value, "fix"))
+  const docs = text(Reflect.get(value, "docs"))
+  if (fix) result.fix = fix
+  if (docs) result.docs = docs
+  return result
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
 }
 
 async function consoleSearchError(response: Response): Promise<Error> {
@@ -145,7 +157,14 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.agentInvocations]: { section: "agents", run: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)) },
   [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
   [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
-  [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
+  [consoleRpcMethods.definitions]: {
+    section: querySection,
+    run: (input, context) => {
+      // The route guard rejects a request without a section. Over RPC it is invalid input.
+      if (querySection(input) === undefined) throw consoleRequestError(400, "A valid definition section is required.")
+      return consoleDefinitionsHandler(requestEvent("definitions", input, context))
+    },
+  },
   [consoleRpcMethods.invocationWorkspace]: { section: "agents", run: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)) },
   [consoleRpcMethods.invocation]: { section: "agents", run: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)) },
   [consoleRpcMethods.invocationCapabilities]: { section: "agents", run: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)) },
@@ -245,7 +264,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
+  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   if (!isConsoleRpcCallPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
@@ -266,7 +285,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
-  return operation.run(input.output, context)
+  const value = await operation.run(input.output, context)
+  // A guarded route returns its rejection as a Response. It is a failure, not an operation value.
+  if (value instanceof Response) throw consoleRequestError(value.status, "Console access rejected the request.")
+  return value
 }
 
 /** Run one Console operation from one checked request, so any host instance can serve any call. */

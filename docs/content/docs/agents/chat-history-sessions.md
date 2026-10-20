@@ -55,6 +55,8 @@ delete stored history.
 - `maxMessages` includes the current message.
 - `maxAgeMs` is optional. It removes older messages, measured from the current
   message. A message without a timestamp starts a new window.
+- `maxImages` is optional. See
+  [Send recent history photos](#send-recent-history-photos).
 
 Thread scope is the usual choice for Discord threads, Slack threads, Teams
 conversations, GitHub comment threads, and support chats in your application.
@@ -64,6 +66,63 @@ Adapter-backed Channels load thread history themselves. A route that calls
 of the current thread, including the new message. `triggerHistory` only limits
 that array. It does not load messages from `threadId` or from a session id. See
 [Consume a Capability Trigger](/docs/agents/triggers#consume-a-capability-trigger).
+
+## What the model reads
+
+For adapter-backed Channels, ViteHub adds one header line before each user
+message. The header has the send time with its UTC offset, the platform message
+number, and one label for each attachment:
+
+```txt
+[Tue 2026-10-13 18:06:29 +02:00 · msg 109313 · photo AQADxyz]
+```
+
+- Set `timeZone` in the Channel `messages` options to an IANA time zone, such
+  as `'Europe/Stockholm'`. The default is UTC. An invalid value uses UTC.
+- An attachment label is `photo`, `voice`, `video`, or `file`. Telegram adds
+  the permanent file id. `(not shown)` marks an attachment that is not in the
+  model input.
+- Outside direct messages, the header also names the sender and the sender id.
+- `edited` marks an edited message.
+
+A reply becomes one line after the header:
+
+```txt
+↪ replying to your msg 109315 (Tue 18:07): "Should I log the nachos or the banana?"
+```
+
+`your` is a message from the Agent. The quote is at most 280 characters. When
+the replied message is already in the history window, the line shows
+`(shown above)` instead of the quote. Assistant messages get no header and no
+reply line. The header is model input only. Message `filter` hooks receive the
+message without it.
+
+## Send recent history photos
+
+History messages keep their text, but by default their attachments are not
+model input. Set `maxImages` to send the newest history photos again:
+
+```ts [server/agents/meals.ts]
+import { chat } from 'vite-hub/agent/capabilities'
+
+export const mealChat = chat({
+  timeZone: 'Europe/Stockholm',
+  triggerHistory: {
+    maxAgeMs: 30 * 60 * 1000,
+    maxImages: 3,
+    maxMessages: 20,
+    source: 'thread',
+  },
+})
+```
+
+Only images sent within `maxAgeMs` of the current message count. The current
+message and queued messages keep all their attachments. ViteHub downloads the
+selected photos again through the Channel adapter on each Invocation. The
+adapter must support `rehydrateAttachment()`, as the Telegram adapter does. A
+history photo that fails to download, or does not fit in the remaining
+`driver.execution.attachments.maxBytes` budget, is left out. The Invocation
+continues.
 
 ## Add a session
 

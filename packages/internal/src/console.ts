@@ -67,7 +67,7 @@ export interface ViteHubConsoleRuntimeReader {
   /** Named export of `module`. */
   export: string
   /**
-   * Owner package module specifier, for example `@vite-hub/schedule/runtime/console`. The host maps it to the module
+   * Owner package module specifier, for example `@vite-hub/email/runtime/console`. The host maps it to the module
    * path that the application can import.
    */
   module: string
