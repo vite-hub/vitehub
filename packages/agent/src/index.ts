@@ -379,6 +379,7 @@ export type {
   AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentChatPlatformAdapter,
   AgentChatPlatformResolver,
   AgentChatPlatformsResolver,
