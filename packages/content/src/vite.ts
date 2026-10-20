@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { discoverContentDefinition, findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
+import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
 import {
@@ -134,7 +134,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
 
   async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
-    const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs })
+    const file = await findContentEntry({ projectRoot: root, serverDirs: input.serverDirs })
     if (!file) return
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return
