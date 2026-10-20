@@ -256,10 +256,12 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
+    "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
@@ -364,5 +366,17 @@
   },
   "engines": {
     "node": ">=24.15.0"
+  },
+  "vitehub": {
+    "agent": {
+      "processHost": [
+        "./presets/babysitter"
+      ],
+      "providerDriver": [
+        "./presets/babysitter",
+        "./presets/babysitter/server",
+        "./presets/workspace"
+      ]
+    }
   }
 }

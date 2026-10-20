@@ -94,8 +94,8 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@43be2a6
-      version: 0.0.0
+      specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
+      version: 0.1.0
     proper-lockfile:
       specifier: 4.1.2
       version: 4.1.2
@@ -867,7 +867,7 @@ importers:
         version: 2.33.1(42c3d738fe5a8f7c673d04cee1e3fadd)
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@43be2a6
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -1592,7 +1592,7 @@ importers:
         version: link:../internal
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@43be2a6
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2566,6 +2566,9 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
+      '@vite-hub/presets':
+        specifier: workspace:*
+        version: link:../presets
       '@vite-hub/queue':
         specifier: workspace:*
         version: link:../queue
@@ -2581,6 +2584,9 @@ importers:
       '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@vite-hub/sandbox-task':
+        specifier: workspace:*
+        version: link:../sandbox-task
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../schedule
@@ -12805,9 +12811,9 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6:
-    resolution: {integrity: sha512-ahanYLa4/fWGU8CiV5Q6AaVfJQsa2nZxqG7UtrQEpr6tcXurZgiBzdOPQZCOFR1Y1PsjhtdwdEHjpF77NdAYLA==, tarball: https://pkg.pr.new/danielroe/forges@43be2a6}
-    version: 0.0.0
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
+    version: 0.1.0
     engines: {node: '>=22.18'}
 
   form-data-encoder@4.1.0:
@@ -30357,7 +30363,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6: {}
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b: {}
 
   form-data-encoder@4.1.0: {}
 

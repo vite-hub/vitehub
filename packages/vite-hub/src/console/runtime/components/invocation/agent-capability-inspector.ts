@@ -1,6 +1,6 @@
 import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderProps } from "@json-render/vue";
 import type { Spec } from "@json-render/core";
-import { computed, defineComponent, h, ref, watch, type DefineComponent, type PropType, type VNodeChild } from "vue";
+import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
@@ -90,7 +90,17 @@ function catalogComponent(render: (props: Record<string, unknown>, children: VNo
   });
 }
 
-export const AgentCapabilityInspector: DefineComponent = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported component spells out the prop and emit options that `defineComponent` infers.
+type AgentCapabilityInspectorPropOptions = {
+  invocation: { type: PropType<AgentInvocationView>; required: true };
+};
+
+type AgentCapabilityInspectorEmits = {
+  selectActivity: (id: string) => boolean;
+};
+
+const agentCapabilityInspector = defineComponent({
   name: "AgentCapabilityInspector",
   emits: {
     /** Emitted with the first recorded call of a tool the viewer selects. */
@@ -152,3 +162,5 @@ export const AgentCapabilityInspector: DefineComponent = defineComponent({
     ]);
   },
 });
+
+export const AgentCapabilityInspector: DefineComponent<AgentCapabilityInspectorPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentCapabilityInspectorEmits> = agentCapabilityInspector;
