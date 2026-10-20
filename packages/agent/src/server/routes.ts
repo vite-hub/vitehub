@@ -133,6 +133,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentDefinition,
   PublishedAgentDeliveryArtifact,
   AgentInput,
@@ -200,6 +201,8 @@ interface AgentRouteRuntimeOptions {
   maxBodyBytes?: number
   waitUntil?: AgentWaitUntil
 }
+
+const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
 
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
@@ -1568,10 +1571,12 @@ async function deliverQueuedWebhookFailure(
   invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
   invocationStarted = true,
 ): Promise<boolean> {
+  const publicErrorCode = toAgentPublicError(error, "http").code === "TIMEOUT" ? "TIMEOUT" as const : undefined
   const failure = {
     error: error instanceof Error ? error.message : String(error),
     attempts,
     ...(!invocationStarted ? { invocationStarted: false as const } : {}),
+    ...(publicErrorCode ? { publicErrorCode } : {}),
   }
   if (state.markWebhookDeliveryFailure && state.beginWebhookFailureNotification) {
     // A notification claim is permanent. If completion failed after dispatch,
@@ -1604,7 +1609,10 @@ async function executeQueuedWebhookDelivery(
     // SAFETY: The queue persists invocation input and run metadata from this route contract.
     let recoveredInvocation = delivery.invocation as { input?: AgentRunInput, run?: AgentRunMetadata } | undefined
     if (delivery.failure.invocationStarted === false) recoveredInvocation = { input: recoveredInvocation?.input }
-    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, new Error(delivery.failure.error), delivery.failure.attempts, recoveredInvocation)
+    const recoveredError = delivery.failure.publicErrorCode === "TIMEOUT"
+      ? agentDiagnostics.AGENT_R0820({ message: delivery.failure.error })
+      : new Error(delivery.failure.error)
+    const delivered = await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, recoveredError, delivery.failure.attempts, recoveredInvocation)
     if (delivered) {
       const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
       if (channelDelivery) await settleChannelDeliveryInvocation(channelDelivery, delivery.failure.invocationStarted === false ? undefined : "failed", "failed", {
@@ -1655,6 +1663,7 @@ async function executeQueuedWebhookDelivery(
   const request = requestFromPersistedWebhook(delivery)
   const ownershipAbort = new AbortController()
   let executionTimedOut = false
+  let executionTimeoutError: ReturnType<typeof agentDiagnostics.AGENT_R0820> | undefined
   let executionTimeoutTimer: ReturnType<typeof setTimeout> | undefined
   const executionStartedAt = Date.now()
   let rejectExecutionTimeout!: (reason: unknown) => void
@@ -1664,6 +1673,7 @@ async function executeQueuedWebhookDelivery(
   const expireExecution = (timeoutMs: number) => {
     executionTimedOut = true
     const reason = agentDiagnostics.AGENT_R0820({ message: `[vitehub] Queued webhook invocation timed out after ${timeoutMs}ms.` })
+    executionTimeoutError = reason
     ownershipAbort.abort(reason)
     return reason
   }
@@ -2015,7 +2025,8 @@ async function executeQueuedWebhookDelivery(
       const failedInvocationWithRun = { ...failedInvocation }
       if (!invocationStarted) delete failedInvocationWithRun.run
       else if (failedInvocationWithRun.run === undefined && invocationRunId) failedInvocationWithRun.run = { runId: invocationRunId }
-      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, error, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
+      const failureError = executionTimedOut && executionTimeoutError ? executionTimeoutError : error
+      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, failureError, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
         if (channelDelivery)
           await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "failed" : undefined, "failed", {
             attempt: delivery.attempts + 1,
@@ -2208,6 +2219,7 @@ function createManualDeliveryProgressUpdater(
 } {
   let latest: string | undefined
   let commentary = ""
+  let commentaryId: unknown
   let active = true
   let draining: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -2216,6 +2228,11 @@ function createManualDeliveryProgressUpdater(
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
       if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
+      // Show the current step, not the whole run: a new commentary segment replaces the previous one.
+      if (event.id !== undefined) {
+        if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
+        commentaryId = event.id
+      }
       commentary += event.text
       return commentary.trim() || undefined
     }
@@ -5598,6 +5615,50 @@ interface InlineChatTurn {
   threadId: string
 }
 
+const chatWrapUpBeforeMs = 120_000
+const chatWrapUpMinimumTimeoutMs = 300_000
+
+/** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
+interface ChatWrapUpTimer {
+  cancel: () => void
+}
+
+function scheduleChatWrapUp(
+  runId: string | undefined,
+  timeout: number | undefined,
+  option: false | AgentChatWrapUpOptions | undefined,
+): ChatWrapUpTimer | undefined {
+  if (!runId || timeout === undefined || option === false) return
+  if (!option && timeout < chatWrapUpMinimumTimeoutMs) return
+  const beforeMs = isRuntimeNumber(option?.beforeMs) ? option.beforeMs : chatWrapUpBeforeMs
+  if (!(beforeMs > 0) || beforeMs >= timeout) return
+  const minutes = Math.max(1, Math.round(beforeMs / 60_000))
+  const prompt = isRuntimeString(option?.prompt)
+    ? option.prompt
+    : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancelled = false
+  const deadline = Date.now() + timeout
+  const steer = async (): Promise<void> => {
+    if (cancelled) return
+    // Driver setup can register its input handler just after this timer fires.
+    // Retry that transient state, while leaving unsupported Drivers alone.
+    const outcome = await sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => "unavailable" as const)
+    if (!cancelled && outcome === "unavailable" && Date.now() < deadline) {
+      timer = setTimeout(() => void steer(), Math.min(50, Math.max(1, deadline - Date.now())))
+      timer.unref?.()
+    }
+  }
+  timer = setTimeout(() => void steer(), timeout - beforeMs)
+  timer.unref?.()
+  return {
+    cancel() {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    },
+  }
+}
+
 const inlineChatTurns = new Map<string, InlineChatTurn>()
 
 async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
@@ -6050,6 +6111,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
+  let wrapUpTimer: ChatWrapUpTimer | undefined
   let inlineOwnershipAbort: AbortController | undefined
   let inlineRestartEntry: InlineChatInvocation | undefined
   const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
@@ -6894,6 +6956,11 @@ async function handleChatSdkMessage(
       ),
       chatFinish,
     )
+    wrapUpTimer = scheduleChatWrapUp(
+      run?.runId,
+      invocationInput.timeout,
+      options?.wrapUp,
+    )
     if (!streamsPhasedReplies) {
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
@@ -7046,6 +7113,7 @@ async function handleChatSdkMessage(
     await postChatErrorFallback(inlineRestartEntry?.interrupted ? hostRestartedError("pending") : error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline, await invocationReference)
     throw error
   } finally {
+    wrapUpTimer?.cancel()
     try {
       // An interrupted invocation keeps its restart record for the next process.
       if (inlineRestartEntry && !inlineRestartEntry.interrupted) await inlineRestartEntry.forget()
@@ -9059,6 +9127,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         let inbox: WebhookInbox
         try {
           inbox = await openWebhookInbox(webhookDeliveryState, {
+            priorAttempts: (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxPriorAttempts]?: number })[webhookInboxPriorAttempts],
             id: await webhookInboxId(request, rawBodyBytes),
             receivedAt: new Date(webhookStartedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
@@ -9260,7 +9329,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {
         // Requests that an earlier process stored but did not finish admitting go through the route again.
-        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId) => await handler(request, webhookId, handlerOptions))
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts } as AgentChannelWebhookRouteOptions))
           .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
         inboxReplayBefore = undefined
       }

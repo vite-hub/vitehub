@@ -214,6 +214,83 @@ describe("blob cloudflare provision step", () => {
     await second[0]!.apply()
     expect(creates).toBe(1)
   })
+
+  function jurisdictionFetch(existing: Record<string, string[]>) {
+    const requests: Array<{ body?: unknown, jurisdiction: string | null, method: string, path: string }> = []
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      const jurisdiction = new Headers(init?.headers).get("cf-r2-jurisdiction")
+      const method = init?.method ?? "GET"
+      requests.push({ ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}), jurisdiction, method, path: url.pathname.replace("/client/v4/accounts/acc", "") })
+      const names = existing[jurisdiction ?? "default"] ?? []
+      if (method === "POST") return jsonResponse({ success: false, errors: [{ code: 10004 }] }, names.length ? 409 : 200)
+      if (url.pathname.endsWith("/r2/buckets")) return jsonResponse({ success: true, result: { buckets: names.map(name => ({ name })) } })
+      return jsonResponse({ success: true, result: { name: names[0] } })
+    })
+    return { fetchImpl, requests }
+  }
+
+  it("finds an existing R2 bucket in its jurisdiction", async () => {
+    const { fetchImpl, requests } = jurisdictionFetch({ eu: ["assets"] })
+
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+
+    expect(actions.map(action => [action.name, action.exists])).toEqual([["assets (eu)", true]])
+    await actions[0]!.apply()
+    expect(requests).toEqual([{ jurisdiction: "eu", method: "GET", path: "/r2/buckets" }])
+  })
+
+  it("creates a missing R2 bucket in its jurisdiction", async () => {
+    const { fetchImpl, requests } = jurisdictionFetch({ default: ["assets"] })
+
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+
+    expect(actions.map(action => [action.name, action.exists])).toEqual([["assets (eu)", false]])
+    await actions[0]!.apply()
+    expect(requests).toEqual([
+      { jurisdiction: "eu", method: "GET", path: "/r2/buckets" },
+      { body: { name: "assets" }, jurisdiction: "eu", method: "POST", path: "/r2/buckets" },
+    ])
+  })
+
+  it("reads a duplicate R2 bucket in its jurisdiction", async () => {
+    const requests: Array<[string, string | null]> = []
+    let created = false
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      requests.push([`${init?.method ?? "GET"} ${url.pathname.replace("/client/v4/accounts/acc", "")}`, new Headers(init?.headers).get("cf-r2-jurisdiction")])
+      if (init?.method === "POST") {
+        created = true
+        return jsonResponse({ success: false, errors: [{ code: 10004 }] }, 409)
+      }
+      if (url.pathname.endsWith("/r2/buckets/assets")) return jsonResponse({ success: true, result: { name: created ? "assets" : undefined } })
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })).plan(context(fetchImpl))
+    await actions[0]!.apply()
+
+    expect(requests).toEqual([
+      ["GET /r2/buckets", "eu"],
+      ["POST /r2/buckets", "eu"],
+      ["GET /r2/buckets/assets", "eu"],
+    ])
+  })
+
+  it("plans the same bucket name separately in each jurisdiction", async () => {
+    const { fetchImpl, requests } = jurisdictionFetch({ default: ["assets"] })
+
+    const actions = await createBlobCloudflareProvisionStep(() => ({
+      stores: {
+        default: { bucketName: "assets", driver: "cloudflare-r2" },
+        eu: { binding: "EU", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        euAlias: { binding: "EU", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+      },
+    })).plan(context(fetchImpl))
+
+    expect(actions.map(action => [action.name, action.exists])).toEqual([["assets", true], ["assets (eu)", false]])
+    expect(requests.map(request => request.jurisdiction)).toEqual([null, "eu"])
+  })
 })
 
 describe("blob vercel provision step", () => {

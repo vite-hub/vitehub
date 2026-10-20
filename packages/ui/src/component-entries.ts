@@ -11,6 +11,7 @@ const partFamilies = {
     "AttachmentTitle",
     "AttachmentTrigger",
   ],
+  "avatar-stack": ["AvatarStack"],
   bubble: ["Bubble", "BubbleContent", "BubbleGroup", "BubbleReactions"],
   "code-block": [
     "CodeBlock",
@@ -22,8 +23,10 @@ const partFamilies = {
     "CodeBlockLine",
     "CodeBlockTitle",
   ],
+  "connection-status": ["ConnectionStatus", "ConnectionStatusIndicator", "ConnectionStatusLabel"],
   marker: ["Marker", "MarkerContent", "MarkerIcon"],
   message: ["Message", "MessageAvatar", "MessageContent", "MessageFooter", "MessageGroup", "MessageHeader"],
+  "sync-status": ["SyncStatus", "SyncStatusIndicator", "SyncStatusLabel"],
   trace: [
     "Trace",
     "TraceCollapsible",
@@ -53,10 +56,13 @@ export const componentNames = [
   "TraceRun",
   "UnresolvedFile",
   ...partFamilies.attachment,
+  ...partFamilies["avatar-stack"],
   ...partFamilies.bubble,
   ...partFamilies["code-block"],
+  ...partFamilies["connection-status"],
   ...partFamilies.marker,
   ...partFamilies.message,
+  ...partFamilies["sync-status"],
   ...partFamilies.trace,
 ] as const;
 
