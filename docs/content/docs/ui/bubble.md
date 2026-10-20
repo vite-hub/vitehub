@@ -62,25 +62,23 @@ Set `as` on `BubbleContent` to render it as another element or component. The bu
 
 | Prop      | Type                                                                                       | Default     | Description                         |
 | --------- | ------------------------------------------------------------------------------------------ | ----------- | ----------------------------------- |
-| `variant` | `"default" \| "secondary" \| "muted" \| "tinted" \| "outline" \| "ghost" \| "destructive"` | `'default'` | The visual treatment of the bubble. |
-| `align`   | `"start" \| "end"`                                                                         | `'start'`   | The inline alignment of the bubble. |
+| `variant` | `"default" \| "secondary" \| "muted" \| "tinted" \| "outline" \| "ghost" \| "destructive"` | `"default"` | The visual treatment of the bubble. |
+| `align`   | `"start" \| "end"`                                                                         | `"start"`   | The inline alignment of the bubble. |
 
 ### BubbleContent
 
 | Prop | Type                  | Default | Description                                                |
 | ---- | --------------------- | ------- | ---------------------------------------------------------- |
-| `as` | `string \| Component` | `'div'` | Renders the content as another element, such as a link.    |
+| `as` | `string \| Component` | `"div"` | Renders the content as another element, such as a link.    |
 
 ### BubbleReactions
 
 | Prop    | Type                | Default    | Description                                    |
 | ------- | ------------------- | ---------- | ---------------------------------------------- |
-| `side`  | `"top" \| "bottom"` | `'bottom'` | The side of the bubble that holds the reactions. |
-| `align` | `"start" \| "end"`  | `'end'`    | The inline alignment of the reactions.         |
+| `side`  | `"top" \| "bottom"` | `"bottom"` | The side of the bubble that holds the reactions. |
+| `align` | `"start" \| "end"`  | `"end"`    | The inline alignment of the reactions.         |
 
-### BubbleGroup
-
-This part has no props.
+`BubbleGroup` has no props.
 
 ## Accessibility
 

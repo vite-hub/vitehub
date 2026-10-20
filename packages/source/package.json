@@ -52,6 +52,12 @@
       "require": "./dist/file.js",
       "default": "./dist/file.js"
     },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "import": "./dist/files.js",
+      "require": "./dist/files.js",
+      "default": "./dist/files.js"
+    },
     "./github": {
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js",
@@ -94,11 +100,12 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/source#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",

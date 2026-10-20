@@ -59,13 +59,13 @@ export function createWorkspaceSourceRequestExecution(
       const executor = getWorkspaceSourceRequestExecutor(source.source)
       if (!executor) throw workspaceErrorDiagnostics.WORKSPACE_R0064({ message: "[vitehub] Source request executor is unavailable." })
       const contextOptions = {
-        ...(input.signal ? { abortSignal: input.signal } : {}),
+        ...(input.signal ? { abortSignal: input.signal } : undefined),
         selectedWorkspaceScope: options.selectedWorkspaceScope,
       }
       return await executor(input, createSourceContext(definition, {
         key: source.key,
         mountPath: source.mountPath,
-      }, undefined, contextOptions))
+      }, undefined, { abortSignal: input.signal, selectedWorkspaceScope: options.selectedWorkspaceScope }))
     },
   }
 }

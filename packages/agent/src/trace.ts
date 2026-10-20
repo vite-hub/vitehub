@@ -425,9 +425,11 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   replayInput: AgentRunInput,
   replayHasContext: boolean,
   replayHasAbortSignal: boolean | undefined,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   await traceAgentEvent(context, {
     attributes: invocationAttributes({ ...context, input: replayInput }, {
+      ...extra,
       "input.promptChanged": context.input.prompt !== replayInput.prompt,
       "input.hasContext": replayHasContext,
       "input.hasAbortSignal": replayHasAbortSignal,

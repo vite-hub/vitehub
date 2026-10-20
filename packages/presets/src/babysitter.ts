@@ -86,6 +86,21 @@ export interface BabysitterOptions {
    */
   noProgressBudget: number | false;
   /**
+   * Review-driven pushes on one PR after which bot feedback and failed `reviewChecks` no longer wake a
+   * model pass. A push is review-driven when its pass had no merge conflict and no failing check outside
+   * `reviewChecks`. A person's comment or review, another failing check, a conflict or a head that
+   * someone else pushed still start a pass. The PR then merges on its required checks or parks with
+   * the reason. `false` disables the budget. Defaults to 3.
+   */
+  reviewPushBudget: number | false;
+  /**
+   * Model passes on one PR in a rolling 24 hours. After that many, the PR parks until the oldest pass
+   * is 24 hours old; its result and the health route show that time. A person's comment or review, the
+   * first failing required check on a head and a merge conflict on a PR without failing checks or open
+   * threads still start a pass, and count. `false` disables the budget. Defaults to 16.
+   */
+  dailyPassBudget: number | false;
+  /**
    * Wait for running required checks and review checks before a pass, unless a failure or conflict
    * already needs repair. One pass then handles CI and review results together. Defaults to `true`.
    */
@@ -93,9 +108,23 @@ export interface BabysitterOptions {
   /**
    * Install dependencies on the host before the provider starts. `true` detects pnpm, npm or
    * Yarn from the lockfile and installs it frozen. A command overrides the detection. A detected pnpm
-   * install reuses the trees of earlier passes. Defaults to `true`.
+   * install reuses the trees of earlier passes. A failed install does not stop the pass unless
+   * `required` is set. Defaults to `true`.
    */
   install: BabysitterInstall;
+  /** Rerun failed GitHub Actions runs once before a model pass repairs them. Defaults to `true`. */
+  ciRecovery: boolean;
+  /**
+   * Model passes that run at the same time. Set it to what the provider accounts can serve; host
+   * work such as merges and stack retargets still uses `concurrency`. Defaults to `concurrency`.
+   */
+  modelConcurrency?: number;
+  /**
+   * First cooldown after a pass runs out of provider rate-limit retries. Model passes pause; host work
+   * continues. Each further cooldown doubles, up to one hour, and halves model concurrency. A
+   * success 30 minutes after the last cooldown removes one step. Defaults to 300000 (five minutes).
+   */
+  providerCooldownMs: number;
   /** GitHub logins the worker may notify through its explicit mention capability. Defaults to none. */
   mentionAllowlist: string[];
   /** PRs repaired at the same time. Defaults to 1. */
@@ -124,6 +153,18 @@ export type BabysitterInstall = boolean | {
    * `entries` defaults to `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8. `false` disables the cache.
    */
   cache?: false | { directory?: string; entries?: number };
+  /**
+   * Detected installs that run at the same time across passes. A pass waits up to ten minutes for a
+   * free slot and keeps its checkout while it waits. Defaults to 2.
+   */
+  concurrency?: number;
+  /**
+   * `false` continues a pass without dependencies when the install fails: the model reads the
+   * failure in `.git/vitehub-install.json`, repairs the PR's lockfile or manifests or relies on hosted
+   * CI, and commits without local dependency verification. `true` parks the PR on the failure until
+   * its inputs change. Defaults to `false`.
+   */
+  required?: boolean;
 };
 
 export type BabysitterPassWake =
@@ -150,8 +191,10 @@ export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassR
 function validInstall(install: unknown): boolean {
   if (hasRuntimeType(install, "boolean")) return true;
   if (!isRuntimeRecord(install)) return false;
-  const { command, args, cache } = install;
+  const { command, args, cache, concurrency, required } = install;
   if (command !== undefined && !(hasRuntimeType(command, "string") && command.trim())) return false;
+  if (concurrency !== undefined && !(Number.isSafeInteger(concurrency) && Number(concurrency) >= 1)) return false;
+  if (required !== undefined && !hasRuntimeType(required, "boolean")) return false;
   if (args !== undefined && (command === undefined || !Array.isArray(args) || !args.every(arg => hasRuntimeType(arg, "string")))) return false;
   if (cache === undefined || cache === false) return true;
   if (!isRuntimeRecord(cache)) return false;
@@ -213,6 +256,8 @@ type BabysitterDefinition = AgentDefinition<
   noFindingsReviews: string[];
   ignoreFeedbackAuthors: string[];
   noProgressBudget: number | false;
+  reviewPushBudget: number | false;
+  dailyPassBudget: number | false;
   deferWhilePending: boolean;
   install: BabysitterInstall;
   mentionAllowlist: string[];
@@ -268,6 +313,8 @@ export const babysitter: BabysitterAgent = defineAgent({
     noFindingsReviews: [] as string[],
     ignoreFeedbackAuthors: [] as string[],
     noProgressBudget: 3 as number | false,
+    reviewPushBudget: 3 as number | false,
+    dailyPassBudget: 16 as number | false,
     deferWhilePending: true,
     install: true as BabysitterInstall,
     mentionAllowlist: [] as string[],
@@ -275,8 +322,11 @@ export const babysitter: BabysitterAgent = defineAgent({
     admission: {} as BabysitterAdmissionOptions,
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
+    ciRecovery: true,
+    modelConcurrency: undefined as number | undefined,
+    providerCooldownMs: 5 * 60_000,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, concurrency, admission, placement }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, concurrency, admission, placement, ciRecovery, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -292,11 +342,26 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (noProgressBudget !== false && (!Number.isSafeInteger(noProgressBudget) || noProgressBudget < 1)) {
       throw new TypeError("[vitehub] Babysitter noProgressBudget must be a positive integer or false.");
     }
+    if (reviewPushBudget !== false && (!Number.isSafeInteger(reviewPushBudget) || reviewPushBudget < 1)) {
+      throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
+    }
+    if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
+      throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
+    }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
       throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
     }
     if (!validInstall(install)) {
-      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
+      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required }.");
+    }
+    if (!hasRuntimeType(ciRecovery, "boolean")) {
+      throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+    }
+    if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
+      throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
+    }
+    if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
+      throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");
     }
     if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
       throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
@@ -320,6 +385,6 @@ export const babysitter: BabysitterAgent = defineAgent({
         output: { schema: babysitterPassResultSchema },
       },
     });
-    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, lifecycle }), babysitterHost);
+    return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, lifecycle }), babysitterHost);
   },
 });

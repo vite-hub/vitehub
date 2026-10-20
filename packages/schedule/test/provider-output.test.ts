@@ -1384,7 +1384,7 @@ describe("schedule provider output", () => {
     await expect(generateProviderOutputs({
       clientOutDir: "dist/client",
       rootDir,
-    })).rejects.toThrow(/must declare a static cron string/)
+    })).rejects.toThrow(/Schedule discovery requires a direct default export/)
   })
 
   it("rejects raw default objects for provider cron extraction", async () => {

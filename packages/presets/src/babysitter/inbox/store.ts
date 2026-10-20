@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -20,6 +20,10 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  /** Review-driven pushes on this PR. Set when `budgets.reviewPushes` is configured. */
+  reviewPushBudget?: ReviewPushBudget
+  /** Model passes in the last 24 hours. Set when `budgets.dailyPasses` is configured. */
+  dailyPassBudget?: DailyPassBudget
   /** Generation of the last human comment or review. A wait rejected before it stays free. */
   humanFeedbackGeneration?: number
   recoveryHead?: string
@@ -38,8 +42,13 @@ export type SnapshotPatch = Partial<Pick<Snapshot, 'pr' | 'comments' | 'reviews'
 export interface GitHubInboxDeliveryResult { accepted: true; duplicate?: boolean; queued: number[]; updated: number[]; ignored?: boolean; reason?: string }
 export interface GitHubInboxSummary {
   repository: string; number: number; head?: string; generation: number; handled: number; status: Snapshot['status']; reasons: string[]
+  /** Every current-head check finished without failing and nothing conflicts. Such PRs are claimed early. */
+  mergeReady?: boolean
   wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
+  state?: string; dirtyAt?: number
+  reviewPushBudget?: ReviewPushBudget
+  dailyPassBudget?: DailyPassBudget
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
@@ -82,6 +91,8 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
+  if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
+  if (input.dailyPassBudget !== undefined) parseDailyPassBudget(input.dailyPassBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
     if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
@@ -104,7 +115,14 @@ export interface PullRequestInboxOptions {
   clock?: () => number
   activityAuthors?: readonly string[]
   budgets?: InboxBudgets
+  /**
+   * Called once per process for each stored PR row that fails validation. The inbox skips such a row
+   * in claims, summaries and wait evaluation, so one bad row cannot stop the queue or its health.
+   */
+  invalidRow?: (row: InvalidInboxRow) => void
 }
+
+export interface InvalidInboxRow { repository: string; number: number; error: unknown }
 
 const conflicted = (pr: GitHubPullRequestRecord | null | undefined): boolean => pr?.mergeable === false || pr?.mergeable_state === 'dirty'
 
@@ -120,16 +138,18 @@ const stringValue = (value: unknown): string => isRuntimeString(value) ? value :
 const legacyRecordSchema = v.record(v.string(), v.unknown())
 const legacyWaitSchema = v.object({ headSha: v.pipe(v.string(), v.minLength(1)), contextKey: v.pipe(v.string(), v.minLength(1)) })
 const summarySchema = v.object({
-  repository: v.string(), number: v.number(), head: v.optional(v.string()), generation: v.number(), handled: v.number(),
+  repository: v.string(), number: v.number(), head: v.optional(v.string()), mergeReady: v.optional(v.boolean()), generation: v.number(), handled: v.number(),
   status: v.picklist(['ready', 'working', 'waiting', 'terminal']), reasons: v.array(v.string()), wait: v.optional(v.unknown()),
-  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()),
+  dirty: v.boolean(), attempts: v.number(), nextAt: v.number(), lastResult: v.optional(v.string()), progressBudget: v.optional(v.unknown()), reviewPushBudget: v.optional(v.unknown()), dailyPassBudget: v.optional(v.unknown()),
   stackBlocked: v.optional(v.boolean()), stackParent: v.optional(v.object({ number: v.number(), state: v.string() })),
 })
 function parseSummary(value: unknown): GitHubInboxSummary {
-  const { wait, progressBudget, ...summary } = v.parse(summarySchema, value)
+  const { wait, progressBudget, reviewPushBudget, dailyPassBudget, ...summary } = v.parse(summarySchema, value)
   const parsed: GitHubInboxSummary = summary
   if (wait !== undefined) parsed.wait = parseWait(wait)
   if (progressBudget !== undefined) parsed.progressBudget = parseProgressBudget(progressBudget)
+  if (reviewPushBudget !== undefined) parsed.reviewPushBudget = parseReviewPushBudget(reviewPushBudget)
+  if (dailyPassBudget !== undefined) parsed.dailyPassBudget = parseDailyPassBudget(dailyPassBudget)
   return parsed
 }
 
@@ -153,10 +173,52 @@ function legacySnapshot(raw: unknown): Snapshot | undefined {
   catch { return undefined }
 }
 
+const passing = new Set(['success', 'neutral', 'skipped'])
+
+/**
+ * Every current-head check and status finished without failing, and nothing conflicts. Such a PR is
+ * one host merge check away from merging; without a stored review it used to wait behind every older
+ * PR that needed a model pass.
+ */
+export function looksMergeReady(s: Snapshot): boolean {
+  const pr = s.pr
+  const head = pr?.head?.sha
+  if (!pr || !head || pr.draft || String(pr.state).toLowerCase() !== 'open' || conflicted(pr)) return false
+  const latest = new Map<string, { id: number; status: string; conclusion: string }>()
+  const keep = (key: string, id: unknown, status: unknown, conclusion: unknown) => {
+    const numeric = Number(id ?? 0)
+    const previous = latest.get(key)
+    if (!previous || numeric >= previous.id) latest.set(key, { id: numeric, status: String(status), conclusion: String(conclusion).toLowerCase() })
+  }
+  for (const check of Object.values(s.checks)) {
+    if (check.deleted || check.head_sha !== head) continue
+    keep(`check\0${String(check.name)}\0${String(check.app?.id ?? '')}`, check.id, check.status, check.conclusion)
+  }
+  for (const status of Object.values(s.statuses)) {
+    if (status.deleted || status.sha !== head) continue
+    keep(`status\0${String(status.context)}`, status.id, 'completed', status.state)
+  }
+  const signals = [...latest.values()]
+  return signals.length > 0 && signals.every(signal => signal.status === 'completed' && passing.has(signal.conclusion))
+}
+
+/** Wait reasons of PRs that a Babysitter budget parked. Their `lastResult` says how to resume them. */
+export const budgetWaitReasons: ReadonlySet<string> = new Set(['review-push-budget', 'daily-pass-budget'])
+
+/** PRs that a budget parked, with the recorded reason and, for a timed budget, when they resume. */
+export function budgetParks(queue: readonly GitHubInboxSummary[]): Array<{ repository: string; number: number; budget: string; reason: string; resumeAt?: string }> {
+  return queue.flatMap(item => item.status === 'waiting' && item.wait && budgetWaitReasons.has(item.wait.reason)
+    ? [{ repository: item.repository, number: item.number, budget: item.wait.reason, reason: item.lastResult ?? '',
+        ...item.wait.retryAt === undefined ? {} : { resumeAt: new Date(item.wait.retryAt).toISOString() } }]
+    : [])
+}
+
 function summaryOf(s: Snapshot): GitHubInboxSummary {
-  return { repository: s.repository, number: s.number, head: s.pr?.head?.sha,
+  return { repository: s.repository, number: s.number, head: s.pr?.head?.sha, mergeReady: looksMergeReady(s),
     generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget }
+    wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget,
+    ...(s.reviewPushBudget ? { reviewPushBudget: s.reviewPushBudget } : {}),
+    ...(s.dailyPassBudget ? { dailyPassBudget: s.dailyPassBudget } : {}) }
 }
 
 /**
@@ -175,10 +237,13 @@ export class PullRequestInbox {
   private filter?: GitHubPullRequestFilter
   private activityAuthors: Set<string>
   private budgets: InboxBudgets
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [] }: PullRequestInboxOptions) {
+  private invalidRow?: (row: InvalidInboxRow) => void
+  private reportedRows = new Set<string>()
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
+    this.invalidRow = invalidRow
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
     this.filter = filter
@@ -222,6 +287,21 @@ export class PullRequestInbox {
     await this.init()
     return await this.storage.execute(statement, args)
   }
+  /** Parses one stored row. An invalid row is reported once and skipped by queue-wide reads. */
+  private parseRow<T>(row: PullRequestInboxRow, parse: (value: unknown) => T, column = 'value'): T | undefined {
+    try {
+      return parse(JSON.parse(stringValue(row[column])))
+    } catch (error) {
+      this.reportInvalidRow(stringValue(row.repository ?? ''), Number(row.number ?? 0), error)
+      return undefined
+    }
+  }
+  private reportInvalidRow(repository: string, number: number, error: unknown): void {
+    const key = `${repository}#${number}:${error instanceof Error ? error.message : String(error)}`
+    if (this.reportedRows.has(key)) return
+    this.reportedRows.add(key)
+    try { this.invalidRow?.({ repository, number, error }) } catch {}
+  }
   private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
     return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
   }
@@ -230,6 +310,12 @@ export class PullRequestInbox {
     // SAFETY: the value column stores snapshot JSON; parseSnapshot validates the decoded boundary.
     return row ? parseSnapshot(JSON.parse(stringValue(row.value))) : undefined
   }
+  /** A snapshot for a queue-wide scan. An invalid row is reported and skipped. */
+  private async getRowIn(tx: PullRequestInboxExecutor, row: PullRequestInboxRow): Promise<Snapshot | undefined> {
+    const repository = stringValue(row.repository), number = Number(row.number)
+    try { return await this.getIn(tx, repository, number) }
+    catch (error) { this.reportInvalidRow(repository, number, error); return undefined }
+  }
   async get(repository: string, number: number): Promise<Snapshot | undefined> {
     await this.init()
     return await this.getIn({ execute: (statement, args) => this.storage.execute(statement, args) }, repository, number)
@@ -237,8 +323,8 @@ export class PullRequestInbox {
   async all(): Promise<Snapshot[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
-    const rows = await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])
-    return rows.map(row => parseSnapshot(JSON.parse(stringValue(row.value))))
+    const rows = await this.read(`SELECT repository, number, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])
+    return rows.flatMap(row => this.parseRow(row, parseSnapshot) ?? [])
   }
   private compactTerminal(s: Snapshot): void {
     if (s.status !== 'terminal') return
@@ -833,14 +919,21 @@ export class PullRequestInbox {
       if (sha && (check || event === 'status')) {
         // Source-push and check deliveries can precede synchronize. Retain CI
         // for an active publication or its durable pushed-head wait.
-        const pending = await tx.execute(`SELECT number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository])
+        const pending = await tx.execute(`SELECT repository, number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository])
         for (const row of pending) {
-          const snapshot = parseSnapshot(JSON.parse(stringValue(row.value)))
+          const snapshot = this.parseRow(row, parseSnapshot)
+          if (!snapshot) continue
           if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number))
         }
       }
       for (const number of numbers) {
-        const existing = await this.getIn(tx, repository, number)
+        let existing: Snapshot | undefined
+        try { existing = await this.getIn(tx, repository, number) }
+        catch (error) {
+          // Replacing an unreadable row would lose its evidence. Skip it and keep the delivery.
+          this.reportInvalidRow(repository, number, error)
+          continue
+        }
         const s = existing ?? this.empty(repository, number)
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
@@ -974,12 +1067,16 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const now = this.clock(), claims: Claim[] = [], t = this.tables
       const repositories = this.repositoryFilter('p.repository')
-      // Columns select candidates; only these snapshots are parsed. Stack parents come first,
-      // weighted by their open children: merging one unblocks every child based on its branch.
-      const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
+      // Columns select candidates; only these snapshots are parsed. A head with a stored review needs
+      // only a host merge check, and a head whose checks all passed is close to it, so both come
+      // before PRs that need a model pass. Then stack parents, weighted by their open children:
+      // merging one unblocks every child based on its branch. The review lookup uses the meta key.
+      const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(CASE WHEN json_valid(p.value) THEN json_extract(p.value, '$.pr.base.repo.full_name') END, p.repository) AS base_repository FROM ${t.pullRequests} p
         WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
           AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
-        ORDER BY (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
+        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
+          COALESCE(CASE WHEN json_valid(p.summary) THEN json_extract(p.summary, '$.mergeReady') END, 0) DESC,
+          (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
           p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
       for (const candidate of candidates) {
         if (claims.length >= limit) break
@@ -987,8 +1084,8 @@ export class PullRequestInbox {
         // Stack children remain local; a parent merge's base push wakes them.
         if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
-            AND json_extract(value, '$.pr.head.repo.full_name') = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
-        const s = await this.getIn(tx, repository, number)
+            AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
+        const s = await this.getRowIn(tx, candidate)
         if (!s) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
         if (options.only && !options.only(s)) continue
@@ -1088,6 +1185,22 @@ export class PullRequestInbox {
       return true
     })
   }
+  /**
+   * Records that a claimed pass started the model, with the exemption that let it run past
+   * `budgets.dailyPasses`. It changes no evidence, so the claim stays current.
+   */
+  async recordModelPass(claim: Claim, exemption?: string): Promise<boolean> {
+    if (this.budgets.dailyPasses === undefined) return false
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
+      s.dailyPassBudget = nextDailyPassBudget(s.dailyPassBudget, this.clock(), s.humanFeedbackGeneration, exemption)
+      s.revision = (s.revision ?? 0) + 1
+      await this.put(tx, s)
+      Object.assign(claim.snapshot, { dailyPassBudget: structuredClone(s.dailyPassBudget), revision: s.revision })
+      return true
+    })
+  }
   /** Checks the durable claim fence immediately before an irreversible provider action. */
   async isClaimCurrent(claim: Claim): Promise<boolean> {
     return await this.transaction(async tx => {
@@ -1105,6 +1218,8 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false
+      // A push reached GitHub even when the evidence below rejects its wait, so it always counts.
+      this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
         if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
@@ -1189,6 +1304,12 @@ export class PullRequestInbox {
     if (!budget?.exhausted || budget.head !== s.pr?.head?.sha || budget.grants?.includes(grant)) return
     s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, resetReason: grant, grants: [...budget.grants ?? [], grant] }
   }
+  private recordReviewPush(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
+    const limit = this.budgets.reviewPushes
+    if (limit === undefined || !progress) return
+    if (progress.kind === 'no-progress' && (s.reviewPushBudget?.count ?? 0) < limit) return
+    s.reviewPushBudget = nextReviewPushBudget(s.reviewPushBudget, limit, progress, claim.snapshot.pr?.head?.sha)
+  }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
     if (progress?.kind === 'verified') requireEvidence(progress.evidence)
@@ -1208,9 +1329,9 @@ export class PullRequestInbox {
   async waitsToEvaluate(includeExternal = false, includeIdle = false): Promise<Snapshot[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
-    const rows = await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
+    const rows = await this.read(`SELECT repository, number, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
       AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? '' : 'AND generation>handled'} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])
-    return rows.map(row => parseSnapshot(JSON.parse(stringValue(row.value)))).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
+    return rows.flatMap(row => this.parseRow(row, parseSnapshot) ?? []).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
   }
   /** Records that the host evaluated a wait's new events and the wait still holds. */
   async acknowledgeWait(observed: Snapshot): Promise<boolean> {
@@ -1249,7 +1370,7 @@ export class PullRequestInbox {
       const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND lease IS NOT NULL`, [this.scope])
       let released = 0
       for (const row of rows) {
-        const s = await this.getIn(tx, stringValue(row.repository), Number(row.number))
+        const s = await this.getRowIn(tx, row)
         if (!s?.lease) continue
         s.lease = null; s.leaseUntil = 0
         if (s.status !== 'terminal') s.status = s.wait ? 'waiting' : 'ready'
@@ -1265,7 +1386,7 @@ export class PullRequestInbox {
       const now = this.clock()
       const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND lease IS NOT NULL AND lease_until<=?`, [this.scope, now])
       for (const row of rows) {
-        const s = await this.getIn(tx, stringValue(row.repository), Number(row.number))
+        const s = await this.getRowIn(tx, row)
         if (!s?.lease || s.leaseUntil > now) continue
         s.lease = null; s.leaseUntil = 0
         if (s.status !== 'terminal') s.status = 'ready'
@@ -1277,13 +1398,15 @@ export class PullRequestInbox {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
-    const rows = await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+    const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
+        AND json_extract(CASE WHEN json_valid(parent.value) THEN parent.value ELSE '{}' END, '$.pr.head.repo.full_name') = COALESCE(json_extract(CASE WHEN json_valid(p.value) THEN p.value ELSE '{}' END, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
-    return rows.map(row => {
-      const summary = parseSummary(JSON.parse(stringValue(row.summary)))
+    return rows.flatMap(row => {
+      const parsed = this.parseRow(row, parseSummary, 'summary')
+      if (!parsed) return []
+      const summary = { ...parsed, state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }
       if (summary.status !== 'ready' || !summary.dirty || row.stack_parent === null || row.stack_parent === undefined) return summary
       return { ...summary, stackBlocked: true, stackParent: { number: Number(row.stack_parent), state: 'open' } }
     })

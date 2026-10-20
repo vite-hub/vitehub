@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@vite-hub/box": [
+        "packages/box/src/index.ts"
+      ]
+    },
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

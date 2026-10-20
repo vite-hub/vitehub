@@ -40,7 +40,7 @@ interface ViteHubCliStreams {
 
 interface ViteHubCliStream {
   flush?: () => unknown
-  write: (chunk: string | Uint8Array) => unknown
+  write: (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => unknown
 }
 
 type ViteHubCliEntrypointStream =
@@ -52,6 +52,8 @@ interface ViteHubCliLoadedConfig {
   root: string
   vitehubConfigResolved?: true
 }
+
+const BUILTIN_NAMESPACE_NAMES = new Set(["inspect", "provision"])
 
 export interface RunViteHubCliOptions {
   args?: string[]
@@ -212,9 +214,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
-  const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && namespace.name !== "inspect")
+  const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
-  const runtimeFeatures = options.runtimeFeatures?.find(namespace => namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
+  const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
   if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
     return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   }
@@ -233,10 +235,10 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     }
   }, stderr)
   const namespaces = [
-    ...contribution.namespaces.filter(namespace => namespace.name !== "inspect"),
+    ...contribution.namespaces.filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
     createInspectNamespace(plugins),
     createProvisionNamespace(contribution.provision),
-    ...(options.runtimeNamespaces ?? []).filter(namespace => namespace.name !== "inspect"),
+    ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
   ]
 
   const context: ViteHubCliContext = {

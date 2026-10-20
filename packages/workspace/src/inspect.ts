@@ -28,7 +28,7 @@ function workspaceDefinitionKind(definition: DiscoveredWorkspaceDefinition): str
 export async function inspectWorkspaceDefinitions(options: WorkspaceInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   const contributions = await collectWorkspaceContributions(options.plugins, {
     projectRoot: options.projectRoot,
-    root: options.rootDir,
+    rootDir: options.rootDir,
     serverDirs: options.serverDirs,
   })
   return discoverViteWorkspaceDefinitions(options.rootDir, {
@@ -40,7 +40,6 @@ export async function inspectWorkspaceDefinitions(options: WorkspaceInspectionOp
       { label: "Kind", value: workspaceDefinitionKind(definition) },
       ...(definition.contributor ? [{ label: "Contributed by", value: definition.contributor }] : []),
       ...(definition.export ? [{ label: "Export", value: definition.export }] : []),
-      ...(definition.reason ? [{ label: "Reason", value: definition.reason }] : []),
       ...(definition.sourceRootDir
         ? [{ label: "Source root", value: relativeDefinitionFile(options.projectRoot, definition.sourceRootDir) }]
         : []),

@@ -12,10 +12,11 @@ Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true })],
+  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
 })
 ```
 
@@ -27,7 +28,7 @@ Select the preset in a discovered Agent. The repository filter is required: the 
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { babysitter } from 'vite-hub/presets/babysitter'
+import { babysitter } from 'vite-hub/agent/presets/babysitter'
 
 export default defineAgent({
   extends: babysitter,
@@ -64,7 +65,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `concurrency` | `1` | Pull requests repaired at the same time. |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
-| `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
+| `placement` | None | Runs each pass on this host or in a Box on another host. See [Bound local verification](#bound-local-verification). |
 
 Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 
@@ -118,11 +119,11 @@ The health route shows the decision in `admission` and the token use, the limits
 
 Start with one concurrent repair on a shared Linux host. Use `options.capacity.memory.perInvocationBytes` for each worker's growth budget and `reserveBytes` for memory that other services need. Use `serviceReserveBytes` for the reserve inside the process or cgroup budget (1 GiB by default); the host reserve is applied only to host memory. Linux admission checks host pressure and each visible cgroup ancestor, including a delegated service parent. It uses the least remaining cgroup memory headroom and observes ancestor pressure and high events. It does not read above a namespaced cgroup mount. An unreadable known cgroup uses the configured sample fallback. Admission reserves growth headroom for active workers. Set `options.capacity.fallbackConcurrency` to zero if a failed sample must pause admission.
 
-A Babysitter Sandbox uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
+A Babysitter Box uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
 
-To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ sandbox?, release }`. A pass with a `sandbox` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Sandbox installs through its session's `refreshDependencies`. A pass without a `sandbox` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `sandbox` always takes precedence over placement.
+To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ box?, release }`. A pass with a `box` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Box installs through its session's `refreshDependencies`. A pass without a `box` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `box` always takes precedence over placement.
 
-Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
+Admission only gates new work. Configure [Box memory limits](/docs/agents/boxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
 ## Share the Console journal
 
@@ -167,6 +168,10 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
+Workers can use `readRepairState` to inspect the assigned head and base, verified publication, installation status, and claim validity without querying GitHub. `pushRepair` returns the verified published `head` alongside `pushed: true`.
+
+`readFeedback` reads a comment, review, or inline review comment from the assigned PR's durable snapshot. Pass `kind` as `comment`, `review`, or `review-comment`, plus its `id`. Bodies arrive in pages of at most 16,000 JavaScript string characters. Continue with the returned `next.offset` and `next.version` until `complete` is true. Edits invalidate the version, and stale claims cannot read another head. Full feedback remains in the initial context in this release.
+
 The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
 
 Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
@@ -204,6 +209,16 @@ On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier 
 
 When the process temporary directory is inside the service's working directory, the host removes pass workspaces left by an earlier process at startup.
 
+### Health and prerequisites
+
+The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+
+Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
+
 ### Token admission estimates
+
+The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+
+Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
 
 `admission.inputTokens.hourly` and `admission.inputTokens.daily` are best-effort thresholds over retained Invocation journal usage, not hard host budgets or billing caps. Health reports identify this accounting as `best-effort-retained-journal`. The host samples at most once per minute and caches the largest input-token observation per Invocation, assigned to its latest update time. Active observations are included through the journal API. Concurrent writes during pagination can be missed until a later scan; retention and host restarts can omit usage permanently. The standalone journal retains 5,000 terminal records. Read errors appear in health diagnostics and do not block admission. Use provider-side spending limits when a hard cap is required.

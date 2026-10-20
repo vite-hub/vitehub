@@ -2,6 +2,10 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
+    deps: {
+      // The scanner uses the oxc parser that the consumer's Vite ships.
+      neverBundle: ["vite"],
+    },
     dts: true,
     entry: [
       "src/abort.ts",
@@ -14,6 +18,7 @@ export default defineConfig({
       "src/deployment.ts",
       "src/dev-endpoint.ts",
       "src/dev-token.ts",
+      "src/dispatch.ts",
       "src/env.ts",
       "src/http-request.ts",
       "src/inspect.ts",
@@ -21,8 +26,9 @@ export default defineConfig({
       "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",
-      "src/secret.ts",
+      "src/presets.ts",
       "src/source-scanner.ts",
+      "src/secret.ts",
       "src/standard-schema.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",
@@ -37,6 +43,7 @@ export default defineConfig({
       "src/build/nitro-cache-bypass.ts",
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
+      "src/build/scan-module.ts",
       "src/build/user-entry.ts",
       "src/build/vercel-config.ts",
       "src/build/vercel-runtime-packages.ts",

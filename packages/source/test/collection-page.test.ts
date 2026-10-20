@@ -57,6 +57,28 @@ describe("Collections", () => {
     await expect(withSchema.parseQuery({ day: ["a", "b"] })).rejects.toThrow()
   })
 
+  it("supports provider cursors, direct reads, projection, and cancellation", async () => {
+    const load = vi.fn(async ({ cursor, limit }: { cursor?: string, limit: number }) => cursor
+      ? { items: [{ id: "two", value: 2 }], nextCursor: null }
+      : { items: [{ id: "one", value: 1 }], nextCursor: "next" })
+    const controller = new AbortController()
+    const collection = defineCollection(load, {
+      pagination: "provider",
+      route: false,
+      get: async key => key === "one" ? { id: key, value: 1 } : null,
+      transform: row => ({ ...row, value: row.value * 2 }),
+      defaultLimit: 1,
+      maxLimit: 1,
+    })
+
+    await expect(collection.query({}).select("id").all({ signal: controller.signal })).resolves.toEqual([{ id: "one" }, { id: "two" }])
+    await expect(collection.get("one")).resolves.toEqual({ id: "one", value: 2 })
+    await expect(collection.get("missing")).resolves.toBeNull()
+    expect(load).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 1, query: {}, signal: controller.signal })
+    controller.abort()
+    await expect(collection.query({}).all({ signal: controller.signal })).rejects.toThrow()
+  })
+
   it("loads one bounded page, transforms rows, and continues from an opaque cursor", async () => {
     const { collection, load } = mealsCollection()
     const query = await collection.parseQuery({ day: "2026-08-21" })
@@ -286,7 +308,7 @@ describe("Collections", () => {
     await expect(collection.get?.("z")).resolves.toEqual({ id: "z" })
   })
 
-  it("passes provider total and facets through and validates counts", async () => {
+  it("passes provider total and facets through and validates total", async () => {
     const collection = defineCollection({
       source: {
         pagination: "provider",
@@ -297,8 +319,7 @@ describe("Collections", () => {
 
     const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
     await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
-
-    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ count: -1, value: "a" }] } }), { pagination: "provider" })
+    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { pagination: "provider" })
     await expect(invalidFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
 })

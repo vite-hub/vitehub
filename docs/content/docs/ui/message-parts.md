@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-lucide-blocks
 ---
 
-`AgentMessageParts` renders the `parts` array of an AI SDK `UIMessage`. Text uses `AgentMarkdown`. Reasoning and tools use Nuxt UI. Files and sources use links or image previews. Use it inside custom message layouts, or replace one part type with a slot.
+`MessageParts` renders the `parts` array of an AI SDK `UIMessage`. Text uses `Markdown`. Reasoning, tool calls, and sources render as lines in one [Trace](/docs/ui/trace) per run of consecutive parts. Files use [Attachment](/docs/ui/attachment) or image previews. Use it inside custom message layouts, or replace one part type with a slot.
 
 ::component-preview{name="MessagePartsExample"}
 ::
@@ -14,18 +14,18 @@ icon: i-lucide-blocks
 ## Usage
 
 ```vue
-<AgentMessageParts :parts="message.parts" :streaming="status === 'streaming'" />
+<MessageParts :parts="message.parts" :streaming="status === 'streaming'" />
 ```
 
 ## Supported parts
 
 | Part                                 | Default rendering                                          |
 | ------------------------------------ | ---------------------------------------------------------- |
-| `text`                               | Streaming-aware Markdown through `AgentMarkdown`.          |
-| `reasoning`                          | `UChatReasoning`.                                          |
-| `tool-*`, `dynamic-tool`             | `UChatTool` with the output, the error text, or the input. Loading while the input streams or waits. |
-| `file`                               | Image preview for images. Download link for other files.   |
-| `source-url`, `source-document`      | Source link or document title.                             |
+| `text`                               | Streaming-aware Markdown through `Markdown`.          |
+| `reasoning`                          | A Trace line, Thinking while it streams and Thought after, that expands into the reasoning text. |
+| `tool-*`, `dynamic-tool`             | A Trace line, Running, Ran, or Failed, that expands into small Code Blocks for the input, output, and error. |
+| `file`                               | Image preview for images. An Attachment that opens or downloads other files. |
+| `source-url`, `source-document`      | A Trace line that links to the source, or the document title. |
 | `step-start`                         | Nothing, unless you use the `step` slot.                   |
 | `data-*` and other types             | Nothing, unless you use the `fallback` slot.               |
 
@@ -56,7 +56,7 @@ Images open an expanded preview. Other files are download links. Source URLs ope
 
 ## API reference
 
-### AgentMessageParts
+### MessageParts
 
 #### Props
 

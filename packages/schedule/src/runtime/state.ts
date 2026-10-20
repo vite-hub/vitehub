@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { createMemoryScheduleRunStore } from "./store.ts"
+import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "./store.ts"
 
-import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
+import type { RuntimeScheduleStore, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
+let runtimeStore: RuntimeScheduleStore | undefined
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
+let activeWakeDrivers = 0
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
 const loadingRegistryEntries = new Map<string, {
   promise: Promise<ScheduleRegistryDefinition | undefined>
@@ -36,12 +38,33 @@ export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undef
   return runtimeRegistry
 }
 
+export function setRuntimeScheduleStore(store: RuntimeScheduleStore | undefined): void {
+  runtimeStore = store
+}
+
+export function getRuntimeScheduleStore(): RuntimeScheduleStore {
+  return runtimeStore ??= createMemoryRuntimeScheduleStore()
+}
+
 export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
   runStore = store
 }
 
 export function getScheduleRunStore(): ScheduleRunStore {
   return runStore ??= createMemoryScheduleRunStore()
+}
+
+/**
+ * Records that `installScheduleRuntime` installed a wake driver, or that the driver closed.
+ * Inspection uses this state to report whether Runtime Schedules run automatically.
+ */
+export function setScheduleWakeDriverActive(active: boolean): void {
+  activeWakeDrivers = Math.max(0, activeWakeDrivers + (active ? 1 : -1))
+}
+
+/** Returns `true` when a wake driver runs due Runtime Schedules in this runtime. */
+export function isScheduleWakeDriverActive(): boolean {
+  return activeWakeDrivers > 0
 }
 
 export async function loadScheduleDefinition(name: string): Promise<ScheduleRegistryDefinition | undefined> {
@@ -95,7 +118,9 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
   runtimeRegistryVersion++
+  runtimeStore = undefined
   runStore = undefined
+  activeWakeDrivers = 0
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
 }
