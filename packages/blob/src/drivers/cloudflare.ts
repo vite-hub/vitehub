@@ -1,6 +1,6 @@
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
-import { runtimeValue } from "./cloudflare-runtime.ts"
+import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
@@ -24,6 +24,7 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
     accessKeyId: resolved.accessKeyId,
     bucket: resolved.bucketName,
     defaultUrlExpiresIn: resolved.defaultUrlExpiresIn,
+    ...(resolved.jurisdiction && resolved.accountId ? { endpoint: r2S3Endpoint(resolved.accountId, resolved.jurisdiction) } : {}),
     publicBaseUrl: resolved.publicBaseUrl,
     secretAccessKey: resolved.secretAccessKey,
   }))
@@ -44,7 +45,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   ])
   const client = new S3Client({
     credentials: { accessKeyId, secretAccessKey },
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    endpoint: r2S3Endpoint(accountId, options.jurisdiction),
     region: "auto",
     requestChecksumCalculation: "WHEN_REQUIRED",
   })

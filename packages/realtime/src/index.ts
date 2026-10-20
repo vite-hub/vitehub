@@ -20,6 +20,7 @@ export type {
   RealtimePerson,
   RealtimePersistenceOptions,
   RealtimeReadOnlyReason,
+  RealtimeRequestErrorCode,
   RealtimeRequestContext,
   RealtimeResetReason,
   RealtimeSaveOptions,

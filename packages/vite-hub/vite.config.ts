@@ -171,11 +171,15 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
-        from: "src/console/runtime/components/console-workspace-history.vue",
+        from: "src/console/runtime/components/invocation",
         to: "dist/console/runtime/components",
       },
       {
         from: "src/console/runtime/components/console-workspace-file.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-workspace-history.vue",
         to: "dist/console/runtime/components",
       },
       {

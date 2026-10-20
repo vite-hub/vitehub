@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
@@ -24,7 +25,10 @@ export interface BlobDatabaseWorkspaceStoreOptions {
   database: RuntimeDrizzleDatabase<Record<string, unknown>>
   /** Stable workspace identity. Deleted identities cannot be reused. */
   workspace: string
-  /** A dedicated Blob key prefix. Defaults to vitehub/workspace-history. */
+  /**
+   * A dedicated namespace under `_vitehub/workspace-history/`. For example, `handbook`
+   * stores objects under `_vitehub/workspace-history/handbook/`.
+   */
   prefix?: string
 }
 
@@ -49,8 +53,8 @@ function publicRevision(row: RevisionRow): WorkspaceRevision {
 }
 
 class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
-  #namespace: Promise<string>
-  #ready?: Promise<void>
+  #namespace: Promise<string[]>
+  #ready?: Promise<string>
   // The working tree follows the default ref and lives only in this instance.
   #draft?: Promise<{ store: WorkspaceStore, head: WorkspaceRevision | null }>
   #dirty = false
@@ -59,9 +63,18 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
     if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
-    const prefix = options.prefix ?? "vitehub/workspace-history"
-    if (!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
-    this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
+    if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
+    // ViteHub owns every history object, so a custom prefix only nests below the owned root.
+    const root = `${vitehubOwnedPrefix}workspace-history`
+    const prefix = options.prefix === undefined ? root : `${root}/${options.prefix}`
+    // Prefer the owned namespace, but keep reading the namespace used before
+    // this change when its database identity already exists.
+    const legacyPrefix = options.prefix === undefined ? "vitehub/workspace-history" : options.prefix
+    this.#namespace = sha256(options.workspace).then(digest => {
+      const current = `${prefix}/${digest}`
+      const legacy = `${legacyPrefix}/${digest}`
+      return legacy === current ? [current] : [current, legacy]
+    })
   }
 
   [workspaceStoreTarget]() {
@@ -98,13 +111,30 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async #key() {
-    const workspace = await this.#namespace
-    this.#ready ??= this.options.database.insert(workspaces).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
+    const candidates = await this.#namespace
+    this.#ready ??= this.options.database.batch([
+      // Read existing identities before claiming the new one. This preserves
+      // legacy history when an installation upgrades, while the insert below
+      // atomically claims the owned identity for new workspaces.
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
+      // Claim the owned identity only when no legacy identity exists. Keeping
+      // this condition in the atomic batch avoids leaving an empty current row
+      // that would shadow legacy history on the next process restart.
+      this.options.database.insert(workspaces).select(sql`
+        select ${candidates[0]!}, 0
+        where not exists (
+          select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
+        )
+      `).onConflictDoNothing(),
+    ]).then((results: [Array<{ workspace: string }>, Array<{ workspace: string }>, unknown]) => {
+      const [current, legacy] = results
+      return current[0]?.workspace ?? legacy[0]?.workspace ?? candidates[0]!
+    }).catch((error: unknown) => {
       this.#ready = undefined
       throw error
     })
-    await this.#ready
-    return workspace
+    return await this.#ready
   }
 
   #active(workspace: string) {
@@ -178,6 +208,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           and previous.committed = 1
       ), '{}')
     `
+    // Compare manifests with substr, not LIKE, so `%` and `_` in paths stay literal.
     const pathFilter = path === undefined ? undefined : sql`(
       exists (
         select 1
@@ -264,10 +295,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     validateHistoryMessage(options.message)
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
-    const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
-      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
-      return [normalizeHistoryRef(name), head] as const
-    })
     const workspace = await this.#key()
     await this.#assertActive()
     const current = await this.#ref(workspace, ref)
@@ -343,8 +370,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       for (const result of results) if (result.status === "rejected") throw result.reason
     }
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
-    // Check the other refs in the same statement that advances this ref, including absent refs.
-    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
     // All supported Database drivers execute batch atomically. No interactive transaction is needed.
     const [, , changed] = await this.options.database.batch([
       this.options.database.insert(refs).select(sql`
@@ -357,15 +382,11 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, ...headConditions, this.#active(workspace))).returning({ head: refs.head }),
+      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, this.#active(workspace))).returning({ head: refs.head }),
       this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {
       if (await this.#isDeleted()) this.#deleted()
-      for (const [name, expected] of expectedHeads) {
-        const actual = (await this.#ref(workspace, name))?.head ?? null
-        if (actual !== expected) throw this.#conflict(name, expected, actual)
-      }
       throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
     }
     return publicRevision({ ...row, committed: true })

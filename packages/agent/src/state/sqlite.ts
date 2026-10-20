@@ -1,3 +1,4 @@
+import type { AgentChannelStateWrites } from "../internal/channel-state.ts"
 import type { AgentStateCacheMutation } from "../internal/state-lock.ts"
 import { mkdir, realpath } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
@@ -47,7 +48,7 @@ export interface SqliteAgentStateExtensionExecutor {
 }
 
 /**
- * Tables owned by one extension, such as the Babysitter PR inbox, in the Agent State database.
+ * Tables owned by one extension, such as a process host inbox, in the Agent State database.
  * Writes share the adapter's in-process serialization and run in `BEGIN IMMEDIATE` transactions.
  */
 export interface SqliteAgentStateExtension extends SqliteAgentStateExtensionExecutor {
@@ -218,16 +219,16 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const transcript = /^(?:chat:.*:)?transcripts:user:/.test(key)
     const expiresAt = this.preserveTranscripts && transcript ? null : options?.ttlMs ? now + options.ttlMs : null
     await this.transaction(async (tx) => {
-      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
+      // The new row carries the expiry of the whole list, so an append writes one row, not the list.
       await execute(tx, `INSERT INTO ${this.tables.lists} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
-      await execute(tx, `UPDATE ${this.tables.lists} SET expires_at = ? WHERE key = ?`, [expiresAt, key])
       if (options?.maxLength != null && options.maxLength > 0) {
         await execute(
           tx,
-          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id NOT IN (
-            SELECT id FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT ?
+          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id < (
+            SELECT id FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT 1 OFFSET ?
           )`,
-          [key, key, options.maxLength],
+          [key, key, options.maxLength - 1],
         )
       }
     })
@@ -251,6 +252,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
             AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering', 'notifying') AND COALESCE(candidate.lease_expires_at, 0) <= ?))
+            AND (json_extract(candidate.value, '$.debounceKey') IS NULL OR NOT EXISTS (
+              SELECT 1 FROM ${this.tables.webhookQueue} AS newer
+              WHERE newer.scope = candidate.scope AND newer.status != 'completed'
+                AND newer.id > candidate.id
+                AND json_extract(newer.value, '$.debounceKey') = json_extract(candidate.value, '$.debounceKey')
+            ))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
@@ -369,7 +376,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return claimed.length > 0
   }
 
-  async markWebhookDeliveryFailure(scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false }): Promise<boolean> {
+  async markWebhookDeliveryFailure(scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false, publicErrorCode?: "TIMEOUT" }): Promise<boolean> {
     const marked = await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
       return await this.transaction(async tx => {
@@ -442,30 +449,69 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
-    const inserted = await retrySqliteBusy(async () => {
+    return await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(
-        async (tx) =>
-          await execute(
-            tx,
-            `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
+      return await this.transaction(async tx => await this.insertWebhookDelivery(tx, delivery))
+    })
+  }
+
+  /**
+   * In one transaction: throws unless every lock is still held, queues `delivery` unless its ID is already queued,
+   * and applies `mutations`, which apply in both cases. Returns whether `delivery` was newly queued (`true` without one).
+   */
+  async commitWebhookState(writes: AgentChannelStateWrites): Promise<boolean> {
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const now = Date.now()
+        for (const lock of writes.locks) {
+          const held = await execute(tx, `SELECT 1 FROM ${this.tables.locks} WHERE thread_id = ? AND token = ? AND expires_at > ?`, [lock.threadId, lock.token, now])
+          if (held.length === 0) throw new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
+        }
+        const queued = writes.delivery ? await this.insertWebhookDelivery(tx, writes.delivery) : true
+        for (const mutation of writes.mutations) {
+          if (mutation.type === "delete") await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [mutation.key])
+          else await execute(tx, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, NULL)`, [mutation.key, JSON.stringify(mutation.value)])
+        }
+        return queued
+      })
+    })
+  }
+
+  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+    const debounceKey = delivery.debounceKey
+    if (debounceKey) {
+      const now = Date.now()
+      // A newer delivery permanently supersedes older deliveries with the same key.
+      // Finalize queued work at admission. Active work keeps its lease; an expired
+      // active lease is safe to finalize so it cannot remain orphaned forever.
+      await execute(
+        tx,
+        `UPDATE ${this.tables.webhookQueue}
+          SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+          WHERE scope = ? AND delivery_id != ? AND json_extract(value, '$.debounceKey') = ?
+            AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ?))`,
+        [delivery.scope, delivery.deliveryId, debounceKey, now],
+      )
+    }
+    const inserted = await execute(
+      tx,
+      `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0) RETURNING delivery_id`,
-            [
-              delivery.scope,
-              delivery.deliveryId,
-              JSON.stringify(delivery),
-              delivery.concurrencyGroup,
-              delivery.concurrencyKey || null,
-              delivery.concurrencyLimit,
-              delivery.leaseTtlMs,
-              delivery.enqueuedAt,
-              delivery.enqueuedAt,
-            ],
-          ),
-      )
-    })
+      [
+        delivery.scope,
+        delivery.deliveryId,
+        JSON.stringify(delivery),
+        delivery.concurrencyGroup,
+        delivery.concurrencyKey || null,
+        delivery.concurrencyLimit,
+        delivery.leaseTtlMs,
+        delivery.enqueuedAt,
+        delivery.availableAt ?? delivery.enqueuedAt,
+      ],
+    )
     return inserted.length > 0
   }
 
@@ -602,7 +648,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
     const valueRows = await this.transaction(async (tx) => {
-      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
       return await execute(tx, `SELECT value FROM ${this.tables.lists} WHERE key = ? ORDER BY id ASC`, [key])
     })
     return valueRows.map((row) => {
@@ -682,6 +728,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
   }
 
+  async queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
+    await this.cleanupExpiredStateIfDue()
+    const rows = await execute(
+      this.driver,
+      `SELECT value FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND status = 'queued'
+        ORDER BY id ASC`,
+      [scope],
+    )
+    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+  }
+
   async webhookDeliveryScopes(): Promise<string[]> {
     await this.cleanupExpiredStateIfDue()
     const scopeRows = await execute(
@@ -753,8 +811,19 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ?`, [now])
       await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
       await execute(this.driver, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ?`, [now])
-      await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
+      await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE key IN (
+        SELECT list.key FROM ${this.tables.lists} AS list WHERE list.expires_at IS NOT NULL AND list.expires_at <= ?
+          AND list.id = (SELECT MAX(id) FROM ${this.tables.lists} WHERE key = list.key)
+      )`, [now])
     })
+  }
+
+  /**
+   * A list expires with its newest row: each append sets the expiry of the whole list, and older rows
+   * keep the expiry of their own append. Takes the key twice and the current time.
+   */
+  private expiredList(): string {
+    return `key = ? AND (SELECT expires_at FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT 1) <= ?`
   }
 
   private async migrate(): Promise<void> {

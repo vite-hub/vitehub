@@ -1,9 +1,10 @@
+import { argumentExpression, findProperty, objectProperties, staticString, staticValue } from "@vite-hub/internal/build/scan-module"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
-import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
 import { discoverCollections } from "./internal/collection-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 
+import type { Argument, Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
 import type { DiscoveredCollection } from "./internal/collection-discovery.ts"
 
@@ -13,195 +14,186 @@ export interface CollectionInspectionOptions {
   serverDirs?: string[]
 }
 
-type SourceScanner = ReturnType<typeof createSourceScanner>
-
-/** A property read from an object literal. `method` is true for `name() {}` members, which have no value text. */
+/** A property read from an object literal. `method` is true for `name() {}` members and accessors. */
 interface Member {
   method: boolean
-  text: string
+  value: Expression
 }
 
-// Inspection reads source text only. A value that is not a literal shows as `Dynamic`.
+// Inspection reads source only. A value that is not a literal shows as `Dynamic`.
 const dynamic = "Dynamic"
-const identifierPathPattern = /^[$_\p{ID_Start}][$\p{ID_Continue}]*(?:\s*\??\.\s*[$_\p{ID_Start}][$\p{ID_Continue}]*)*$/u
-const calleePattern = /^([$_\p{ID_Start}][$\p{ID_Continue}]*(?:\s*\.\s*[$_\p{ID_Start}][$\p{ID_Continue}]*)*)\s*(?:<[^()]*>\s*)?\(/u
-const functionPattern = /^(?:async\s+)?function\b|^(?:async\s*)?(?:\([\s\S]*?\)|[$_\p{ID_Start}][$\p{ID_Continue}]*)\s*(?::[^=]*?)?=>/u
 
-function objectLiteral(text: string | undefined): string | undefined {
-  return text?.startsWith("{") && text.endsWith("}") ? text : undefined
+function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
+  return value?.type === "ObjectExpression" ? value : undefined
 }
 
-function readMember(scanner: SourceScanner, object: string | undefined, name: string): Member | undefined {
-  if (!object) return
-  const value = scanner.readObjectProperty(object, name)
-  if (value !== undefined) return { method: false, text: value.replace(/\s+as\s+const$/, "") }
-  if (!scanner.readObjectPropertyNames(object).includes(name)) return
-  // A member without `:` is either shorthand (`{ schema }`) or a method (`authorize() {}`).
-  const shorthand = scanner.splitTopLevel(object.slice(1, -1)).some(entry => scanner.stripBoundaryComments(entry) === name)
-  return shorthand ? { method: false, text: name } : { method: true, text: "" }
+function readMember(object: ObjectExpression | undefined, name: string): Member | undefined {
+  const property = object && findProperty(object, name)
+  if (property?.node.type !== "Property" || property.value === undefined) return
+  return { method: property.node.method || property.node.kind !== "init", value: property.value }
 }
 
-function readCall(scanner: SourceScanner, text: string): { arguments: string[], callee: string } | undefined {
-  const match = calleePattern.exec(text)
-  if (!match) return
-  const open = match[0].length - 1
-  if (scanner.findMatching(text, open, "(", ")") !== text.length - 1) return
-  return {
-    arguments: scanner.splitTopLevel(text.slice(open + 1, -1)).map(entry => scanner.stripBoundaryComments(entry)).filter(Boolean),
-    callee: match[1]!.replace(/\s+/g, ""),
-  }
+/** An identifier path such as `schema` or `tables.articles`, as written without whitespace. */
+function identifierPath(value: Expression, optional: boolean): string | undefined {
+  if (value.type === "Identifier") return value.name
+  if (value.type !== "MemberExpression" || value.computed || value.property.type !== "Identifier" || (value.optional && !optional)) return
+  const object = identifierPath(value.object, optional)
+  return object === undefined ? undefined : `${object}${value.optional ? "?." : "."}${value.property.name}`
 }
 
-function readString(text: string): string | undefined {
-  const match = /^(?:"([^"\\]*)"|'([^'\\]*)'|`([^`\\$]*)`)$/.exec(text)
-  return match ? match[1] ?? match[2] ?? match[3] : undefined
+function callArguments(values: Argument[]): Expression[] {
+  return values.flatMap(value => argumentExpression(value) ?? [])
+}
+
+function readCall(value: Expression): { arguments: Expression[], callee: string } | undefined {
+  if (value.type !== "CallExpression" || value.optional) return
+  const callee = identifierPath(value.callee, false)
+  return callee === undefined ? undefined : { arguments: callArguments(value.arguments), callee }
 }
 
 function describeString(member: Member): string {
-  return readString(member.text) ?? dynamic
+  return staticString(member.value) ?? dynamic
 }
 
 function describeInteger(member: Member): string {
-  return /^\d+(?:_\d+)*$/.test(member.text) ? member.text.replaceAll("_", "") : dynamic
+  const value = member.value
+  return value.type === "Literal" && typeof value.value === "number" && /^\d+(?:_\d+)*$/.test(value.raw ?? "") ? String(value.value) : dynamic
 }
 
-function describeStringList(scanner: SourceScanner, member: Member): string {
-  if (!member.text.startsWith("[") || !member.text.endsWith("]")) return dynamic
-  const values = scanner.splitTopLevel(member.text.slice(1, -1))
-    .map(entry => scanner.stripBoundaryComments(entry))
-    .filter(Boolean)
-    .map(readString)
+function describeStringList(member: Member): string {
+  if (member.value.type !== "ArrayExpression") return dynamic
+  const values = member.value.elements.map(element => element === null || element.type === "SpreadElement" ? undefined : staticString(element))
   if (values.some(value => value === undefined)) return dynamic
   return values.length ? values.join(", ") : "None"
 }
 
 /** Shows an identifier path as written and a call as `callee(...)`. Other expressions show as `Inline`. */
-function describeExpression(scanner: SourceScanner, member: Member): string {
+function describeExpression(member: Member): string {
   if (member.method) return "Inline"
-  if (identifierPathPattern.test(member.text)) return member.text.replace(/\s+/g, "")
-  const call = readCall(scanner, member.text)
+  const path = identifierPath(member.value, true)
+  if (path !== undefined) return path
+  const call = readCall(member.value)
   return call ? `${call.callee}(...)` : "Inline"
 }
 
 function isFunction(member: Member): boolean {
-  return member.method || functionPattern.test(member.text)
+  return member.method || member.value.type === "ArrowFunctionExpression" || member.value.type === "FunctionExpression"
 }
 
-function pushSchema(scanner: SourceScanner, fields: ViteHubDefinitionField[], label: string, member: Member | undefined): void {
+function pushSchema(fields: ViteHubDefinitionField[], label: string, member: Member | undefined): void {
   if (!member) return
-  fields.push({ label, value: describeExpression(scanner, member) })
+  fields.push({ label, value: describeExpression(member) })
   // Only an inline `object({ ... })` schema, for example `v.object()` or `z.object()`, has statically known fields.
-  const call = member.method ? undefined : readCall(scanner, member.text)
+  const call = member.method ? undefined : readCall(member.value)
   const shape = call && /(?:^|\.)(?:object|strictObject|looseObject)$/.test(call.callee) ? objectLiteral(call.arguments[0]) : undefined
   if (!shape) return
-  const names = scanner.readObjectPropertyNames(shape)
+  const names = objectProperties(shape).map(property => property.key)
   fields.push({
     label: `${label} fields`,
     value: names.every(name => name !== undefined) ? names.join(", ") || "None" : dynamic,
   })
 }
 
-function pushLimits(scanner: SourceScanner, fields: ViteHubDefinitionField[], options: string): void {
-  const defaultLimit = readMember(scanner, options, "defaultLimit")
-  const maxLimit = readMember(scanner, options, "maxLimit")
+function pushLimits(fields: ViteHubDefinitionField[], options: ObjectExpression): void {
+  const defaultLimit = readMember(options, "defaultLimit")
+  const maxLimit = readMember(options, "maxLimit")
   if (defaultLimit) fields.push({ label: "Default limit", value: describeInteger(defaultLimit) })
   if (maxLimit) fields.push({ label: "Max limit", value: describeInteger(maxLimit) })
 }
 
-function describeArraySort(scanner: SourceScanner, member: Member): string {
-  const sort = objectLiteral(member.text)
-  const field = readMember(scanner, sort, "field")
-  const direction = readMember(scanner, sort, "direction")
-  const fieldName = field && readString(field.text)
-  const directionName = direction ? readString(direction.text) : "asc"
+function describeArraySort(member: Member): string {
+  const sort = objectLiteral(member.value)
+  const field = readMember(sort, "field")
+  const direction = readMember(sort, "direction")
+  const fieldName = field && staticString(field.value)
+  const directionName = direction ? staticString(direction.value) : "asc"
   return fieldName && directionName ? `${fieldName} ${directionName}` : dynamic
 }
 
-function describeTableSort(scanner: SourceScanner, member: Member): string {
-  const orderBy = objectLiteral(member.text)
-  const column = readMember(scanner, orderBy, "column")
-  const direction = readMember(scanner, orderBy, "direction")
-  const tieBreaker = readMember(scanner, orderBy, "tieBreaker")
-  const directionName = direction && readString(direction.text)
+function describeTableSort(member: Member): string {
+  const orderBy = objectLiteral(member.value)
+  const column = readMember(orderBy, "column")
+  const direction = readMember(orderBy, "direction")
+  const tieBreaker = readMember(orderBy, "tieBreaker")
+  const directionName = direction && staticString(direction.value)
   if (!column || !directionName) return dynamic
-  const sort = `${describeExpression(scanner, column)} ${directionName}`
-  return tieBreaker ? `${sort}, then ${describeExpression(scanner, tieBreaker)}` : sort
+  const sort = `${describeExpression(column)} ${directionName}`
+  return tieBreaker ? `${sort}, then ${describeExpression(tieBreaker)}` : sort
 }
 
-function arrayFields(scanner: SourceScanner, options: string): ViteHubDefinitionField[] {
+function arrayFields(options: ObjectExpression): ViteHubDefinitionField[] {
   const fields: ViteHubDefinitionField[] = []
-  pushSchema(scanner, fields, "Schema", readMember(scanner, options, "schema"))
-  const key = readMember(scanner, options, "key")
-  const sort = readMember(scanner, options, "sort")
+  pushSchema(fields, "Schema", readMember(options, "schema"))
+  const key = readMember(options, "key")
+  const sort = readMember(options, "sort")
   if (key) fields.push({ label: "Key", value: describeString(key) })
-  if (sort) fields.push({ label: "Sort", value: describeArraySort(scanner, sort) })
+  if (sort) fields.push({ label: "Sort", value: describeArraySort(sort) })
   for (const [property, label] of [["filters", "Filters"], ["search", "Search"], ["facets", "Facets"]] as const) {
-    const member = readMember(scanner, options, property)
-    if (member) fields.push({ label, value: describeStringList(scanner, member) })
+    const member = readMember(options, property)
+    if (member) fields.push({ label, value: describeStringList(member) })
   }
-  pushLimits(scanner, fields, options)
+  pushLimits(fields, options)
   return fields
 }
 
-function tableFields(scanner: SourceScanner, options: string): ViteHubDefinitionField[] {
+function tableFields(options: ObjectExpression): ViteHubDefinitionField[] {
   const fields: ViteHubDefinitionField[] = []
-  const table = readMember(scanner, options, "table")
-  const orderBy = readMember(scanner, options, "orderBy")
-  const where = readMember(scanner, options, "where")
-  if (table) fields.push({ label: "Table", value: describeExpression(scanner, table) })
-  if (orderBy) fields.push({ label: "Sort", value: describeTableSort(scanner, orderBy) })
-  pushSchema(scanner, fields, "Query schema", readMember(scanner, options, "querySchema"))
+  const table = readMember(options, "table")
+  const orderBy = readMember(options, "orderBy")
+  const where = readMember(options, "where")
+  if (table) fields.push({ label: "Table", value: describeExpression(table) })
+  if (orderBy) fields.push({ label: "Sort", value: describeTableSort(orderBy) })
+  pushSchema(fields, "Query schema", readMember(options, "querySchema"))
   if (where) fields.push({ label: "Where", value: isFunction(where) ? "Callback" : dynamic })
-  pushLimits(scanner, fields, options)
+  pushLimits(fields, options)
   return fields
 }
 
 /** Fields of a custom source object and of the options in `defineCollection(load, options)`. */
-function loaderFields(scanner: SourceScanner, options: string): ViteHubDefinitionField[] {
-  const pagination = readMember(scanner, options, "pagination")
+function loaderFields(options: ObjectExpression): ViteHubDefinitionField[] {
+  const pagination = readMember(options, "pagination")
   const fields: ViteHubDefinitionField[] = [{
     label: "Pagination",
-    value: !pagination ? "Cursor" : readString(pagination.text) === "provider" ? "Provider" : dynamic,
+    value: !pagination ? "Cursor" : staticString(pagination.value) === "provider" ? "Provider" : dynamic,
   }]
-  pushSchema(scanner, fields, "Cursor schema", readMember(scanner, options, "cursorSchema"))
-  pushSchema(scanner, fields, "Query schema", readMember(scanner, options, "querySchema"))
-  pushLimits(scanner, fields, options)
+  pushSchema(fields, "Cursor schema", readMember(options, "cursorSchema"))
+  pushSchema(fields, "Query schema", readMember(options, "querySchema"))
+  pushLimits(fields, options)
   return fields
 }
 
-function sourceFields(scanner: SourceScanner, member: Member | undefined): ViteHubDefinitionField[] {
+function sourceFields(member: Member | undefined): ViteHubDefinitionField[] {
   if (!member || member.method) return [{ label: "Source", value: "unknown" }]
-  const custom = objectLiteral(member.text)
-  if (custom) return [{ label: "Source", value: "custom" }, ...loaderFields(scanner, custom)]
-  const call = readCall(scanner, member.text)
+  const custom = objectLiteral(member.value)
+  if (custom) return [{ label: "Source", value: "custom" }, ...loaderFields(custom)]
+  const call = readCall(member.value)
   if (!call) return [{ label: "Source", value: "unknown" }]
   const fields: ViteHubDefinitionField[] = [{ label: "Source", value: call.callee }]
   const helper = call.callee.split(".").at(-1)
-  const optionsText = helper === "array" ? call.arguments[1] : helper === "table" ? call.arguments[0] : undefined
-  if (optionsText === undefined) return fields
-  const options = objectLiteral(optionsText)
+  const optionsValue = helper === "array" ? call.arguments[1] : helper === "table" ? call.arguments[0] : undefined
+  if (optionsValue === undefined) return fields
+  const options = objectLiteral(optionsValue)
   if (!options) return [...fields, { label: "Options", value: dynamic }]
-  return [...fields, ...helper === "array" ? arrayFields(scanner, options) : tableFields(scanner, options)]
+  return [...fields, ...helper === "array" ? arrayFields(options) : tableFields(options)]
 }
 
 function definitionFields(collection: DiscoveredCollection): ViteHubDefinitionField[] {
   const call = collection.definition
   if (!call) return [{ label: "Source", value: "unknown" }]
-  const scanner = createSourceScanner(collection.file)
-  const [first, second] = call.arguments.map(argument => scanner.stripBoundaryComments(argument)).filter(Boolean)
+  const [first, second] = callArguments(call.arguments)
   // `defineCollection({ source, ... })` keeps its options in the first argument; `defineCollection(load, options)` in the second.
   const loaderForm = second !== undefined
   const options = objectLiteral(loaderForm ? second : first)
   const fields = loaderForm
-    ? [{ label: "Source", value: "loader" }, ...options ? loaderFields(scanner, options) : []]
-    : sourceFields(scanner, readMember(scanner, options, "source"))
+    ? [{ label: "Source", value: "loader" }, ...options ? loaderFields(options) : []]
+    : sourceFields(readMember(options, "source"))
   if (!options) return [...fields, { label: "Options", value: dynamic }]
-  const authorize = readMember(scanner, options, "authorize")
-  fields.push({ label: "Transform", value: readMember(scanner, options, "transform") ? "Yes" : "No" })
+  const authorize = readMember(options, "authorize")
+  fields.push({ label: "Transform", value: readMember(options, "transform") ? "Yes" : "No" })
   if (authorize) {
     fields.push({
       label: "Authorize",
-      value: authorize.text === "true" ? "Signed-in session" : isFunction(authorize) ? "Callback" : dynamic,
+      value: !authorize.method && staticValue(authorize.value) === true ? "Signed-in session" : isFunction(authorize) ? "Callback" : dynamic,
     })
   }
   return fields

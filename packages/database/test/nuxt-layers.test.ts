@@ -87,10 +87,10 @@ describe("Database Definitions in Nuxt layers", () => {
       }),
     ])
 
-    expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
-      label: "Schema sources",
-      value: "../layers/blog/server/databases/config.ts, ../layers/accounts/server/databases/config.ts",
-    })
+    expect(inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs })[0]?.fields).toEqual(expect.arrayContaining([
+      { label: "Tables", value: "posts, users" },
+      { label: "Schema sources", value: "../layers/blog/server/databases/config.ts, ../layers/accounts/server/databases/config.ts" },
+    ]))
 
     const { config, files, sql } = await generateMigration(app.appDir, app.serverDirs)
 
@@ -173,7 +173,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     // Source reading cannot list a spread, so only a loaded layer source adds its tables.
-    expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
+    expect(inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs })[0]?.fields).toContainEqual({
       label: "Tables",
       value: "users, plus an imported or spread schema",
     })

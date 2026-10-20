@@ -92,27 +92,19 @@ function parseList(value: unknown): KVListResponse {
     throw viteHubErrorDiagnostics.VITE_HUB_R0103({ message: "The Console returned an invalid KV key list." });
   }
   return {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     cursor: typeof source.cursor === "string" ? source.cursor : undefined,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     error: typeof source.error === "string" ? source.error : undefined,
     errorCode: source.errorCode === "cursor_expired" ? source.errorCode : undefined,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
     limit: typeof source.limit === "number" ? source.limit : 200,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional prefix at this boundary.
     prefix: typeof source.prefix === "string" ? source.prefix : "",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the selected store at this boundary.
     store: typeof source.store === "string" ? source.store : "default",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every store identity before rendering it.
     stores: source.stores.filter((store): store is string => typeof store === "string"),
   };
 }
 
 function parseValue(value: unknown): KVValueResponse {
   const source = record(value);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate required key and store identities at this boundary.
   if (!source || typeof source.key !== "string" || typeof source.store !== "string") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0104({ message: "The Console returned an invalid KV value." });
   }
@@ -122,9 +114,7 @@ function parseValue(value: unknown): KVValueResponse {
     store: source.store,
   };
   if (source.format === "json" || source.format === "text") parsed.format = source.format;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional type label at this boundary.
   if (typeof source.type === "string") parsed.type = source.type;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional serialized value at this boundary.
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
   return parsed;

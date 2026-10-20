@@ -13,26 +13,20 @@ import type {
 } from "./types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
-function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
-  const limit = normalizeOutputLength(maxLength)
-  if (limit === undefined) return result
-  const next = { ...result, maxOutputLength: limit }
+export function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
+  if (maxLength === undefined) return result
+  maxLength = Math.max(0, maxLength)
+  const next = { ...result, maxOutputLength: maxLength }
   let truncated = false
-  if (next.stdout.length > limit) {
-    next.stdout = `${next.stdout.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
+  if (next.stdout.length > maxLength) {
+    next.stdout = `${next.stdout.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
     truncated = true
   }
-  if (next.stderr.length > limit) {
-    next.stderr = `${next.stderr.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
+  if (next.stderr.length > maxLength) {
+    next.stderr = `${next.stderr.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
     truncated = true
   }
   return truncated ? { ...next, outputTruncated: true } : next
-}
-
-function normalizeOutputLength(value: number | undefined): number | undefined {
-  if (value === undefined) return undefined
-  if (value === Number.POSITIVE_INFINITY) return undefined
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
 function createPolicyObservation(command: string, cwd: string | undefined, message: string): ShellObservation {
@@ -83,33 +77,18 @@ class RuntimeShellSession implements ShellSession {
     }
 
     this.#shellCalls += 1
+    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const started = Date.now()
-    const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
-    const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
-    const maxOutputLength = requestedOutputLength === undefined
-      ? policyOutputLength
-      : policyOutputLength === undefined
-        ? requestedOutputLength
-        : Math.min(requestedOutputLength, policyOutputLength)
-    let stdoutRemaining = maxOutputLength
-    let stderrRemaining = maxOutputLength
-    const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
-      callback && ((data: string) => {
-        const limit = remaining()
-        if (limit === undefined) return callback(data)
-        if (limit <= 0) return
-        const chunk = data.slice(0, limit)
-        consume(chunk.length)
-        if (chunk) callback(chunk)
-      })
+    const signal = options.budget && options.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
-      maxOutputLength,
+      signal,
       timeout: options.timeout ?? this.policy.timeout,
-      onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
-      onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
     })
+    options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
     const timedOut = result.timedOut
     return applyOutputLimit({
@@ -124,7 +103,7 @@ class RuntimeShellSession implements ShellSession {
       stdout: result.stdout,
       timedOut,
       workspaceGuardrail: result.workspaceGuardrail,
-    }, maxOutputLength)
+    }, this.policy.maxOutputLength)
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
@@ -235,7 +214,7 @@ class RuntimeShellSession implements ShellSession {
 
 export function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime {
   const { provider } = options
-  const policy = { ...(options.policy ?? {}) }
+  const policy = options.policy ?? {}
   return {
     boundary: provider.boundary,
     createSession(sessionOptions: CreateShellSessionOptions = {}) {

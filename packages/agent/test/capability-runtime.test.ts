@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { browserSkillContent } from "../src/internal/browser-skill.ts"
 
@@ -304,6 +304,20 @@ describe("agent capability runtime", () => {
     expect(closeError).toBeInstanceOf(AggregateError)
     expect(closeError.message).toBe("[vitehub] Multiple capability close callbacks failed.")
     expect(closeError.errors).toEqual([secondError, firstError])
+  })
+
+  it("runs capability close callbacks once and keeps their failure on a later close", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const closeError = new Error("close failed")
+    const close = vi.fn(() => { throw closeError })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [defineCapability({ close, id: "failing-close" })],
+    }, runtime(), {})
+
+    await expect(Promise.all([resolved.close(), resolved.close()].map(result => result.catch(error => error))))
+      .resolves.toEqual([closeError, closeError])
+    await expect(resolved.close()).rejects.toBe(closeError)
+    expect(close).toHaveBeenCalledOnce()
   })
 
   it("preserves setup and cleanup failures in the existing aggregate contract", async () => {
@@ -1008,6 +1022,7 @@ describe("agent capability runtime", () => {
     }
     finally {
       await rm(root, { recursive: true, force: true })
+      await rm(`${root}.meta.json`, { force: true })
     }
   })
 
@@ -1025,6 +1040,10 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `retained-browser-${crypto.randomUUID()}`
     const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-retained-browser-"))
+    onTestFinished(() => Promise.all([
+      rm(workspaceRoot, { force: true, recursive: true }),
+      rm(`${workspaceRoot}.meta.json`, { force: true }),
+    ]).then(() => undefined))
     registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
@@ -1077,7 +1096,6 @@ describe("agent capability runtime", () => {
       workspaceDefinition: { name: workspaceName, sources: {} },
     })).rejects.toThrow("conflicts with an existing Workspace path")
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
-    await rm(workspaceRoot, { force: true, recursive: true })
   })
 
   it("keeps the Browser Skill invocation-local when the Store lacks conditional writes", async () => {
@@ -1130,6 +1148,7 @@ describe("agent capability runtime", () => {
     finally {
       spy.mockRestore()
       await rm(workspaceRoot, { force: true, recursive: true })
+      await rm(`${workspaceRoot}.meta.json`, { force: true })
     }
   })
 
@@ -2423,6 +2442,35 @@ describe("agent capability runtime", () => {
     expect(close).toHaveBeenCalledExactlyOnceWith({ error: reason, failed: true })
   })
 
+  it("closes a fatal error event as a failed stream without pulling later output", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const close = vi.fn(async () => {})
+    let continued = false
+    const source = (async function* () {
+      yield { type: "error", error: "Budget exhausted" }
+      continued = true
+      yield { type: "text-delta", text: "Must not emit" }
+    })()
+    const events: unknown[] = []
+    for await (const event of withCapabilityCleanup(source, close)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "Budget exhausted" }])
+    expect(continued).toBe(false)
+    expect(close).toHaveBeenCalledExactlyOnceWith({ error: expect.objectContaining({ message: "Budget exhausted" }), failed: true })
+  })
+
+  it("continues recoverable error events and completes normal stream cleanup", async () => {
+    const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
+    const close = vi.fn(async () => {})
+    const events = [{ type: "error", error: "retrying", recoverable: true }, { type: "text-delta", text: "Recovered" }, { type: "finish" }]
+    const source = (async function* () { yield* events })()
+    const received: unknown[] = []
+    for await (const event of withCapabilityCleanup(source, close)) received.push(event)
+
+    expect(received).toEqual(events)
+    expect(close).toHaveBeenCalledExactlyOnceWith({ completed: true, failed: false })
+  })
+
   it("finishes stream cleanup when provider cancellation throws synchronously", async () => {
     const { withCapabilityCleanup } = await import("../src/capability-runtime.ts")
     const close = vi.fn(async () => {})
@@ -2582,6 +2630,8 @@ describe("agent capability runtime", () => {
   it("runs model-backed capability lifecycle once per agent run", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }
@@ -2613,6 +2663,8 @@ describe("agent capability runtime", () => {
   it("does not close model-backed capability contexts twice when cleanup fails", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }
@@ -2645,6 +2697,8 @@ describe("agent capability runtime", () => {
   it("does not run invocation-scoped capability phases during agent resolution", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
+      // This SDK double executes fixture responses without invoking a language model.
+      wrapLanguageModel: ({ model }: { model: unknown }) => model,
       ToolLoopAgent: class {
         async generate() {
           return { text: "ok" }

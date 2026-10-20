@@ -33,7 +33,6 @@ export default defineConfig({
       "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
-      "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
       "src/internal/path.ts",
@@ -74,12 +73,12 @@ export default defineConfig({
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }
+            const types = value.replace(/\.js$/, ".d.ts");
+            // drizzle-kit loads Database schemas through require(), and Database Definitions and contributed
+            // tables import workspaceHistorySchema from this subpath.
             return [
               key,
-              {
-                types: value.replace(/\.js$/, ".d.ts"),
-                import: value,
-              },
+              key === "./blob-database" ? { types, import: value, require: value, default: value } : { types, import: value },
             ];
           }),
         ));

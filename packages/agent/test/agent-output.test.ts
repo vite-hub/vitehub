@@ -1,18 +1,23 @@
 import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
+import { registerResponseConstructor } from "../src/internal/response.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
   agentToolStreamDefaults,
   agentStreamErrorSymbol,
   finalTextFromAgentOutput,
+  resolveAgentUsageRecord,
   streamAgentOutputToEvents,
   toAgentRunResult,
   toAgentStreamEvent,
   usageRecordFromStreamChunk,
 } from "../src/agent-output.ts"
+
+registerResponseConstructor(ForeignResponse)
 
 describe("agent output helpers", () => {
   it("normalizes primitive values into Agent run results", () => {
@@ -27,6 +32,56 @@ describe("agent output helpers", () => {
       text: "ok",
       usage: undefined,
       usageRecord: undefined,
+    })
+  })
+
+  it.each(["usage", "cost"] as const)("ignores inherited provider %s when computing usage cost", field => {
+    const provider = field === "usage"
+      ? Object.create({ usage: { cost: 9 } })
+      : { usage: Object.create({ cost: 9 }) }
+    const result = toAgentRunResult({ usage: { inputTokens: 1 }, providerMetadata: { gateway: provider } })
+    expect(result.usageRecord?.cost).toBeUndefined()
+  })
+
+  it("ignores inherited metadata on an otherwise valid usage record", () => {
+    const usageRecord = Object.assign(Object.create({
+      cost: { usd: "9", estimated: false, source: "provider" },
+      latency: { durationMs: 999 },
+      provider: "polluted",
+    }), { usage: { inputTokens: 1 } })
+    expect(toAgentRunResult({ usageRecord }).usageRecord).toEqual({ usage: { inputTokens: 1 } })
+  })
+
+  it.each(["finish", "usage"] as const)("ignores inherited usage carriers on %s stream events", type => {
+    const carrier = type === "finish" ? { usage: { inputTokens: 99 } } : { usageRecord: { usage: { inputTokens: 99 } } }
+    const chunk = Object.assign(Object.create(carrier), { type })
+    expect(usageRecordFromStreamChunk(chunk)).toBeUndefined()
+  })
+
+  it("ignores inherited raw provider results", async () => {
+    const result = Object.create({ raw: { usage: { inputTokens: 99 } } })
+    await expect(resolveAgentUsageRecord(result)).resolves.toBeUndefined()
+  })
+
+  it("ignores inherited usage fields", () => {
+    const usage = Object.create({ inputTokens: 99, outputTokens: 1 }) as object
+
+    expect(toAgentRunResult({ usage }).usageRecord).toBeUndefined()
+  })
+
+  it("accepts usage fields exposed through class getters", () => {
+    class Usage {
+      get inputTokens() {
+        return 2
+      }
+
+      get outputTokens() {
+        return 1
+      }
+    }
+
+    expect(toAgentRunResult({ usage: new Usage() }).usageRecord).toMatchObject({
+      usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
     })
   })
 
@@ -789,6 +844,78 @@ describe("agent output helpers", () => {
     expect(events).toEqual([{ type: "usage", usageRecord }])
   })
 
+  it("stops at a fatal stream error before reading result promises or fallback text", async () => {
+    let usageReads = 0
+    let textReads = 0
+    let continued = false
+    const output = {
+      fullStream: (async function* () {
+        yield { type: "error", error: "terminal failure" }
+        continued = true
+        yield { type: "finish" }
+      })(),
+      get usage() {
+        usageReads++
+        throw new Error("Rejected final usage")
+      },
+      get textStream() {
+        textReads++
+        return (async function* () { yield "must not be replayed" })()
+      },
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "terminal failure" }])
+    expect(continued).toBe(false)
+    expect(usageReads).toBe(0)
+    expect(textReads).toBe(0)
+  })
+
+  it("does not evaluate deferred response metadata while measuring streamed usage", () => {
+    const reads: string[] = []
+    const output = {
+      fullStream: (async function* () {})(),
+      modelId: "model",
+      provider: "test",
+      get response() {
+        reads.push("response")
+        throw new Error("Deferred response")
+      },
+      get providerMetadata() {
+        reads.push("providerMetadata")
+        throw new Error("Deferred provider metadata")
+      },
+    }
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, output)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(reads).toEqual([])
+  })
+
+  it.each(["cycle", "fresh", "throws"] as const)("bounds %s proxy traversal while measuring streamed usage", mode => {
+    let prototypeReads = 0
+    const stream = (async function* () {})()
+    let carrier: object
+    const handler: ProxyHandler<object> = {
+      getOwnPropertyDescriptor(target, key) {
+        if (mode === "throws" && key === "response") throw new Error("Descriptor unavailable")
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+      getPrototypeOf() {
+        prototypeReads++
+        return mode === "fresh" ? new Proxy({}, handler) : carrier
+      },
+    }
+    carrier = new Proxy({ fullStream: stream, modelId: "model", provider: "test" }, handler)
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, carrier)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(prototypeReads).toBeLessThanOrEqual(400)
+  })
+
   it("preserves measured usage when fallback text throws", async () => {
     const failure = new Error("text interrupted")
     const usageRecord = { usage: { inputTokens: 7 } }
@@ -1278,6 +1405,208 @@ describe("agent output helpers", () => {
       { text: "second", type: "text-delta" },
       { type: "finish" },
     ])
+  })
+
+  it("emits body chunks from a genuine foreign Response implementation", async () => {
+    const response = new ForeignResponse("foreign")
+    expect(response).toBeInstanceOf(ForeignResponse)
+    expect(response).not.toBeInstanceOf(Response)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(response)) events.push(event)
+    expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("surfaces an error for a Response body locked by its caller", async () => {
+    const response = new Response("locked")
+    const reader = response.body?.getReader()
+    await expect(async () => {
+      for await (const _event of streamAgentOutputToEvents(response)) {
+        // Consume the generator until the locked-body failure is raised.
+      }
+    }).rejects.toThrow()
+    reader?.releaseLock()
+  })
+
+  it.each([new Response("wrong stream").body, { incompatible: true }])("preserves textStream on outputs with a caller-controlled status getter and body %j", async (body) => {
+    class Output {
+      body = body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+      textStream = (async function* () { yield "generic" })()
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("does not treat a caller-defined status getter as a Response without an Agent stream", async () => {
+    class Output {
+      body = new Response("wrong stream").body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not classify spoofed Response-shaped objects", async () => {
+    const value = {
+      body: new Response("spoofed").body,
+      headers: { get: () => null },
+      status: 200,
+      statusText: "OK",
+      textStream: (async function* () { yield "generic" })(),
+    }
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("does not trust spoofed stream methods on Response-shaped objects", async () => {
+    const body = {
+      getReader: () => ({
+        read: () => Promise.resolve({ done: true, value: undefined }),
+        releaseLock: () => {},
+      }),
+      pipeThrough: () => { throw new Error("spoofed pipeThrough") },
+    }
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+      get type() { return "default" },
+      get url() { return "" },
+      get redirected() { return false },
+      get ok() { return true },
+      get bodyUsed() { return false },
+      clone() {},
+      blob() {},
+      arrayBuffer() {},
+      text() {},
+      formData() {},
+      json() {},
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("rejects a spoofed ReadableStream tag on an incompatible body", async () => {
+    const body = Object.create({ [Symbol.toStringTag]: "ReadableStream" })
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a spoofed Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+      get [Symbol.toStringTag]() { return "Response" },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a prototype data Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const prototype = {
+      [Symbol.toStringTag]: "Response",
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    }
+    const value = Object.create(prototype)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a self-linked fake Response constructor", async () => {
+    const body = new Response("spoofed").body
+    const fakeConstructor = function Response() {}
+    const prototype = {
+      [Symbol.toStringTag]: "Response",
+      constructor: fakeConstructor,
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    }
+    Object.defineProperty(fakeConstructor, "prototype", {
+      value: prototype,
+      writable: false,
+      configurable: false,
+    })
+    Object.assign(fakeConstructor, {
+      error() {},
+      json() {},
+      redirect() {},
+    })
+    const value = Object.create(prototype)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust an own Response tag over a prototype response shape", async () => {
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return new Response("spoofed").body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not loop on a cyclic response prototype", async () => {
+    const target = {}
+    let value: object
+    value = new Proxy(target, {
+      getPrototypeOf(): object {
+        return value
+      },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("preserves text from a spoofed Response-shaped result", async () => {
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return null },
+    }) as Record<string | symbol, unknown>
+    value.text = "generic"
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
   })
 
   it("emits usage from promise-backed textStream results", async () => {

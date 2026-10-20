@@ -81,6 +81,7 @@ const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
  * Sends `process.stdout` writes to stderr while `run` loads project config.
  * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
  */
+// SAFETY: The default Node stream is adapted to the narrower ViteHub stream contract.
 export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr as ViteHubCliStreams["stderr"]): Promise<T> {
   // Capture a newly installed process writer before the redirect is active.
   // This keeps first-use payload writes on the invocation's real stdout.
@@ -153,7 +154,6 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
   const steps = new Map<string, ProvisionStep>()
 
   for (const plugin of plugins) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin discovery accepts unknown runtime values and only object plugins can own CLI metadata.
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
     const contributor = await resolveContributor(metadata?.cli)
@@ -417,7 +417,6 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   const isCompatibleRoot = options.isCompatibleRoot ?? ((rootDir: string, serverRoot: string) => serverRoot === rootDir)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the untrusted discovery root before comparing it with the local project.
   if (discovery.root !== undefined && typeof discovery.root !== "string") {
     options.stderr.write("Invalid Vite Development Server discovery root.\n")
     return

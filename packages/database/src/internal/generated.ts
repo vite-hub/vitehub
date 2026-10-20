@@ -63,11 +63,13 @@ function createTableExports(parts: SchemaPart[]) {
   }))
 }
 
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: SchemaPart[], contributions: ResolvedDatabaseContribution[]) {
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: SchemaPart[], contributions: ResolvedDatabaseContribution[], sourceSchemas: readonly LoadedDatabaseSchema[]) {
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const layered = sourceVariables.length > 1
   return [
-    ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
+    ...definition.schemaSources.flatMap((source, index) => sourceSchemas[index]?.loaded
+      ? [`import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`]
+      : [`const ${sourceVariables[index]} = { schema: { ${sourceSchemas[index]?.keys.map(key => `${JSON.stringify(key)}: undefined`).join(", ")} } }`]),
     ...contributions.map((contribution, index) => renderContributionImport(file, contribution, `contributedSchema_${index}`)),
     "",
     // Nuxt layers merge in order, so the application wins a key.
@@ -96,8 +98,10 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   // together so generated artifacts and generated types keep the same contract as the Nuxt local runtime.
   const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
   const activeContributions = primaryLoaded ? loadedContributions.filter(item => item.schema.loaded) : []
-  const loadedSources = primaryLoaded ? sources.filter(source => source.loaded) : []
-  const activeSourceDefinitions = primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : []
+  // Keep literal fallback keys in generated artifacts when evaluation fails. The Definition import
+  // remains the source of runtime values, while the static table names preserve the previous dev/build output.
+  const loadedSources = sources
+  const activeSourceDefinitions = definition.schemaSources
   const activeDefinition = { ...definition, schemaSources: activeSourceDefinitions }
   const sourceVariables = schemaSourceVariables(activeDefinition, "databaseDefinition", "schemaSource_")
   const contributed = activeContributions.map(item => item.schema)
@@ -120,10 +124,22 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution)), "utf8")
+  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution), loadedSources), "utf8")
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.dialect === "postgresql") {
+    const url = renderConfigValueExpression(database.connection?.url)
+    if (typeof database.connection?.url === "string") {
+      return database.connection.url.trim()
+        ? ["  dbCredentials: {", `    url: ${JSON.stringify(database.connection.url.trim())},`, "  },"]
+        : ["  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },"]
+    }
+    // Without a URL, Drizzle Kit needs `host` and `database`. Its Postgres driver reads the other PG* variables.
+    const env = "{ host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] }"
+    return [`  dbCredentials: ${url ? `(${url})?.trim() ? { url: (${url}).trim() } : ${env}` : env},`]
+  }
+
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
   if (database.cloudflare?.http && databaseId) {
     return [
@@ -163,7 +179,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
     "export default {",
-    "  dialect: \"sqlite\",",
+    `  dialect: ${JSON.stringify(database.dialect)},`,
     "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
@@ -197,6 +213,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
+    ...(config.databases[definition.name]?.dialect === "postgresql" ? ["      dialect: \"postgresql\""] : []),
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
@@ -245,7 +262,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
       ...definition,
       // Keep generated types aligned with the schema artifact and Nuxt runtime: layers
       // remain available only when the primary Definition can provide a runtime entry.
-      schemaSources: primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : [],
+      schemaSources: definition.schemaSources,
     }
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>

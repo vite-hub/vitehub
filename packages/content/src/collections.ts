@@ -72,7 +72,7 @@ export interface ContentRawDocument {
 }
 
 export interface ContentReadOptions {
-  /** `published` (default) or `draft`. */
+  /** `published` or `draft`. Defaults to `draft` inside a preview request and `published` otherwise. */
   ref?: ContentRef
   /** Read from one history revision instead of a ref head, for example one returned by `revisions()`. */
   revision?: string
@@ -83,7 +83,7 @@ type FilterValue = string | number | boolean | Date
 type FieldName<TData> = Extract<keyof TData, string> | "id"
 
 export interface ContentListOptions<TData = Record<string, unknown>> {
-  /** `published` (default) or `draft`. */
+  /** `published` or `draft`. Defaults to `draft` inside a preview request and `published` otherwise. */
   ref?: ContentRef
   /**
    * Match field values case-insensitively. An array matches any of its values; array fields match when any element
@@ -210,7 +210,7 @@ export interface ContentRevisionsResult {
   cursor?: string
 }
 
-/** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref. */
+/** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
 export interface ContentCollection<TFields extends ContentFields = ContentFields>
   extends Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
   readonly name: string
@@ -220,7 +220,7 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly fields: readonly string[]
   /** JSON Schema of the frontmatter, built from each field's Standard JSON Schema. Forms and tools read it. */
   readonly schema: Record<string, unknown>
-  /** List documents with filters, search, sort, facets, and a total. Reads `published` unless `ref` says otherwise. */
+  /** List documents with filters, search, sort, facets, and a total. Reads `published`, or `draft` in a preview request, unless `ref` says otherwise. */
   list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
   /** Read one document, or null when it does not exist. Throws `CONTENT_INVALID` when its frontmatter no longer validates. */
   get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
@@ -337,6 +337,8 @@ export type ContentHistorySource = ComarkContentSource & { readonly loadedRevisi
 export interface ContentCollectionsOptions {
   workspace: string
   collections: Record<string, DocumentsDefinition>
+  /** The ref that `get()` and `list()` read without `ref`: `draft` inside a preview request, otherwise `published`. */
+  defaultRef?: () => ContentRef
 }
 
 export interface ContentCollectionsRuntime {
@@ -348,8 +350,8 @@ export interface ContentCollectionsRuntime {
   comarkSource(name: string): ContentHistorySource
   /** Called after `publish()` changes the `published` ref, with the affected collection names. */
   onPublish(listener: (collections: string[]) => Promise<void> | void): void
-  /** The current `published` head revision id, or null before the first publish. */
-  publishedHead(): Promise<string | null>
+  /** The revision a Comark Source of `ref` reads: its head, or the `published` head for an empty draft. Null before any. */
+  head(ref: ContentRef): Promise<string | null>
   /** Remove the Workspace validation plugin. */
   dispose(): void
 }
@@ -401,6 +403,7 @@ function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
 /** Create the document runtime for every collection and install validation on their Workspace paths. */
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
   const workspaceName = options.workspace
+  const defaultRef = options.defaultRef ?? (() => "published" as const)
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
@@ -669,7 +672,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
-      const state = await refState(assertRef(options.ref, "published"))
+      const state = await refState(assertRef(options.ref, defaultRef()))
       const items = state.opened ? await index(state.opened) : []
       const digest = `${name}:${state.revision?.id ?? "empty"}`
       const listed = defineCollection({
@@ -695,7 +698,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       return options.revision !== undefined
         ? await openRevision(String(options.revision))
-        : (await refState(assertRef(options.ref, "published"))).opened
+        : (await refState(assertRef(options.ref, defaultRef()))).opened
     }
 
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
@@ -772,8 +775,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function save(id: string, input: ContentSaveInput, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
       const path = pathFor(id)
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
-      const body = input.body === undefined ? "" : input.body
-      if (typeof body !== "string") throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      const body = input.body ?? ""
+      if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
       let frontmatter: Record<string, unknown>
       try {
         frontmatter = normalizeFrontmatter(input.data)
@@ -991,7 +994,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
-          ifHeads: expectations ? { draft: draftHead.id } : undefined,
           changes: { put, delete: remove },
           message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
           metadata: writeMetadata(publishOptions.metadata, {
@@ -1005,18 +1007,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         return { revision, documents }
       }
       catch (error) {
-        if (expectations && isWorkspaceConflict(error) && conflictRef(error) === "draft") {
-          const head = await retained.head({ ref: "draft" })
-          const current = head ? await openRevision(head) : published
-          const mismatches: ContentPublishMismatch[] = []
-          for (const { collection, id, path, digest } of expectations) {
-            const actual = current?.files.get(path) ?? null
-            if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
-          }
-          if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
-          // An unrelated document moved draft: retry with the same reviewed digests.
-          if (attempt < maxCommitAttempts) continue
-        }
         // Without ifHead, a concurrent publish only moves the base: recompute against the new head and check `expect` again.
         if (isWorkspaceConflict(error) && conflictRef(error) === "published" && publishOptions.ifHead === undefined && attempt < maxCommitAttempts) continue
         throw error
@@ -1089,7 +1079,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     onPublish: listener => {
       publishListeners.push(listener)
     },
-    publishedHead: async () => (await (await history()).head({ ref: "published" }))?.id ?? null,
+    head: async (ref) => {
+      const retained = await history()
+      return (await retained.head({ ref }) ?? (ref === "draft" ? await retained.head({ ref: "published" }) : null))?.id ?? null
+    },
     dispose: plugin,
   }
 }

@@ -28,12 +28,10 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   catch {
     return
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host headers are untyped; accept only string values before parsing the region.
   if (typeof value === "string") {
     return value
   }
   if (Array.isArray(value)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Repeated host headers use the first value only when it is a string.
     return typeof value[0] === "string" ? value[0] : undefined
   }
 }

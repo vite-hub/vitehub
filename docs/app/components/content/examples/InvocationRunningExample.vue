@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import type { AgentInvocationView } from "@vite-hub/ui";
-import { onMounted, reactive } from "vue";
+import { onBeforeUnmount, onMounted } from "vue";
+import type { AgentInvocationView } from "vite-hub/console/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
-const initialNow = now.value;
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
+let clock: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  now.value = Date.now();
+  clock = setInterval(() => { now.value = Date.now(); }, 1_000);
+});
+onBeforeUnmount(() => {
+  if (clock) clearInterval(clock);
+});
 
-const invocation = reactive<AgentInvocationView>({
+const invocation: AgentInvocationView = {
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
@@ -53,27 +60,7 @@ const invocation = reactive<AgentInvocationView>({
   title: "Polish Console navigation",
   traceId: "trace_console_navigation",
   updatedAt: time(20),
-});
-
-function refreshDates(value: unknown, offset: number): void {
-  if (Array.isArray(value)) {
-    value.forEach((item) => refreshDates(item, offset));
-  } else if (value && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
-      if (typeof item === "string" && /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(item)) {
-        (value as Record<string, unknown>)[key] = new Date(Date.parse(item) + offset).toISOString();
-      } else {
-        refreshDates(item, offset);
-      }
-    }
-  }
-}
-
-onMounted(() => {
-  const refreshedAt = Date.now();
-  refreshDates(invocation, refreshedAt - initialNow);
-  now.value = refreshedAt;
-});
+};
 </script>
 
 <template>

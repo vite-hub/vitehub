@@ -1,6 +1,6 @@
 import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
 
-import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
+import { ownSourceOption, withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
@@ -17,6 +17,9 @@ export function glob<const TOptions extends GlobSourceOptions>(options: ExactOpt
 }
 
 function isLazySource(options: GlobSourceOptions) {
-  if (options.materialize === "lazy" || options.materialize === "startup") return true
-  return hasRuntimeType(options.mount, "object") && (options.mount?.materialize === "lazy" || options.mount?.materialize === "startup")
+  const materialize = ownSourceOption(options, "materialize")
+  if (materialize === "lazy" || materialize === "startup") return true
+  const mount = ownSourceOption(options, "mount")
+  const mountMaterialize = hasRuntimeType(mount, "object") ? ownSourceOption(mount, "materialize") : undefined
+  return mountMaterialize === "lazy" || mountMaterialize === "startup"
 }

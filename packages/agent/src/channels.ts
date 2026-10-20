@@ -699,7 +699,12 @@ export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
 
 export interface TeamsConnectorOptions {
   /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
-  adapter?: TeamsAdapterOptions | Adapter | (() => MaybePromise<Adapter>)
+  adapter?: TeamsConnectorAdapterOptions | Adapter | (() => MaybePromise<Adapter>)
+}
+
+/** Teams adapter options for a connector, which has no Agent callback context. */
+export type TeamsConnectorAdapterOptions = Omit<TeamsAdapterOptions, "appId"> & {
+  appId?: string | (() => MaybePromise<string>)
 }
 
 export interface TeamsSendOptions {
@@ -2740,6 +2745,11 @@ function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   return context => createTeamsAdapterFromEnv(options, context)
 }
 
+async function createTeamsConnectorAdapterFromEnv(options: TeamsConnectorAdapterOptions): Promise<Adapter> {
+  const appId = hasRuntimeType(options.appId, "function") ? await options.appId() : options.appId
+  return createTeamsAdapterFromEnv({ ...options, appId } as TeamsAdapterOptions, {})
+}
+
 const teamsLocks = new Map<string, Promise<unknown>>()
 
 /** Runs sends with the same key one after another. This holds within one process only. */
@@ -2807,7 +2817,7 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
     if (!adapter) {
       const input = options.adapter
       const pending = adapter = Promise.resolve(
-        input === undefined || isTeamsAdapterOptions(input) ? createTeamsAdapterFromEnv(input ?? {}, {})
+        input === undefined || isTeamsAdapterOptions(input) ? createTeamsConnectorAdapterFromEnv((input as TeamsConnectorAdapterOptions | undefined) ?? {})
           : hasRuntimeType(input, "function") ? input()
             : input,
       )

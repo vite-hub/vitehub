@@ -51,9 +51,7 @@ async function collectContributors(plugins: readonly unknown[]): Promise<ViteHub
   const contributors: ViteHubInspectionContributor[] = []
   for (const plugin of plugins) {
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The object guard establishes the plugin shape before reading its own metadata.
     const metadata = (plugin as ViteHubInspectionContributingPlugin).vitehub
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque plugin metadata before invoking inspection contributors.
     if (!metadata || typeof metadata !== "object" || !Object.hasOwn(metadata, "inspect")) continue
     const value = metadata.inspect
     const contributor = typeof value === "function" ? await value() : value
@@ -139,29 +137,44 @@ export function redactInspectionValue(value: unknown, key?: string): unknown {
   function visit(entry: unknown, entryKey?: string, depth = 0): unknown {
     if (entryKey && secretKeyPattern.test(entryKey)) return redactedInspectionValue
     if (--remaining < 0 || depth > 10) return "[truncated]"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque inspection input before serializing it.
     if (typeof entry === "string") {
       const text = entry.slice(0, 10_000)
       return secretValuePattern.test(text) ? redactedInspectionValue : redactInspectionText(text)
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON cannot serialize an opaque BigInt input.
     if (typeof entry === "bigint") return entry.toString()
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque numeric input before serializing it.
     if (typeof entry === "number") return Number.isFinite(entry) ? entry : String(entry)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque primitive input before serializing it.
     if (entry === null || typeof entry === "boolean") return entry
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject opaque values that JSON cannot represent.
     if (typeof entry !== "object") return entry === undefined ? null : "[unsupported]"
     if (seen.has(entry)) return "[circular]"
     seen.add(entry)
     try {
-      if (entry instanceof Date) return Number.isNaN(entry.getTime()) ? "Invalid Date" : entry.toISOString()
+      let dateTime: number | undefined
+      try {
+        dateTime = Date.prototype.getTime.call(entry)
+      }
+      catch {
+        // The Date intrinsic rejects values that are not Dates, including cross-realm impostors.
+      }
+      if (dateTime !== undefined) return Number.isNaN(dateTime) ? "Invalid Date" : Date.prototype.toISOString.call(entry)
       if (Array.isArray(entry)) return entry.slice(0, 100).map(item => visit(item, undefined, depth + 1))
-      if (entry instanceof Set) return [...entry].slice(0, 100).map(item => visit(item, undefined, depth + 1))
-      const entries = entry instanceof Map ? [...entry].map(([name, item]) => [String(name), item] as const) : Object.entries(entry)
+      let setValues: unknown[] | undefined
+      try {
+        setValues = [...Set.prototype.values.call(entry)]
+      }
+      catch {
+        // The Set intrinsic rejects values that are not Sets, including cross-realm impostors.
+      }
+      if (setValues) return setValues.slice(0, 100).map(item => visit(item, undefined, depth + 1))
+      let mapEntries: [unknown, unknown][] | undefined
+      try {
+        mapEntries = [...Map.prototype.entries.call(entry)]
+      }
+      catch {
+        // The Map intrinsic rejects values that are not Maps, including cross-realm impostors.
+      }
+      const entries = mapEntries ? mapEntries.map(([name, item]) => [String(name), item] as const) : Object.entries(entry)
       return Object.fromEntries(entries.slice(0, 100).map(([name, item]) => [
         name,
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Worker vars are an opaque config boundary and all their values must be redacted.
         name === "vars" && item && typeof item === "object" && !Array.isArray(item)
           ? Object.fromEntries(Object.keys(item).slice(0, 100).map(variable => [variable, redactedInspectionValue]))
           : visit(item, name, depth + 1),

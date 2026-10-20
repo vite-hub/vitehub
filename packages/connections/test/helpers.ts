@@ -19,7 +19,10 @@ export const ACCESS_TOKEN = "access-token-secret-1"
 export const REFRESH_TOKEN = "refresh-token-secret-1"
 export const CLIENT_SECRET = "client-secret-value"
 
-export function testProvider(): ConnectionProvider<{ mail: MailApi }> {
+/** The test provider declares `account` and `apis`, so tests can read them without a check. */
+export type TestProvider = ConnectionProvider<{ mail: MailApi }> & Required<Pick<ConnectionProvider<{ mail: MailApi }>, "account" | "apis">>
+
+export function testProvider(): TestProvider {
   return {
     account: token => token.id_token ? { email: "owner@example.com", id: token.id_token } : undefined,
     apis: {
@@ -88,7 +91,8 @@ export function mailConnection(access?: Record<string, ConnectionAccessRule<Conn
 
 export function createStore(): ConnectionStore {
   const client = createClient({ url: ":memory:" })
-  return createDatabaseConnectionStore({ db: drizzle(client), encryptionKey: new Uint8Array(32).fill(3) })
+  // The test runtime clock is fixed in the past, so age-based activity pruning would drop its events.
+  return createDatabaseConnectionStore({ activityRetention: false, db: drizzle(client), encryptionKey: new Uint8Array(32).fill(3) })
 }
 
 export interface TestRuntime {
@@ -112,4 +116,12 @@ export async function connect(test: TestRuntime, token: Record<string, unknown> 
     body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN, scope: "openid mail.modify", token_type: "Bearer", ...token },
   })
   await test.runtime.complete({ code: "code-1", state })
+}
+
+/** The approval id that `CONNECTIONS_APPROVAL_REQUIRED` and `CONNECTIONS_EXECUTION_UNKNOWN` name in `why`. */
+export function approvalIdOf(error: unknown): string {
+  const why = error instanceof Error ? String(Reflect.get(error, "why") ?? "") : ""
+  const id = /(?:Request|Approval): (approval_[\w-]+)\./.exec(why)?.[1]
+  if (!id) throw new Error("Expected an approval request")
+  return id
 }

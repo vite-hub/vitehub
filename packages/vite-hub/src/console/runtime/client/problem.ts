@@ -13,10 +13,9 @@ export interface ConsoleProblem {
 }
 
 // Codes from owner packages that a retry cannot repair, even with a 5xx status.
-const configurationCodes = new Set(["CONNECTION_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
+const configurationCodes = new Set(["CONNECTIONS_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
 
 const text = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Diagnostic fields cross module boundaries as unknown values.
   typeof value === "string" && value.trim() ? value : undefined
 
 function fromCode(code: ConsoleDiagnosticCode, message?: string): ConsoleProblem {
