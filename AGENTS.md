@@ -44,13 +44,13 @@ corepack pnpm exec vp run preflight
 
 `preflight` checks the pinned Deno version. Run it before the full verification gate so a missing or different Deno installation is clear as a setup issue.
 
-Run focused checks for the files you changed. Build the affected package and its dependencies when the change affects runtime or generated output. Do not run repository wide suites unless the task needs them.
+Run focused checks for the files you changed. The package `typecheck` and `test` scripts build the package and its workspace dependencies first. For one test file, build with the cached Vite+ target, then run Vitest from the package directory. Do not run repository wide suites unless the task needs them.
 
 ```sh
 corepack pnpm install --frozen-lockfile
-corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub run typecheck
 corepack pnpm --dir packages/vite-hub run test
-corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
 corepack pnpm exec vp run verify
 ```
 
