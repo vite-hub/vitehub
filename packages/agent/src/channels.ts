@@ -706,7 +706,7 @@ export interface TeamsAdapterOptions {
 export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
   extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
   /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
-  adapter?: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+  adapter?: true | TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
