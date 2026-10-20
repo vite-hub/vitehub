@@ -10,7 +10,7 @@ import type { AgentChannelDeliveryEffectContext, AgentRunInput } from "../src/ty
 import { defineCapability } from "../src/capability-runtime.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
-import { codeHostActivityComments, codeHostDeliveryEffects } from "../src/internal/code-host-channel.ts"
+import { forgeActivityComments, forgeDeliveryEffects } from "../src/internal/forge-channel.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { forgeProvider } from "@vite-hub/forge"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
@@ -90,7 +90,7 @@ function transport(kind: typeof kinds[number]) {
 
 // Forgejo options are the subset that both Channels accept.
 async function harness(kind: typeof kinds[number], options: ForgejoChannelOptions = {}) {
-  const directory = await mkdtemp(join(tmpdir(), "vitehub-code-host-channels-"))
+  const directory = await mkdtemp(join(tmpdir(), "vitehub-forge-channels-"))
   const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
   fixtures.push({ directory, state })
   const inputs: AgentRunInput[] = []
@@ -115,7 +115,7 @@ async function harness(kind: typeof kinds[number], options: ForgejoChannelOption
   return { channel, inputs, run, send }
 }
 
-describe("Code Host Channels through the webhook route", { timeout: 20_000 }, () => {
+describe("Forge Channels through the webhook route", { timeout: 20_000 }, () => {
   it.each(kinds)("runs one signed %s comment, parses its mention, and delivers replies and statuses", async kind => {
     const fetcher = transport(kind)
     const { inputs, run, send } = await harness(kind)
@@ -210,7 +210,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       ...(action === "ready_for_review" ? { changes: { draft: { previous: true, current: false } } } : {}),
     } : { ...payload(kind), action, pull_request: { number: 42, id: 420, title: "Fix app" } }
     expect((await send(await request(kind, value, action, "secret", kind === "gitlab" ? "Merge Request Hook" : "pull_request"))).status).toBe(200)
-    expect(inputs.at(-1)?.context?.pullRequest).toMatchObject({ host: { kind }, trigger: { event: "pull_request", action } })
+    expect(inputs.at(-1)?.context?.pullRequest).toMatchObject({ forge: { kind }, trigger: { event: "pull_request", action } })
     expect(inputs).toHaveLength(1)
   })
 
@@ -247,7 +247,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       return Response.json({ accepted: true })
     })
     expect((await send(await request(kind, payload(kind), "rotating-settings"))).status).toBe(200)
-    expect(invocation).toMatchObject({ input: { context: { pullRequest: { host: { kind, instance: new URL(baseUrl[kind]).hostname } } } } })
+    expect(invocation).toMatchObject({ input: { context: { pullRequest: { forge: { kind, instance: new URL(baseUrl[kind]).hostname } } } } })
     for (const setting of Object.values(settings)) expect(setting).toHaveBeenCalledOnce()
   })
 
@@ -365,7 +365,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
     const path = kind === "gitlab" ? `${notes(kind)}/7` : `${project(kind)}/issues/comments/7`
     const fixture = fixtureFetch([], { [`GET ${api[kind]}${path}`]: { status: 200, body: { id: 7, body: "owned" } } })
     const provider = await forgeProvider({ forge: kind, baseUrl: baseUrl[kind], token: "token", fetch: fixture.fetch as typeof fetch })
-    const comments = codeHostActivityComments(provider, { host: kind, instance: provider.instance, repository: repository[kind], number: 42 }, 100)
+    const comments = forgeActivityComments(provider, { forge: kind, instance: provider.instance, repository: repository[kind], number: 42 }, 100)
     expect((await comments.get(7))?.body).toBe("owned")
     expect(fixture.calls).toHaveLength(1)
   })
@@ -407,7 +407,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       [page(2)]: { status: 200, body: Array.from({ length: 100 }, (_, index) => ({ id: 600 - index, body: `note ${600 - index}` })) },
     })
     const provider = await forgeProvider({ forge: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
-    const comments = await codeHostActivityComments(provider, { host: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }, 150).list()
+    const comments = await forgeActivityComments(provider, { forge: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }, 150).list()
     expect(comments).toHaveLength(150)
     expect(comments[0]?.body).toBe("note 700")
     expect(comments.at(-1)?.body).toBe("note 551")
@@ -426,7 +426,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       ...Object.fromEntries([20, 19, 18].map(number => [url(`limit=100&page=${number}`), { status: 200, body: page(number) }])),
     })
     const provider = await forgeProvider({ forge: "forgejo", baseUrl: baseUrl.forgejo, token: "token", fetch: fixture.fetch as typeof fetch })
-    const comments = await codeHostActivityComments(provider, { host: "forgejo", instance: provider.instance, repository: repository.forgejo, number: 42 }, 120).list()
+    const comments = await forgeActivityComments(provider, { forge: "forgejo", instance: provider.instance, repository: repository.forgejo, number: 42 }, 120).list()
     expect(comments).toHaveLength(120)
     expect(comments[0]?.body).toBe("comment 1000")
     expect(comments.at(-1)?.body).toBe("comment 881")
@@ -440,7 +440,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       [`POST ${api.gitlab}${notes("gitlab")}`]: { status: 201, body: { id: 8, body: "Looks good", author: { username: "review-bot" } } },
     })
     const provider = await forgeProvider({ forge: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
-    const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => ({ host: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }), statusContext: "Agent", reactions: "content" })
+    const effects = forgeDeliveryEffects({ provider: async () => provider, target: () => ({ forge: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }), statusContext: "Agent", reactions: "content" })
     if (typeof effects.review !== "function") throw new Error("Missing review effect.")
     // SAFETY: These fixtures supply all callback fields that the review effect uses.
     const context = (payload: unknown) => ({ effect: { kind: "review", payload }, input: { context: {} } }) as AgentChannelDeliveryEffectContext

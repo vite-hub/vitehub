@@ -169,6 +169,7 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/box": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -186,8 +187,7 @@
     "valibot": "catalog:runtime",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*"
+    "@vite-hub/database": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

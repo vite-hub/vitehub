@@ -308,7 +308,7 @@ export interface ViteHubOptions {
   name?: string
   /**
    * Public origin of the deployed application, such as `https://agents.example.com`.
-   * Console links, GitHub activity links, telemetry session links, and the Auth base URL use it.
+   * Console links, GitHub activity links, telemetry session links, the Auth base URL, and Connections OAuth callbacks use it.
    * A function receives each discovered Agent name. Builds only; `vite dev` uses the request origin.
    */
   publicUrl?: string | ((agentName: string) => string)

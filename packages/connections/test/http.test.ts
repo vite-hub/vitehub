@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsRuntime } from "../src/runtime.ts";
 import { createConnectionsHandler } from "../src/http.ts";
@@ -370,6 +370,82 @@ describe("createConnectionsHandler", () => {
       },
     });
     expect(JSON.stringify(body)).not.toContain("Sign in");
+  });
+
+  describe("behind a TLS-terminating proxy with a configured public URL", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      ["one origin", { url: "https://agent.example.com" }],
+      ["an origin per Agent", { agents: { bot: "https://agent.example.com", "bot-dev": "https://agent-dev.example.com" } }],
+    ])("builds the OAuth callback from the public URL (%s)", async (_form, config) => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", config);
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      // The proxy terminates TLS, so the server sees http:// for the public host.
+      const start = await handler(new Request("http://agent.example.com/_vitehub/connections/connect/mail"));
+      expect(start.status).toBe(302);
+      const location = new URL(start.headers.get("location")!);
+      expect(location.searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      expect(start.headers.get("set-cookie")).toContain("; Secure");
+    });
+
+    it("accepts the browser Origin of the public URL", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://agent.example.com" });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const request = (origin: string) => new Request("http://agent.example.com/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin },
+        method: "POST",
+      });
+      expect((await handler(request("https://agent.example.com"))).status).toBe(200);
+      // The origin that the server sees stays valid, for example through a port forward.
+      expect((await handler(request("http://agent.example.com"))).status).toBe(200);
+      const rejected = await handler(request("https://attacker.example.com"));
+      expect(rejected.status).toBe(403);
+      expect(await rejected.json()).toMatchObject({
+        error: { code: "CONNECTIONS_ORIGIN_REJECTED", details: { expectedOrigin: "https://agent.example.com" } },
+      });
+    });
+
+    it("uses the configured Agent URL and rejects an alternate request host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ agentName: "bot", actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      const request = new Request("http://attacker.example/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "http://attacker.example" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(403);
+    });
+
+    it("uses the only configured Agent URL behind an internal host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+    });
+
+    it("keeps request-origin behavior for an alternate public host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://alternate.example.com/_vitehub/connections/callback");
+      const request = new Request("https://alternate.example.com/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "https://alternate.example.com" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(200);
+    });
   });
 
   it("gives non-JSON requests their own code", async () => {

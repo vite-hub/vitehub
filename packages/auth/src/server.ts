@@ -1268,6 +1268,23 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
+    // Body validation above yields while resolving foreign stream intrinsics.
+    // Recheck the trusted body-used state immediately before bridging so a
+    // concurrent consumer cannot turn an already-disturbed response into an
+    // accepted authorization result.
+    if (body !== null) {
+      try {
+        const bodyUsedGetter = responsePropertyDescriptor(candidate, "bodyUsed")?.get
+        if (typeof bodyUsedGetter !== "function") return
+        const used = isLocalResponseProxy(candidate)
+          ? Reflect.get(candidate, "bodyUsed")
+          : Reflect.apply(bodyUsedGetter, candidate, [])
+        if (used) return
+      }
+      catch {
+        return
+      }
+    }
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     // A genuine stream from an arbitrary realm cannot safely donate its
     // reader methods across the boundary. The platform Response constructor
