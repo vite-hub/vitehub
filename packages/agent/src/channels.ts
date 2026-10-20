@@ -99,6 +99,7 @@ import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, enc
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
+export { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
