@@ -511,6 +511,8 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   reconcile?: boolean | {
     /** Maximum concurrent reconciled webhook deliveries for one pull request. Defaults to 1. */
     concurrencyLimit?: number
+    /** Wait this long before running a reconciled delivery; a later delivery for the same pull request replaces a queued one. */
+    debounceMs?: number
     /** Trigger on every human PR comment when no configured mention is present. */
     comments?: boolean | {
       events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
@@ -1007,6 +1009,14 @@ function githubPullRequestReconcileConcurrencyLimit(
 ): number {
   if (!reconcile || reconcile === true) return 1
   return reconcile.concurrencyLimit ?? 1
+}
+
+function githubPullRequestReconcileDebounce(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+  key: string,
+): { debounce: { delayMs: number, key: string } } | undefined {
+  if (!reconcile || reconcile === true || reconcile.debounceMs === undefined) return undefined
+  return { debounce: { delayMs: reconcile.debounceMs, key } }
 }
 
 function githubPullRequestReviewWithoutFindings(payload: GitHubIssueCommentPayload, prefixes: readonly string[] | undefined): boolean {
@@ -3024,7 +3034,9 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           concurrencyGroup: `${command.repository}#${command.issueNumber}`,
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
           deliveryId: command.deliveryId,
-          ...(reconciled.debounce ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.trigger}` } } : {}),
+          ...(reconciled.debounce
+            ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.trigger}` } }
+            : githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`)),
         } : undefined
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequestContext = githubPullRequestRunContext(command, {

@@ -430,6 +430,21 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("finalizes an older debounced delivery when a newer one is admitted", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-1", undefined, "pr-2"))
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("debounced-running-1")
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-2", undefined, "pr-2"))
+    const second = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(second?.deliveryId).toBe("debounced-running-2")
+    await expect(queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)).resolves.toBe(true)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
+    await state.disconnect()
+  })
+
   it("renews delayed steering ownership after its execution lease renews", async () => {
     const { state, url } = await createState()
     await state.connect()

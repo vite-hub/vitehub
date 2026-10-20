@@ -479,6 +479,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+    const debounceKey = delivery.debounceKey
+    if (debounceKey) {
+      // A newer delivery permanently supersedes older deliveries with the same key.
+      // Finalize them at admission so expired leases cannot be reclaimed later.
+      await execute(
+        tx,
+        `UPDATE ${this.tables.webhookQueue}
+          SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+          WHERE scope = ? AND delivery_id != ? AND status != 'completed' AND json_extract(value, '$.debounceKey') = ?`,
+        [delivery.scope, delivery.deliveryId, debounceKey],
+      )
+    }
     const inserted = await execute(
       tx,
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
