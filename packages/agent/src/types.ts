@@ -700,10 +700,19 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
    */
   ackTimeoutMs?: number | false
   adapter?: string
+  /**
+   * More paths that reach this registration, such as an old URL that a provider still calls. In a Channel module
+   * in `server/channels`, ViteHub reads them from the source, so they must be string literals.
+   */
+  aliases?: string[]
   channelId?: string
   durableState?: boolean
   id?: string
   method?: "POST" | (string & {})
+  /**
+   * The webhook route. In a Channel module in `server/channels`, a `path` makes the Channel serve its own webhooks
+   * without an Agent Definition. ViteHub reads it from the source, so it must be a string literal there.
+   */
   path?: string
   provider: string
   /**
