@@ -244,7 +244,7 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
 const urlToken = /:([A-Za-z_$][\w$]*)/g
 
 function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields): void {
-  if (url === undefined || url instanceof Function) return
+  if (url === undefined || typeof url === "function") return
   if (String(url) !== url || !url.startsWith("/") || url.startsWith("//")) {
     throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.`)
   }
@@ -261,7 +261,7 @@ function assertUrl(helper: string, path: string, url: unknown, fields: ContentFi
  */
 export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, document: { id: string, data: Record<string, unknown> }): string | null {
   if (url === undefined) return null
-  if (url instanceof Function) {
+  if (typeof url === "function") {
     const result: unknown = url({ id: document.id, data: document.data })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {

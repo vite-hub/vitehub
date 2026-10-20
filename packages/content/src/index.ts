@@ -1,6 +1,7 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveContentPreset } from "./presets.ts"
+import type { ContentPresetSelection } from "./presets.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import json from "comark-content/plugins/json"
 import yaml from "comark-content/plugins/yaml"

@@ -198,7 +198,7 @@ function toRequest(request: AuthRequest): Request {
   }
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
-  init.headers = new Headers(request.headers as HeadersInit)
+  init.headers = new Headers(request.headers as ConstructorParameters<typeof Headers>[0])
   if (request.signal instanceof AbortSignal) init.signal = request.signal
   if (request.body) {
     init.body = request.body
@@ -1255,15 +1255,27 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
-    const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const UndiciResponse = await getUndiciResponse()
+    let foreignHeadersPrototype: object | undefined
+    try {
+      if (UndiciResponse) foreignHeadersPrototype = Object.getPrototypeOf(new UndiciResponse().headers)
+    }
+    catch {
+      foreignHeadersPrototype = undefined
+    }
+    const nativeHeaderMethods = ["get", "forEach"].every(key => {
+      const method = responsePropertyDescriptor(headerCarrier, key)?.value
+      return method === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value
+        || (foreignHeadersPrototype !== undefined && method === Object.getOwnPropertyDescriptor(foreignHeadersPrototype, key)?.value)
+    })
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value
+      || (foreignHeadersPrototype !== undefined && cookieDescriptor.value === Object.getOwnPropertyDescriptor(foreignHeadersPrototype, "getSetCookie")?.value))
 
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })

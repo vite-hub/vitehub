@@ -1,6 +1,6 @@
 import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderProps } from "@json-render/vue";
 import type { Spec } from "@json-render/core";
-import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
+import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
