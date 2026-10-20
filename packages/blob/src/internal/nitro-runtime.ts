@@ -4,7 +4,7 @@ import { computePackageDir, createImportPath, resolveRuntimeModule as resolveRun
 
 import { filesSdkDriverPeers } from "./files-sdk-peers.ts"
 
-import type { ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { CloudflareR2Jurisdiction, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 
 export const blobPackageName = "@vite-hub/blob"
@@ -54,12 +54,19 @@ function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]
   return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
 }
 
-export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): Array<{ binding: string, bucket_name: string }> | undefined {
+// A type alias, not an interface, so it fits the provider output's index-signature entry type.
+type CloudflareR2Binding = {
+  binding: string
+  bucket_name: string
+  jurisdiction?: CloudflareR2Jurisdiction
+}
+
+export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): CloudflareR2Binding[] | undefined {
   if (!config) {
     return undefined
   }
 
-  const bindingsByBinding = new Map<string, { binding: string, bucket_name: string }>()
+  const bindingsByBinding = new Map<string, CloudflareR2Binding>()
   for (const store of Object.values(config.stores || { default: config.store })) {
     if (!isCloudflareR2StoreWithBucket(store) || bindingsByBinding.has(store.binding)) {
       continue
@@ -67,6 +74,7 @@ export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOpt
     bindingsByBinding.set(store.binding, {
       binding: store.binding,
       bucket_name: store.bucketName,
+      ...(store.jurisdiction ? { jurisdiction: store.jurisdiction } : {}),
     })
   }
   const bindings = [...bindingsByBinding.values()]
