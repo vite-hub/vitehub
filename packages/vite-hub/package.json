@@ -1150,7 +1150,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
+    "typecheck": "vp run --cache -t vite-hub#build && tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {

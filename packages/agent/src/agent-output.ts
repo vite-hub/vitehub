@@ -1,4 +1,5 @@
-import { isResponse } from "./internal/response.ts"
+import { findTrustedResponseConstructor, isResponse } from "./internal/response.ts"
+
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
@@ -11,6 +12,18 @@ import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.t
 import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
+
+// Capture the host Fetch brand operation once. Consumers may replace the
+// global Response constructor after a response is created (for example when
+// crossing a VM or worker boundary), so classification must not resolve it
+// from the mutable global on each call.
+const trustedResponseStatusGetter = typeof Response === "function"
+  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  : undefined
+
+const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
+const validatedResponseBodies = new WeakMap<object, object | null>()
+const maxResponsePrototypeHops = 100
 
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
@@ -1004,7 +1017,9 @@ async function* streamChunksToEventsWithTextFallback(
 function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   if (!isRuntimeObject(value)) return false
   let current: object | null = value
-  while (current) {
+  const visited = new Set<object>()
+  for (let hop = 0; current && hop < maxResponsePrototypeHops && !visited.has(current); hop++) {
+    visited.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor) return hasRuntimeType(descriptor.get, "function")
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -1013,18 +1028,268 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
+function getPrototypeMethod(value: object, key: PropertyKey, startPrototype?: object): ((...args: unknown[]) => unknown) | undefined {
+  let prototype: object | null = startPrototype ?? Object.getPrototypeOf(value) as object | null
+  const visited = new Set<object>()
+  for (let hop = 0; prototype && hop < maxResponsePrototypeHops && !visited.has(prototype); hop++) {
+    visited.add(prototype)
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  // Proxy-backed foreign streams may expose supported operations through the
+  // instance trap even when the proxy target's prototype has no descriptor.
+  // Only use that facade after the intrinsic prototype walk, so an own
+  // property cannot replace a validated stream operation.
+  const directMethod = (value as Record<PropertyKey, unknown>)[key]
+  if (hasRuntimeType(directMethod, "function")) {
+    return directMethod as (...args: unknown[]) => unknown
+  }
+  return undefined
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (!isRuntimeObject(value)) return false
+  try {
+    // Require the platform tag to be a data property on the prototype. A
+    // caller-controlled Symbol.toStringTag getter can otherwise spoof the
+    // intrinsic tag while exposing a response-shaped object.
+    let tagDescriptor: PropertyDescriptor | undefined
+    let tagOwner: object | null = null
+    let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    const visitedTagPrototypes = new Set<object>()
+    for (let hop = 0; tagPrototype && !tagDescriptor && hop < maxResponsePrototypeHops && !visitedTagPrototypes.has(tagPrototype); hop++) {
+      visitedTagPrototypes.add(tagPrototype)
+      tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
+      if (tagDescriptor) tagOwner = tagPrototype
+      tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
+    }
+    let ownResponseTag = false
+    if (!tagDescriptor) {
+      const ownTag = Object.getOwnPropertyDescriptor(value, Symbol.toStringTag)
+      if (ownTag) {
+        tagDescriptor = ownTag
+        tagOwner = Object.getPrototypeOf(value) as object | null
+        ownResponseTag = true
+      }
+    }
+    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set || !tagOwner) return false
+    // A caller can copy the data tag onto an arbitrary prototype. Platform
+    // Response implementations own a constructor on the same prototype that
+    // carries the tag; requiring that link rejects Object.create spoof shapes
+    // without relying on the current realm's Response constructor.
+    const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
+    if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
+    const responseConstructor = constructorDescriptor.value as unknown as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
+    // Fetch constructors expose their prototype as a fixed, non-configurable
+    // function property. A caller-created self-linked constructor has to
+    // assign its prototype, leaving this descriptor writable/configurable.
+    const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
+    if (!constructorPrototypeDescriptor
+      || constructorPrototypeDescriptor.value !== tagOwner
+      || (!ownResponseTag && constructorPrototypeDescriptor.configurable)
+      ) return false
+    // A self-linked constructor is easy to manufacture on a caller-owned
+    // prototype. Real Fetch implementations expose the Response constructor
+    // under this stable name; reject arbitrary constructor names before the
+    // remaining structural checks can route a generic result here.
+    // Fetch Response constructors expose the standard static factories. A
+    // caller-created self-linked function can copy the name and prototype
+    // link, but it must not be accepted as a platform Response constructor
+    // without this constructor surface.
+    if (!hasRuntimeType(responseConstructor.error, "function")
+      || !hasRuntimeType(responseConstructor.json, "function")
+      || !hasRuntimeType(responseConstructor.redirect, "function")) return false
+    // The static factories are intrinsic constructors, rather than marker
+    // methods. A copied surface with no working factory must not establish
+    // Response provenance.
+    const errorResponse = responseConstructor.error.call(responseConstructor)
+    if (!isRuntimeObject(errorResponse) || Object.getPrototypeOf(errorResponse) !== tagOwner) return false
+    // A copied tag, constructor link, and the three static factories are still
+    // insufficient to identify a Fetch Response. Require the rest of the
+    // standard prototype surface before accepting a caller-created shape.
+    const responsePrototypeAccessors = ["type", "url", "redirected", "ok", "bodyUsed"]
+    for (const key of responsePrototypeAccessors) {
+      if (ownResponseTag) break
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.get, "function") || descriptor.set) return false
+    }
+    const responsePrototypeMethods = ["clone", "blob", "arrayBuffer", "text", "formData", "json"]
+    for (const key of responsePrototypeMethods) {
+      if (ownResponseTag) break
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.value, "function")) return false
+    }
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // The foreign implementation owns its getters. Require the full Response
+    // accessor contract before accepting an output as a byte stream.
+    const read = (key: string): unknown => {
+      let prototype: object | null = value
+      const visited = new Set<object>()
+      for (let hop = 0; prototype && hop < 100 && !visited.has(prototype); hop++) {
+        visited.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
+        prototype = Object.getPrototypeOf(prototype) as object | null
+      }
+    }
+    // A genuine Response exposes body through its prototype accessor. Requiring
+    // that surface keeps objects with caller-controlled own body fields out of
+    // the Response branch even when the field happens to contain a real stream.
+    let bodyAccessor = false
+    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    const visitedBodyPrototypes = new Set<object>()
+    for (let hop = 0; bodyPrototype && hop < maxResponsePrototypeHops && !visitedBodyPrototypes.has(bodyPrototype); hop++) {
+      visitedBodyPrototypes.add(bodyPrototype)
+      const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
+      if (descriptor) {
+        // The body must be exposed through the implementation's accessor.
+        // Accepting an own data property here lets a caller-created object
+        // manufacture the complete own-tag shape without any Response body
+        // implementation behind it.
+        bodyAccessor = hasRuntimeType(descriptor.get, "function")
+        break
+      }
+      bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
+    }
+    if (!bodyAccessor) return false
+    // Use the host Fetch brand when available. This rejects caller-created
+    // classes that copy the complete Response surface while still allowing a
+    // structurally compatible implementation from another realm below.
+    let trustedResponse = false
+    for (const statusGetter of [trustedResponseStatusGetter]) {
+      if (!hasRuntimeType(statusGetter, "function")) continue
+      try {
+        statusGetter.call(value)
+        trustedResponse = true
+        break
+      }
+      catch {
+        // The other supported Fetch implementation may own this response.
+      }
+    }
+    // The supported independent ponyfill stores its body machinery on each
+    // instance. Require that implementation surface for unbranded own-tag
+    // responses instead of trusting caller-controlled constructor metadata.
+    // Subclasses inherit the registered implementation's brand. Resolve the
+    // constructor chain just as trigger response classification does.
+    const registeredResponse = !!findTrustedResponseConstructor(constructorDescriptor.value)
+    if (ownResponseTag && !trustedResponse) {
+      // Foreign Fetch implementations must opt in at their adapter boundary.
+      // Public fields such as `_bodyFactory` are copyable and do not establish provenance.
+      if (!registeredResponse) return false
+    }
+    if (!trustedResponse && !registeredResponse && !ownResponseTag) return false
+    const status = read("status")
+    const statusText = read("statusText")
+    const headers = read("headers")
+    const body = read("body")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (!hasRuntimeType(statusText, "string")) return false
+    if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
+    if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
+    // A bodyless response is valid for the registered implementation too:
+    // its constructor registration establishes provenance even when the
+    // host-realm brand accessor cannot run against the foreign instance.
+    if (body === null) {
+      if (trustedResponse || registeredResponse) validatedResponseBodies.set(value, null)
+      return trustedResponse || registeredResponse
+    }
+    if (!isRuntimeObject(body)) return false
+    // A stream may already be locked by its caller. In that state acquiring a
+    // reader throws even though the value is a genuine Web Stream. Use the
+    // intrinsic tag as the non-destructive brand signal, and only probe the
+    // trusted reader operation when it succeeds. Consumption below still
+    // surfaces a locked-body error rather than silently taking the generic path.
+    if (Object.prototype.toString.call(body) !== "[object ReadableStream]") return false
+    // A spoofed Symbol.toStringTag is not enough to establish stream
+    // provenance. Genuine streams expose the platform `locked` accessor on
+    // their prototype chain; require that non-callable surface before
+    // accepting a failed reader probe as the already-locked case.
+    let lockedAccessor: (() => unknown) | undefined
+    let streamReader: ((...args: unknown[]) => unknown) | undefined
+    let validatedStreamPrototype: object | undefined
+    let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
+    const visitedStreamPrototypes = new Set<object>()
+    for (let hop = 0; streamPrototype && hop < maxResponsePrototypeHops && !visitedStreamPrototypes.has(streamPrototype); hop++) {
+      visitedStreamPrototypes.add(streamPrototype)
+      const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
+      if (lockedDescriptor) {
+        if (hasRuntimeType(lockedDescriptor.get, "function")) {
+          lockedAccessor = () => lockedDescriptor.get!.call(body)
+        }
+        const readerDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+        if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
+          streamReader = readerDescriptor.value as (...args: unknown[]) => unknown
+        }
+        validatedStreamPrototype = streamPrototype
+        break
+      }
+      streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
+    }
+    // Some independent Fetch implementations expose a Web Stream facade
+    // through a proxy. Its methods work when read from the instance, even
+    // though the proxy target's prototype has no corresponding descriptors.
+    if (!lockedAccessor || !streamReader) {
+      // Registered foreign responses may expose a proxy-backed reader, but an
+      // own or accessor-backed reader operation is caller-controlled and must
+      // not run merely because the response constructor was registered.
+      if (!registeredResponse) return false
+      // The instance fallback is an adapter boundary for implementations such
+      // as node-fetch whose stream facade is exposed by a proxy. Reconfirm the
+      // response's intrinsic implementation brand before touching that facade;
+      // a response-shaped generic result must stay on the generic path.
+      if (!isResponse(value)) return false
+      const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
+      const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+      if (ownLocked || ownReader) return false
+      const directLocked = (body as { locked?: unknown }).locked
+      const directReader = (body as { getReader?: unknown }).getReader
+      if (!hasRuntimeType(directReader, "function")) return false
+      lockedAccessor = () => (body as { locked?: unknown }).locked
+      streamReader = directReader as (...args: unknown[]) => unknown
+      if (directLocked !== undefined && !hasRuntimeType(directLocked, "boolean")) return false
+    }
+    try {
+      // Use the stream's own prototype operation so foreign-realm brands are
+      // accepted; the host realm's intrinsic rejects those streams.
+      const reader = streamReader.call(body)
+      if (!isRuntimeObject(reader)) return false
+      let releaseLock: unknown
+      let readerPrototype: object | null = reader
+      const visitedReaderPrototypes = new Set<object>()
+      for (let hop = 0; readerPrototype && hop < maxResponsePrototypeHops && !visitedReaderPrototypes.has(readerPrototype); hop++) {
+        visitedReaderPrototypes.add(readerPrototype)
+        const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+        if (descriptor) {
+          releaseLock = descriptor.value
+          break
+        }
+        readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
+      }
+      if (!hasRuntimeType(releaseLock, "function")) return false
+      ;(releaseLock as (this: object) => void).call(reader)
+    }
+    catch {
+      // A locked genuine stream remains a Response. Confirm the lock state
+      // through the stream's own accessor so a failed probe on an incompatible
+      // object cannot establish the Response classification.
+      if (lockedAccessor() !== true) return false
+    }
+    const pipeThrough = getPrototypeMethod(body, "pipeThrough", validatedStreamPrototype)
+    if (!pipeThrough) return false
+    validatedResponseBodies.set(value, body)
+    validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (hasRuntimeType(value, "string")) {
     if (value) yield { text: value, type: "text-delta" }
-    yield { type: "finish" }
-    return
-  }
-  if (isResponse(value)) {
-    if (value.body) {
-      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
     yield { type: "finish" }
     return
   }
@@ -1044,6 +1309,21 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   let textIterator: AsyncIterator<unknown> | undefined
   const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
+  // Genuine Responses take precedence over incidental generic fields such as
+  // `textStream`; spoofed response-shaped values fail the brand check below
+  // and retain the generic handling path.
+  if (isResponseLike(value)) {
+    const body = validatedResponseBodies.get(value)
+    if (body) {
+      const pipeThrough = validatedResponsePipeThrough.get(body)
+      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
+      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
+    yield { type: "finish" }
+    return
+  }
   if (isAsyncIterable(result?.stream)) {
     const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
     yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
@@ -1072,6 +1352,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
+  // Explicit Agent streams take precedence over response-shaped output fields.
   const text = hasRuntimeType(value, "object") && value !== null
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
@@ -1088,5 +1369,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }
+    return
   }
 }

@@ -110,7 +110,8 @@ function babysitterRepositories(filter: unknown): string[] {
   return repositories.map(repository => repository.toLowerCase());
 }
 
-const passWorkspace = /^(?:vitehub-provider-(?:launch-)?[A-Za-z0-9]{6}|vitehub-baseline-[A-Za-z0-9]{6}|vitehub-[\w.-]+-pr-\d+-[A-Za-z0-9]{6}(?:\.meta\.json)?|t3-provider-runtime-[A-Za-z0-9]{6})$/;
+// A `.cleanup-<pid>-<time>` suffix is left by earlier releases that renamed a checkout before removal.
+const passWorkspace = /^(?:vitehub-provider-(?:launch-|tmp-|inspection-)?[A-Za-z0-9]{6}|vitehub-baseline-[A-Za-z0-9]{6}|vitehub-[\w.-]+-pr-\d+-[A-Za-z0-9]{6}(?:\.meta\.json|\.cleanup-\d+-\d+)?|t3-provider-runtime-[A-Za-z0-9]{6})$/;
 
 /**
  * Removes pass workspaces that an interrupted process left in `root`. It sweeps only a temporary
