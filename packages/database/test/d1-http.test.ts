@@ -66,4 +66,29 @@ describe("Cloudflare D1 HTTP resolver", () => {
     const error = await database.select().from(schema.notes).then(() => undefined, error => error)
     expect(error).toMatchObject({ cause: { code: "DATABASE_D1_REQUEST_FAILED", message: "Cloudflare D1 request failed with HTTP 502." } })
   })
+
+  it("rejects successful responses whose rows payload is malformed", async () => {
+    vi.stubEnv("DESIGN_D1_TOKEN", "token")
+    vi.stubEnv("DESIGN_D1_URL", "https://d1.example.com/raw")
+    const request = vi.fn(async () => Response.json({
+      success: true,
+      result: [{ success: true, results: { rows: "not-an-array" } }],
+    }))
+    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+
+    const error = await database.select().from(schema.notes).then(() => undefined, error => error)
+    expect(error).toMatchObject({ cause: { code: "DATABASE_D1_INVALID_RESPONSE" } })
+  })
+
+  it("accepts successful rowless write responses", async () => {
+    vi.stubEnv("DESIGN_D1_TOKEN", "token")
+    vi.stubEnv("DESIGN_D1_URL", "https://d1.example.com/raw")
+    const request = vi.fn(async () => Response.json({
+      success: true,
+      result: [{ success: true }],
+    }))
+    const database = createCloudflareD1HttpResolver(configuration(), schema, request)()
+
+    await expect(database.insert(schema.notes).values({ id: 1, title: "hello" }).run()).resolves.toEqual({ rows: [] })
+  })
 })

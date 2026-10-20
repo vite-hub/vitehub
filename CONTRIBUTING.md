@@ -64,13 +64,19 @@ corepack pnpm --dir packages/vite-hub run test
 
 For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
 
-For one regression, build first, then run from the package directory so Vitest uses its package config:
+The package `typecheck` script builds the package and its workspace dependencies first. It works from a fresh install without a manual build:
 
 ```sh
-corepack pnpm exec vp run -t vite-hub#build
-corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
 corepack pnpm --dir packages/vite-hub run typecheck
 ```
+
+For one regression, build the package and its dependencies, then run Vitest from the package directory so it uses the package config:
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
+```
+
+With `--cache`, Vite+ replays package builds whose inputs did not change, so a repeat build takes about one second. Root Vitest runs only root contracts. If you give it a package test path, it stops and shows these commands. `vp check --no-fmt` is the CI lint gate. It needs no build, but it does not run TypeScript checks.
 
 Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and use the matching directory. Use the Vite+ target build for dependency builds; `run-package-task.mjs build --packages` builds only the selected packages. The root `build` task builds every package in dependency order and caches each package build by the files it reads, so it rebuilds only packages whose inputs changed. `--no-cache` does not reach its nested run; run `corepack pnpm exec vp cache clean` first to force a full rebuild. Add the following checks only when their behavior is affected:
 

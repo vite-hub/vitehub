@@ -8,6 +8,7 @@ import { retentionBudgetBytes } from "./retention-volume.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { DatabaseSync } from "node:sqlite"
+import { formatRetentionPercentage } from "./retention-policy.ts"
 import type { NormalizedRetention, RetentionSizeLimit } from "./retention-policy.ts"
 
 /*
@@ -832,7 +833,7 @@ function strictest(values: readonly (false | number)[]): false | number {
 }
 
 function describeSize(size: RetentionSizeLimit): number | string {
-  return "bytes" in size ? size.bytes : `${Number((size.fraction * 100).toFixed(4))}%`
+  return "bytes" in size ? size.bytes : `${formatRetentionPercentage(size.fraction)}%`
 }
 
 async function resolveLimits(home: string, policies: readonly NormalizedRetention[]): Promise<ResolvedLimits> {

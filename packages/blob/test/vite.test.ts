@@ -8,11 +8,23 @@ import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
 import { H3Event, toResponse } from "h3"
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
+
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+async function temporaryDirectory(prefix: string) {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
@@ -23,7 +35,7 @@ function driverImports(source: string) {
 
 describe("hubBlob", () => {
   it.each([undefined, { authorize: false }, { authorize: true }])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-auth-watcher-"))
+    const root = await temporaryDirectory("vitehub-blob-auth-watcher-")
     try {
       const plugin = hubBlob({ driver: "fs", serve })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
@@ -55,7 +67,7 @@ describe("hubBlob", () => {
   })
 
   it("uses the bundled driver in the Nitro Vercel shared runtime", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-runtime-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-vercel-runtime-")
     try {
       const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
@@ -78,7 +90,7 @@ describe("hubBlob", () => {
     ["cloudflare_module", "cloudflare", { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" }],
     ["vercel", "vercel", { access: "private", driver: "vercel-blob" }],
   ] as const)("gives sibling %s host functions the Nitro Blob runtime module", async (preset, provider, store) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-sibling-runtime-"))
+    const root = await temporaryDirectory("vitehub-blob-sibling-runtime-")
     try {
       const plugin = hubBlob(store)
       const resolvedConfig = { build: { outDir: "dist" }, command: "build", nitro: { preset }, plugins: [{ name: "nitro:main" }], root }
@@ -103,7 +115,7 @@ describe("hubBlob", () => {
   })
 
   it("gives sibling host functions no Blob runtime for local fs stores", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-sibling-fs-"))
+    const root = await temporaryDirectory("vitehub-blob-sibling-fs-")
     try {
       const plugin = hubBlob({ driver: "fs" })
       const resolvedConfig = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, plugins: [{ name: "nitro:main" }], root }
@@ -122,7 +134,7 @@ describe("hubBlob", () => {
   })
 
   it("uses the bundled driver when Vercel is detected from the environment", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-env-runtime-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-vercel-env-runtime-")
     vi.stubEnv("VERCEL", "1")
     try {
       const plugin = hubBlob({ access: "private", driver: "vercel-blob" })
@@ -189,7 +201,7 @@ describe("hubBlob", () => {
   })
 
   it("registers Nitro runtime setup without Blob serving", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-runtime-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-runtime-")
     const plugin = hubBlob({ driver: "fs", base: ".runtime/blob" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -249,8 +261,8 @@ describe("hubBlob", () => {
   })
 
   it("resolves generated Nitro registrations from the final Vite root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-root-"))
-    const staleRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-stale-root-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-root-")
+    const staleRoot = await temporaryDirectory("vitehub-blob-nitro-stale-root-")
     await writeFile(join(root, "package.json"), "{}\n")
     const plugin = hubBlob({
       bucketName: "assets",
@@ -318,7 +330,7 @@ describe("hubBlob", () => {
   })
 
   it("generates Nitro Blob files from the Nuxt project root", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nuxt-root-"))
+    const root = await temporaryDirectory("vitehub-blob-nuxt-root-")
     const appRoot = join(root, "app")
     const generatedPlugin = join(root, ".vitehub", "nitro", "blob", "plugin.ts")
     try {
@@ -343,8 +355,8 @@ describe("hubBlob", () => {
   })
 
   it("runs selected default and named Blob stores from a standalone Node artifact", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-node-"))
-    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-artifact-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-node-")
+    const artifactRoot = await temporaryDirectory("vitehub-blob-nitro-artifact-")
     try {
       const plugin = hubBlob({
         stores: {
@@ -411,8 +423,8 @@ describe("hubBlob", () => {
   })
 
   it("does not initialize an unused env-backed default store during startup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-default-"))
-    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-lazy-artifact-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-lazy-default-")
+    const artifactRoot = await temporaryDirectory("vitehub-blob-nitro-lazy-artifact-")
     try {
       const plugin = hubBlob({ driver: "vercel-blob" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, root } as never)
@@ -449,7 +461,7 @@ describe("hubBlob", () => {
   })
 
   it.each(["vercel-blob", "netlify-blobs"] as const)("preserves generated default and named %s stores when Nitro installs its plugin", async (driver) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-replay-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-replay-")
     try {
       const plugin = hubBlob({ stores: { default: { driver, name: "default" }, assets: { driver, name: "assets" } } })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
@@ -490,8 +502,8 @@ describe("hubBlob", () => {
   })
 
   it("generates only the selected Netlify Blob driver for Nitro", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-netlify-"))
-    const artifactRoot = await mkdtemp(join(tmpdir(), "vitehub-blob-netlify-artifact-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-netlify-")
+    const artifactRoot = await temporaryDirectory("vitehub-blob-netlify-artifact-")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
     try {
@@ -573,7 +585,7 @@ describe("hubBlob", () => {
   })
 
   it("contributes deduplicated R2 bindings when Nitro owns Cloudflare output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-r2-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-r2-")
     const plugin = hubBlob({
       stores: {
         default: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" },
@@ -642,7 +654,7 @@ describe("hubBlob", () => {
   })
 
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inferred-cloudflare-"))
+    const root = await temporaryDirectory("vitehub-blob-inferred-cloudflare-")
     const previousBucket = process.env.BLOB_BUCKET_NAME
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.BLOB_BUCKET_NAME = "assets"
@@ -714,7 +726,7 @@ describe("hubBlob", () => {
   })
 
   it("does not import cloudflare:workers in vite dev, where the Nitro dev runner can be Node", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cloudflare-dev-"))
+    const root = await temporaryDirectory("vitehub-blob-cloudflare-dev-")
     try {
       const plugin = hubBlob({ bucketName: "assets", driver: "cloudflare-r2" })
       const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
@@ -742,7 +754,7 @@ describe("hubBlob", () => {
   })
 
   it("uses final Nitro ownership when the resolved preset changes", { timeout: 30_000 }, async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-host-"))
+    const root = await temporaryDirectory("vitehub-blob-final-nitro-host-")
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -777,7 +789,7 @@ describe("hubBlob", () => {
   })
 
   it("removes an early R2 contribution when the final Nitro host changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-final-nitro-cleanup-"))
+    const root = await temporaryDirectory("vitehub-blob-final-nitro-cleanup-")
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
@@ -801,7 +813,7 @@ describe("hubBlob", () => {
   })
 
   it("masks credentials embedded in Nitro runtime setup", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-masked-"))
+    const root = await temporaryDirectory("vitehub-blob-nitro-masked-")
     const previousToken = process.env.BLOB_READ_WRITE_TOKEN
     process.env.BLOB_READ_WRITE_TOKEN = "private-token"
 
@@ -847,7 +859,7 @@ describe("hubBlob", () => {
   })
 
   it("writes the generated Nitro serving route handler", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-serve-route-"))
+    const root = await temporaryDirectory("vitehub-blob-serve-route-")
     const plugin = hubBlob({
       serve: {
         headers: {
@@ -918,7 +930,7 @@ describe("hubBlob", () => {
       name: "duplicate canonical last",
     },
   ])("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-cached-route-"))
+    const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
         driver: "fs",
@@ -1063,7 +1075,7 @@ describe("hubBlob", () => {
     }
 
     it("requires a session before the store read and before conditional handling", async () => {
-      const root = await mkdtemp(join(tmpdir(), "vitehub-blob-authorize-session-"))
+      const root = await temporaryDirectory("vitehub-blob-authorize-session-")
       const calls: string[] = []
       Reflect.set(globalThis, "__vitehubBlobServeCalls", calls)
       try {
@@ -1111,7 +1123,7 @@ describe("hubBlob", () => {
         ]
       }),
     ])("runs the authorize export from server/blob$extension: $policy", async ({ extension, policy }) => {
-      const root = await mkdtemp(join(tmpdir(), "vitehub-blob-authorize-module-"))
+      const root = await temporaryDirectory("vitehub-blob-authorize-module-")
       const calls: string[] = []
       Reflect.set(globalThis, "__vitehubBlobServeCalls", calls)
       try {
@@ -1145,7 +1157,7 @@ describe("hubBlob", () => {
     })
 
     it("fails the build when serve authorization has no Auth Definition", async () => {
-      const root = await mkdtemp(join(tmpdir(), "vitehub-blob-authorize-no-auth-"))
+      const root = await temporaryDirectory("vitehub-blob-authorize-no-auth-")
       try {
         for (const plugins of [[], [{ name: "@vite-hub/auth/vite", api: { getConfig: () => undefined } }]]) {
           const plugin = hubBlob({ driver: "fs", serve: { authorize: true } })
@@ -1162,7 +1174,7 @@ describe("hubBlob", () => {
     })
 
     it("fails the build when server/blob.ts exports authorize without serve authorization", async () => {
-      const root = await mkdtemp(join(tmpdir(), "vitehub-blob-authorize-disabled-"))
+      const root = await temporaryDirectory("vitehub-blob-authorize-disabled-")
       try {
         await mkdir(join(root, "server"), { recursive: true })
         await writeFile(join(root, "server", "blob.ts"), "export const authorize = () => true\n")
@@ -1179,7 +1191,7 @@ describe("hubBlob", () => {
     })
 
     it("does not scan the default server directory when the host selects none", async () => {
-      const root = await mkdtemp(join(tmpdir(), "vitehub-blob-authorize-empty-server-dirs-"))
+      const root = await temporaryDirectory("vitehub-blob-authorize-empty-server-dirs-")
       try {
         await mkdir(join(root, "server"), { recursive: true })
         await writeFile(join(root, "server", "blob.ts"), "export const authorize = () => true\n")
@@ -1201,7 +1213,7 @@ describe("hubBlob", () => {
   })
 
   it("uses a configured package base in physical Nitro imports", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-import-base-"))
+    const root = await temporaryDirectory("vitehub-blob-import-base-")
     const plugin = hubBlob({
       driver: "fs",
       serve: true,
