@@ -24,6 +24,12 @@ describe("public URL", () => {
     expect(resolvePublicUrl({ agentName: "bot", request: { url: "http://10.0.0.1:3000/" } })).toBe("https://agents.example.com")
   })
 
+  it("keeps an alternate public host for a per-Agent URL", () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } })
+    expect(resolvePublicUrl({ agentName: "bot", request: { url: "https://alternate.example.com/api" } })).toBe("https://alternate.example.com")
+    expect(resolvePublicUrl({ agentName: "bot", request: { url: "https://agent.example.com/api" } })).toBe("https://agent.example.com")
+  })
+
   it("resolves explicit names without overriding exact configured names", () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { discovered: "https://discovered.example.com", exact: "https://exact.example.com" } })
     registerPublicUrlAgentName("declared", "discovered")
