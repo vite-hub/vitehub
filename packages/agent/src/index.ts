@@ -4630,7 +4630,8 @@ async function createAgentInvocationContext<
       }
     }
 
-    assertInvocationCapabilities(invocationCapabilities)
+    const normalizedInvocationCapabilities = normalizeCapabilities(invocationCapabilities) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    assertInvocationCapabilities(normalizedInvocationCapabilities)
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
@@ -4649,7 +4650,7 @@ async function createAgentInvocationContext<
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
       ...channelCapabilities,
-      ...invocationCapabilities,
+      ...normalizedInvocationCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
     const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))

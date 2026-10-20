@@ -195,6 +195,19 @@ it("rejects an invocation capability that adds Workspace Sources", async () => {
   expect(run).not.toHaveBeenCalled()
 })
 
+it("rejects unsupported behavior in nested invocation capabilities", async () => {
+  const run = vi.fn(() => "unreachable")
+  const agent = defineAgent({ runtime: false, driver: { run } })
+  const nested = defineCapability({ id: "nested-docs", workspaceSources: {} })
+  const wrapper = defineCapability({ id: "wrapper", capabilities: [nested] })
+  const [error] = await runAgent(agent, {}, {
+    output: "drained",
+    capabilities: [wrapper],
+  })
+  expect(error?.message).toContain("cannot contribute workspaceSources")
+  expect(run).not.toHaveBeenCalled()
+})
+
 it("does not pass invocation tools to a delegated Agent", async () => {
   const send = vi.fn()
   const child = defineAgent({ runtime: false, driver: { run({ tools }) {
