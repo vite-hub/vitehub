@@ -124,7 +124,10 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
   if (database.dialect === "postgresql") {
     const url = renderConfigValueExpression(database.connection?.url)
-    return url ? ["  dbCredentials: {", `    url: ${url},`, "  },"] : []
+    if (typeof database.connection?.url === "string") return ["  dbCredentials: {", `    url: ${url},`, "  },"]
+    // Without a URL, Drizzle Kit needs `host` and `database`. Its Postgres driver reads the other PG* variables.
+    const env = "{ host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] }"
+    return [`  dbCredentials: ${url ? `${url} ? { url: ${url} } : ${env}` : env},`]
   }
 
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)

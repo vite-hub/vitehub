@@ -16,7 +16,22 @@ export interface PostgresDatabaseDefaults {
 interface PostgresInstance<TSchema extends Record<string, unknown>> {
   client: ReturnType<typeof postgres>
   db: RuntimePostgresDatabase<TSchema>
-  url: string
+  key: string
+}
+
+/** A connection URL, or `undefined` when postgres.js reads its PG* environment variables. */
+interface PostgresConnection {
+  key: string
+  url?: string
+}
+
+/** The environment variables that postgres.js reads when it gets no connection URL. */
+const postgresEnvNames = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSERNAME", "PGUSER", "PGPASSWORD"] as const
+
+function readPostgresEnvKey() {
+  const env = globalThis.process?.env
+  const values = postgresEnvNames.map(name => env?.[name]?.trim() ?? "")
+  return values.some(Boolean) ? JSON.stringify(values) : undefined
 }
 
 function readHyperdriveConnectionString(binding: unknown) {
@@ -40,36 +55,43 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
   const requestInstances = new WeakMap<object, PostgresInstance<TSchema>>()
   let sharedInstance: PostgresInstance<TSchema> | undefined
 
-  function resolveUrl() {
+  function resolveConnection(requestScoped: boolean): PostgresConnection {
     const hyperdriveUrl = readHyperdriveConnectionString(getActiveCloudflareBinding<unknown>(bindingName))
-    if (hyperdriveUrl) return hyperdriveUrl
+    if (hyperdriveUrl) return { key: hyperdriveUrl, url: hyperdriveUrl }
     const url = resolveConfigValue(definition.connection?.url ?? defaults.url)?.trim()
-    if (url) return url
-    throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs: `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\`` })
+    if (url) return { key: url, url }
+    // The Workers build of postgres.js does not read process.env, so PG* variables apply only outside Cloudflare.
+    const envKey = requestScoped ? undefined : readPostgresEnvKey()
+    if (envKey) return { key: envKey }
+    const needs = requestScoped
+      ? `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\``
+      : `the Cloudflare Hyperdrive binding "${bindingName}", \`connection.url\`, or PG* environment variables such as \`PGHOST\``
+    throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs })
   }
 
-  function createInstance(url: string, requestScoped: boolean): PostgresInstance<TSchema> {
+  function createInstance(connection: PostgresConnection, requestScoped: boolean): PostgresInstance<TSchema> {
     // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
     // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
-    const client = postgres(url, requestScoped ? { max: 5 } : {})
+    const options = requestScoped ? { max: 5 } : {}
+    const client = connection.url ? postgres(connection.url, options) : postgres(options)
     const db: RuntimePostgresDatabase<TSchema> = drizzle({ casing: definition.drizzle.casing, client, schema: definition.schema })
-    return { client, db, url }
+    return { client, db, key: connection.key }
   }
 
   function getDb() {
-    const url = resolveUrl()
     const scope = getActiveCloudflareRequestScope()
+    const connection = resolveConnection(Boolean(scope))
     if (scope) {
       const cached = requestInstances.get(scope)
-      if (cached?.url === url) return cached.db
-      const instance = createInstance(url, true)
+      if (cached?.key === connection.key) return cached.db
+      const instance = createInstance(connection, true)
       requestInstances.set(scope, instance)
       return instance.db
     }
 
-    if (sharedInstance?.url === url) return sharedInstance.db
+    if (sharedInstance?.key === connection.key) return sharedInstance.db
     const previous = sharedInstance
-    sharedInstance = createInstance(url, false)
+    sharedInstance = createInstance(connection, false)
     // end() lets queries that already started finish before it closes the superseded pool.
     void previous?.client.end()
     return sharedInstance.db

@@ -16,12 +16,15 @@ import { hubDb } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
 const driver = vi.hoisted(() => ({
-  clients: [] as Array<{ end: ReturnType<typeof vi.fn>, options: Record<string, unknown>, url: string }>,
+  clients: [] as Array<{ args: unknown[], end: ReturnType<typeof vi.fn>, options: Record<string, unknown>, url: string | undefined }>,
 }))
 
+// postgres.js accepts `postgres(url, options)` or `postgres(options)`.
 vi.mock("postgres", () => ({
-  default: (url: string, options: Record<string, unknown>) => {
-    const client = { end: vi.fn(async () => {}), options, url }
+  default: (...args: unknown[]) => {
+    const url = typeof args[0] === "string" ? args[0] : undefined
+    const options = (url ? args[1] : args[0]) as Record<string, unknown>
+    const client = { args, end: vi.fn(async () => {}), options, url }
     driver.clients.push(client)
     return client
   },
@@ -194,11 +197,22 @@ describe("Postgres build configuration", () => {
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
-    expect(drizzleConfig).toContain("url: process.env[\"DATABASE_URL\"]")
+    expect(drizzleConfig).toContain("  dbCredentials: process.env[\"DATABASE_URL\"] ? { url: process.env[\"DATABASE_URL\"] } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
     expect(drizzleConfig).toContain("out: \"server/databases/migrations\"")
     await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("dialect: \"postgresql\"")
+  })
+
+  it("gives Drizzle Kit the PG* environment variables when a Postgres Definition has no URL", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    await writeGeneratedDatabaseArtifacts(config)
+
+    const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
+    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
   })
 
   it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
@@ -352,15 +366,71 @@ describe("Postgres runtime", () => {
     })
   })
 
-  it("requires a Hyperdrive binding or connection URL", async () => {
-    clearActiveCloudflareEnv()
-    const { createPostgresDatabase } = await loadPostgresRuntime()
-    const db = createPostgresDatabase({ ...definition, name: "analytics" }, { binding: "HYPERDRIVE_ANALYTICS" })
+  describe("PG* environment variables", () => {
+    const names = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSERNAME", "PGUSER", "PGPASSWORD"]
 
-    expect(() => db.select).toThrow(expect.objectContaining({
-      code: "DATABASE_MISSING_CONNECTION",
-      message: "The database \"analytics\" has no connection. It needs the Cloudflare Hyperdrive binding \"HYPERDRIVE_ANALYTICS\" or `connection.url`.",
-    }))
+    beforeEach(() => {
+      for (const name of names) vi.stubEnv(name, "")
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it.each(names)("lets postgres.js read %s when no connection URL is set", async (name) => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv(name, "5432")
+      const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+
+      expect(clientOf(db)).toBe(clientOf(db))
+      // Without a URL argument, postgres.js reads its own PG* environment fallback.
+      expect(driver.clients.map(client => client.args)).toEqual([[{}]])
+    })
+
+    it("replaces the pool when the PG* environment changes", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("PGHOST", "first.internal")
+      const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+      const first = clientOf(db)
+
+      vi.stubEnv("PGHOST", "second.internal")
+      expect(clientOf(db)).not.toBe(first)
+      expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+    })
+
+    it("keeps the connection URL ahead of PG* environment variables", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("PGHOST", "ignored.internal")
+      const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://generated/app" })
+
+      expect(clientOf(db)).toMatchObject({ args: ["postgres://generated/app", {}] })
+    })
+
+    it("requires a connection when neither a URL nor PG* environment variables are set", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      const db = createPostgresDatabase({ ...definition, name: "analytics" }, { binding: "HYPERDRIVE_ANALYTICS" })
+
+      expect(() => db.select).toThrow(expect.objectContaining({
+        code: "DATABASE_MISSING_CONNECTION",
+        message: "The database \"analytics\" has no connection. It needs the Cloudflare Hyperdrive binding \"HYPERDRIVE_ANALYTICS\", `connection.url`, or PG* environment variables such as `PGHOST`.",
+      }))
+      expect(driver.clients).toEqual([])
+    })
+
+    it("ignores PG* environment variables inside a Cloudflare request", async () => {
+      // The Workers build of postgres.js does not read process.env, so only Hyperdrive or a URL can connect.
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("PGHOST", "db.internal")
+      const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+
+      runWithActiveCloudflareEnv({}, () => {
+        expect(() => db.select).toThrow(expect.objectContaining({
+          code: "DATABASE_MISSING_CONNECTION",
+          message: "The database \"default\" has no connection. It needs the Cloudflare Hyperdrive binding \"HYPERDRIVE\" or `connection.url`.",
+        }))
+      })
+      expect(driver.clients).toEqual([])
+    })
   })
 
   it("runs Agent statements through execute()", async () => {
