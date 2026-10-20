@@ -9,11 +9,6 @@ useSeo({
   type: "website",
 });
 
-defineOgImage("Landing", {
-  title,
-  description: formatOgDescription(title, description),
-});
-
 useSchemaOrg([
   defineOrganization({
     name: "ViteHub",

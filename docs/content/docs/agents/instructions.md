@@ -49,7 +49,10 @@ instructions are larger than 32 KiB, when `driver.env` sets
 value in the Codex configuration file. A resumed Codex session continues only
 while its instructions do not change. Otherwise ViteHub starts a new session
 and sends it the conversation. [Sandboxes](/docs/agents/sandboxes) receive the
-instructions in the Sandbox Home.
+instructions in the Sandbox Home. This is also true when the Agent has a
+Workspace: a Provider Driver gets the document as Driver instructions, and
+ViteHub does not store it as `AGENTS.md` in the Workspace. A model Driver with
+a Workspace reads it from `AGENTS.md` in the Workspace.
 
 Use `driver.instructions` for short text:
 

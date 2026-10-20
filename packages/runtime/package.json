@@ -43,6 +43,12 @@
       "require": "./dist/h3.js",
       "default": "./dist/h3.js"
     },
+    "./internal/execution-budget": {
+      "types": "./dist/internal/execution-budget.d.ts",
+      "import": "./dist/internal/execution-budget.js",
+      "require": "./dist/internal/execution-budget.js",
+      "default": "./dist/internal/execution-budget.js"
+    },
     "./internal/grant": {
       "types": "./dist/internal/grant.d.ts",
       "import": "./dist/internal/grant.js",
@@ -54,12 +60,6 @@
       "import": "./dist/internal/runtime-type.js",
       "require": "./dist/internal/runtime-type.js",
       "default": "./dist/internal/runtime-type.js"
-    },
-    "./internal/execution-budget": {
-      "types": "./dist/internal/execution-budget.d.ts",
-      "import": "./dist/internal/execution-budget.js",
-      "require": "./dist/internal/execution-budget.js",
-      "default": "./dist/internal/execution-budget.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",

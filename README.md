@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/vitehub-logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/vitehub-logo.png">
-    <img alt="ViteHub" src=".github/assets/vitehub-logo.png" width="240">
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-banner-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/readme-banner-light.png">
+    <img alt="ViteHub: the server layer for Vite apps. One route deploys to Cloudflare, Vercel, Netlify, Deno, and Node." src=".github/assets/readme-banner-light.png" width="100%">
   </picture>
 </p>
 

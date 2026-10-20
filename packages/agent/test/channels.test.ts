@@ -1291,6 +1291,30 @@ describe("agent channels", () => {
     }
   })
 
+  it("prefers explicit Teams adapter options over Server Env", async () => {
+    vi.resetModules()
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    try {
+      const { teams } = await import("../src/channels.ts")
+      const channel = teams({ adapter: { appId: "option-app", appPassword: { unseal: () => "option-password" }, appType: "SingleTenant" } })
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+      await channel.adapter({ cloudflare: { env: { TEAMS_APP_ID: "env-app", TEAMS_APP_TENANT_ID: "env-tenant" } } } as never)
+      expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "option-app", appPassword: "option-password", appTenantId: "env-tenant", appType: "SingleTenant" })
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/teams")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps a Teams adapter factory as given", async () => {
+    const { teams } = await import("../src/channels.ts")
+    const factory = () => ({ name: "teams" }) as never
+    expect(teams({ adapter: factory }).adapter).toBe(factory)
+  })
+
   it("uses polling Telegram channels without a webhook route", async () => {
     const { telegram } = await import("../src/channels.ts")
     expect(telegram({ mode: "polling" }).webhooks).toBe(false)
@@ -1759,6 +1783,61 @@ describe("agent channels", () => {
       command: "/comment",
       event: "pull_request_review",
     })
+  })
+
+  it("skips no-findings bot reviews and debounces a trigger's deliveries per PR", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      pullRequest: {
+        reconcile: {
+          triggers: [
+            { events: ["issue_comment"], mentions: ["@agent"] },
+            { debounceMs: 60_000, events: ["pull_request_review"], noFindingsReviews: ["> ✅ No new issues found."], reviewStates: ["commented"] },
+          ],
+        },
+        reply: false,
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    const review = (id: number, body: string) => ({
+      github: { deliveryId: `review-${id}`, event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        installation: { id: 123 },
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body,
+          html_url: `https://github.test/acme/app/pull/42#pullrequestreview-${id}`,
+          id,
+          state: "commented",
+          user: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+        },
+        sender: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const clean = await trigger.invoke(context as never, review(57, "> ✅ No new issues found.\n\n**Reviewed changes**"))
+    expect(clean).toBeInstanceOf(Response)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
+    if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
+    expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42:1" }, deliveryId: "review-58" })
   })
 
   it.each([1, 4])("limits reconciled queue deliveries per PR to %i", async (limit) => {

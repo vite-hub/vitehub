@@ -2,7 +2,7 @@ import { readBuiltInEnv } from "./internal/builtin-env.ts"
 
 import { forgeEnv, type ForgeEnv } from "@vite-hub/forge"
 
-import type { BuiltInEnvField } from "./internal/builtin-env.ts"
+import type { BuiltInEnvContext, BuiltInEnvField } from "./internal/builtin-env.ts"
 import type { AgentCallbackContext, AgentRuntimeConfig } from "./types.ts"
 
 /** One Server Env value that a built-in Channel reads when its options omit the value. */
@@ -21,6 +21,7 @@ export type BuiltInChannelEnv = {
   github: ForgeEnv["github"]
   gitlab: ForgeEnv["gitlab"]
   forgejo: ForgeEnv["forgejo"]
+  teams: Record<"apiUrl" | "appId" | "appPassword" | "appTenantId", ChannelEnvField>
   telegram: Record<"apiBaseUrl" | "botToken" | "webhookSecret", ChannelEnvField>
 }
 
@@ -33,6 +34,12 @@ export const builtInChannelEnv: BuiltInChannelEnv = {
   github: forgeEnv.github,
   gitlab: forgeEnv.gitlab,
   forgejo: forgeEnv.forgejo,
+  teams: {
+    apiUrl: { names: ["TEAMS_API_URL"], requiredUnless: ["adapter"] },
+    appId: { names: ["TEAMS_APP_ID"], requiredUnless: ["adapter"] },
+    appPassword: { names: ["TEAMS_APP_PASSWORD"], requiredUnless: ["adapter"], secret: true },
+    appTenantId: { names: ["TEAMS_APP_TENANT_ID"], requiredUnless: ["adapter"] },
+  },
   telegram: {
     apiBaseUrl: { names: ["TELEGRAM_API_BASE_URL"] },
     botToken: { names: ["TELEGRAM_BOT_TOKEN"], requiredUnless: ["adapter", "botToken"], secret: true },
@@ -42,10 +49,10 @@ export const builtInChannelEnv: BuiltInChannelEnv = {
 
 const channelEnvFields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
 
-async function readChannelEnv<TRuntimeConfig extends AgentRuntimeConfig>(
+async function readChannelEnv(
   channel: string,
   fields: readonly string[],
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: BuiltInEnvContext,
 ): Promise<Partial<Record<string, unknown>>> {
   return await readBuiltInEnv(channel, channelEnvFields[channel] ?? {}, fields, context)
 }
@@ -56,12 +63,9 @@ async function readChannelEnv<TRuntimeConfig extends AgentRuntimeConfig>(
  * example without hubEnv(), is read from its host variable names.
  * Explicit Channel options take precedence; callers read Env only when an option is omitted.
  */
-export async function channelEnv<
-  TChannel extends keyof BuiltInChannelEnv,
-  TRuntimeConfig extends AgentRuntimeConfig,
->(
+export async function channelEnv<TChannel extends keyof BuiltInChannelEnv>(
   channel: TChannel,
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: BuiltInEnvContext,
 ): Promise<Partial<Record<keyof BuiltInChannelEnv[TChannel] & string, unknown>>> {
   return await readChannelEnv(channel, Object.keys(builtInChannelEnv[channel]), context)
 }

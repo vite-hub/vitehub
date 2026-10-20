@@ -527,6 +527,8 @@ Persisted inline webhook executions have a 15-minute default deadline. Set `mess
 
 Queued GitHub reconciliation reloads the PR head, comments, and files before the Driver starts, so each Invocation uses the current PR state. Eligibility is decided when the delivery is accepted and is preserved while queued. Use the default `concurrencyLimit: 1` for tasks that write to the same PR branch.
 
+Review bots often post a review on every push, even when they find nothing. List the body prefixes of those reviews in a trigger's `noFindingsReviews`, such as `['> ✅ No new issues found.']`, and a `commented` review that starts with one does not match the trigger. Set a trigger's `debounceMs` to wait before its delivery runs; a later delivery from the same trigger for the same pull request replaces a queued one, so a burst of reviews starts one Invocation. Deliveries from other triggers, such as mention commands, are never replaced. A delivery that already runs is not stopped.
+
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
@@ -669,6 +671,12 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
 Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
+
+`teams()` always builds its adapter. It reads `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` from `env.server.teams`, so `teams()` needs no credential options. Pass `adapter` options such as `userName` or `appType` to set other adapter values, or pass your own adapter or factory. Install `@chat-adapter/teams` in the application.
+
+```ts [server/agents/support.ts]
+teams({ adapter: { userName: 'Support' } })
+```
 
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
