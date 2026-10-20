@@ -7,6 +7,7 @@ import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-
 import { chatFinalReplyIntent, chatFinalReplyMode, chatFinalReplyNotices, setChatFinalReplyText } from "./internal/chat-finish-delivery.ts"
 import { formatChannelCitationText } from "./internal/channel-citations.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
+import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 import { traceAgentChannelDeliveryEffect } from "./trace.ts"
 
@@ -246,8 +247,14 @@ const silentReplyContextKey = "chat.final-reply.skipped"
 const skipReplyToolName = "skip_reply"
 
 function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
-  const effect = defineFinishEffect<TRuntimeConfig>((context) => {
-    if (silentReplies.has(context.context) || context.input.get().context?.[silentReplyContextKey] !== undefined) return
+  const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
+    const delivery = agentChannelDeliveryTracker(context.runtimeContext)
+    const persistedSkip = await delivery?.getMarker?.(silentReplyContextKey)
+    if (
+      silentReplies.has(context.context)
+      || context.input.get().context?.[silentReplyContextKey] !== undefined
+      || persistedSkip !== null && persistedSkip !== undefined
+    ) return
     const text = context.text?.trim()
     const mode = chatFinalReplyMode(context.input)
     const notices = chatFinalReplyNotices(context.input)
@@ -554,6 +561,7 @@ export function defineChatCapability<
             const reason = isRuntimeRecord(input) && hasRuntimeType(input.reason, "string") ? input.reason.trim() : ""
             if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
             silentReplies.set(context.context, reason)
+            await agentChannelDeliveryTracker(context.runtimeContext)?.setMarker?.(silentReplyContextKey, reason)
             const currentInput = context.input.get()
             context.input.set({
               ...currentInput,
