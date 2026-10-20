@@ -110,12 +110,6 @@
       "require": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
     },
-    "./source-scanner": {
-      "types": "./dist/source-scanner.d.ts",
-      "import": "./dist/source-scanner.js",
-      "require": "./dist/source-scanner.js",
-      "default": "./dist/source-scanner.js"
-    },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
       "import": "./dist/standard-schema.js",
@@ -163,6 +157,12 @@
       "import": "./dist/inspect.js",
       "require": "./dist/inspect.js",
       "default": "./dist/inspect.js"
+    },
+    "./source-scanner": {
+      "types": "./dist/source-scanner.d.ts",
+      "import": "./dist/source-scanner.js",
+      "require": "./dist/source-scanner.js",
+      "default": "./dist/source-scanner.js"
     },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
@@ -236,6 +236,12 @@
       "require": "./dist/build/esbuild.js",
       "default": "./dist/build/esbuild.js"
     },
+    "./build/scan-module": {
+      "types": "./dist/build/scan-module.d.ts",
+      "import": "./dist/build/scan-module.js",
+      "require": "./dist/build/scan-module.js",
+      "default": "./dist/build/scan-module.js"
+    },
     "./build/provider-output-sources": {
       "types": "./dist/build/provider-output-sources.d.ts",
       "import": "./dist/build/provider-output-sources.js",
@@ -295,24 +301,48 @@
     "./package-exports": {
       "types": "./src/package-exports.ts",
       "default": "./src/package-exports.ts"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js",
+      "require": "./dist/presets.js",
+      "default": "./dist/presets.js"
+    },
+    "./effect": {
+      "types": "./dist/effect.d.ts",
+      "import": "./dist/effect.js",
+      "require": "./dist/effect.js",
+      "default": "./dist/effect.js"
+    },
+    "./dispatch": {
+      "types": "./dist/dispatch.d.ts",
+      "import": "./dist/dispatch.js",
+      "require": "./dist/dispatch.js",
+      "default": "./dist/dispatch.js"
+    },
+    "./build/vercel-runtime-package-copy": {
+      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
+      "import": "./dist/build/vercel-runtime-package-copy.js",
+      "require": "./dist/build/vercel-runtime-package-copy.js",
+      "default": "./dist/build/vercel-runtime-package-copy.js"
     }
   },
   "scripts": {
     "build": "vp pack",
     "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json"
+    "typecheck": "vp run --cache -t @vite-hub/internal#build && tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
-    "esbuild": "catalog:tooling",
+    "effect": "catalog:effect",
+    "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "semver": "^7.8.5"
   },
   "devDependencies": {
-    "@standard-schema/spec": "catalog:runtime",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "exsolve": "catalog:unjs",

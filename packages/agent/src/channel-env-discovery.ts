@@ -153,7 +153,7 @@ export function discoverBuiltInChannelUses(
 ): DiscoveredChannelUse[] {
   const factoryModules = options.modules ?? channelFactoryModules
   const typescript = options.typescript !== false
-  const { tokens, lineBreaks } = tokenizeAgentSource(source)
+  const { tokens, lineBreaks } = tokenizeAgentSource(source, typescript ? "module.ts" : "module.jsx")
   const known = new Set(kinds)
   const bindings = new Map<string, string>()
   const namespaces = new Set<string>()

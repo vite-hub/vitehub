@@ -247,7 +247,7 @@ export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuth
 
 /** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
-  if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
+  if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
 

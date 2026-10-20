@@ -1,9 +1,11 @@
 import { hasAgentToolStandardSchema } from "../tool-schema.ts"
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 import { safeAgentTelemetryMetadata } from "./agent-telemetry.ts"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
+import { mcpSkillsInspectionValue, mcpSkillsRoot, mcpSkillsWorkspaceContribution, readMcpSkills } from "./mcp-skills.ts"
+import type { McpSkill } from "./mcp-skills.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -16,7 +18,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "../types.ts"
-import type { McpClient, McpClientConfig, McpToolFingerprints, McpToolOverride, McpToolOverrides } from "../mcp/types.ts"
+import type { McpClient, McpClientConfig, McpConnectionServerConfig, McpToolFingerprints, McpToolOverride, McpToolOverrides } from "../mcp/types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -36,9 +38,23 @@ export interface ResolvedMcpToolServer {
   connectionBinding?: McpToolServerConnection
   integrity?: McpToolFingerprints
   owned?: boolean
+  /** Read the Agent Skills that the server serves as `skill://` resources. Default: `true`. */
+  skills?: boolean
+  /** Expose only these server tools. */
+  tools?: readonly string[]
 }
 
-interface McpToolServerDefinition<
+/** The Connection that carries the requests of an MCP server config. */
+export interface McpServerConnection {
+  /** The provider's `mcp` endpoint, read only when the config has no `transport.url`. */
+  endpoint: () => Promise<string | undefined>
+  fetch: (input: string | URL, init?: Pick<RequestInit, "headers" | "method" | "redirect" | "signal"> & { body?: string }) => Promise<Response>
+  name: string
+}
+
+type McpHttpTransportConfig = Extract<McpClientConfig["transport"], { url: string }>
+
+export interface McpToolServerDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
@@ -189,6 +205,91 @@ function recordMcpAvailabilityWarning(
   })
 }
 
+async function readMcpRequestBody(request: Request): Promise<string> {
+  if (!request.signal) return request.text()
+  if (request.signal.aborted) throw request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError")
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"))
+    request.signal.addEventListener("abort", onAbort, { once: true })
+    void request.text().then(
+      body => {
+        request.signal.removeEventListener("abort", onAbort)
+        resolve(body)
+      },
+      error => {
+        request.signal.removeEventListener("abort", onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+/** The config without the ViteHub server options that the MCP client does not read. */
+function withoutServerOptions(config: McpClientConfig | McpConnectionServerConfig): Omit<McpClientConfig, "connection" | "tools" | "transport"> {
+  const rest: Record<string, unknown> = { ...config }
+  delete rest.connection
+  delete rest.optional
+  delete rest.skills
+  delete rest.tools
+  delete rest.transport
+  // SAFETY: Only the ViteHub server options and the transport were removed from an MCP client config.
+  return rest as Omit<McpClientConfig, "connection" | "tools" | "transport">
+}
+
+/** Drop the ViteHub server options (`connection`, `optional`, `skills`, `tools`) before the MCP client reads a config. */
+export function mcpClientConfig(config: McpClientConfig): McpClientConfig {
+  return { ...withoutServerOptions(config), transport: config.transport }
+}
+
+/**
+ * Check the transport of a server config that names a Connection, before the Connection is used.
+ * Returns the transport options. A missing transport means the provider's `mcp` endpoint over HTTP.
+ */
+export function connectionMcpTransport(server: string, config: McpClientConfig | McpConnectionServerConfig): Record<string, unknown> {
+  const transport: unknown = config.transport
+  if (transport === undefined) return { type: "http" }
+  const type = isRuntimeRecord(transport) ? transport.type ?? "http" : undefined
+  if (!isRuntimeRecord(transport) || (type !== "http" && type !== "sse") || transport.authProvider !== undefined
+    || hasRuntimeType(transport.start, "function") || (transport.url !== undefined && !hasRuntimeType(transport.url, "string"))) {
+    throw agentDiagnostics.AGENT_R0082({ message: `[vitehub] MCP server "${server}" uses a connection, so it requires an http or sse transport config without authProvider.` })
+  }
+  return { ...transport, type }
+}
+
+/**
+ * Connect a server config that names a Connection. Without `transport.url`, the server is the
+ * Connection's `mcp` endpoint over HTTP. Each request goes through the Connection's `fetch`, which
+ * adds the credential, checks access, and records activity.
+ */
+export async function connectionMcpServerConfig(server: string, config: McpClientConfig | McpConnectionServerConfig, connection: McpServerConnection): Promise<McpClientConfig> {
+  const configured = connectionMcpTransport(server, config)
+  const url = hasRuntimeType(configured.url, "string") ? configured.url : await connection.endpoint()
+  if (!hasRuntimeType(url, "string")) {
+    throw agentDiagnostics.AGENT_R0082({ message: `[vitehub] MCP server "${server}" uses Connection "${connection.name}", which declares no mcp endpoint. Set the provider's mcp or transport.url.` })
+  }
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    // MCP needs each response in this session; durable approval replay cannot resume it.
+    const target = new Request(input, init)
+    const body = target.method === "GET" || target.method === "HEAD" ? undefined : await readMcpRequestBody(target)
+    return connection.fetch(target.url, {
+      body,
+      headers: target.headers,
+      method: target.method,
+      redirect: target.redirect,
+      signal: target.signal,
+    })
+  }
+  // SAFETY: connectionMcpTransport() establishes an http or sse transport config without authProvider, and the URL is a string.
+  const transport = { ...configured, fetch, url } as McpHttpTransportConfig
+  return { ...withoutServerOptions(config), transport }
+}
+
+/** Keep only the tools named in a server's `tools` allowlist. */
+function allowedMcpTools(tools: Record<string, unknown>, allowed: readonly string[] | undefined): Record<string, unknown> {
+  if (!allowed) return tools
+  return Object.fromEntries(Object.entries(tools || {}).filter(([name]) => allowed.includes(name)))
+}
+
 /** Send `initialize` first unless a config opts in to protocol discovery. */
 export function withMcpInitializationCompatibility(connection: McpClient | McpClientConfig): McpClient | McpClientConfig {
   if (isMcpClient(connection) || !isMcpClientConfig(connection)) return connection
@@ -229,7 +330,9 @@ export function defineMcpToolCapability<
   Name extends WorkspaceName = WorkspaceName,
 >(options: McpToolCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, Array<McpClient | undefined>>()
-  return defineCapability({
+  // Discovered Skills stay in memory for the Invocation. They are never written to the Invocation context.
+  const skillsByInvocation = new WeakMap<object, Array<{ server: string, skills: McpSkill[] }>>()
+  const capability = defineCapability({
     id: options.id,
     ...(options.inspection ? { inspection: options.inspection } : {}),
     metadata: options.metadata,
@@ -282,12 +385,18 @@ export function defineMcpToolCapability<
           mcpRuntime ? config => mcpRuntime.createMCPClient(config) : undefined,
         )
         if (owned) clients[index] = client
-        const serverTools = await client.tools()
+        // A Skills failure never removes the server's tools.
+        const readSkills = serverDefinition.skills === false || !context.workspace
+          ? undefined
+          : readMcpSkills(client, context.abortSignal).catch((error: unknown) => ({ error }))
+        const [discoveredTools, skills] = await Promise.all([client.tools(), readSkills])
+        const serverTools = allowedMcpTools(discoveredTools, serverDefinition.tools)
         if (serverDefinition.integrity) {
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
         servers[index]!.connection = safeAgentTelemetryMetadata(metadata) ?? {}
-        return { binding: serverDefinition.connectionBinding, metadata, server, serverTools }
+        servers[index]!.skills = mcpSkillsInspectionValue(skills ?? (serverDefinition.skills === false ? "off" : "no-workspace"))
+        return { binding: serverDefinition.connectionBinding, metadata, server, serverTools, skills: Array.isArray(skills) ? skills : [] }
       }))
       for (const [index, result] of results.entries()) {
         if (result.status === "rejected") {
@@ -378,7 +487,15 @@ export function defineMcpToolCapability<
           }
         }
       }
+      skillsByInvocation.set(context.context, results.flatMap(result => result.status === "fulfilled" && result.value?.skills.length
+        ? [{ server: result.value.server.name, skills: result.value.skills }]
+        : []))
       context.tools.add(tools)
+    },
+    async workspace(context) {
+      const servers = skillsByInvocation.get(context.context)
+      if (!servers?.length) return
+      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition, context.workspaceMaterializationPaths)
     },
     async close(context) {
       const clients = clientsByContext.get(context) || []
@@ -392,6 +509,7 @@ export function defineMcpToolCapability<
       if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple MCP clients failed to close.")
     },
   })
+  return Object.assign(capability, { [workspaceMaterializationPathsSymbol]: [mcpSkillsRoot] })
 }
 
 function mcpToolOverride(override: McpToolOverride): Pick<AgentToolDefinition, "description" | "inputSchema" | "title"> {

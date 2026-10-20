@@ -152,7 +152,18 @@ finish before a merge.
 review checks run, unless a failure or conflict already needs repair; the PR
 wakes once the gates stop. `noProgressBudget` (default `3`, `false` disables it)
 stops a head after that many passes without a push or a recorded wait, until the
-head changes or a person comments. `install` (default `true`) installs
+head changes or a person comments. `reviewPushBudget` (default `3`, `false`
+disables it) counts review-driven pushes on a PR: pushes from a pass without a
+merge conflict and without a failing check outside `reviewChecks`. After that
+many, bot feedback and failed `reviewChecks` no longer wake a model pass. A
+person's feedback, another failing check, a conflict or a head that someone else
+pushed still do. The PR then merges on its required checks or parks with the
+reason, which health lists under `queue.parked`. `dailyPassBudget` (default
+`16`, `false` disables it) limits the model passes per PR in a rolling 24
+hours. A PR that reached it parks until its oldest pass is 24 hours old, and
+health lists it with `resumeAt`. A person's new feedback, the first failing
+required check on a head and a conflict on an otherwise ready PR still start a
+pass. `install` (default `true`) installs
 dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in
@@ -167,12 +178,17 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 `install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
-service directory. Stack parents are claimed first, and a restart
-releases the claims of the previous process. A stacked PR whose parent merged into the default
-branch is retargeted to the default branch. A provider rate limit is retried
-three times; after that, model dispatch waits for an hour. Each owner rechecks
-the durable deadline before dispatch, including after workspace setup. Host
-merges and stack retargets continue during the cooldown.
+service directory. Claims take reviewed heads first, then heads whose checks all
+passed, then stack parents. A restart releases the claims of the previous process.
+A stacked PR whose parent merged into the default branch is retargeted to the
+default branch. A provider rate limit is retried three times; after that, model
+dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
+consecutive cooldown up to an hour. The pass waits for the cooldown instead of
+failing and spends no no-progress budget. `modelConcurrency` caps model passes.
+Each owner rechecks the durable deadline before dispatch, including after
+workspace setup. Host merges and stack retargets continue during the cooldown.
+A failed dependency install continues the pass without dependencies unless
+`install.required` is set; `install.concurrency` sets the install slots.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

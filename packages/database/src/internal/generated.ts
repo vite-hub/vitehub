@@ -14,21 +14,23 @@ import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzl
 
 const reservedSchemaExports = new Set(["default", "schema"])
 
+/** The generated registry types, relative to the project root. */
+export const generatedDatabaseTypesFile = ".vitehub/types/database.d.ts"
+
 function renderExportName(name: string) {
   return /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)
 }
 
 /** Imports a contribution from a generated file: absolute files relative to it, package specifiers as written. */
 function contributionImportPath(file: string, contribution: ResolvedDatabaseContribution) {
-  const { module } = contribution.definition
-  return isAbsolute(module) ? createImportPath(file, module) : module
+  return isAbsolute(contribution.module) ? createImportPath(file, contribution.module) : contribution.module
 }
 
 /** Renders the import of contributed tables into a generated module. */
 export function renderContributionImport(file: string, contribution: ResolvedDatabaseContribution, variable: string, typeOnly = false) {
   const keyword = typeOnly ? "import type" : "import"
   const from = JSON.stringify(contributionImportPath(file, contribution))
-  const exportName = contribution.definition.export
+  const exportName = contribution.export ?? "default"
   return exportName === "default"
     ? `${keyword} ${variable} from ${from}`
     : `${keyword} { ${renderExportName(exportName)} as ${variable} } from ${from}`
@@ -227,7 +229,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
 }
 
 export async function removeGeneratedDatabaseTypes(rootDir: string) {
-  const generatedTypesFile = join(rootDir, ".vitehub/types/database.d.ts")
+  const generatedTypesFile = join(rootDir, generatedDatabaseTypesFile)
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFile(generatedTypesFile, "export {}\n", "utf8")
 }
@@ -237,7 +239,7 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
  * list its tables. Contributed tables join the schema of their target Database.
  */
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
-  const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
+  const generatedTypesFile = join(config.rootDir, generatedDatabaseTypesFile)
   await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   await Promise.all(config.definitions.map(async (definition) => {

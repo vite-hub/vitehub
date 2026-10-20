@@ -158,6 +158,76 @@ On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/a
 
 If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
 
+### Verify a webhook signature
+
+Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+| `signature` | The header carries |
+| --- | --- |
+| Not set | The `secretToken` value itself. |
+| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
+| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
+| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
+
+`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
+
+ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is case-insensitive. A missing header or a wrong token answers `401`. When `secretToken` resolves to no secret, a `bearer` webhook answers `500` with an error that names the Channel, so a missing secret does not leave the route open. Return `false` from `secretToken` to turn verification off.
+
+`secretToken` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
+
+```ts [server/agents/ops.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+import { useServerEnv } from '#vitehub/env/server'
+
+export const prefect = defineChannel('prefect', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/prefect/webhook',
+    secretToken: () => useServerEnv().prefect.webhookSecret,
+    signature: 'bearer',
+  },
+})
+```
+
+```ts [server/agents/support.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export const airtable = defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    secretHeader: 'x-airtable-content-mac',
+    secretToken: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+  },
+})
+```
+
+### Answer slow webhooks early
+
+Some providers wait only a short time for an answer. GitHub closes the connection after 10 seconds and does not send the delivery again. A trigger that reads the provider's API before it queues the delivery, or a process that is still starting, can take longer than that.
+
+With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Objects, ViteHub stores the verified request before the trigger runs. The route then answers within `ackTimeoutMs`, counted from the request's arrival. The default is 5000 ms.
+
+- When admission finishes in time, the provider gets the trigger's own answer.
+- When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+
+The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+
+```ts [server/agents/support.ts]
+webhooks: {
+  path: '/api/github/webhook',
+  ackTimeoutMs: 8_000, // `false` waits for admission
+}
+```
+
+Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
+
 ## Replay Channel history
 
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.
@@ -274,6 +344,45 @@ triggers: {
 ```
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
+
+### Queue dispatched items
+
+`context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue instead of running it now, as if the item arrived as its own webhook delivery. The receiving trigger must answer with `webhook.deliveryId` and `webhook.serialize` or `webhook.concurrencyLimit`, so `debounce` and the queue's retries apply. Items are admitted in order. The first item that cannot be admitted throws, and later items are not admitted. An item that the trigger answers below 400 without a delivery, such as `ignored()`, is skipped with reason `handled`. An item whose delivery ID is already queued is skipped with reason `duplicate`. When a queued item fails its last attempt, the `failed` callback of the receiving trigger runs.
+
+Queued dispatch is available while the Channel's webhook route runs the calling trigger with a queue-capable State, such as SQLite or libSQL. `dryRun` is not available with `queue`.
+
+Give an item `order: { key, version }` when a provider can send changes to one entity again or out of order. The item is skipped with reason `stale`, before the trigger runs, unless `version` is greater than the last version admitted or answered for `key` through the same trigger. The new version commits with the admission of the item. An item whose trigger throws or answers 400 or above does not change the version, so a retry admits it.
+
+```ts
+await context.dispatch(changes.map(change => ({
+  input: change,
+  key: change.eventId,
+  order: { key: change.recordId, version: change.sequence },
+})), { queue: true, trigger: 'change' })
+```
+
+### Decide and write Channel State in one step
+
+A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
+
+```ts
+invoke: (context, change: { id: string, version: number, text: string }) =>
+  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+    if (record.value && record.value.version >= change.version) return ignored('stale_update')
+    record.set({ version: change.version })
+    return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
+  }),
+```
+
+Inside `invoke` on the Channel's webhook route, or in an item of a queued dispatch, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+
+How the write and the admission commit depends on the State:
+
+| State | Commit |
+| --- | --- |
+| SQLite and libSQL | One transaction checks the locks, queues the delivery, and writes the values. A crash before the commit keeps the old value and queues nothing. |
+| A custom State with `commitWebhookState()` | The State's own transaction, with the same contract. |
+| Other States, such as Cloudflare Durable Objects | ViteHub extends the locks, queues the delivery, then writes the values. A crash between those steps keeps the delivery and loses the write, so the retried trigger decides again and the delivery ID removes the duplicate admission. These States have no webhook queue, so only `ignored()` and inline deliveries commit there. |
 
 ## Publish Agent activity without opening a chat
 

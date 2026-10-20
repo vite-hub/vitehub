@@ -35,20 +35,28 @@ export default defineConnection({
 
 Connection names may include punctuation, spaces, Unicode, and nested paths. They must not exceed 501 characters, including path separators, so the default Env key fits its 512-character limit.
 
+A provider can also be an object with `id`, `authorizationEndpoint`, `tokenEndpoint`, `clientId`, and optional `clientSecret`, `revocationEndpoint`, `identityScopes`, `authorizationParams`, `apis`, and `account`. `apis` defaults to no catalogs, so the token goes nowhere. Without `account`, a provider whose `identityScopes` include `openid` reads the account from the ID token of the token response: `sub` is the id and a string `email` labels it. The signature is not checked because the token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. `google()` uses this default.
+
 ## Call the API
 
 ```ts
 import { useConnection } from "@vite-hub/connections/server";
 
 const gmail = useConnection("google", { actor: "schedule:gmail" }).gmail;
-const { labels = [] } = await gmail.users.labels.list({ userId: "me" });
+const [error, result] = await gmail.users.labels.list({ userId: "me" });
+if (error) throw error;
+const { labels = [] } = result;
 ```
 
-Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVALID`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
+Server code cannot pass an `agent:` actor. That call fails with `CONNECTIONS_INVALID_ACTOR`. An Agent actor comes only from the Env access context that the ViteHub Agent runtime creates for the Agent Definition that runs. Agents call Connections through their Connection capabilities, for example `gmail()`, `mcp()`, and `openapi()`. A discovered Agent without its own `agent:` rule uses the rule of the nearest Agent it extends with `defineAgent({ extends })`. A rule that names the Agent always wins. Inline Agents and non-Agent actors do not inherit rules.
 
-The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
+The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Calls return `[error, data]`; `error.code` is a `ConnectionsErrorCode`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval return `CONNECTIONS_APPROVAL_REQUIRED` and create an approval.
 
-Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins or declared API key origins. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
+Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins, declared API key origins, or the origin of the provider's `mcp` endpoint. `mcp` is an HTTPS or loopback URL without credentials, query, or fragment, and `inspect()` reports it. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTIONS_ORIGIN_NOT_ALLOWED` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTIONS_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
+
+An actor that only uses the provider's MCP endpoint can have the `"mcp"` preset instead of a rule object: `access: { "agent:support": "mcp" }`. It allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Definition with the preset and no provider `mcp` is invalid.
+
+`useConnection(name).status()` resolves the Connection status, for example `"connected"`. It never rejects: a Connection that cannot be inspected, for example because the store cannot open, is `"disconnected"`. Use it to skip work that needs a Connection.
 
 ## Use an API key
 
@@ -70,6 +78,7 @@ export default defineConnection({
 | `header` | `authorization` | Request header that carries the key. |
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `""` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
+| `requests` | none | Pacing, retries, and a timeout for provider requests. See [Pace and retry requests](#pace-and-retry-requests). |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
 | `fallback` | none | Return the key to use until an admin sets one, for example `() => useServerEnv().github.token`. A sealed Server Env secret is unsealed. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
@@ -82,6 +91,77 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
 
+## Sign in without a person
+
+Use `oauthLogin()` when a service account must use an OAuth API or MCP server that accepts only its own OAuth tokens, and no person can click through a consent screen. The app supplies only `login`, which plays the browser:
+
+```ts
+// server/connections/portal.ts
+import { defineConnection, oauthLogin } from "@vite-hub/connections";
+
+export default defineConnection({
+  provider: oauthLogin({
+    id: "portal",
+    mcp: "https://portal.example.com/mcp",
+    clientName: "Support Agent",
+    credentials: () => process.env.PORTAL_LOGIN, // "email:password"
+    async login({ url, redirectUri, credentials, fetch }) {
+      const [email, password] = credentials.split(":");
+      await fetch("/api/sign-in", { method: "POST", body: JSON.stringify({ email, password }) });
+      // Return the URL that the provider redirects to `redirectUri`, with `code` and `state`.
+      return (await fetch(url)).headers.get("location")!;
+    },
+  }),
+  scopes: ["openid", "email"],
+  access: { "agent:support": { read: true, write: ["fetch"], approve: false } },
+});
+```
+
+ViteHub does the rest:
+
+1. Discovery: the protected resource metadata of `mcp` (RFC 9728) names the authorization server, and its metadata (RFC 8414, or OpenID Connect discovery) names the endpoints. Set `issuer` to skip the first step.
+2. Registration: ViteHub registers a public client (RFC 7591) once per process, unless `clientId` is set.
+3. Sign-in: ViteHub builds the authorization URL with PKCE (`S256`), `state`, `scope`, and `resource` (default: `mcp`), calls `login`, checks the returned `code` and `state`, and exchanges the code.
+4. Renewal: a token that expires within a minute is refreshed with its refresh token, or replaced by a new sign-in. A `401` signs in again once and retries the request. Concurrent requests share one sign-in, also when it fails.
+
+`login` gets a `fetch` that acts as one browser session: it keeps cookies per host, sends `origin`, resolves relative URLs against `url`, and does not follow redirects unless `init.redirect` asks for it. `redirectUri` defaults to `http://127.0.0.1/callback`; ViteHub never listens on it. An error that `login` throws becomes a `CONNECTION_PROVIDER` error without its message, because the message could contain the credentials.
+
+Tokens and the client registration stay in memory, so each process signs in again, and the Connections store is not needed. While `credentials` resolves to nothing, the Connection is `disconnected` and requests fail with `CONNECTION_REAUTH_REQUIRED`. Otherwise it is `connected`, and a failed sign-in fails only the request that needed it. The Connection has no connect flow and no key: `authorize()` and `setKey()` reject it, and `revoke()` drops the tokens, so the next request signs in again. Access rules, approvals, dry run, and activity work as for other Connections. The token goes only to `mcp`, the `origins`, and the root URLs of `apis`.
+
+## Define one Connection per instance
+
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
+
+```ts
+// server/connections/portal.ts
+export default defineConnection({
+  instances: ["acme", "globex"],
+  definition: tenant => ({
+    provider: oauthLogin({ mcp: `https://${tenant}.example.com/mcp`, credentials: () => process.env[`PORTAL_${tenant.toUpperCase()}`], login }),
+    scopes: ["openid"],
+  }),
+});
+```
+
+This file defines `portal:acme` and `portal:globex`. Use them like any other Connection, for example `useConnection("portal:acme")` or `mcp({ servers: { portal_acme: { connection: "portal:acme" } } })`. `list()`, the CLI, and the Console show each instance. The bare name `portal` fails with an error that lists the instances. An instance key has 1 to 128 letters, digits, `.`, `_`, or `-`, and keys must be unique. `definition(instance)` runs once per process, when the instance is first used.
+
+## Pace and retry requests
+
+Set `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
+
+```ts
+apiKey({
+  origins: ["https://api.airtable.com"],
+  requests: {
+    bucket: "airtable-base", // Connections with the same bucket share one schedule and one 429 pause. Default: the Connection name.
+    rate: { limit: 5, perMs: 1000 }, // or { intervalMs: 200 }: request starts are spaced evenly.
+    retry: { attempts: 4, methods: ["GET"], delayMs: 250, on429: { minDelayMs: 30_000 } },
+    timeoutMs: 15_000, // Aborts each attempt.
+  },
+});
+```
+
+`retry.attempts` defaults to `3`. Network errors and `5xx` responses are retried with exponential backoff from `delayMs` (default `250`), only for `methods` (default `GET`, `HEAD`, `OPTIONS`). A `429` is retried for every method after `Retry-After`, at least `on429.minDelayMs`, and pauses the whole bucket. The last attempt returns its response as is. A caller abort stops at once and is not retried. The schedule is in memory, per server process or isolate.
 The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
 
 ## Use a custom store
@@ -124,7 +204,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 The actor module default-exports one of these policies:
 
 - A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
-- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTION_AUTH_REQUIRED`.
+- The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
 
@@ -173,6 +253,6 @@ See the [Connections documentation](https://vitehub.dev/docs/connections).
 
 Connection stores must implement `state.putForToken(state, revision)` as an atomic write that succeeds only while the encrypted token has that revision. A `null` revision requires the token to be absent. OAuth, refresh, and revocation use this check so older work cannot replace newer Connection metadata.
 
-An approved write that was sent to the provider can have an uncertain outcome after a lost response, a provider server error, or a local persistence failure. The runtime reports `CONNECTION_EXECUTION_UNKNOWN` and never replays that approval. Check the provider before requesting another approval. The management HTTP handler returns status 409 for this error.
+An approved write that was sent to the provider can have an uncertain outcome after a lost response, a provider server error, or a local persistence failure. The runtime reports `CONNECTIONS_EXECUTION_UNKNOWN` and never replays that approval. Check the provider before requesting another approval. The management HTTP handler returns status 409 for this error.
 
 After confirmed provider revocation, local recovery reads the current token revision. A persisted revoked marker restores `revoked` state. If the original token remains, recovery marks it `reauth_required` and retains its mutation fence. A newer replacement token is not changed.
