@@ -45,13 +45,14 @@ function queueEntry(text = "hello"): QueueEntry {
   }
 }
 
-function webhookDelivery(deliveryId: string, concurrencyKey?: string): AgentWebhookQueueDelivery {
+function webhookDelivery(deliveryId: string, concurrencyKey?: string, debounceKey?: string): AgentWebhookQueueDelivery {
   return {
     concurrencyGroup: "review",
     ...(concurrencyKey ? { concurrencyKey } : {}),
     concurrencyLimit: 2,
     deliveryId,
     enqueuedAt: Date.now(),
+    ...(debounceKey ? { debounceKey } : {}),
     leaseTtlMs: 1_000,
     request: {
       body: JSON.stringify({ action: "labeled" }),
@@ -414,6 +415,34 @@ describe("SQLite Agent State Provider", () => {
     await queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)
     await queue.completeWebhookDelivery(third!.scope, third!.deliveryId, third!.leaseToken)
     await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "delivery-4" })
+    await state.disconnect()
+  })
+
+  it("does not claim superseded debounced deliveries with concurrent capacity", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-1", undefined, "pr-1"))
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-2", undefined, "pr-1"))
+
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "debounced-2" })
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
+    await state.disconnect()
+  })
+
+  it("preserves an active debounced delivery when a newer one is admitted", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-1", undefined, "pr-2"))
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("debounced-running-1")
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-2", undefined, "pr-2"))
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const second = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(second?.deliveryId).toBe("debounced-running-2")
+    await expect(queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)).resolves.toBe(true)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
     await state.disconnect()
   })
 

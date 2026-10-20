@@ -54,6 +54,7 @@ describe("discoverDatabaseDefinitions", () => {
       name: "default",
       schemaSources: [{ handler: file, tableNames: ["notes"] }],
       source: "server-database-default",
+      tableNames: ["notes"],
     }])
   })
 
@@ -572,6 +573,20 @@ describe("resolveDBViteConfig", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
   })
 
+  it("allows reused bindings for D1 HTTP Definitions with native identifiers", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `export default defineDatabase({ name: '${name}', cloudflare: { binding: 'DB_SHARED', databaseId: 'id-${name}', databaseName: '${name}', http: true }, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it("preserves opaque resource ownership across spreads without resource keys", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
@@ -1023,6 +1038,15 @@ describe("resolveDBViteConfig", () => {
       { binding: "DB_ALPHA", database_id: "host-id", database_name: "host-db" },
       { binding: "DB_BETA", database_id: "host-id", database_name: "host-db" },
     ])
+  })
+
+  it("omits D1 HTTP Definitions from native Wrangler bindings", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/alpha/config.ts", "notes", { cloudflare: "http: true,\n    binding: 'SHARED',\n    databaseId: 'alpha-id',\n    databaseName: 'alpha'," })
+    await writeDefinition(rootDir, "server/databases/beta/config.ts", "notes", { cloudflare: "http: true,\n    binding: 'SHARED',\n    databaseId: 'beta-id',\n    databaseName: 'beta'," })
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)!
+    expect(resolveCloudflareD1Bindings(resolved).d1Databases).toEqual([])
   })
 
   it.each(["default", "alpha"] as const)("uses the inferred binding for inherited D1 HTTP with missing Env in %s direct and registry access", async (name) => {

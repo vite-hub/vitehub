@@ -447,11 +447,11 @@ Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects
 
 ## Know what the Console stores
 
-When Agents are configured and no journal is set, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
+When Agents are configured, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
 
-Console image uploads use the configured Blob store. Before each fresh upload, the Console retries at most 100 pending rollback records. Malformed batch records move to `_vitehub/console/quarantine/batch/<id>` with their original contents preserved. Fresh uploads continue, but stored attachment references remain unavailable while any quarantine record exists because its deletion ownership is unknown. Existing retained image bytes are not deleted by quarantine.
+Console image uploads use the configured Blob store. Before each fresh upload, the Console retries at most 100 pending rollback records. Malformed batch records move to `vitehub-console-attachment-quarantine/batch/<id>` with their original contents preserved. Fresh uploads continue, but stored attachment references remain unavailable while any quarantine record exists because its deletion ownership is unknown. Existing retained image bytes are not deleted by quarantine.
 
-To repair a quarantined record, recover its original attachment UUIDs from trusted storage history and write their JSON array (1–10 UUIDs) to the cleanup prefix that matches the quarantine record: use `_vitehub/console/cleanup/batch/<id>` for new quarantines and `vitehub-console-attachment-cleanup/<id>` for legacy quarantines. After a later upload successfully drains that cleanup record, remove the corresponding quarantine object through the Blob provider. Keep the quarantine record if its original UUIDs cannot be recovered; guessing could delete retained images.
+To repair a quarantined record, recover its original attachment UUIDs from trusted storage history and write their JSON array (1–10 UUIDs) to `vitehub-console-attachment-cleanup/batch/<id>`. After a later upload successfully drains that cleanup record, remove the corresponding quarantine object through the Blob provider. Keep the quarantine record if its original UUIDs cannot be recovered; guessing could delete retained images.
 
 Set `observations` on the Console configuration when the fallback journal needs larger records or more time to drain pending writes:
 
@@ -468,7 +468,7 @@ console: {
 }
 ```
 
-These limits apply only to the Console fallback journal. If discovered Agent Definitions or `agent.invocations` configure a shared journal, set its limits in that journal's `observations` option instead. See [Agent Invocations](/docs/agents/invocations) for defaults and supported bounds. Larger limits increase record storage and memory use.
+These limits apply only to the Console fallback journal. If discovered Agent Definitions configure a shared journal, set its limits in `defineAgentInvocations()` instead. See [Agent Invocations](/docs/agents/invocations) for defaults and supported bounds. Larger limits increase record storage and memory use.
 
 Set `VITEHUB_CONSOLE_DATABASE_URL` when the journal belongs on another volume or libSQL endpoint. Relative `file:` paths resolve from the ViteHub project root:
 
@@ -495,13 +495,14 @@ console: {
 
 The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Read that store and show it with the [UI parts](/docs/ui) when the app needs a custom inspection page.
 
-In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs during development.
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions and Runtime Schedules. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs during development.
 
-The fallback applies only when no journal is set. A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option remains authoritative. Its sessions are not copied into `console.sqlite`. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions.
+
+The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.
 
 The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store.
 
-The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Set [`agent.invocations`](/docs/agents/invocations#use-one-journal-for-every-agent) to give all of them the same journal. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
+The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 
 When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Cloudflare, Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
 
@@ -509,7 +510,7 @@ The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its in
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
-Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors automatically while hidden ViteHub objects are skipped (up to ten provider pages per request), and follows the returned cursor when you choose **Load more**. It supports a pathname prefix. ViteHub keeps the objects it writes for itself, such as Workspace history and Console attachments, under `_vitehub/`. The Blob section hides those objects by default. Turn on **Show ViteHub files** to list them. A page can have fewer objects than its limit when it skips ViteHub objects. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
+Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors only when you choose **Load more**, and supports a pathname prefix. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
 
 ## Inspect the Agent context
 
@@ -538,6 +539,9 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Databases is absent from the Console home | Configure `database`. The Console catalogs Database Definitions only when the integration is enabled. |
 | Rate Limits is absent from the Console home | Configure `rateLimit` and use statically declared `requireRateLimit()` policies. |
 | Workspaces is absent from the Console home | Configure `workspace` and add a discovered Workspace Definition. |
+| Sandboxes is absent from the Console home | Configure `sandbox: true` with a deployment preset that supports Sandbox. |
+| KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
+| Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
@@ -550,6 +554,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
 | The build or server warns that `auth: false` has no sign-in | Add `console.authorize`, or set `console.auth` to `'app'` or a Console Auth config. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. |
+| Agent Console startup fails on a hosted preset | Configure one durable Agent Invocations journal and attach it to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
@@ -578,7 +583,7 @@ A Console route that fails with its own diagnostic keeps that code, for example 
 
 Console image uploads require `console.invoke` to be enabled. The Agent and invoker profile selected when you submit stay fixed while images upload. If you switch Agents, the pending request does not redirect the input or open its result in the new Agent view.
 
-Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combined per invocation. Blob storage must return an HTTP or relative serving URL. The Console rolls back new uploads if storage or invocation setup fails before the Agent takes ownership. Images handed to an Agent remain under `_vitehub/console/attachments/` and follow your Blob storage retention policy.
+Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combined per invocation. Blob storage must return an HTTP or relative serving URL. The Console rolls back new uploads if storage or invocation setup fails before the Agent takes ownership. Images handed to an Agent remain under `vitehub-console-attachments/` and follow your Blob storage retention policy.
 
 ## Inspect capabilities
 

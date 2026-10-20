@@ -226,7 +226,7 @@ describe("landing page", () => {
     expect(source).not.toContain("<LandingNuxtHubMigration />");
     expect(source).toContain("useSeo({");
     expect(source).toContain('type: "website"');
-    expect(source).toContain('defineOgImage("Landing"');
+    expect(source).not.toContain("defineOgImage");
     expect(source).toContain("deploy it across supported Vite hosts");
     expect(source).not.toContain("titleTemplate");
   });
