@@ -2218,6 +2218,7 @@ function createManualDeliveryProgressUpdater(
 } {
   let latest: string | undefined
   let commentary = ""
+  let commentaryId: unknown
   let active = true
   let draining: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -2226,6 +2227,11 @@ function createManualDeliveryProgressUpdater(
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
       if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
+      // Show the current step, not the whole run: a new commentary segment replaces the previous one.
+      if (event.id !== undefined) {
+        if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
+        commentaryId = event.id
+      }
       commentary += event.text
       return commentary.trim() || undefined
     }
