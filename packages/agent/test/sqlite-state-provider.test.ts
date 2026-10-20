@@ -430,7 +430,7 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
-  it("finalizes an older debounced delivery when a newer one is admitted", async () => {
+  it("preserves an active debounced delivery when a newer one is admitted", async () => {
     const { state } = await createState()
     await state.connect()
     const queue = state as ViteHubSqliteAgentStateAdapter
@@ -438,6 +438,7 @@ describe("SQLite Agent State Provider", () => {
     const first = await queue.claimWebhookDelivery("webhook:review:github:")
     expect(first?.deliveryId).toBe("debounced-running-1")
     await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-2", undefined, "pr-2"))
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
     const second = await queue.claimWebhookDelivery("webhook:review:github:")
     expect(second?.deliveryId).toBe("debounced-running-2")
     await expect(queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)).resolves.toBe(true)
