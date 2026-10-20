@@ -115,6 +115,13 @@ describe("useHighlightedCode", () => {
     expect(wrapper.html()).not.toContain("--shiki-light");
   });
 
+  it("preserves output after an ST-terminated OSC sequence", async () => {
+    const { html, container } = await hydrate("\u001b]0;title\u001b\\visible output\u0007", "ansi");
+    expect(html).toContain("visible output");
+    expect(html).not.toContain("title");
+    container.remove();
+  });
+
   it("drops ANSI escape codes from plain text and renders their colors after mount", async () => {
     const { container, html, warn } = await hydrate("\u001b[31mfailed\u001b[0m", "ansi");
     expect(html).toContain("failed");

@@ -39,7 +39,7 @@ function loadHighlighter(): Promise<HighlighterCore> {
 
 // Strip CSI and OSC terminal control sequences from plain ANSI fallback text.
 // eslint-disable-next-line no-control-regex
-const ansiEscapes = /(?:\u001B\][^\u0007]*(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~])/g;
+const ansiEscapes = /(?:\u001B\](?:[^\u0007\u001B]|\u001B(?!\\))*(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~])/g;
 
 function plainLines(code: string, language: string): VNode[] {
   const text = language.toLowerCase() === "ansi" ? code.replace(ansiEscapes, "") : code;
