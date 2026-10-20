@@ -2218,7 +2218,7 @@ function createManualDeliveryProgressUpdater(
     if (options?.updates === "commentary") {
       if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
-      if (event.id !== commentaryId) {
+      if (event.id !== undefined && event.id !== commentaryId) {
         commentaryId = event.id
         commentary = ""
       }

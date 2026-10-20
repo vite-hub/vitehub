@@ -20332,7 +20332,7 @@ describe("server helpers", () => {
         run: () => ({
           stream: (async function* () {
             yield { delta: "Planning the lookup. ", id: "step-1", phase: "commentary", type: "text-delta" }
-            yield { delta: "Reading the schema.", id: "step-1", phase: "commentary", type: "text-delta" }
+            yield { delta: "Reading the schema.", phase: "commentary", type: "text-delta" }
             yield { delta: "Querying error tracking.", id: "step-2", phase: "commentary", type: "text-delta" }
             yield { finishReason: "stop", type: "finish" }
           })(),
