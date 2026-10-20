@@ -187,7 +187,7 @@ const codes = {
     why: ({ problem }: { problem: "cross-site" | "origin" }): string => problem === "cross-site"
       ? "The browser marked this request as cross-site."
       : "The browser origin does not match the origin that the server sees.",
-    fix: "Behind a TLS-terminating proxy, make the server see the public https origin: trust X-Forwarded-Proto and X-Forwarded-Host, or configure the public URL. Otherwise, send the request from the app origin.",
+    fix: "Behind a TLS-terminating proxy, set vitehub({ publicUrl }) to the public https origin, or make the server trust X-Forwarded-Proto and X-Forwarded-Host. Otherwise, send the request from the app origin.",
   },
   CONNECTIONS_REQUEST_FAILED: {
     why: "The Connections request failed.",

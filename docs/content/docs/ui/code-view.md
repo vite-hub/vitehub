@@ -6,17 +6,17 @@ navigation.group: Agent work
 icon: i-ph-code-light
 ---
 
-`AgentCodeView` renders a virtualized list of files and diffs in one scroll container. `AgentFile` renders one syntax-highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or produced next to the changes it made.
+`CodeView` renders a virtualized list of files and diffs in one scroll container. `FileView` renders one syntax-highlighted file without a diff. Both use Pierre's `@pierre/diffs` views with the Nuxt UI theme. Use them to show the files an Agent read or produced next to the changes it made.
 
 ::component-preview{name="CodeViewExample"}
 ::
 
 ## Usage
 
-Give `AgentCodeView` a height. It owns the scrolling inside that height.
+Give `CodeView` a height. It owns the scrolling inside that height.
 
 ```vue
-<AgentCodeView class="h-[32rem]" :items="items" />
+<CodeView class="h-[32rem]" :items="items" />
 ```
 
 Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A `diff` item has a `fileDiff: FileDiffMetadata`, for example from `getSingularPatch(patch)`.
@@ -25,14 +25,14 @@ Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A 
 
 ### One file
 
-`AgentFile` renders one file. Set `selectedLines` to highlight a range from application state.
+`FileView` renders one file. Set `selectedLines` to highlight a range from application state.
 
 ::component-preview{name="FileExample"}
 ::
 
 ## API reference
 
-### AgentCodeView
+### CodeView
 
 #### Props
 
@@ -42,7 +42,7 @@ Each item has an `id` and a `type`. A `file` item has a `file: FileContents`. A 
 | `options`       | `CodeViewOptions`                     |          | Pierre options for the list.                   |
 | `selectedLines` | `CodeViewLineSelection \| null`       |          | The selected lines. Controlled when set.       |
 
-### AgentFile
+### FileView
 
 #### Props
 

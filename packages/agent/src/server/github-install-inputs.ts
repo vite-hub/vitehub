@@ -21,7 +21,7 @@ function checkDownloadSource(value: string): void {
   if (decoded.includes("\\") && /(?:^|[@:(])https:/i.test(decoded)
     || /(?:^|[@:(])https:(?!\/\/)/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS URL with forward slashes.");
   for (const match of decoded.matchAll(/(?:^|[@:(])([a-z][a-z\d+.-]*):/gi)) {
-    if (!["npm", "workspace", "catalog", "file", "link", "portal", "https"].includes(match[1]!.toLowerCase())) throw new Error("Unsupported dependency source protocol; downloads require a trusted HTTPS registry or code host.");
+    if (!["npm", "workspace", "catalog", "file", "link", "portal", "https"].includes(match[1]!.toLowerCase())) throw new Error("Unsupported dependency source protocol; downloads require a trusted HTTPS registry or forge.");
   }
   // Git fetchers prepare remote projects before packing them, which can run
   // unvalidated install scripts even when the final install skips builds.
@@ -29,11 +29,11 @@ function checkDownloadSource(value: string): void {
   if (!source && !/(?:^|@)npm:/.test(decoded) && /(?:^|@)(?!\.{1,2}\/)[\w.-]+\/(?!\.{1,2}(?:#|$))[\w.-]+(?:#.*)?$/.test(decoded)) throw new Error("Git dependencies require preparation inside the provider sandbox.");
   if (source && !/^file:/i.test(source)) {
     const url = new URL(source.replace(/^git\+/i, ""));
-    if (url.protocol !== "https:" || !downloadHosts.has(url.hostname) || url.port || url.username || url.password) throw new Error("Dependency downloads require a trusted HTTPS registry or code host.");
+    if (url.protocol !== "https:" || !downloadHosts.has(url.hostname) || url.port || url.username || url.password) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
     const githubArchive = /^\/[^/]+\/[^/]+\/archive\/.+\.(?:tar\.gz|zip)$/i.test(url.pathname)
       || /^\/[^/]+\/[^/]+\/releases\/download\/[^/]+\/.+\.(?:tgz|tar\.gz)$/i.test(url.pathname);
     if (/\.git\/?$/i.test(url.pathname) || url.hostname === "github.com" && !githubArchive) throw new Error("Git dependencies require preparation inside the provider sandbox.");
-  } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or code host.");
+  } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
 }
 const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links"]);
 const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern"]);

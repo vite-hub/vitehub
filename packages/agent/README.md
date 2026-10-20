@@ -110,6 +110,8 @@ Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, nul
 
 `runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
 
+Trusted code can scope extra tools and Agent Capabilities to one Invocation with the options argument: `runAgent(agent, input, { tools, capabilities, output: 'drained' })`. `capabilities` join the run after the Agent's own Capabilities and do not change the Agent Definition. They cannot add triggers, Workspace Sources, or chat access, and a repeated Capability id fails setup. Both options select inline execution. `runtimeContext.capabilities` is a different option: it replaces host runtime values, such as Connections or KV. See [scheduled results](https://vitehub.dev/docs/agents/invocations#scheduled-results-and-process-recovery).
+
 ## Structured data and interception
 
 Set `defineAgent({ data })` to a Standard Schema to validate `input.data` before Capabilities, hooks, and the Driver run. Invalid data fails the Invocation. Call sites use the schema input type; hooks and `intercept` receive the schema output type. Model and provider Drivers do not read `data`, so pass model text in `prompt` or `messages`.
@@ -368,6 +370,8 @@ for the code format and an application catalog example.
 Non-streaming chat replies answer the triggering message as a native reply when the Chat SDK adapter supports it, such as Telegram `reply_parameters`. Natively streamed replies, retries after a host restart, and adapters without native replies post a new thread message.
 
 Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
+
+With inline `messages.concurrency: "steer"`, only the same invoker steers the active Agent Invocation. Set `messages.steerFromParticipants: true` to let an admitted message from another human in the same thread steer it too. The Invocation keeps the first invoker. Durable Workflow delivery still queues messages from other invokers separately.
 
 Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel to answer human replies without an @mention in subscribed threads. The default is `false`. Mentions subscribe the conversation. Programmatically created bot threads must be subscribed through the same Agent chat state before replies can be admitted. Unmentioned messages in other threads and messages from other bots remain ignored. `messages.filter` receives `deliveryKind: "subscribed"` for these replies. Provider permissions must still allow the bot to receive channel messages.
 
@@ -730,9 +734,9 @@ hubAgent({
 
 Aliases use the native webhook handler, retaining the request body and signature headers. The target Channel must be configured on that Agent. Static route collisions fail at build time. Deno and standalone Netlify output do not currently support aliases.
 
-## Code Host capability
+## Forge capability
 
-`codeHost()` from `@vite-hub/agent/capabilities` gives an Agent repository tools for GitHub, GitLab and Forgejo. Read mode is the default. Write mode adds comments, labels, reviews and checks. Credentials come from Server Env. Repository access is bounded by `repositories` or the triggering pull request context. See [Code Host](../../docs/content/docs/agents/capabilities/code-host.md) for tools, approval and limits.
+`forge()` from `@vite-hub/agent/capabilities` gives an Agent repository tools for GitHub, GitLab and Forgejo. Read mode is the default. Write mode adds comments, labels, reviews and checks. Credentials come from Server Env. Repository access is bounded by `repositories` or the triggering pull request context. See [Forge](../../docs/content/docs/agents/capabilities/forge.md) for tools, approval and limits.
 
 ## Capability inspection
 
