@@ -45,7 +45,7 @@ function spyDriver(): BlobDriverAdapter<{ driver: "fs" }> {
 }
 
 describe("blob pathname validation", () => {
-  const unsafe = ["", "/", "..", ".", "a/../b", "a/./b", "..%2Fsecret", "%2e%2e/secret", "a\\..\\b", "a%5C..%5Cb", "a\u0000b", "a%00b", "a\nb", "a%7Fb"]
+  const unsafe = ["", "/", "..", ".", "a/../b", "a/./b", "..%2Fsecret", "%2e%2e/secret", "a\\..\\b", "a%5C..%5Cb", "a\u0000b", "a%00b", "a\nb", "a%7Fb", "a\uD800b", "a\uDC00b"]
 
   it.each(unsafe)("rejects %j before any driver call", async (pathname) => {
     const driver = spyDriver()
