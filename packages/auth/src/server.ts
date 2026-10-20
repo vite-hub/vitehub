@@ -234,10 +234,16 @@ function toRequest(request: AuthRequest): Request {
   if (isAbortSignalLike(request.signal)) {
     const controller = new AbortController()
     const signal = request.signal as AbortSignal
-    if (signal.aborted) controller.abort()
+    if (signal.aborted) controller.abort(signal.reason)
     else {
-      try { signal.addEventListener("abort", () => controller.abort(), { once: true }) }
-      catch { /* malformed signal-like values are handled by Request below */ }
+      try {
+        signal.addEventListener("abort", (event) => controller.abort((event as Event & { reason?: unknown }).reason), { once: true })
+      }
+      catch (error) {
+        // A signal that cannot be observed must not be replaced by an
+        // unrelated live signal, since that silently loses cancellation.
+        throw error
+      }
     }
     init.signal = controller.signal
   }
