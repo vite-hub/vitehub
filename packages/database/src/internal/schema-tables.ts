@@ -39,7 +39,10 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "schema key", name: key, second: part.owner })
       keys.set(key, part.owner)
     }
-    for (const sqlName of part.schema.sqlNames.values()) {
+    // A schema may export one table under multiple keys. Those aliases are
+    // a single source and must not conflict with themselves; only compare
+    // names across distinct schema parts.
+    for (const sqlName of new Set(part.schema.sqlNames.values())) {
       const existing = sqlNames.get(sqlName)
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "table", name: sqlName, second: part.owner })
       sqlNames.set(sqlName, part.owner)

@@ -1040,6 +1040,15 @@ describe("resolveDBViteConfig", () => {
     ])
   })
 
+  it("omits D1 HTTP Definitions from native Wrangler bindings", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/alpha/config.ts", "notes", { cloudflare: "http: true,\n    binding: 'SHARED',\n    databaseId: 'alpha-id',\n    databaseName: 'alpha'," })
+    await writeDefinition(rootDir, "server/databases/beta/config.ts", "notes", { cloudflare: "http: true,\n    binding: 'SHARED',\n    databaseId: 'beta-id',\n    databaseName: 'beta'," })
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)!
+    expect(resolveCloudflareD1Bindings(resolved).d1Databases).toEqual([])
+  })
+
   it.each(["default", "alpha"] as const)("uses the inferred binding for inherited D1 HTTP with missing Env in %s direct and registry access", async (name) => {
     const rootDir = await createTempProject()
     const originalId = process.env.VITEHUB_TEST_INHERITED_D1_ID
