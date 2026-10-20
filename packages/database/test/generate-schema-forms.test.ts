@@ -157,7 +157,7 @@ describe("Database table names", () => {
   it("requires a default export with a schema object", async () => {
     const rootDir = await createProject(["export const schema = {}", "export default defineDatabase"])
 
-    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/config.ts"))).rejects.toMatchObject({ code: "DATABASE_INVALID_SCHEMA_EXPORT" })
+    await expect(loadDatabaseTableNames(join(rootDir, "server/databases/config.ts"))).rejects.toMatchObject({ code: "DATABASE_B0008" })
   })
 
   it("resolves host aliases while loading the Definition", async () => {
@@ -178,6 +178,6 @@ describe("Database table names", () => {
       "export default defineDatabase({ schema: { schema: notes } })",
     ])
 
-    await expect(writeGeneratedDatabaseArtifacts(resolveDBViteConfig(undefined, rootDir)!)).rejects.toMatchObject({ code: "DATABASE_RESERVED_SCHEMA_KEY" })
+    await expect(writeGeneratedDatabaseArtifacts(resolveDBViteConfig(undefined, rootDir)!)).rejects.toMatchObject({ code: "DATABASE_B0009" })
   })
 })

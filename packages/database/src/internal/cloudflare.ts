@@ -218,6 +218,9 @@ export function resolveCloudflareD1Bindings(
   for (const name of config.databaseNames) {
     const database = config.databases[name]?.cloudflare
     if (!database) continue
+    // HTTP-backed D1 Definitions use the HTTP runtime and are not emitted as
+    // native Wrangler d1_databases bindings.
+    if (database.http) continue
 
     const projection = resolveCloudflareD1Binding({
       database: name,
