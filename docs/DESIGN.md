@@ -27,7 +27,7 @@ The current production assets are generated from the SVG source:
 - `docs/public/og/vitehub.png` for social previews on every docs page
 - `.github/assets/readme-banner-light.png` and `.github/assets/readme-banner-dark.png` for the README header
 
-Run `node docs/scripts/og-images.mjs` to render the social preview and the README banners again.
+Run `node docs/scripts/og-images.mjs` to render the social preview and the README banners again. The script uses a Chromium executable from `OG_CHROMIUM_PATH`, or a `chromium`/`google-chrome` command on `PATH`; install Chromium or set that variable before running it.
 
 Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative logo construction diagrams, and alternate mark systems.
 

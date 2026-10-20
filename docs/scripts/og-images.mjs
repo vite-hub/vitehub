@@ -1,6 +1,7 @@
 // Renders the social preview image and the README banners with headless Chromium.
 // Run `node docs/scripts/og-images.mjs` after you change the copy or the layout.
 // The docs package does not depend on Playwright, so this script borrows the copy from @vite-hub/browser.
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -20,6 +21,24 @@ const outputs = [
   { file: ".github/assets/readme-banner-dark.png", size: "banner", theme: "dark", width: 2000, height: 700, scale: 1.6 },
   { file: ".github/assets/readme-banner-light.png", size: "banner", theme: "light", width: 2000, height: 700, scale: 1.6 },
 ];
+
+function chromiumExecutable() {
+  const configured = process.env.OG_CHROMIUM_PATH;
+  if (configured) return configured;
+
+  const command = process.platform === "win32" ? "where.exe" : "which";
+  for (const name of ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]) {
+    try {
+      return execFileSync(command, [name], { encoding: "utf8" }).trim().split(/\r?\n/, 1)[0];
+    } catch {
+      // Try the next common Chromium command.
+    }
+  }
+
+  throw new Error(
+    "Could not find a Chromium executable. Install Chromium or set OG_CHROMIUM_PATH to its executable path, then rerun node docs/scripts/og-images.mjs.",
+  );
+}
 
 const hosts = [
   { name: "Cloudflare", icon: "cloudflare" },
@@ -156,7 +175,7 @@ h1 span { color: var(--muted); }
 </html>`;
 }
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ executablePath: chromiumExecutable() });
 try {
   for (const output of outputs) {
     const context = await browser.newContext({
