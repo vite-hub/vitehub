@@ -505,7 +505,7 @@ export type {
   AgentRunMetadata,
   AgentRunResult,
   AgentRuntime,
-  AgentBoxDefinition,
+  AgentSandboxDefinition,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,

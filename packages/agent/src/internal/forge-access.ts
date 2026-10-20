@@ -162,8 +162,9 @@ export async function forgeGitEnvironment(
     const headToken = await access(context, signal ? { repository: headRepository, signal } : { repository: headRepository })
     if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
   }
+  const publicGitHub = isGitHubDotCom(baseUrl)
   const env: Record<string, string> = {
-    GH_HOST: baseUrl ? new URL(baseUrl).hostname : "github.com",
+    GH_HOST: publicGitHub ? "github.com" : new URL(baseUrl!).hostname,
     // Ignore ambient system and global Git configuration. The scoped entries
     // above are the only credentials a run is allowed to use.
     GIT_CONFIG_NOSYSTEM: "1",
@@ -171,7 +172,7 @@ export async function forgeGitEnvironment(
     GIT_CONFIG_COUNT: String(entries.length),
     GIT_TERMINAL_PROMPT: "0",
   }
-  if (env.GH_HOST === "github.com") {
+  if (publicGitHub) {
     env.GH_TOKEN = token
     env.GITHUB_TOKEN = token
   }
