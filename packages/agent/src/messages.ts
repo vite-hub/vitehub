@@ -200,7 +200,7 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
-export const isAttachmentBlob = isBlobValue
+export const isAttachmentBlob: (value: unknown) => value is Blob = isBlobValue
 
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
