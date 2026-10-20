@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { forgeErrorStatus, repoRef, type ForgeProvider } from "@vite-hub/forge";
 import type { Claim, PullRequestInbox, Snapshot } from "./inbox/store.ts";
 import { actionLocation, failed } from "./inbox/ci-evidence.ts";

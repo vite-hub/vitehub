@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "../../server/github-required-checks.ts";
+import type { GitHubCheckEvidence, GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
 import type { GitHubEvidence } from "./inbox/types.ts";
 import type { Snapshot } from "./inbox/store.ts";
-import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 

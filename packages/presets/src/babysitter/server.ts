@@ -3,25 +3,25 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
-import { agentBuildRevision } from "../../internal/build-revision.ts";
-import { GitHubDependencyConflictError } from "../../server/github-install-inputs.ts";
+import { presetsBuildRevision } from "../internal/build-revision.ts";
+import { GitHubDependencyConflictError } from "@vite-hub/agent/server/github";
 import * as v from "valibot";
 import { join } from "node:path";
 import { branchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
-import { prepareGitHubRepairBase } from "../../server/github-repair.ts";
-import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
+import { prepareGitHubRepairBase } from "@vite-hub/agent/server/github";
+import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "@vite-hub/agent/server/github";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
-import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
-import { createMessage, defineAgent, runAgent, publishAgentActivity } from "../../index.ts";
-import { resolveAgentCapabilityDefinitions } from "../../capability-runtime.ts";
-import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "../../index.ts";
+import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
+import { resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
-} from "../../server/github.ts";
-import type { GitHubHost } from "../../server/github.ts";
+} from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "@vite-hub/agent/server/github";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
@@ -32,15 +32,15 @@ import type { PullRequestWake } from "./inbox/wait-state.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
-import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
-import { importBoxCommit } from "./box-commit.ts";
+import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "@vite-hub/agent/server/internal";
+import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
-import { importBoxRepairFiles, importBoxRepairWorkspace, publishBoxDependencies } from "./box-repair.ts";
-import { activeProviderBox } from "../../internal/provider-box.ts";
+import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
+import { activeProviderSandbox } from "@vite-hub/agent/server/internal";
 import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
-import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../../server/github-required-checks.ts";
+import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, createCheckWait, failureKeys, hasPendingChecks, reviewCheckRunning, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety } from "./stack.ts";
@@ -52,7 +52,7 @@ import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recove
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 
-declare const __VITEHUB_AGENT_BUILD_REVISION__: string;
+declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
 export interface BabysitterRuntimeOptions {
   agent: AgentInput;
@@ -152,7 +152,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
-    revision: baseAgent.version ?? (typeof __VITEHUB_AGENT_BUILD_REVISION__ === "undefined" ? agentBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_AGENT_BUILD_REVISION__),
+    revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
     publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
       channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
     }) : undefined,
@@ -1284,10 +1284,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const baseCapabilities = workerSettings.capabilities;
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
                 if (!workerSettings.box) return;
-                const session = activeProviderBox(context);
+                const session = activeProviderSandbox(context);
                 if (!session) throw new Error("The repair Box is not prepared.");
                 await assertLease();
-                if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
+                if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
                 readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
@@ -1308,21 +1308,21 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!workerSettings.box) return;
                   await assertLease();
                   await assertRepairBase();
-                  const box = activeProviderBox(context);
+                  const box = activeProviderSandbox(context);
                   if (!box) throw new Error("The repair Box is not prepared.");
                   if (!box.localWorkspace) {
-                    await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
-                    if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
-                    else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
+                    await importSandboxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
+                    if (paths) await importSandboxRepairFiles(box.session, checkout, paths, abortSignal);
+                    else await importSandboxRepairWorkspace(box.session, checkout, abortSignal);
                   }
                   await assertLease();
                 },
                 afterRefresh: async context => {
                   if (!workerSettings.box || presetOptions.install === false) return;
                   await assertLease();
-                  const box = activeProviderBox(context);
+                  const box = activeProviderSandbox(context);
                   if (!box) throw new Error("The repair Box is not prepared.");
-                  if (!box.localWorkspace) await publishBoxDependencies(box.session, checkout, abortSignal);
+                  if (!box.localWorkspace) await publishSandboxDependencies(box.session, checkout, abortSignal);
                   await assertLease();
                 },
               });

@@ -3,8 +3,8 @@ import type { Check, Page } from "@vite-hub/forge";
 import type { GitHubEvidence } from "./inbox/types.ts";
 import type { PullRequestWait } from "./inbox/wait-state.ts";
 import type { Snapshot } from "./inbox/store.ts";
-import type { GitHubRequiredCheckState } from "../../server/github-required-checks.ts";
-import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
+import type { GitHubRequiredCheckState } from "@vite-hub/agent/server/github";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
