@@ -45,6 +45,7 @@ export type {
   AzureBlobStoreConfig,
   BoxBlobStoreConfig,
   CloudflareR2BlobStoreConfig,
+  CloudflareR2Jurisdiction,
   DigitalOceanSpacesBlobStoreConfig,
   DropboxBlobStoreConfig,
   FsBlobStoreConfig,
