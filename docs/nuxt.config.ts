@@ -92,6 +92,18 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
+      // One static preview for every page. Crawlers such as X and Slack read these tags from the server HTML.
+      // Regenerate the image with `node docs/scripts/og-images.mjs`.
+      meta: [
+        { property: "og:image", content: "https://vitehub.dev/og/vitehub.png" },
+        { property: "og:image:type", content: "image/png" },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { property: "og:image:alt", content: "ViteHub: the server layer for Vite apps." },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:image", content: "https://vitehub.dev/og/vitehub.png" },
+        { name: "twitter:image:alt", content: "ViteHub: the server layer for Vite apps." },
+      ],
       link: [
         { rel: "icon", type: "image/png", href: "/favicon.png" },
         { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
