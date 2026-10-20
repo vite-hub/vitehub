@@ -57,7 +57,9 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   if (config.url) return config.url
   if (!options.request) return
   const request = new URL(options.request.url)
-  return Object.values(config.agents ?? {}).find(url => new URL(url).host === request.host) ?? request.origin
+  const configuredAgents = Object.values(config.agents ?? {})
+  return configuredAgents.find(url => new URL(url).host === request.host)
+    ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
 }
 
 /** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */

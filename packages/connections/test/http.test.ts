@@ -424,6 +424,14 @@ describe("createConnectionsHandler", () => {
       });
       expect((await handler(request)).status).toBe(403);
     });
+
+    it("uses the only configured Agent URL behind an internal host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+    });
   });
 
   it("gives non-JSON requests their own code", async () => {
