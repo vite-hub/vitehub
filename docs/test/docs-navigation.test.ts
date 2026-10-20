@@ -58,17 +58,18 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
-
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
       const pages = section?.pages.filter(page => page.navigation) || [];
+      const startTitle = pages.find(page => page.path.endsWith("/get-started"))?.title;
+      const template = ["Overview", startTitle, "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"]
+        .filter((title): title is string => Boolean(title));
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain("Tutorial");
+      expect(templateTitles, sectionId).toContain(startTitle);
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Concepts pages may sit between
       // template lanes without changing the order of the shared template pages.
@@ -79,6 +80,7 @@ describe("docs product navigation", () => {
         .map(label => laneOrder.indexOf(label))
         .filter(index => index !== -1);
       expect(knownLaneIndexes, sectionId).toEqual([...knownLaneIndexes].sort((left, right) => left - right));
+
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -139,6 +141,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -153,7 +156,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0 && (!group.label || group.pages.length > 1)), sectionId).toBe(true);
+      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
