@@ -76,7 +76,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MISSING_CONNECTION: {
       why: ({ database, needs }: { database: string, needs: string }) => `The database "${database}" has no connection. It needs ${needs}.`,
-      fix: "On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url` in the Database Definition or its environment variable.",
+      fix: "On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url` in the Database Definition or its environment variable. A Postgres database can use the PG* environment variables, such as `PGHOST`, instead.",
     },
     DATABASE_MISSING_D1_HTTP_CONFIG: {
       why: ({ database, missing }: { database: string, missing: string }) => `The database "${database}" uses D1 HTTP and needs ${missing} at runtime.`,
