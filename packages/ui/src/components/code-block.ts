@@ -11,9 +11,9 @@ export const CodeBlock = defineComponent({
     size: { default: "default", type: String as PropType<CodeBlockSize> },
     variant: { default: "default", type: String as PropType<CodeBlockVariant> },
   },
-  setup(props, { attrs, slots }) {
+  setup(props, { slots }) {
     return () =>
-      h("div", { ...attrs, "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
+      h("div", { "data-size": props.size, "data-slot": "code-block", "data-variant": props.variant }, slots.default?.());
   },
 });
 
@@ -36,17 +36,13 @@ export const CodeBlockCopyButton = defineComponent({
     const copy = () => {
       try {
         const clipboard = navigator.clipboard;
-        if (!clipboard?.writeText) return;
-        return clipboard.writeText(props.value)
-          .then(() => {
-            copied.value = true;
-            clearTimeout(timeout);
-            timeout = setTimeout(() => (copied.value = false), 2_000);
-          })
-          .catch(() => {});
-      } catch {
-        return;
-      }
+        if (!clipboard || typeof clipboard.writeText !== "function") return;
+        void clipboard.writeText(props.value).then(() => {
+          copied.value = true;
+          clearTimeout(timeout);
+          timeout = setTimeout(() => (copied.value = false), 2_000);
+        }).catch(() => {});
+      } catch { return; }
     };
     return () => [
       h(UButton, {
@@ -60,10 +56,10 @@ export const CodeBlockCopyButton = defineComponent({
         "data-copied": copied.value ? "" : undefined,
         "data-slot": "code-block-copy-button",
         onClick: (event: MouseEvent) => {
-          const listeners = attrs.onClick;
-          for (const listener of Array.isArray(listeners) ? listeners : [listeners]) {
-            if (typeof listener === "function") listener(event);
-          }
+          const listener = attrs.onClick;
+          if (Array.isArray(listener)) {
+            for (const handler of listener) if (typeof handler === "function") handler(event);
+          } else if (typeof listener === "function") listener(event);
           void copy();
         },
       }),
@@ -90,15 +86,7 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  if (node.type === Text) return String(node.children ?? "") === "";
-  if (node.type === Fragment && Array.isArray(node.children)) {
-    return node.children.length === 0 || node.children.every(isEmptyText);
-  }
-  if (typeof node.children === "string") return node.children === "";
-  if (Array.isArray(node.children)) {
-    return node.children.length === 0 || node.children.every(isEmptyText);
-  }
-  return node.children == null;
+  return (node.type === Text && String(node.children ?? "") === "") || (typeof node.type === "string" && String(node.children ?? "") === "");
 }
 
 function textOf(nodes: VNode[]): string | undefined {
@@ -132,7 +120,6 @@ export const CodeBlockContent = defineComponent({
       return h(
         "pre",
         {
-          "data-allow-mismatch": "children",
           "data-numbered": props.lineNumbers ? "" : undefined,
           "data-slot": "code-block-content",
           "data-wrap": props.wrap ? "" : undefined,

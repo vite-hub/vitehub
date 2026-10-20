@@ -151,6 +151,7 @@ jobs:
   contract-tests:
     name: contract tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,6 +176,9 @@ jobs:
           EXCLUDE: ${{ steps.scope.outputs.exclude }}
         run: vp run build && vp test --config vitest.config.ts --exclude "$EXCLUDE"
 
+  # Without a timeout a hung shard holds main's ci concurrency group for GitHub's 6-hour default, and
+  # every later main run waits behind it: on 2026-10-20 "package tests (agent 3/3)" hung three
+  # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
   # about 4 minutes and set the floor. The last shard excludes the named
@@ -184,6 +188,7 @@ jobs:
   package-tests:
     name: package tests (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -253,6 +258,7 @@ jobs:
     name: consumer contracts (${{ matrix.shard }})
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         shard:
@@ -301,6 +307,7 @@ jobs:
     name: docs
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

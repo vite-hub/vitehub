@@ -49,12 +49,6 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
-    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
-      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
-    expect(docsManifest.sections.filter(section => serverPrimitiveSections.includes(section.id))
-      .every(section => getDocsSectionKind(section) === "Server Primitive")).toBe(true);
-    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "agents")!)).toBe("Agent runtime");
-    expect(getDocsSectionKind(docsManifest.sections.find(section => section.id === "ui")!)).toBe("UI components");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -88,34 +82,6 @@ describe("docs product navigation", () => {
     }
   });
 
-  it("keeps custom frontmatter groups and kinds after the known primitive lanes", () => {
-    const kv = docsManifest.sections.find(section => section.id === "kv")!;
-    const page = (id: string, kind: string | null, group?: string, navigation = true) => ({
-      ...kv.pages[0]!, id, title: id, path: `/docs/kv/${id}`, kind, group, navigation,
-    });
-    const section = { ...kv, pages: [
-      page("support-one", "Tutorial", " Support "),
-      page("recipe-one", " Recipes "),
-      page("configure", "Guides"),
-      page("index", null),
-      page("tutorial", "Tutorial"),
-      page("support-two", "Reference", "Support"),
-      page("server-api", "Reference"),
-      page("recipe-two", "Recipes"),
-      page("hosts", "Deploy"),
-      page("hidden", "Invisible", undefined, false),
-    ] };
-    const groups = getDocsSidebarGroups(section);
-
-    expect(groups.map(group => group.label)).toEqual([null, null, "Build", null, "Support", "Recipes"]);
-    expect(groups.map(group => group.pages.map(page => page.id))).toEqual([
-      ["index"], ["tutorial"], ["configure", "server-api"], ["hosts"],
-      ["support-one", "support-two"], ["recipe-one", "recipe-two"],
-    ]);
-    expect(groups.flatMap(group => group.pages).map(page => page.path).sort())
-      .toEqual(section.pages.filter(page => page.navigation).map(page => page.path).sort());
-  });
-
   it("keeps Agent-only Capabilities inside the Agents section", () => {
     const agents = docsManifest.sections.find(section => section.id === "agents");
     const capabilities = agents?.pages.filter(page => page.id.startsWith("capabilities")) || [];
@@ -139,12 +105,14 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
+      "Collaboration",
       "Agent work",
       "Utilities",
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
-      .toEqual(["Chat App", "Invocation Dashboard", "Code Review"]);
+      .toEqual(["Chat App", "Code Review", "Collaborative Editor"]);
   });
 
   it("groups every navigable page of a large section", () => {

@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", () => ({ requestConsole: mocks.request }))
 vi.mock("@vite-hub/ui", () => ({
-  AgentFileTree: {},
-  AgentPatchDiff: {},
+  FileTree: {},
+  PatchDiff: {},
 }))
 vi.mock("../src/console/runtime/components/invocation", () => ({
   AgentCapabilityInspector: {},

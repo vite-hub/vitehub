@@ -1,9 +1,9 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+import { normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { normalizeSafeWorkspacePath } from "@vite-hub/workspace/internal/path"
 
 export const messageWorkspaceChange = 4
 /** Server-to-client JSON control frame: the room session on open, or a reset before closing. */
@@ -61,6 +61,7 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 
 function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
+
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || value.includes("//") || /^[a-z]:/i.test(value)) return false
   try {
     return normalizeSafeWorkspacePath(value) === value

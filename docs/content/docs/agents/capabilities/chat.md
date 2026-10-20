@@ -7,7 +7,7 @@ navigation.group: Capabilities
 icon: i-lucide-messages-square
 ---
 
-`chat()` adds chat behavior to an Agent Definition. It registers the `chat.message` Agent Trigger, requests optional Chat History state, and adds a chat finish extension and final reply delivery. It adds no model-facing tools.
+`chat()` adds chat behavior to an Agent Definition. It registers the `chat.message` Agent Trigger, requests optional Chat History state, and adds a chat finish extension and final reply delivery. It adds no model-facing tools unless you set `allowSilentReply`.
 
 The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to the CLI Dev Loop. [Channels](/docs/agents/channels) own route admission and delivery for message platforms.
 
@@ -47,7 +47,7 @@ During preparation, the Capability requests Chat History state as an optional re
 
 ## Security and approval
 
-`chat()` adds no model-facing tool and has no `policy` option.
+`chat()` has no `policy` option. Its only model-facing tool is `skip_reply`, which it adds when `allowSilentReply` is set.
 
 - Chat messages come from end users of the chat interface. Treat them as untrusted model input.
 - The final reply and the error fallback text go back to the chat interface.
@@ -92,6 +92,7 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `commentary` | `"hidden" \| "message"` | `"hidden"` | Publish explicit Driver commentary phases as progress messages. Cannot be combined with `loading` or manual delivery. |
 | `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| "serial" \| "steer" \| string` | inherited | Overlapping message behavior. `serial` runs each retained message as a separate awaited Agent Invocation in queue order. `queue` coalesces retained messages into one invocation. `steer` sends overlapping input to the active Agent Invocation when its Driver supports live steering. Queue retention and failure guarantees come from the configured Chat State runtime. |
 | `debounceMs` | `number` | none | Only with `concurrency: "steer"`. Wait this many milliseconds after the first message, then start one Agent Invocation with all messages received in that window. Without it, each message starts its own handling at once. With durable Workflow delivery, later messages still go to the active Workflow. An inline Agent Invocation keeps the Chat SDK lock until it finishes, so messages that arrive during it start the next Invocation instead of steering. |
+| `steerFromParticipants` | `boolean` | `false` | Only with inline `concurrency: "steer"`. A message from another human in the same thread steers the active Agent Invocation instead of starting its own. The Invocation keeps the first invoker. See [Steer with other participants](/docs/agents/channels#steer-with-other-participants). |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope for message locks. |
 | `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
 | `userName` | `string` | `"vitehub"` | Agent username for adapter-backed Chat SDK delivery. |
@@ -99,7 +100,9 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `loading` | `{ text: string \| string[] \| null \| function; updates?: "commentary"; intervalMs?: number }` | none | Post a loading message and replace it with the final text when the Agent finishes. Cannot be combined with `stream` or `commentary`. `intervalMs` must be a positive number. |
 | `delivery` | `"automatic" \| "manual"` | `"automatic"` | `"manual"` posts no final text. Finish hooks own all replies with `event.reply()`. Cannot be combined with `stream` or `commentary`. |
 | `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message before removing the loading message. |
+| `allowSilentReply` | `boolean` | `false` | Add a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply and the loading message is removed. The trace records a skipped `chat.final-reply` delivery effect with the reason. Requires `loading` without `delivery: "manual"`. |
 | `timeout` | `number` | none | Positive time limit in milliseconds for inline execution and the durable handoff's typing indicator. |
+| `wrapUp` | `false \| { beforeMs?: number; prompt?: string }` | on for a `timeout` of 5 minutes or more | `beforeMs` (default 2 minutes) before `timeout` cancels an inline Invocation, steer it to send its final reply with what it found. Needs a Driver that accepts steering mid-turn, such as the Provider Drivers; otherwise only the timeout applies. `false` turns it off. |
 | `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`. Allows only `concurrency: "parallel"` or `"steer"`. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function receives `error`, `publicError`, `invocation`, and `defaultText`, the text ViteHub sends when this option is not set. `invocation` is `{ id, consoleUrl? }` when the error belongs to a run. |
 | `errorConsoleLink` | `boolean` | `false` | Add `Details: <Console URL>` of the failed Invocation to the end of each error reply, also after custom `errorFallbackText`. ViteHub adds no link when the reply already contains the URL, when the run is unknown, or when no [public URL](/docs/development/integrations-and-output#public-url) is set. Keep it off for external users, because the link shows internal details. Durable Workflow error replies do not have the link yet. |

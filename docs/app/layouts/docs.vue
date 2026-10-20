@@ -81,4 +81,17 @@ const hasPanel = computed(
     border-right: 1px solid var(--ui-border);
   }
 }
+
+
+@media (min-width: 40rem) {
+  .vh-docs-main,
+  .vh-docs-landing,
+  .vh-docs-split {
+    padding: 0 2rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .vh-docs-split { padding-right: 0; }
+}
 </style>

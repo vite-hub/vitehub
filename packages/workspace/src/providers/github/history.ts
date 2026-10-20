@@ -203,8 +203,8 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const readTree = async (commit: GitHubCommit): Promise<GitHubHistoryEntry[]> => {
     const cached = treeCache.get(commit.sha)
     if (cached) return cached
-    const tree = await readTreeItems(commit.tree.sha, true)
-    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(commit.tree.sha) : tree.items
+    const tree = await readTreeItems(commit.sha, true)
+    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(commit.sha) : tree.items
     const entries = treeEntries.flatMap(entry => {
       const historyEntry = asHistoryEntry(entry, options.root)
       return historyEntry ? [historyEntry] : []
@@ -262,10 +262,10 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
 
   const readBranchHead = async (ref: string): Promise<string | null> => {
     try {
-      return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, ref), "commit")
+      return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${ref}`), "commit")
     }
     catch (error) {
-      if (isNoHistoryError(error)) return null
+      if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
       throw error
     }
   }
@@ -437,7 +437,11 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       if (current?.sha === await gitBlobSha(bytes) && current.mode === mode) continue
       updates.push({ bytes, fullPath: joinGitPath(options.root, path), mode })
     }
-    // Keep empty commits: they are real history revisions and may be used as the next `ifHead`.
+    if (!updates.length && !deletes.length) {
+      // `commitFiles()` cannot make an empty commit. A commit without changes keeps the current head.
+      if (state.branchExists) return await revision(ref, state.refSha, commitOptions.metadata)
+      throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
+    }
     const commitSha = await commitGitHubChanges({
       branch: ref,
       branchExists: state.branchExists,

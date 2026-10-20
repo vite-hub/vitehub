@@ -725,6 +725,29 @@ describe("blob runtime", () => {
     ])
   })
 
+  it("points the Files SDK R2 fallback at the jurisdiction host", async () => {
+    process.env.R2_ACCOUNT_ID = "account"
+    setBlobRuntimeConfig({
+      store: {
+        accountId: "********",
+        accessKeyId: "access-key",
+        binding: "BLOB",
+        bucketName: "eu-assets",
+        driver: "cloudflare-r2",
+        jurisdiction: "eu",
+        secretAccessKey: "secret-key",
+      },
+    })
+
+    expectBlobSuccess(await blob.list())
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "account",
+      bucket: "eu-assets",
+      endpoint: "https://account.eu.r2.cloudflarestorage.com",
+    }))
+  })
+
   it("rechecks the active Cloudflare binding after runtime storage is cached", async () => {
     process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
     process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"

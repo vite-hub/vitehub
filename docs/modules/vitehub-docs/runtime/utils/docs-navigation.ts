@@ -19,6 +19,13 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
+/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -38,8 +45,7 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
-/** Compatibility helpers for the legacy rail and catalog components. */
-export const getDocsRailCatalog = getDocsCatalog;
+/** Compatibility helper for the legacy catalog component. */
 export function getDocsSectionKind(section: DocsSection) {
   if (section.id === docsRootSectionId) return "Get started";
   if (section.id === "ui") return "UI components";
@@ -76,8 +82,8 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));
-}
+
+  return [...groups].map(([label, pages]) => ({ label, pages }));}
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
 export function getDocsRelatedSections(sections: DocsSection[], section: DocsSection) {
@@ -92,8 +98,6 @@ const docsLandingCategorySet = new Set<string>(docsLandingCategories);
 
 /** Sections whose Overview stays a regular docs page even though their category is a product category. */
 const docsPageOverviewSections = new Set(["ui"]);
-const primitiveCategories = new Set<DocsCategory>(["Data", "Compute", "Access", "Delivery", "Files"]);
-const primitiveSidebarGroupOrder: Array<string | null> = [null, "Learn", "Build", "Deploy and operate"];
 
 /** True for `/docs` and for the Overview of every product section. These pages have a hero and no sidebar. */
 export function isDocsLandingPath(sections: DocsSection[], path: string) {

@@ -117,6 +117,7 @@ export type AgentPublicErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "RATE_LIMIT_REJECTED"
   | "RATE_LIMIT_UNAVAILABLE"
+  | "TIMEOUT"
   | "TRANSCRIPTION_AUTHENTICATION_FAILED"
   | "TRANSCRIPTION_INVALID_PAYLOAD"
   | "TRANSCRIPTION_INVALID_REQUEST"
@@ -368,6 +369,13 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
       if (hasRuntimeType(message, "string")
         && providerQuotaMessage.test(message)) {
         return quotaExhausted(message)
+      }
+    }
+    // Chat and queued webhook timeouts. The same diagnostic also reports a lost inline turn, which is not a timeout.
+    if (readAgentErrorProperty(error, "code") === "AGENT_R0820") {
+      const message = readAgentErrorProperty(error, "message")
+      if (hasRuntimeType(message, "string") && /\btimed out\b/.test(message)) {
+        return publicError("TIMEOUT", "I ran out of time before I could finish this. Please try a narrower request.")
       }
     }
     const viteHubError = getViteHubErrorShape(error)

@@ -11,22 +11,51 @@ icon: i-ph-markdown-logo-light
 ::component-preview{name="MarkdownExample"}
 ::
 
+## Installation
+
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/markdown`:
+
+```ts
+import { Markdown } from "@vite-hub/ui";
+```
+
 ## Usage
+
+```ts
+import { Markdown } from "@vite-hub/ui";
+```
 
 ```vue
 <Markdown :value="part.text" :streaming="part.state === 'streaming'" />
 ```
 
-## Examples
+## Composition
 
-### Streaming
+`Markdown` passes the value to the Comark root. The built-in `img` and `math` components render images and formulas. Replace them with the `components` prop.
+
+```text
+Markdown (Comark root, vh-typeset vh-typeset-chat)
+├── img: image preview, or components.img
+└── math: KaTeX, or components.math
+```
+
+## Features
+
+- Parses partial Markdown while text streams.
+- Keeps the layout stable while streamed text appends new nodes.
+- Renders math with KaTeX.
+- Shows images as thumbnails that open a full preview.
+- Accepts Comark components, parser options, and plugins.
+- Never renders raw HTML.
+
+## Streaming
 
 Set `streaming` while text arrives. A formula without its closing delimiter stays text until the delimiter arrives.
 
 ::component-preview{name="MarkdownStreamingExample" reset}
 ::
 
-### Math
+## Math
 
 KaTeX renders math by default. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
 
@@ -38,14 +67,14 @@ KaTeX renders math by default. Use `$...$` or `\(...\)` for inline formulas and 
 - Math inside code spans and fenced code blocks stays literal.
 - If KaTeX rejects a formula, its source renders as code.
 
-### Images
+## Images
 
 Images render as compact thumbnails. Select one to open it at its full aspect ratio. Press Escape or select the close button to return. The dialog also links to the original image.
 
 ::component-preview{name="MarkdownImageExample"}
 ::
 
-## Custom components
+## Custom Components
 
 Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview, or `components.math` to replace KaTeX. A math component receives the formula as `content` and a `class` that contains `block` for display math.
 
@@ -72,27 +101,29 @@ Override the typography variables on one instance or globally. The base rules st
 
 Change the default class for every instance with the `markdown.class` [default](/docs/ui/installation#defaults).
 
-## API reference
+## Accessibility
+
+- Raw HTML in the source does not render. KaTeX runs with trusted commands disabled.
+- Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
+- Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
+
+## API Reference
 
 ### Markdown
+
+Renders the Markdown source as styled prose.
 
 #### Props
 
 | Prop         | Type                          | Default | Description                                                         |
 | ------------ | ----------------------------- | ------- | ------------------------------------------------------------------- |
-| `value`      | `string`                      | `''`    | The Markdown source.                                                |
+| `value`      | `string`                      | `""`    | The Markdown source.                                                |
 | `streaming`  | `boolean`                     | `false` | Parses the value as partial, streamed Markdown.                     |
 | `components` | `MarkdownProps['components']` |         | Comark components. Merged over the built-in `img` and `math` components. |
 | `options`    | `MarkdownProps['options']`    |         | Comark parser options. `html` is always `false`.                    |
 | `plugins`    | `MarkdownProps['plugins']`    |         | Comark parser plugins. Added after the built-in math plugin.        |
 
 Other attributes, for example `class`, go to the Comark root.
-
-## Accessibility
-
-- Raw HTML in the source does not render. KaTeX runs with trusted commands disabled.
-- Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
-- Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
 
 ## Related
 

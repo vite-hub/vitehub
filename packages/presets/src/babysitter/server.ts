@@ -15,7 +15,8 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
-import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import { forgeAccessKey } from "@vite-hub/agent/server/internal";
+import { resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
@@ -36,6 +37,7 @@ import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } fro
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
+import { activeProviderSandbox } from "@vite-hub/agent/server/internal";
 import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
@@ -51,7 +53,7 @@ import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recove
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 
-declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
+declare const __VITEHUB_AGENT_BUILD_REVISION__: string;
 
 export interface BabysitterRuntimeOptions {
   agent: AgentInput;
@@ -151,7 +153,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
-    revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
+    revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
     publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
       channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
     }) : undefined,
@@ -219,13 +221,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return async (query, variables) => {
       const { provider } = await forge(repository, signal);
       const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1];
-      return (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data;
+      // Keep the GraphQL envelope intact. Snapshot readers validate `errors`
+      // before consuming `data`, and partial responses must not become state.
+      return await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal }).then(response => response.data);
     };
   }
 
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
     const { provider } = await forge(repository, signal);
-    return readForgePullRequestThreads(provider, repository, number, signal);
+    return readForgePullRequestThreads(provider, repository, number);
   }
 
   function isAbortError(error: unknown): boolean {
@@ -870,7 +874,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               (path, projection) => readRest(path, projection, passSignal),
               (repository, number) => readThreads(repository, number, passSignal),
               activityAuthors,
-              passSignal,
             ))
           ) {
             await pullRequestInbox.release(inboxClaim);
@@ -1262,9 +1265,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
-              // the host identity, but dropping the whole map loses other
+              // the host forge access, but dropping the whole map loses other
               // channel-scoped capabilities needed by repair passes.
-              const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
+              const { channels: _baseChannels, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
               // Placement runs once per pass, before any host install, and never overrides a configured Box.
               if (presetOptions.placement && !workerSettings.box) {
                 placementLease ??= await presetOptions.placement.place({ repository, number });
@@ -1276,7 +1279,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
                 const sanitized = { ...channel };
                 // A GitHub channel under any key can otherwise reintroduce host credentials.
-                Reflect.deleteProperty(sanitized, Symbol.for("vitehub.githubChannelIdentity"));
+                Reflect.deleteProperty(sanitized, forgeAccessKey);
                 return [name, sanitized];
               }));
               const baseCapabilities = workerSettings.capabilities;
@@ -1339,8 +1342,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 pullRequest: { filter, workspace: false },
               }) };
               // Preserve host-owned activity and delivery closures without
-              // exposing their identity to provider credential resolution.
-              Reflect.deleteProperty(workerChannel, Symbol.for("vitehub.githubChannelIdentity"));
+              // exposing their forge access to provider credential resolution.
+              Reflect.deleteProperty(workerChannel, forgeAccessKey);
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
               let baseWorkspace: Record<string, unknown> = {};
@@ -1348,9 +1351,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 baseWorkspace = { ...await resolveRegisteredWorkspaceDefinition(configuredWorkspace) };
               }
               else if (isRuntimeRecord(configuredWorkspace)) {
-                const workspaceName = Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string")
-                  ? configuredWorkspace.name
-                  : undefined;
+                const workspaceName = hasRuntimeType(configuredWorkspace.name, "string") ? configuredWorkspace.name : undefined;
                 const registeredWorkspace = workspaceName
                   ? await resolveRegisteredWorkspaceDefinition(workspaceName)
                   : undefined;
