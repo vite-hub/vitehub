@@ -669,7 +669,9 @@ export function resolveDBViteConfig(
   if (options && options.connection) definitionDefaults.connection = options.connection
   const bindingOwners = new Map<string, string>()
   for (const name of definitions.map(definition => definition.name)) {
-    const binding = databases[name]?.cloudflare?.binding
+    // Only native D1 projections emit competing Wrangler bindings. HTTP, remote,
+    // opaque, and unresolved resources may safely reuse a binding name.
+    const binding = cloudflareProjections[name]?.binding
     if (!binding) continue
     const previous = bindingOwners.get(binding)
     if (previous) {

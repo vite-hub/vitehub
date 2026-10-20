@@ -1,11 +1,11 @@
 import type { UIMessage } from "ai";
 import {
-  AgentCodeView,
-  AgentFile,
-  AgentFileDiff,
-  AgentMultiFileDiff,
-  AgentPatchDiff,
-  AgentUnresolvedFile,
+  CodeView,
+  FileView,
+  FileDiff,
+  MultiFileDiff,
+  PatchDiff,
+  UnresolvedFile,
   getSingularPatch,
   type CodeViewItem,
   type FileContents,
@@ -23,12 +23,12 @@ const codeViewItems: CodeViewItem<unknown>[] = [
   { fileDiff, id: "diff", type: "diff" },
 ];
 
-void AgentCodeView;
-void AgentFile;
-void AgentFileDiff;
-void AgentMultiFileDiff;
-void AgentPatchDiff;
-void AgentUnresolvedFile;
+void CodeView;
+void FileView;
+void FileDiff;
+void MultiFileDiff;
+void PatchDiff;
+void UnresolvedFile;
 void codeViewItems;
 
 declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;

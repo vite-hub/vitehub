@@ -39,7 +39,10 @@ export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
 function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined): PlannedDatabase[] {
   const nuxtHostResource = Boolean(options && "nuxtHostResource" in options && options.nuxtHostResource === true)
   // An enabled Vite database always has a default Database. The Nuxt host resource is the Nuxt default Database.
-  const config = resolveDBViteConfig(options, rootDir, { implicitDefault: !nuxtHostResource })
+  const config = resolveDBViteConfig(options, rootDir, {
+    implicitDefault: !nuxtHostResource,
+    serverDirs: options && "nuxtServerDirs" in options ? options.nuxtServerDirs : undefined,
+  })
   const plannedByName = new Map<string, PlannedDatabase>()
   for (const definition of config?.databaseNames ?? []) {
     const cloudflare = config?.databases[definition]?.cloudflare

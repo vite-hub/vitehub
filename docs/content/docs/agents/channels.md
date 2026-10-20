@@ -36,7 +36,7 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/code-host-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
 
 `teams()` instructs the Agent to cite sources with descriptive Markdown links to verified URLs. Chat SDK Channel delivery labels unresolved native web citations as `[source link unavailable]`, including during streaming. Codex app-server does not supply a citation-ID-to-URL map, so ViteHub cannot recover those links from the IDs. Ordinary source links remain intact.
 
@@ -80,6 +80,22 @@ teams({
 ```
 
 An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
+## Steer with other participants
+
+With `messages.concurrency: 'steer'`, a later message steers the active Agent Invocation only when it comes from the same invoker. A message from another person waits and then starts its own Invocation. Set `messages.steerFromParticipants: true` to let other people in the same thread steer the active work:
+
+```ts
+teams({
+  messages: {
+    concurrency: 'steer',
+    durable: false,
+    steerFromParticipants: true,
+  },
+})
+```
+
+The message must pass admission first, so group conversations still require a mention, and `messages.filter` and `access()` still apply. Only human authors in the same thread steer, also when `lockScope` covers more than one thread. The Invocation keeps the invoker of the first message, with its identity and authority. The steered message is input only, and its message header names its author. When the Driver does not support live steering, the message starts its own Invocation after the active one, the same as for one invoker. This applies to inline steering. With durable Workflow delivery, a message from another invoker still queues as a separate Invocation.
 
 ## Act on the Channel message in hooks
 
@@ -207,6 +223,27 @@ export const airtable = defineChannel('airtable', {
 })
 ```
 
+### Answer slow webhooks early
+
+Some providers wait only a short time for an answer. GitHub closes the connection after 10 seconds and does not send the delivery again. A trigger that reads the provider's API before it queues the delivery, or a process that is still starting, can take longer than that.
+
+With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Objects, ViteHub stores the verified request before the trigger runs. The route then answers within `ackTimeoutMs`, counted from the request's arrival. The default is 5000 ms.
+
+- When admission finishes in time, the provider gets the trigger's own answer.
+- When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+
+The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+
+```ts [server/agents/support.ts]
+webhooks: {
+  path: '/api/github/webhook',
+  ackTimeoutMs: 8_000, // `false` waits for admission
+}
+```
+
+Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
+
 ## Replay Channel history
 
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.
@@ -307,21 +344,7 @@ An inline Agent runs each item before it reads the next one and reports it as `c
 
 Some providers send one webhook for several messages. A Channel trigger can answer the webhook itself and call `context.dispatch(items, { trigger })` to start one Invocation per item through another trigger of the same Channel. Each item has an `input` for that trigger and a `key`. Dispatched items get the same Invocation IDs as a replay, so an item that already has an Invocation is skipped.
 
-On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`. The webhook queue gives a replayed delivery the same State.
-
-A trigger that always needs the State declares `durableState: true`. Its `invoke` gets `context.channelState` typed as present, and ViteHub throws `AGENT_R1005` before `invoke` runs when the State is not bound, for example when code calls the trigger outside the Channel's webhook route. Pair it with the Channel's `webhooks.durableState`, which answers `503` when the configured State is not durable.
-
-```ts
-triggers: {
-  changed: defineChannelTrigger({
-    durableState: true,
-    async invoke(context, input: { cursor: string }) {
-      await context.channelState.state.set(`${context.channelState.keyPrefix}cursor`, input.cursor)
-      return new Response(null, { status: 204 })
-    },
-  }),
-}
-```
+On a webhook delivery, `context.channelState` gives the trigger the Channel's State Adapter. Store provider cursors under `context.channelState.keyPrefix`.
 
 ```ts
 triggers: {
@@ -338,6 +361,22 @@ triggers: {
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
 
+### Queue dispatched items
+
+`context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue instead of running it now, as if the item arrived as its own webhook delivery. The receiving trigger must answer with `webhook.deliveryId` and `webhook.serialize` or `webhook.concurrencyLimit`, so `debounce` and the queue's retries apply. Items are admitted in order. The first item that cannot be admitted throws, and later items are not admitted. An item that the trigger answers below 400 without a delivery, such as `ignored()`, is skipped with reason `handled`. An item whose delivery ID is already queued is skipped with reason `duplicate`. When a queued item fails its last attempt, the `failed` callback of the receiving trigger runs.
+
+Queued dispatch is available while the Channel's webhook route runs the calling trigger with a queue-capable State, such as SQLite or libSQL. `dryRun` is not available with `queue`.
+
+Give an item `order: { key, version }` when a provider can send changes to one entity again or out of order. The item is skipped with reason `stale`, before the trigger runs, unless `version` is greater than the last version admitted or answered for `key` through the same trigger. The new version commits with the admission of the item. An item whose trigger throws or answers 400 or above does not change the version, so a retry admits it.
+
+```ts
+await context.dispatch(changes.map(change => ({
+  input: change,
+  key: change.eventId,
+  order: { key: change.recordId, version: change.sequence },
+})), { queue: true, trigger: 'change' })
+```
+
 ### Decide and write Channel State in one step
 
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
@@ -351,7 +390,7 @@ invoke: (context, change: { id: string, version: number, text: string }) =>
   }),
 ```
 
-Inside `invoke` on the Channel's webhook route, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+Inside `invoke` on the Channel's webhook route, or in an item of a queued dispatch, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
 
 How the write and the admission commit depends on the State:
 

@@ -27,8 +27,8 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { Markdown, AgentPatchDiff } from "@vite-hub/ui";
-import { AgentToolList } from "@vite-hub/ui";
+import { Markdown, PatchDiff } from "@vite-hub/ui";
+import { ToolList } from "@vite-hub/ui";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {
@@ -701,7 +701,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
           ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
         activity.patches.length
-          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
+          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(PatchDiff, { key: index, patch })))
           : command
           ? h("div", { class: "vh-invocation-command" }, [
               h("div", { class: "vh-invocation-command__bar" }, [
@@ -1166,7 +1166,7 @@ function inspectorTools(
       h("strong", "Tools"),
       h("small", `${used} of ${rows.length} used`),
     ]),
-    h(AgentToolList, { calls: Object.fromEntries(counts), onSelect: selectTool, tools: rows }),
+    h(ToolList, { calls: Object.fromEntries(counts), onSelect: selectTool, tools: rows }),
   ]);
 }
 
@@ -1249,7 +1249,7 @@ function renderConfiguration(
                   h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
                   renderDisclosureChevron("vh-invocation-inspector__chevron"),
                 ]),
-                tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
+                tools.length ? h(ToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
                   h("summary", "Configuration"),
                   h("pre", payloadText(capability.metadata)),
@@ -1650,10 +1650,10 @@ const agentInvocationInspector = defineComponent({
     let copyTimer: ReturnType<typeof setTimeout> | undefined;
     const metrics = computed(() => ({
       changes: activities.value.filter((activity) => activity.kind === "change").length,
-      messages: conversation.value.kind === "activities"
-        ? conversation.value.activities.filter(activity => activity.kind === "message").length
-        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup]
-          .filter(activity => activity.kind === "message").length,
+      messages: (conversation.value.kind === "activities"
+        ? conversation.value.activities
+        : [...conversation.value.history, ...(conversation.value.prompt ? [conversation.value.prompt] : []), ...conversation.value.work, ...conversation.value.answers, ...conversation.value.followup])
+        .filter(activity => activity.kind === "message").length,
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,

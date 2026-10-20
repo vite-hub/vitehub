@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {
-  type AgentTrace as AgentTraceComponent,
-  useAgentFileTree,
-  useAgentFileTreeSelection,
+  type TraceRun as TraceRunComponent,
+  useFileTree,
+  useFileTreeSelection,
 } from "@vite-hub/ui";
 import { computed } from "vue";
 
-type TraceRun = InstanceType<typeof AgentTraceComponent>["$props"]["run"];
+type Run = InstanceType<typeof TraceRunComponent>["$props"]["run"];
 
 // Synthetic review data. In an application, read patches from the Agent's change activity or Git.
 const patches: Record<string, string> = {
@@ -46,7 +46,7 @@ const patches: Record<string, string> = {
  })`,
 };
 
-const tree = useAgentFileTree({
+const tree = useFileTree({
   paths: [...Object.keys(patches), "src/index.ts", "package.json"],
   initialExpansion: "open",
   initialSelectedPaths: ["src/status.ts"],
@@ -56,10 +56,10 @@ const tree = useAgentFileTree({
     { path: "test/status.test.ts", status: "modified" },
   ],
 });
-const selectedPaths = useAgentFileTreeSelection(tree);
+const selectedPaths = useFileTreeSelection(tree);
 const selectedPath = computed(() => selectedPaths.value.find((path) => path in patches));
 
-const verification: TraceRun = {
+const verification: Run = {
   durationMs: 2_840,
   endTime: "2026-08-23T09:04:12.840Z",
   events: [],
@@ -97,16 +97,16 @@ const verification: TraceRun = {
   <div class="@container min-w-0 bg-default">
     <div class="grid @2xl:h-[34rem] @2xl:grid-cols-[14rem_minmax(0,1fr)]">
       <div class="h-48 min-h-0 overflow-auto border-b border-default p-2 @2xl:h-auto @2xl:border-e @2xl:border-b-0">
-        <AgentFileTree :model="tree" aria-label="Changed files" />
+        <FileTree :model="tree" aria-label="Changed files" />
       </div>
       <div class="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto p-3">
-        <AgentPatchDiff v-if="selectedPath" :key="selectedPath" :patch="patches[selectedPath]!" />
+        <PatchDiff v-if="selectedPath" :key="selectedPath" :patch="patches[selectedPath]!" />
         <p v-else class="grid flex-1 place-items-center text-sm text-muted">
           Select a changed file to review its diff.
         </p>
-        <AgentTrace :run="verification">
+        <TraceRun :run="verification">
           <template #title>Verification</template>
-        </AgentTrace>
+        </TraceRun>
       </div>
     </div>
   </div>

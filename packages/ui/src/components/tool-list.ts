@@ -1,0 +1,128 @@
+import { defineComponent, getCurrentInstance, h, type PropType } from "vue";
+import { hasRuntimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
+import type { AgentToolInspection } from "../types.ts";
+
+function schemaBlock(label: string, schema: AgentToolInspection["inputSchema"]) {
+  if (schema === undefined) return h("p", { class: "vh-agent-tool-list__unavailable" }, `${label} not recorded.`);
+  const text = hasRuntimeType(schema, "string") ? JSON.stringify(schema) : payloadText(schema);
+  // Inspect the serialized value so getters and custom conversions cannot escape the display guard.
+  let normalized: unknown;
+  try { normalized = JSON.parse(text); } catch { normalized = undefined; }
+  const object: Record<string, unknown> | undefined = hasRuntimeType(normalized, "object") && normalized !== null && !Array.isArray(normalized) ? Object.fromEntries(Object.entries(normalized)) : undefined;
+  const properties = object?.properties;
+  const fields = hasRuntimeType(properties, "object") && properties !== null && !Array.isArray(properties) ? Object.entries(properties) : [];
+  const required = Array.isArray(object?.required) ? object.required : [];
+  return h("section", { class: "vh-agent-tool-list__schema" }, [
+    h("strong", label),
+    fields.length ? h("table", { class: "vh-agent-tool-list__properties" }, [
+      h("thead", [h("tr", [h("th", "Field"), h("th", "Type"), h("th", "Description")])]),
+      h("tbody", fields.map(([name, value]) => {
+        const field: Record<string, unknown> = hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+        return h("tr", [
+          h("td", [h("code", name), required.includes(name) ? h("small", "Required") : null]),
+          h("td", Array.isArray(field.type) ? field.type.join(" | ") : String(field.type || (field.$ref ? "Reference" : "See schema"))),
+          h("td", hasRuntimeType(field.description, "string") ? field.description : "—"),
+        ]);
+      })),
+    ]) : null,
+    h("details", { open: !fields.length }, [h("summary", "JSON schema"), h("pre", text)]),
+  ]);
+}
+
+export const ToolList = defineComponent({
+  name: "ToolList",
+  emits: {
+    /** Emitted with a used tool's name when the viewer asks to see its calls. */
+    select: (name: string) => Boolean(name),
+  },
+  props: {
+    calls: {
+      required: false,
+      // SAFETY: Vue's runtime Object constructor is paired with the read-only numeric call-count contract.
+      type: Object as PropType<Readonly<Record<string, number>>>,
+    },
+    tools: {
+      required: true,
+      // SAFETY: Vue's runtime Array constructor is paired with the exported serializable tool-inspection contract.
+      type: Array as PropType<readonly AgentToolInspection[]>,
+    },
+  },
+  setup(props, { emit }) {
+    const instance = getCurrentInstance();
+    const Icon = instance?.appContext.components.UIcon;
+    const toolIcon = (tool: AgentToolInspection) => Icon && tool.icon
+      ? h("span", { "aria-hidden": "true", class: "vh-agent-tool-list__icon" }, [h(Icon, { name: tool.icon })])
+      : null;
+    return () =>
+      h(
+        "div",
+        { class: "vh-agent-tool-list" },
+        props.tools.map((tool) => {
+          const count = props.calls?.[tool.name];
+          const calls = count ? `${count} call${count === 1 ? "" : "s"}` : undefined;
+          const usage = !props.calls
+            ? null
+            : calls && instance?.vnode.props?.onSelect
+              ? h("button", {
+                  "aria-label": `${calls}, show the first call`,
+                  class: "vh-agent-tool-list__count",
+                  onClick: (event: MouseEvent) => {
+                    // The button can sit in a disclosure summary; keep the disclosure state.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    emit("select", tool.name);
+                  },
+                  title: "Show the first call",
+                  type: "button",
+                }, calls)
+              : h("span", { "aria-label": calls ?? "Not used", class: "vh-agent-tool-list__count" }, calls ?? "—");
+          const attributes = {
+            "data-used": props.calls ? (count ? "true" : "false") : undefined,
+            key: tool.name,
+          };
+          const hasDetails = Boolean(
+            tool.description || tool.inputSchema !== undefined || tool.outputSchema !== undefined,
+          );
+          if (!hasDetails) {
+            return h("div", { ...attributes, class: "vh-agent-tool-list__item" }, [
+              toolIcon(tool),
+              h("code", tool.name),
+              tool.label ? h("small", tool.label) : null,
+              usage,
+            ]);
+          }
+          return h("details", { ...attributes, class: "vh-agent-tool-list__disclosure" }, [
+            h("summary", [
+              toolIcon(tool),
+              h("code", tool.name),
+              h("small", tool.label || tool.description || "Tool contract"),
+              usage,
+              h(
+                "svg",
+                {
+                  "aria-hidden": "true",
+                  class: "vh-agent-tool-list__chevron",
+                  fill: "none",
+                  viewBox: "0 0 24 24",
+                },
+                [
+                  h("path", {
+                    d: "m7 10 5 5 5-5",
+                    "stroke-linecap": "round",
+                    "stroke-linejoin": "round",
+                  }),
+                ],
+              ),
+            ]),
+            h("div", { class: "vh-agent-tool-list__body" }, [
+              tool.mcp ? h("p", ["MCP tool: ", h("code", tool.mcp.name), " on ", h("code", tool.mcp.server)]) : null,
+              tool.description ? h("p", tool.description) : null,
+              schemaBlock("Input schema", tool.inputSchema),
+              schemaBlock("Output schema", tool.outputSchema),
+            ]),
+          ]);
+        }),
+      );
+  },
+});

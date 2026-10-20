@@ -83,6 +83,7 @@ const agentCapabilities = {
 } satisfies Record<string, string>;
 
 const movedLearningPages = new Map(Object.entries({
+  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
@@ -96,6 +97,8 @@ const movedLearningPages = new Map(Object.entries({
 export const docsPageRedirects = {
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
+  "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
+  "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
@@ -108,6 +111,7 @@ export const docsPageRedirects = {
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
+  "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/box-tutorial": "/docs/agents/sandbox-tutorial",

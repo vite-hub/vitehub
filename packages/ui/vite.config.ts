@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
 export default defineConfig({
   pack: {
@@ -22,11 +23,8 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      ...new Set(componentNames.map((name) => `src/${componentEntryName(name)}.ts`)),
       "src/index.ts",
-      "src/agent-code-view.ts",
-      "src/agent-file-tree.ts",
-      "src/agent-tool-list.ts",
-      "src/agent-trace.ts",
       "src/attachment.ts",
       "src/bubble.ts",
       "src/chat.ts",
@@ -62,7 +60,12 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        return { ...normalized, "./styles.css": "./dist/styles.css" };
+        const remapped = Object.fromEntries(
+          Object.entries(normalized).map(([key, value]) =>
+            key.startsWith("./components/agent-") ? [key.replace("./components/", "./"), value] : [key, value],
+          ),
+        );
+        return { ...remapped, "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },
