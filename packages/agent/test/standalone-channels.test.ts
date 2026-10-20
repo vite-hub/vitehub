@@ -6,7 +6,7 @@ import { H3 } from 'h3'
 import { createServer } from 'vite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hubAgent } from '../src/vite.ts'
-import { discoverStandaloneChannels } from '../src/vite/standalone-channels.ts'
+import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -122,5 +122,14 @@ import { oldPath } from './paths'
 export default defineChannel('intake', { webhooks: { path: '/api/intake', aliases: [oldPath] } })
 ` })
     expect(() => discoverStandaloneChannels([join(root, 'server')])).toThrow(/webhooks\.aliases must be an array of string literals/)
+  })
+})
+
+describe('standalone Channel aliases', () => {
+  it('preserves an explicitly configured owner for a shared path', () => {
+    const channels = [{ agent: 'channel-intake', handler: '/server/channels/intake.ts', name: 'intake', paths: ['/shared'] }]
+    expect(standaloneChannelWebhookAliases(channels, { '/shared': { agent: 'support', webhook: 'github' } })).toEqual({
+      '/shared': { agent: 'support', webhook: 'github' },
+    })
   })
 })
