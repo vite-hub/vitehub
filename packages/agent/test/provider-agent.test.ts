@@ -4661,6 +4661,10 @@ cli_auth_credentials_store = "keyring"
         await expect(readFile(join(root, "portal", ".codex/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
         await expect(readFile(join(root, "portal", ".claude/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
         await expect(readFile(join(root, "portal", ".agents/skills/outer-only/SKILL.md"), "utf8")).resolves.toBe("# Outer Only\n")
+        // The Agent's own Skill comes from the invocation context, not the Workspace store, and stays inside the checkout.
+        await expect(readFile(join(root, "portal", ".agents/skills/own-review/SKILL.md"), "utf8")).resolves.toBe("# Own Review\n")
+        await expect(access(join(root, ".agents/skills/own-review"))).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readFile(join(root, "portal", ".git/info/exclude"), "utf8")).resolves.toContain("/.agents/skills/own-review/SKILL.md")
       },
     })
     const session = {
@@ -4728,6 +4732,9 @@ cli_auth_credentials_store = "keyring"
         source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
       },
       repository: { fullName: "acme/portal", name: "portal" },
+    })
+    runContext.context.set("agent.colocatedSkills", {
+      "__vitehubAgentSkill:.agents/skills/own-review/SKILL.md": { content: "# Own Review\n", materialize: "startup", mount: "", workspacePath: ".agents/skills/own-review/SKILL.md" },
     })
     const generatedTools = workspaceCommandTools("all", "write", undefined, workspace, { context: runContext.context as never })
     const providerContext = Object.assign(runContext, { tools: generatedTools })
