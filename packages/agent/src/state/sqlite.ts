@@ -252,6 +252,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           FROM ${this.tables.webhookQueue} AS candidate
           WHERE candidate.scope = ? AND candidate.available_at <= ?
             AND (candidate.status = 'queued' OR (candidate.status IN ('running', 'steering', 'notifying') AND COALESCE(candidate.lease_expires_at, 0) <= ?))
+            AND (json_extract(candidate.value, '$.debounceKey') IS NULL OR NOT EXISTS (
+              SELECT 1 FROM ${this.tables.webhookQueue} AS newer
+              WHERE newer.scope = candidate.scope AND newer.status != 'completed'
+                AND newer.id > candidate.id
+                AND json_extract(newer.value, '$.debounceKey') = json_extract(candidate.value, '$.debounceKey')
+            ))
             AND (
               SELECT COUNT(*) FROM ${this.tables.webhookQueue} AS active_group
               WHERE active_group.status = 'running' AND active_group.lease_expires_at > ?
