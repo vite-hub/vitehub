@@ -18,7 +18,6 @@ type WorkflowProviderOperation =
 
 export function isWorkflowBoundaryError(error: unknown): boolean {
   if (getViteHubErrorShape(error)) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider failures cross an untyped runtime boundary before their shape can be inspected.
   if (typeof error !== "object" || error === null) return false
 
   try {
@@ -30,19 +29,16 @@ export function isWorkflowBoundaryError(error: unknown): boolean {
 }
 
 export function getWorkflowProviderStatus(error: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider failures cross an untyped runtime boundary before their status can be inspected.
   if (typeof error !== "object" || error === null) return undefined
 
   try {
     // SAFETY: The object guard above permits reading only optional unknown status fields.
     const value = error as { response?: unknown, status?: unknown, statusCode?: unknown }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A provider response is untyped until this boundary validates its object representation.
     const response = typeof value.response === "object" && value.response !== null
       // SAFETY: The response object guard above permits reading only its optional unknown status field.
       ? value.response as { status?: unknown }
       : undefined
     const status = value.status ?? value.statusCode ?? response?.status
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime status validation must reject non-number provider values.
     return typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599
       ? status
       : undefined

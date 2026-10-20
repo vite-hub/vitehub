@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -14,13 +14,25 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build, resolveConfig } from "vite"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
+
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+async function temporaryDirectory(prefix: string) {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -69,7 +81,7 @@ describe("Vite plugin", () => {
   })
 
   it("prepares generated types without running a Vite build", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-prepare-"))
+    const root = await temporaryDirectory("vitehub-env-prepare-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "prepare-types" }), "utf8")
     const plugin = hubEnv()
 
@@ -111,7 +123,7 @@ describe("Vite plugin", () => {
   })
 
   it("rejects unparsed typed defaults in public and nested define config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-defaults-"))
+    const root = await temporaryDirectory("vitehub-env-defaults-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "typed-defaults" }), "utf8")
     for (const section of ["public", "define"] as const) {
       for (const hostValue of [undefined, "1"]) {
@@ -133,7 +145,7 @@ describe("Vite plugin", () => {
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
     vi.stubEnv("GITHUB_REF_TYPE", "")
 
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
+    const root = await temporaryDirectory("vitehub-env-vite-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "quiver-chat", version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
     const plugin = hubEnv({ diagnostics: "trace" })
@@ -314,6 +326,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: unknown): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
@@ -339,7 +352,7 @@ describe("Vite plugin", () => {
   })
 
   it("does not read package metadata unless packageJson is declared", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-no-package-json-"))
+    const root = await temporaryDirectory("vitehub-env-no-package-json-")
     await writeFile(join(root, ".env.production"), "DEFINE_SENTRY_DEBUG=true\n", "utf8")
 
     const plugin = hubEnv()
@@ -366,7 +379,7 @@ describe("Vite plugin", () => {
   })
 
   it("can generate env runtime modules through a facade import path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
+    const root = await temporaryDirectory("vitehub-env-facade-runtime-imports-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.mjs" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
     await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\n', "utf8")
@@ -421,7 +434,7 @@ describe("Vite plugin", () => {
   })
 
   it("executes generated provider-backed Server Env modules as coherent rotating snapshots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-"))
+    const root = await temporaryDirectory("vitehub-env-provider-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
     await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
     await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
@@ -559,7 +572,7 @@ describe("Vite plugin", () => {
   })
 
   it("bundles virtual provider modules with URL-significant paths", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-vite-"))
+    const root = await temporaryDirectory("vitehub-env-provider-vite-")
     const providerDir = join(root, "server", "env#blue?%")
     const entry = join(root, "entry.ts")
     await mkdir(providerDir, { recursive: true })
@@ -590,7 +603,7 @@ describe("Vite plugin", () => {
   })
 
   it("bundles declaration-only inventory through the direct Vite import", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-description-vite-"))
+    const root = await temporaryDirectory("vitehub-env-description-vite-")
     const entry = join(root, "entry.ts")
     await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }), "utf8")
     await writeFile(join(root, "provider.mjs"), 'throw new Error("provider must not initialize"); export default {}', "utf8")
@@ -613,7 +626,7 @@ describe("Vite plugin", () => {
   })
 
   it("emits portable provider module specifiers", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-provider-package-"))
+    const root = await temporaryDirectory("vitehub-env-provider-package-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
     const crossVolumeProvider = "D:\\shared\\provider.mjs"
     const uncProvider = "\\\\server\\share\\provider.mjs"
@@ -660,8 +673,8 @@ describe("Vite plugin", () => {
   })
 
   it("keeps provider modules scoped to each Vite configuration", async () => {
-    const firstRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-first-"))
-    const secondRoot = await mkdtemp(join(tmpdir(), "vitehub-env-provider-second-"))
+    const firstRoot = await temporaryDirectory("vitehub-env-provider-first-")
+    const secondRoot = await temporaryDirectory("vitehub-env-provider-second-")
     const plugin = hubEnv({ providers: { secrets: "./server/provider.mjs" } })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const config = (root: string) => ({
@@ -684,7 +697,7 @@ describe("Vite plugin", () => {
   })
 
   it("serializes generated files while preserving same-root Env configurations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-same-root-"))
+    const root = await temporaryDirectory("vitehub-env-same-root-")
     const plugin = hubEnv()
     const resolve = (key: string) => resolveConfig({
       configFile: false,
@@ -709,7 +722,7 @@ describe("Vite plugin", () => {
   })
 
   it("regenerates Env after completed same-root configuration reuse", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-sequential-root-"))
+    const root = await temporaryDirectory("vitehub-env-sequential-root-")
     const plugin = hubEnv()
     const resolve = (key: string) => resolveConfig({
       configFile: false,
@@ -728,7 +741,7 @@ describe("Vite plugin", () => {
   })
 
   it("keeps proxied Vite environments pinned across same-root configuration reuse", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-proxied-environment-"))
+    const root = await temporaryDirectory("vitehub-env-proxied-environment-")
     const plugin = hubEnv()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
@@ -762,7 +775,7 @@ describe("Vite plugin", () => {
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
+    const root = await temporaryDirectory("vitehub-env-vite-")
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
 
     const plugin = hubEnv({ prefix: "VITEHUB_" })
@@ -785,7 +798,7 @@ describe("Vite plugin", () => {
   })
 
   it("builds and typechecks a consumer without package imports", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-consumer-"))
+    const root = await temporaryDirectory("vitehub-env-vite-consumer-")
     const entry = join(root, "consumer.ts")
     const packageJsonPath = join(root, "package.json")
     const packageJson = JSON.stringify({ name: "env-consumer", private: true, type: "module" }, null, 2)
@@ -832,7 +845,7 @@ describe("Vite plugin", () => {
   }, 15_000)
 
   it("keeps generated env files in project ViteHub state when Vite root is app", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-app-root-"))
+    const root = await temporaryDirectory("vitehub-env-vite-app-root-")
     await mkdir(join(root, "app"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
 
@@ -859,7 +872,7 @@ describe("Vite plugin", () => {
   })
 
   it("writes local targets for nested package roots without changing package imports", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-nested-package-"))
+    const root = await temporaryDirectory("vitehub-env-vite-nested-package-")
     const appRoot = join(root, "app")
     await mkdir(join(appRoot, "src"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
@@ -928,7 +941,7 @@ describe("Vite plugin", () => {
   })
 
   it("keeps generated env files in project ViteHub state when Vite root is nested", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-nested-root-"))
+    const root = await temporaryDirectory("vitehub-env-vite-nested-root-")
     await mkdir(join(root, "frontend"), { recursive: true })
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
 
@@ -955,7 +968,7 @@ describe("Vite plugin", () => {
   })
 
   it("uses the nearest package root for env-only nested Vite roots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-package-root-"))
+    const root = await temporaryDirectory("vitehub-env-vite-package-root-")
     await mkdir(join(root, "app"), { recursive: true })
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-only" }), "utf8")
 
@@ -982,7 +995,7 @@ describe("Vite plugin", () => {
   })
 
   it("uses explicit projectRoot when env-only nested apps have no package marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-explicit-root-"))
+    const root = await temporaryDirectory("vitehub-env-vite-explicit-root-")
     await mkdir(join(root, "app"), { recursive: true })
 
     const plugin = hubEnv({ projectRoot: ".." })

@@ -88,6 +88,28 @@ describe("Console requests", () => {
     })
   })
 
+  it("retries only fetch-originated TypeErrors", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
+    const networkFailure = await requestConsole("/network/api/_vitehub/console/sections").catch(error => error)
+    expect(isRetryableConsoleRequestError(networkFailure)).toBe(true)
+
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const requestFailure = await requestConsole("/cyclic/api/_vitehub/console/sections", { body: cyclic }).catch(error => error)
+    expect(requestFailure).toBeInstanceOf(TypeError)
+    expect(isRetryableConsoleRequestError(requestFailure)).toBe(false)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("preserves aborted fetch requests", async () => {
+    const aborted = new DOMException("The operation was aborted.", "AbortError")
+    fetchMock.mockRejectedValueOnce(aborted)
+
+    const error = await requestConsole("/aborted/api/_vitehub/console/sections").catch(error => error)
+    expect(error).toBe(aborted)
+    expect(isRetryableConsoleRequestError(error)).toBe(false)
+  })
+
   it("does not replay a submitted invocation when its connection drops", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
     await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {
@@ -176,7 +198,7 @@ describe("Console requests", () => {
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(429))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(404))).toBe(false)
-    expect(isRetryableConsoleRequestError(new TypeError("network unavailable"))).toBe(true)
+    expect(isRetryableConsoleRequestError(new TypeError("network unavailable"))).toBe(false)
   })
 
   it("sends read-only action bodies through RPC", async () => {

@@ -5,8 +5,8 @@ import * as v from "valibot"
 
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
 import { console } from "../../server.ts"
-import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
+import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
 
 import type { Message } from "@vite-hub/agent"
@@ -72,7 +72,7 @@ interface ConsoleAgentInvocationResult {
   url: string
 }
 
-const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentInvocationResult> = async (event) => {
+const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAccess) => Promise<ConsoleAgentInvocationResult> = async (event, access) => {
   assertConsoleRequest(event, ["POST"])
   const name = agentName(event)
   const agent = getConsoleAgentDefinition(name)
@@ -126,15 +126,19 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
-    capabilities: { console },
+    capabilities: { ...getConsoleAgentCapabilities(), console },
     memo: memo(),
-    request: new Request(consoleRequestURL(event), { method: "POST" }),
+    request: consoleRequest(event),
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
+  const actor = consoleAccessActor(access.user)
   const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
-    context: profileId ? { invokerProfileId: profileId } : {},
+    context: {
+      ...(actor ? { actor } : {}),
+      ...(profileId ? { invokerProfileId: profileId } : {}),
+    },
     ...inputMessages ? { messages: inputMessages } : {},
     prompt,
   }, { onInputHandoff })
@@ -159,5 +163,5 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler)
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents", user: true })
 export default guardedHandler

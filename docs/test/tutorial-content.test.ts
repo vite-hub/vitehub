@@ -43,8 +43,8 @@ describe("multi-file tutorial examples", () => {
     const files = labels(source)
 
     expect(files).toEqual(expect.arrayContaining([
-      "server/sandboxes/image-optimizer/package.json",
-      "server/sandboxes/image-optimizer/index.ts",
+      "server/sandbox-tasks/image-optimizer/package.json",
+      "server/sandbox-tasks/image-optimizer/index.ts",
       "server/api/image-optimizer.post.ts",
       "output/image-optimizer.json",
     ]))

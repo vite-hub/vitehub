@@ -43,6 +43,7 @@ Available namespaces:
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
+  secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
   schedule    Run Static Schedule Definitions and inspect or control Runtime Schedules.
   workflow    Start and inspect Workflow runs in development.
@@ -59,7 +60,8 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
-| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
+| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
+| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
 | `vitehub blob get` | Available | Blob Package | Download one blob to a file or to stdout, byte for byte. |
@@ -72,6 +74,8 @@ Available namespaces:
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
+| `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
+| `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear messages captured by a running Vite + Nitro Development Server. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template locally without sending it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
@@ -85,7 +89,7 @@ Available namespaces:
 | `vitehub schedule get` | Available | Schedule Package | Show one Runtime Schedule. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
-| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
+| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with a signed dispatch. |
 | `vitehub schedule run-runtime` | Available | Schedule Package | Run one Runtime Schedule now in the development runtime. |
 | `vitehub schedule enable` | Available | Schedule Package | Enable one Runtime Schedule. |
 | `vitehub schedule disable` | Available | Schedule Package | Disable one Runtime Schedule. |
@@ -158,6 +162,15 @@ pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
+
+## Generate and derive secrets
+
+```bash [Terminal]
+pnpm vitehub secret generate
+VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+```
+
+`secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
 
 ## Inspect Definitions and Provider Output
 
@@ -359,19 +372,34 @@ pnpm vitehub schedule run sync
 
 Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server.
 
-With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/cli#run-a-schedule-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set the credentials for that policy in the environment:
+With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/console) with `invoke: true`.
+
+Set the dispatch key of the deployment to sign the run. The deployment derives the same key from its [`VITEHUB_SECRET`](/docs/env/app-secret), so no Console session is needed:
+
+```bash [Terminal]
+# Once, where the deployment's root secret is available:
+VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+
+# Then, from a laptop or CI job:
+VITEHUB_DISPATCH_KEY=... pnpm vitehub schedule run sync --url https://app.example.com
+```
+
+The signature covers the operation, the exact body, the time, a one-time nonce, and the actor. The deployment rejects a request older or newer than five minutes, a reused nonce, and a key of another deployment. A request with a dispatch signature skips the Console sign-in check and never falls back to a Console session, so a bad signature is always `401`. An edge in front of the app, such as Cloudflare Access, still applies: set its service token as well. The actor is `VITEHUB_ACTOR`, else the OS user. It is self-asserted and the deployment only logs it. Nonces are kept per server process: a deployment with several instances can accept a replay on another instance inside the window.
+
+| Variable | Value |
+| --- | --- |
+| `VITEHUB_DISPATCH_KEY` | The 64-character key that `vitehub secret derive vitehub:dispatch` prints. Prefer it to the root secret. |
+| `VITEHUB_SECRET` | The root secret. The command derives the dispatch key from it. |
+| `VITEHUB_ACTOR` | The name that the deployment logs for the run. |
+
+The Console access policy still protects requests without a signature. These credentials are forwarded for that path:
 
 | Variable                        | Value                                                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that the Console access policy accepts, for example the Basic or Bearer credential that host middleware checks. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that a `host-managed` `authorize` function or host middleware checks. `access: 'auth'` ignores it. |
 | `VITEHUB_CONSOLE_COOKIE`        | A `Cookie` header value from a signed-in Console session.                                                                                       |
 | `CF_ACCESS_CLIENT_ID`           | Cloudflare Access service-token client ID. Forwarded as `CF-Access-Client-Id`.                                                                 |
 | `CF_ACCESS_CLIENT_SECRET`       | Cloudflare Access service-token client secret. Forwarded as `CF-Access-Client-Secret`.                                                         |
-
-```bash [Terminal]
-VITEHUB_CONSOLE_AUTHORIZATION="Basic $(printf 'admin:%s' "$ADMIN_TOKEN" | base64)" \
-  pnpm vitehub schedule run sync --url https://app.example.com
-```
 
 The command requires HTTPS for remote URLs and does not follow redirects. A `401`, `403`, or redirect response reports a Console authentication failure. The command never sends the credential to the local Development Server.
 

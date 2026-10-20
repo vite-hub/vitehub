@@ -112,6 +112,7 @@ A long title truncates. To link the title to a file, wrap `CodeBlockTitle` in an
 ```vue
 <script setup lang="ts">
 const wrap = ref(false);
+const output = "pnpm test";
 </script>
 
 <template>

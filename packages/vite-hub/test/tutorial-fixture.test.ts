@@ -16,7 +16,6 @@ async function availablePort() {
   await once(server, "listening")
 
   const address = server.address()
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Node exposes the bound address as an untagged string-or-AddressInfo union.
   if (!address || typeof address === "string") throw new Error("Could not allocate a tutorial test port")
 
   await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))

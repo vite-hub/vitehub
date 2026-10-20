@@ -1,3 +1,6 @@
+import { withStdoutOnStderr } from "./cli.ts"
+import type { ViteHubCliStreams } from "./cli.ts"
+
 export interface ViteStageServer {
   close: () => Promise<void>
   config: { envDir: string | false, root: string }
@@ -21,6 +24,8 @@ export interface ViteStageServerInput {
   env: NodeJS.ProcessEnv
   rootDir: string
   stage: string
+  /** Stream that receives config and stage-server logs. */
+  stderr?: ViteHubCliStreams["stderr"]
 }
 
 type QueueCarrier = typeof globalThis & { [viteStageQueueKey]?: Promise<void> }
@@ -47,13 +52,14 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
   const selectedEnvironment = definedEntries(input.env)
   try {
     replaceProcessEnv(selectedEnvironment)
-    server = await vite.createServer({
+    // Nitro and other plugins log to stdout while the server loads its config, so keep command output clean.
+    server = await withStdoutOnStderr(async () => await vite.createServer({
       appType: "custom",
       logLevel: "silent",
       mode: input.stage,
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
-    })
+    }), input.stderr)
     // Keep values that Vite set during startup, such as NODE_ENV.
     for (const [key, value] of [...Object.entries(vite.loadEnv(input.stage, server.config.envDir, "")), ...selectedEnvironment]) {
       process.env[key] = value
@@ -62,7 +68,7 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
   }
   finally {
     try {
-      await server?.close()
+      await withStdoutOnStderr(async () => await server?.close(), input.stderr)
     }
     finally {
       replaceProcessEnv(previousEnvironment)

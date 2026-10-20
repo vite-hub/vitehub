@@ -25,5 +25,5 @@ async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent):
   return { capabilities, triggeredBy }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationCapabilitiesHandler> = withConsoleAccess(consoleInvocationCapabilitiesHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationCapabilitiesHandler> = withConsoleAccess(consoleInvocationCapabilitiesHandler, { section: "agents" })
 export default guardedHandler

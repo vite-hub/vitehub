@@ -79,6 +79,16 @@ describe("database provision step", () => {
     expect(result.ids).toEqual({ cloudflare: { d1: { primary: "uuid-new" } } })
   })
 
+  it("provisions the implicit default Database of a Vite app without a Database Definition", async () => {
+    const rootDir = await createDefaultApp()
+    const fetchImpl = vi.fn(async () => jsonResponse({ success: true, result: [{ name: "app-db", uuid: "uuid-app" }] })) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir, { databaseName: "app-db", driver: "d1" }).plan(provisionContext(fetchImpl))
+
+    expect(actions).toHaveLength(1)
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { d1: { default: "uuid-app" } } } })
+  })
+
   it("provisions the default database from integration-level Nuxt D1 options", async () => {
     const rootDir = await createDefaultApp()
     const fetchImpl = vi.fn(async () => jsonResponse({

@@ -4,7 +4,7 @@ import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, M
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
-export type OtlpResourceAttributes = Record<string, boolean | number | string>
+type OtlpResourceAttributes = Record<string, boolean | number | string>
 
 export interface OtlpHttpJsonOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   endpoint: string

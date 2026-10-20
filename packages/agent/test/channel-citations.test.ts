@@ -145,7 +145,7 @@ describe("Chat SDK citation delivery", () => {
     expect(stringifyMarkdown(ast)).toContain("cite");
   });
 
-  it("formats visible card text and fallback text while preserving action values and URLs", () => {
+  it("formats visible card text and fallback text while preserving action values, input values, and URLs", () => {
     const url = "https://example.com/source";
     const card: CardElement = {
       type: "card",
@@ -171,6 +171,7 @@ describe("Chat SDK citation delivery", () => {
             },
           ],
         },
+        { type: "text_input", id: "reply", label: input, placeholder: input, initialValue: input },
         { type: "table", caption: input, headers: [input], rows: [[input]] },
         {
           type: "chart",
@@ -202,6 +203,7 @@ describe("Chat SDK citation delivery", () => {
               },
             ],
           },
+          { id: "reply", label: expected, placeholder: expected, initialValue: input },
           { caption: expected, headers: [expected], rows: [[expected]] },
           { title: expected, chart: { segments: [{ label: expected, value: 1 }] } },
         ],

@@ -5,7 +5,7 @@ import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export async function createVercelQueueRuntimeClient(options: QueueProviderOptions): Promise<QueueClient> {
   if (options.provider !== "vercel") {
-    throw queueErrorDiagnostics.QUEUE_R0007({ message: "[vitehub] Vercel Queue runtime received a non-Vercel provider." })
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "vercel", provider: options.provider })
   }
   return await createVercelQueueClient(options)
 }

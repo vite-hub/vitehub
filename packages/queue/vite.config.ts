@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -18,9 +20,9 @@ export default defineConfig({
       "src/internal/runtime/state.ts",
       "src/runtime/hosted.ts",
       "src/internal/runtime/vercel-client.ts",
-      "src/internal/runtime/vercel-vite.ts",
     ],
     exports: {
+      customExports: normalizePackageExports,
       inlinedDependencies: false,
     },
     outExtensions: () => ({

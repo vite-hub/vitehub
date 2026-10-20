@@ -515,6 +515,64 @@ describe("source scanner", () => {
     expect(commentedCalls[0]?.arguments).toEqual(["\"real\""])
   })
 
+  it("ignores typed interface method signatures with matching names", () => {
+    const calls = findIdentifierCalls([
+      `interface Config { defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores typed signatures with structural return types", () => {
+    const source = [
+      `type Config = { defineThing(options: Options): { value: string } }`,
+      `interface Tuple { defineThing(): [string, number] }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("finds calls inside switch case expressions", () => {
+    const source = [
+      `switch (value) {`,
+      `  case ready && /* note */ defineThing():`,
+      `    handleResult();`,
+      `    break;`,
+      `}`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("finds calls after conditional colons in switch cases", () => {
+    const source = `switch (value) { case ready ? fallback : defineThing(): handleResult() }`
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("ignores case text in comments when filtering typed signatures", () => {
+    const source = [
+      `interface Config { /* case */ defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores case text in generic type signatures", () => {
+    const source = [
+      `interface Config { defineThing<T extends "case">(): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("keeps conditional calls after a question mark", () => {
+    const calls = findIdentifierCalls(`const value = ready ? defineThing() : fallback`, "defineThing")
+    expect(calls).toHaveLength(1)
+  })
+
   it("keeps generic arrow function commas inside one argument", () => {
     expect(splitTopLevel(`<T, U>(ctx: T) => ctx, { id: "daily" }`)).toEqual([
       `<T, U>(ctx: T) => ctx`,
@@ -820,6 +878,17 @@ describe("source scanner", () => {
       `() => { try {} catch (error) /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+  })
+
+  it("ignores private member calls with matching names", () => {
+    const source = `const value = this.#defineThing({ value: "member" })`
+
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+  })
+
+  it("keeps join controls inside identifiers", () => {
+    expect(findIdentifierCalls(`const foo\u200CdefineThing = 1`, "defineThing")).toEqual([])
+    expect(findIdentifierCalls(`const foo\u200DdefineThing = 1`, "defineThing")).toEqual([])
   })
 
   it("ignores member calls with matching names", () => {

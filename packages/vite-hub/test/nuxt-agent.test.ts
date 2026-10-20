@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -69,4 +69,39 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
       },
     ],
   })
+})
+
+it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro config", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-invocations-"))
+  roots.push(rootDir)
+  const serverDir = join(rootDir, "server")
+  await mkdir(join(serverDir, "agents"), { recursive: true })
+  await writeFile(join(serverDir, "agents", "support.ts"), "export default {}\n", "utf8")
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "vitehub-nuxt-agent-invocations" }), "utf8")
+
+  let nitroConfigHook: ((config: Record<string, unknown>) => Promise<void>) | undefined
+  const nuxt = {
+    hook(name: string, callback: (config: Record<string, unknown>) => Promise<void>) {
+      if (name === "nitro:config") nitroConfigHook = callback
+    },
+    options: {
+      buildDir: join(rootDir, ".nuxt"),
+      dev: false,
+      rootDir,
+      serverDir,
+      srcDir: join(rootDir, "app"),
+      vite: { define: {} },
+      vitehub: { agent: { invocations: "memory" as const }, preset: "node" as const },
+    },
+  }
+
+  await viteHubNuxtModule(undefined, nuxt)
+  if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
+  const nitroConfig: Record<string, unknown> = { plugins: ["/app/existing-plugin.mjs"] }
+  await nitroConfigHook(nitroConfig)
+
+  const generated = join(rootDir, ".vitehub/nitro/agent/invocations.mjs")
+  expect(nitroConfig.plugins).toEqual([generated, "/app/existing-plugin.mjs", ...(nitroConfig.plugins as string[]).slice(2)])
+  expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
+  await expect(readFile(generated, "utf8")).resolves.toContain(`installAgentInvocations({ default: "memory" })`)
 })
