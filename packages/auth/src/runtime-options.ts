@@ -12,7 +12,6 @@ import type {
 } from "./types.ts"
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque option metadata before inspecting its fields.
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -20,7 +19,6 @@ function isAuthDatabaseMetadata(value: unknown): boolean {
   return value === true
     || (
       isPlainObject(value)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
       && Object.hasOwn(value, "name")
       && typeof value.name === "string"
       && Object.keys(value).every(key => key === "dedicated" || key === "name")
@@ -31,7 +29,6 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
   return value === true
     || (
       isPlainObject(value)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
       && Object.hasOwn(value, "store")
       && typeof value.store === "string"
       && Object.keys(value).every(key => key === "store")
@@ -56,7 +53,6 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts a string base path; malformed JavaScript input is ignored.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions
 }
@@ -72,9 +68,7 @@ export function resolveAuthOptions(
   } = {},
 ) {
   const { request } = input
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Definitions accept either static options or a resolver callback.
   const callback = typeof definition.options === "function"
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Definitions accept either static options or a resolver callback.
   const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
   const usesContext = !request || callback || Boolean(staticRequestRuntime)
   const context: AuthRuntimeContext = {
@@ -90,7 +84,6 @@ export function resolveAuthOptions(
   const runtime = request && !callback ? staticRequestRuntime : declared.runtime
   const resolvedRuntime = !runtime
     ? {}
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime options intentionally support a resolver callback.
     : typeof runtime === "function"
       // SAFETY: The function branch of AuthRuntimeConfiguration is AuthRuntimeOptionsResolver.
       ? (runtime as AuthRuntimeOptionsResolver)(context)

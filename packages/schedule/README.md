@@ -113,23 +113,6 @@ Applications that use the framework distribution register Schedule through `vite
 
 Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
-Packages can contribute a Schedule from their own Vite plugin with `vitehub.schedules`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`:
-
-```ts
-const plugin = {
-  name: "my-package/vite",
-  vitehub: {
-    schedules: ({ projectRoot }) => [{
-      name: "my-package/publish",
-      definition: { module: join(projectRoot, ".vitehub/my-package/publish-schedule.ts"), export: "default" },
-      reason: "Publishes scheduled documents.",
-    }],
-  },
-}
-```
-
-The module must be an absolute file path or `file:` URL, and the export must be `default`. The module follows the file rules: `export default defineSchedule({ cron: "...", handler })` with literal options, because the build reads it from source. Contributed Schedules get the same provider output, Process Runtime registration, `vitehub schedule run` support, types, inspection, and Console records as `server/schedules/` files. A name used by both a file and a contribution fails the build with `SCHEDULE_B0006`.
-
 ## Create a Runtime Schedule
 
 Define a cronless target for work that runs only through Runtime Schedules.
@@ -221,7 +204,7 @@ When a custom host installs a wake driver, call and await `controller.close()` d
 
 `hubSchedule()` contributes the `vitehub schedule` CLI namespace: `list`, `get <id>`, `runs <id> [--limit <n>]`, `attempts <runId>`, `run <name>`, `run-runtime <id>`, `enable <id>`, and `disable <id>`. Each command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it reads the same stores and registry as the running app. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there.
 
-Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Runtime Schedules use the separate `run-runtime` command.
+Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` with `VITEHUB_DISPATCH_KEY` (from `vitehub secret derive vitehub:dispatch`) to run it on a deployment with a signed dispatch instead of a Console session. Runtime Schedules use the separate `run-runtime` command.
 
 Discovery reads `manual` and `allowRuntimeSchedules` as literal booleans from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 

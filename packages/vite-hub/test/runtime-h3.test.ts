@@ -3,6 +3,7 @@ import { Socket } from "node:net"
 
 import { H3Event } from "h3"
 import { createEvent } from "h3-v1"
+import { Request as MiniflareRequest } from "miniflare"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
@@ -56,6 +57,154 @@ describe("H3 Runtime Context", () => {
     expectTypeOf(classicContext).toExtend<AgentRuntimeContext>()
     await modernContext.flushWaitUntil()
     await classicContext.flushWaitUntil()
+  })
+
+  it("preserves Request objects from another host realm", async () => {
+    const request = new MiniflareRequest("https://example.test", { method: "POST" })
+    const context = getRuntimeContext(new H3Event(request))
+    expect(request).not.toBeInstanceOf(Request)
+    expect(context.request).toBe(request)
+    await context.flushWaitUntil()
+  })
+
+  it("preserves cross-realm Requests after their body is consumed", async () => {
+    const request = new MiniflareRequest("https://example.test", { body: "payload", method: "POST" })
+    await request.text()
+    const context = getRuntimeContext(new H3Event(request))
+    expect(context.request).toBe(request)
+    await context.flushWaitUntil()
+  })
+
+  it("rejects objects that only spoof the Request tag", async () => {
+    const context = getRuntimeContext({ context: {}, req: { [Symbol.toStringTag]: "Request" } })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a tag spoof with a candidate-owned clone method", async () => {
+    const context = getRuntimeContext({ context: {}, req: { [Symbol.toStringTag]: "Request", clone: () => ({}) } })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a forged Request prototype with copied methods", async () => {
+    const requestPrototype = Object.getPrototypeOf(new Request("https://example.test"))
+    const prototype = Object.create(requestPrototype, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+      bodyUsed: { get: () => true },
+      signal: { get: () => new AbortController().signal },
+      clone: { value: requestPrototype.clone },
+      arrayBuffer: { value: requestPrototype.arrayBuffer },
+      blob: { value: requestPrototype.blob },
+      formData: { value: requestPrototype.formData },
+      json: { value: requestPrototype.json },
+      text: { value: requestPrototype.text },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects accessors that depend on the candidate prototype", async () => {
+    const prototype = Object.create(null, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      bodyUsed: { get() {
+        if (Object.getPrototypeOf(this) === prototype) return false
+        throw new TypeError("invalid receiver")
+      } },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a consumed spoof with a rejected arrayBuffer promise", async () => {
+    const requestPrototype = Object.getPrototypeOf(new Request("https://example.test"))
+    const prototype = Object.create(requestPrototype, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+      bodyUsed: { get: () => true },
+      signal: { get: () => new AbortController().signal },
+      clone: { value: () => { throw new Error("consumed") } },
+      arrayBuffer: { value: () => Promise.reject(new Error("forged")) },
+      blob: { value: () => Promise.resolve(new Blob()) },
+      formData: { value: () => Promise.reject(new Error("forged")) },
+      json: { value: () => Promise.reject(new Error("forged")) },
+      text: { value: () => Promise.reject(new Error("forged")) },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a Request-shaped custom prototype", async () => {
+    const prototype = {
+      headers: new Headers(),
+      url: "https://example.test",
+      method: "GET",
+      bodyUsed: false,
+      clone: () => ({}),
+      [Symbol.toStringTag]: "Request",
+    }
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a request with a throwing tag getter", async () => {
+    const request = Object.defineProperty({}, Symbol.toStringTag, {
+      get: () => { throw new Error("spoofed tag") },
+    })
+    const context = getRuntimeContext({ context: {}, req: request })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a request proxy with a cyclic prototype", async () => {
+    const request = new Proxy({}, {
+      getPrototypeOf: () => request,
+    })
+    const context = getRuntimeContext({ context: {}, req: request })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
+  it("rejects a request proxy with an unbounded fresh prototype chain", () => {
+    const request = new Proxy({}, {
+      getPrototypeOf() {
+        const prototype = {}
+        Object.defineProperty(prototype, "constructor", { value: function ProxyPrototype() {} })
+        return prototype
+      },
+    })
+
+    expect(getRuntimeContext({ context: {}, req: request }).request).toBeUndefined()
+  })
+
+  it("preserves deeply derived foreign requests", () => {
+    const request = new MiniflareRequest("https://example.test")
+    let prototype = Object.getPrototypeOf(request)
+    // Exercise a chain beyond the previous 65,536-step ceiling.
+    for (let index = 0; index < 70_000; index++) {
+      const constructor = function ForeignRequestSubclass() {}
+      prototype = Object.create(prototype, {
+        constructor: { value: constructor },
+      })
+      constructor.prototype = prototype
+    }
+    Object.setPrototypeOf(request, prototype)
+    expect(getRuntimeContext(new H3Event(request)).request).toBe(request)
   })
 
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {

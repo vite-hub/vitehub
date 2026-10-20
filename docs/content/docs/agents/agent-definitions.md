@@ -103,7 +103,31 @@ export default defineAgent({
 
 The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
 
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+
+Three options compose with the parent, so the child does not restate it:
+
+```ts [server/agents/bot-dev/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { mcp } from 'vite-hub/agent/capabilities'
+import bot from '../bot/agent'
+
+export default defineAgent({
+  extends: bot,
+  // Receives the parent's list. An array replaces it.
+  driver: { requirements: inherited => [...inherited, 'kubectl'] },
+  // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
+  capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
+  // Sets the mode of every Source that does not set its own, including inherited Sources.
+  workspace: { materialize: 'none' },
+})
+```
+
+- `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
+- A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
+- `workspace.materialize` is the default [`materialize` mode](/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
+
+A discovered child also uses the [Connection access rules](/docs/connections/configure#access-rules) of the Agents it extends. A rule that names the child wins over an inherited rule.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions in TypeScript with `?raw` and pass them through `driver.instructions`. Share Skills through explicit Sources or a directory link.
 
@@ -311,13 +335,12 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
-| `box` | Runs a built-in provider Driver inside a [Box](/docs/agents/boxes) with a checkout, private Home, environment, and boot checks. Cannot be combined with `workspace`. |
+| `sandbox` | Runs a built-in provider Driver inside a [Sandbox](/docs/agents/sandboxes) with a checkout, private Home, environment, and boot checks. Cannot be combined with `workspace`. |
 | `driver.instructions` | Configures instructions on the selected Driver; see [Instructions](/docs/agents/instructions). |
 | `driver.output` | Validates structured Agent output. |
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
-| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Every Invocation gets it, including streamed runs. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |

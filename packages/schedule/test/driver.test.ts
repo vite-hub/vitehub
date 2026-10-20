@@ -2,6 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { defineSchedule } from "../src/definition.ts"
 import { schedules } from "../src/runtime/client.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
@@ -86,6 +87,28 @@ describe("Runtime Schedule Wake Driver", () => {
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: "daily-report", scheduledAt }))
     await controller.close()
+  })
+
+  it("evaluates a Static Schedule cron in its declared time zone", async () => {
+    const handlers = { madrid: vi.fn(), utc: vi.fn() }
+    const install = async (now: Date) => await installScheduleRuntime({
+      createDriver: createProcessScheduleWakeDriver({ now: () => now }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore: createMemoryScheduleRunStore(),
+      staticRegistry: {
+        madrid: async () => defineSchedule({ cron: "0 8 * * *", handler: handlers.madrid, timeZone: "Europe/Madrid" }),
+        utc: async () => defineSchedule({ cron: "0 8 * * *", handler: handlers.utc }),
+      },
+    })
+
+    // 08:00 in Madrid is 06:00Z in summer (CEST) and 07:00Z in winter (CET).
+    for (const now of ["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z", "2026-07-15T08:00:00.000Z"]) {
+      await (await install(new Date(now))).close()
+    }
+
+    expect(handlers.madrid.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual(["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z"])
+    expect(handlers.utc.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual(["2026-07-15T08:00:00.000Z"])
   })
 
   it("catches up a Static Schedule minute that no process checked during a restart", async () => {

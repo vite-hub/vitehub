@@ -202,6 +202,76 @@ describe("mcpResources", () => {
     ])
   })
 
+  it("does not read resources excluded by ignore before key filtering", async () => {
+    const readResource = vi.fn(async () => {
+      throw new Error("excluded resource must not be read")
+    })
+    const source = mcpResources({
+      ignore: "**",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "secret", uri: "resource://example/secret" }] }
+        },
+        readResource,
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([])
+    expect(readResource).not.toHaveBeenCalled()
+  })
+
+  it("does not guess inferred MIME extensions before reading resources", async () => {
+    const readResource = vi.fn(async () => ({
+      contents: [{ mimeType: "application/json", text: "{}", uri: "resource://example/config" }],
+    }))
+    const source = mcpResources({
+      ignore: "**/*.json",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "config", uri: "resource://example/config" }] }
+        },
+        readResource,
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([])
+    expect(readResource).toHaveBeenCalledOnce()
+  })
+
+  it("still skips extensionless resources for a global ignore", async () => {
+    const readResource = vi.fn(async () => {
+      throw new Error("excluded resource must not be read")
+    })
+    const source = mcpResources({
+      ignore: "**",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "config", uri: "resource://example/config" }] }
+        },
+        readResource,
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([])
+    expect(readResource).not.toHaveBeenCalled()
+  })
+
+  it("does not treat an extensionless ignore as the final inferred path", async () => {
+    const source = mcpResources({
+      ignore: "example/config",
+      server: {
+        async listResources() {
+          return { resources: [{ name: "config", uri: "resource://example/config" }] }
+        },
+        async readResource() {
+          return { contents: [{ mimeType: "application/json", text: "{}", uri: "resource://example/config" }] }
+        },
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["example/config.json"])
+  })
+
   it("closes owned MCP clients created from config", async () => {
     const close = vi.fn()
     const connect = vi.fn()
@@ -303,6 +373,54 @@ describe("mcpResources", () => {
     await expect(pending).rejects.toBe(reason)
     expect(requestSignal?.aborted).toBe(true)
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it("closes an owned MCP client before it reports Source cancellation", async () => {
+    const reason = new Error("source canceled")
+    const controller = new AbortController()
+    const order: string[] = []
+    let requestStarted!: () => void
+    const started = new Promise<void>(resolve => requestStarted = resolve)
+    const transport = { close: vi.fn(), send: vi.fn(), start: vi.fn() }
+    vi.doMock("@modelcontextprotocol/sdk/client/index.js", () => ({
+      Client: vi.fn(function () {
+        return {
+          async close() {
+            await Promise.resolve()
+            order.push("close")
+          },
+          connect: vi.fn(),
+          listResources() {
+            requestStarted()
+            return new Promise(() => {})
+          },
+          async readResource() {
+            return { contents: [] }
+          },
+        }
+      }),
+    }))
+    vi.doMock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+      StreamableHTTPClientTransport: vi.fn(function () {
+        return transport
+      }),
+    }))
+    vi.resetModules()
+    const { mcpResources } = await import("../../src/sources/mcp-resources.ts")
+    const source = mcpResources({ server: { transport: { url: "https://example.com/mcp" } } })
+
+    const pending = source.getKeys({ abortSignal: controller.signal, rootDir: "/tmp" }).catch((error) => {
+      order.push("rejected")
+      return error
+    })
+    await started
+    controller.abort(reason)
+
+    await expect(pending).resolves.toBe(reason)
+    expect(order).toEqual(["close", "rejected"])
+    vi.doUnmock("@modelcontextprotocol/sdk/client/index.js")
+    vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js")
+    vi.resetModules()
   })
 
   it("rejects malformed base64 resource content", async () => {

@@ -4,7 +4,7 @@ import { isWorkspaceError, workspaceError } from "./core/errors.ts"
 
 import type { Workspace } from "./core/types.ts"
 
-export async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite = false): Promise<void> {
+async function ensureMissingOrReplaceable(workspace: Workspace, path: string, overwrite = false): Promise<void> {
   if (!await workspace.exists(path)) return
   if (!overwrite) throw workspaceError(`[vitehub] Workspace path already exists: ${path}.`)
   await workspace.rm(path, { recursive: true, force: true })

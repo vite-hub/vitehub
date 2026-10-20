@@ -26,10 +26,12 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
+      // Keeps only the rules that catch unsound type evidence. It checks the
+      // lines changed since VITE_DOCTOR_SINCE, so it needs no baseline.
       "doctor:typescript": {
         cache: false,
         command:
-          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --baseline .vite-doctor-baseline.json --new-only --no-cache --max-warnings 0',
+          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --rules typescript/boundaries/no-unvalidated-deserialization,typescript/evidence/no-caller-chosen-result-type,typescript/evidence/no-chained-type-assertions,typescript/evidence/no-widen-then-assert --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,
@@ -66,7 +68,7 @@ export default defineConfig({
       "knip:catalog": {
         cache: false,
         command:
-          "vp run -t @vite-hub/sandbox#build && vp run -t @vite-hub/queue#build && vp exec knip --include catalog --no-progress --reporter compact",
+          "vp run -t @vite-hub/sandbox-task#build && vp run -t @vite-hub/queue#build && vp exec knip --include catalog --no-progress --reporter compact",
       },
       "kv:e2e": {
         cache: false,
@@ -110,10 +112,10 @@ export default defineConfig({
         command: "node packages/rate-limit/test/e2e.mjs",
         dependsOn: ["@vite-hub/rate-limit#build"],
       },
-      "sandbox:e2e": {
+      "sandbox-task:e2e": {
         cache: false,
-        command: "node packages/sandbox/test/e2e.mjs",
-        dependsOn: ["@vite-hub/sandbox#build"],
+        command: "node packages/sandbox-task/test/e2e.mjs",
+        dependsOn: ["@vite-hub/sandbox-task#build"],
       },
       "schedule:e2e": {
         cache: false,

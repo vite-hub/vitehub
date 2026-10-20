@@ -1,14 +1,14 @@
 ---
 title: Blob hosts
-description: Set up provider output, development access, Cloudflare R2, S3-compatible storage, and MinIO.
+description: Set up host output, development access, Cloudflare R2, S3-compatible storage, and MinIO.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Provider output
+## Host output
 
-The Blob package selects the default or named store and loads its driver. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
+Nitro writes the host output. `hubBlob()` adds a Nitro plugin that selects the default or named store and loads its driver. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's generated `wrangler.json`. Put provider bucket names, tokens, and bindings in integration configuration or deployment setup.
 
 Application code keeps importing `blob` from `@vite-hub/blob` when you switch providers.
 
@@ -28,7 +28,7 @@ The commands call the same Blob storage as the running app. Pass `--store <name>
 
 ## Cloudflare R2 bucket
 
-Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub emit the matching Cloudflare R2 bucket binding in Provider Output.
+Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -39,6 +39,28 @@ export default defineConfig({
   },
 })
 ```
+
+### Jurisdictional buckets
+
+Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions). The values are `eu`, `fedramp`, and `us`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  blob: {
+    driver: 'cloudflare-r2',
+    bucketName: 'assets',
+    jurisdiction: 'eu',
+  },
+})
+```
+
+ViteHub uses the jurisdiction in three places:
+
+- The generated `r2_buckets` entry gets `jurisdiction`, so the Worker binding opens the correct bucket.
+- `vitehub provision run` sends the `cf-r2-jurisdiction` header when it lists and creates buckets. Without it, Cloudflare does not show the jurisdictional bucket, and provisioning creates a second bucket with the same name in the default jurisdiction.
+- HTTP fallback and `blob.sign()` use the jurisdiction S3 API host, `https://<account-id>.<jurisdiction>.r2.cloudflarestorage.com`.
+
+You cannot change the jurisdiction of a bucket after Cloudflare creates it. If your `wrangler` config already has an `r2_buckets` entry with the same `binding` and a different `jurisdiction`, the build fails. Set `jurisdiction` in the Blob config and remove the duplicate entry.
 
 When no runtime binding exists, ViteHub falls back to R2 HTTP access through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
 
@@ -55,6 +77,7 @@ R2_BUCKET_NAME=assets
 | `accessKeyId` | `R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_ACCESS_KEY_ID` |
 | `secretAccessKey` | `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY` |
 | `bucketName` | `bucketName` config, or `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, `R2_BUCKET_NAME` read at config/build time for generated Cloudflare `r2_buckets`. HTTP fallback can also read these names from active runtime env. |
+| `jurisdiction` | `jurisdiction` config, or `R2_JURISDICTION`, `CLOUDFLARE_R2_JURISDICTION` read at config/build time. Runtime env does not change it. |
 
 Install the optional R2 HTTP dependencies only when you rely on fallback access.
 

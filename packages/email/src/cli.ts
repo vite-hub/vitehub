@@ -78,11 +78,11 @@ const emailDevEndpoint = {
   route: emailDevRoute,
 }
 
-const usageError = (message: string) => emailErrorDiagnostics.EMAIL_R0008({ message })
+const usageError = (message: string) => emailErrorDiagnostics.EMAIL_CLI_USAGE({ problem: message })
 
 const emailDevTargetErrors = {
-  invalidInlineTimeout: (message: string) => emailErrorDiagnostics.EMAIL_R0010({ message }),
-  invalidTimeout: (message: string) => emailErrorDiagnostics.EMAIL_R0009({ message }),
+  invalidInlineTimeout: usageError,
+  invalidTimeout: usageError,
   missingValue: usageError,
 }
 
@@ -457,7 +457,7 @@ async function readPreviewData(value: string | undefined, cwd: string): Promise<
       source = await readFile(file, "utf8")
     }
     catch {
-      throw emailErrorDiagnostics.EMAIL_R0011({ message: `Cannot read --data file ${JSON.stringify(value.slice(1))}.` })
+      throw emailErrorDiagnostics.EMAIL_CLI_USAGE({ problem: `Cannot read --data file ${JSON.stringify(value.slice(1))}.` })
     }
   }
   let data: unknown
@@ -465,9 +465,9 @@ async function readPreviewData(value: string | undefined, cwd: string): Promise<
     data = JSON.parse(source)
   }
   catch {
-    throw emailErrorDiagnostics.EMAIL_R0011({ message: "--data must be valid JSON." })
+    throw emailErrorDiagnostics.EMAIL_CLI_USAGE({ problem: "--data must be valid JSON." })
   }
-  if (!isRecord(data)) throw emailErrorDiagnostics.EMAIL_R0011({ message: "--data must be a JSON object." })
+  if (!isRecord(data)) throw emailErrorDiagnostics.EMAIL_CLI_USAGE({ problem: "--data must be a JSON object." })
   return data
 }
 

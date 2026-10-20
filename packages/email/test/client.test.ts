@@ -1,12 +1,11 @@
 import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
-import { ViteHubError } from "@vite-hub/runtime"
 import { createEmail } from "../src/index.ts"
 import { emailProviderError, isEmailProviderError } from "../src/provider.ts"
 import { email } from "../src/server.ts"
 
-import type { EmailDriver, EmailMessage } from "../src/index.ts"
+import type { EmailClient, EmailDriver, EmailMessage } from "../src/index.ts"
 import type { EmailProviderError } from "../src/types.ts"
 
 const message: EmailMessage = {
@@ -31,6 +30,12 @@ const message: EmailMessage = {
   to: ["maxi@example.com"],
 }
 
+async function sendError(client: EmailClient, input: EmailMessage = message) {
+  const [error, data] = await client.send(input)
+  expect(data).toBeUndefined()
+  return error
+}
+
 function fixtureDriver(
   send: EmailDriver["send"] = vi.fn(async () => ({
     data: { at: new Date(), driver: "fixture", id: "provider-1" },
@@ -47,14 +52,14 @@ describe("createEmail", () => {
 
   it("rejects an inherited driver marker", () => {
     const definition = Object.create({ driver: fixtureDriver() })
-    expect(() => createEmail(definition as never)).toThrow("expects an object with a driver")
+    expect(() => createEmail(definition as never)).toThrow(expect.objectContaining({ code: "EMAIL_INVALID_DRIVER" }))
   })
 
   it("preserves the portable message contract and normalizes the result", async () => {
     const driver = fixtureDriver()
     const client = createEmail({ driver })
 
-    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+    await expect(client.send(message)).resolves.toEqual([undefined, { driver: "fixture", id: "provider-1" }])
     expect(driver.send).toHaveBeenCalledWith(message, {
       attempt: 1,
       driver: "fixture",
@@ -92,8 +97,8 @@ describe("createEmail", () => {
       .mockResolvedValue(undefined)
     const client = createEmail({ driver: { ...fixtureDriver(), initialize } })
 
-    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
-    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+    expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    await expect(client.send(message)).resolves.toEqual([undefined, { driver: "fixture", id: "provider-1" }])
     expect(initialize).toHaveBeenCalledTimes(2)
   })
 
@@ -144,7 +149,7 @@ describe("createEmail", () => {
   })
 
   it.each([
-    ["INVALID_OPTIONS", "EMAIL_NOT_CONFIGURED"],
+    ["INVALID_OPTIONS", "EMAIL_INVALID_MESSAGE"],
     ["AUTH", "EMAIL_AUTHENTICATION"],
     ["NETWORK", "EMAIL_NETWORK"],
     ["RATE_LIMIT", "EMAIL_RATE_LIMITED"],
@@ -158,11 +163,12 @@ describe("createEmail", () => {
       driver: fixtureDriver(vi.fn(async () => ({ data: null, error: cause }))),
     })
 
-    await expect(client.send(message)).rejects.toMatchObject({
+    expect(await sendError(client)).toMatchObject({
       cause,
       code,
-      details: { driver: "fixture" },
-      message: "[vitehub] Email delivery failed through fixture.",
+      docs: `https://vitehub.dev/docs/email/limits-and-errors#${code.toLowerCase()}`,
+      fix: expect.any(String),
+      why: expect.stringContaining("fixture"),
     })
   })
 
@@ -170,11 +176,9 @@ describe("createEmail", () => {
     const send = vi.fn()
     const client = createEmail({ driver: fixtureDriver(send) })
 
-    await expect(
-      client.send({ ...message, unsubscribe: { oneClick: true, url: "http://example.com" } }),
-    ).rejects.toMatchObject({
-      code: "EMAIL_NOT_CONFIGURED",
-      details: { driver: "fixture" },
+    expect(await sendError(client, { ...message, unsubscribe: { oneClick: true, url: "http://example.com" } })).toMatchObject({
+      code: "EMAIL_INVALID_MESSAGE",
+      why: "The fixture Email driver rejected the message.",
     })
     expect(send).not.toHaveBeenCalled()
   })
@@ -187,10 +191,10 @@ describe("createEmail", () => {
       }))),
     })
 
-    await expect(client.send(message)).rejects.toMatchObject({
+    expect(await sendError(client)).toMatchObject({
+      cause: expect.objectContaining({ message: "The fixture Email driver returned an invalid message id." }),
       code: "EMAIL_PROVIDER_FAILED",
-      details: { driver: "fixture" },
-      message: "[vitehub] Email driver fixture returned an invalid message id.",
+      why: "Email delivery through fixture failed.",
     })
   })
 
@@ -202,20 +206,35 @@ describe("createEmail", () => {
       }))),
     })
 
-    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+    await expect(client.send(message)).resolves.toEqual([undefined, { driver: "fixture", id: "provider-1" }])
   })
 
-  it("preserves ViteHub errors thrown while resolving the driver", async () => {
-    const error = new ViteHubError("EMAIL_RATE_LIMITED", "Try again later.", {
-      details: { driver: "fixture" },
-    })
+  it("returns provider errors thrown while resolving the driver", async () => {
+    const cause = emailProviderError("fixture", "RATE_LIMIT", "Try again later.")
     const client = createEmail({
       driver: () => {
-        throw error
+        throw cause
       },
     })
 
-    await expect(client.send(message)).rejects.toBe(error)
+    expect(await sendError(client)).toMatchObject({ cause, code: "EMAIL_RATE_LIMITED" })
+  })
+
+  it("throws config errors while resolving the driver", async () => {
+    const cause = emailProviderError("fixture", "NOT_CONFIGURED", "apiKey is required.")
+    const invalidOptions = createEmail({
+      driver: () => {
+        throw cause
+      },
+    })
+    await expect(invalidOptions.send(message)).rejects.toMatchObject({
+      cause,
+      code: "EMAIL_NOT_CONFIGURED",
+      why: "The options of the fixture Email driver are not valid.",
+    })
+
+    const invalidDriver = createEmail({ driver: () => ({}) as EmailDriver })
+    await expect(invalidDriver.send(message)).rejects.toMatchObject({ code: "EMAIL_INVALID_DRIVER" })
   })
 
   it("maps structurally valid provider errors from another realm", async () => {
@@ -224,9 +243,9 @@ describe("createEmail", () => {
     ) as EmailProviderError
     const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
 
-    await expect(client.send(message)).rejects.toMatchObject({
+    expect(await sendError(client)).toMatchObject({
       code: "EMAIL_RATE_LIMITED",
-      details: { driver: "custom" },
+      why: expect.stringContaining("custom"),
     })
   })
 
@@ -234,9 +253,9 @@ describe("createEmail", () => {
     const cause = { code: "RATE_LIMIT", driver: "custom", message: "slow down" } as EmailProviderError
     const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
 
-    await expect(client.send(message)).rejects.toMatchObject({
+    expect(await sendError(client)).toMatchObject({
       code: "EMAIL_PROVIDER_FAILED",
-      details: { driver: "fixture" },
+      why: expect.stringContaining("fixture"),
     })
   })
 
@@ -251,7 +270,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -267,7 +286,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -282,7 +301,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -300,7 +319,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -319,7 +338,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -340,7 +359,7 @@ describe("createEmail", () => {
     Object.defineProperty(globalThis, "structuredClone", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
     }
     finally {
       if (errorDescriptor) Object.defineProperty(Error, "isError", errorDescriptor)
@@ -359,7 +378,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", why: expect.stringContaining("fixture") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -375,7 +394,7 @@ describe("createEmail", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
-      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+      expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
@@ -422,13 +441,14 @@ describe("createEmail", () => {
     const cause = Object.assign(new Error("slow down"), { code: "RATE_LIMIT" as const, driver: "custom", retryable: true })
     const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
 
-    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+    expect(await sendError(client)).toMatchObject({ code: "EMAIL_RATE_LIMITED", why: expect.stringContaining("custom") })
   })
 })
 
 it("reports a missing configured Email provider", async () => {
   await expect(email.send(message)).rejects.toMatchObject({
     code: "EMAIL_NOT_CONFIGURED",
-    message: "[vitehub] No Email provider is configured. Set `vitehub({ email: { driver, options } })`.",
+    fix: expect.stringContaining("vitehub({ email: { driver, options } })"),
+    why: "No Email provider is configured.",
   })
 })

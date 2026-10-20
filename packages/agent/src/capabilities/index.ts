@@ -1,15 +1,4 @@
 export {
-  codeHost,
-} from "./code-host.ts"
-export type {
-  CodeHostCapabilityOptions,
-  CodeHostKind,
-  CodeHostOperation,
-  CodeHostReadOperation,
-  CodeHostToolPolicy,
-  CodeHostWriteOperation,
-} from "./code-host.ts"
-export {
   access,
 } from "./access.ts"
 export {
@@ -32,6 +21,8 @@ export {
 export type {
   ChannelDeliveryClient,
   ChannelDeliveryOptions,
+  ChannelDeliveryOptionsResolver,
+  ChannelDeliveryReceipt,
   ChannelDeliveryReminderOptions,
 } from "./channel-delivery.ts"
 export {
@@ -40,6 +31,17 @@ export {
 export {
   fetch,
 } from "./fetch.ts"
+export {
+  forge,
+} from "./forge.ts"
+export type {
+  ForgeCapabilityOptions,
+  ForgeKind,
+  ForgeOperation,
+  ForgeReadOperation,
+  ForgeToolPolicy,
+  ForgeWriteOperation,
+} from "./forge.ts"
 export {
   email,
 } from "./email.ts"
@@ -78,10 +80,6 @@ export {
 export {
   sandbox,
 } from "./sandbox.ts"
-export {
-  agentScheduleIdFromCron,
-  schedule,
-} from "./schedule.ts"
 export {
   skills,
 } from "./skills.ts"
@@ -285,6 +283,7 @@ export type {
   OpenAPICliOptions,
   OpenAPIHookProvidedInput,
   OpenAPIHooks,
+  OpenAPIOperationSelection,
   OpenAPIRequestContext,
   OpenAPIRequestDraft,
   OpenAPIRequestHook,
@@ -306,14 +305,6 @@ export type {
   LlmRouteDecision,
   LlmRouteOptions,
 } from "./llm-route.ts"
-export type {
-  AgentScheduleCapabilityMetadata,
-  AgentScheduleCapabilityOptions,
-  AgentScheduleEntry,
-  RuntimeScheduleCapabilityMetadata,
-  RuntimeScheduleCapabilityOptions,
-  ScheduleCapabilityToolPolicy,
-} from "./schedule.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,
@@ -383,6 +374,7 @@ export type {
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,
+  McpConnectionServerConfig,
   McpServerConfig,
   McpToolFingerprints,
   McpToolInputSchema,

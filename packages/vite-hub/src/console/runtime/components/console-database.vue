@@ -229,7 +229,6 @@ async function openTable(name: string, replace = false): Promise<void> {
 }
 
 async function openDatabase(value: unknown): Promise<void> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- USelect emits unknown values and database route names must be strings.
   if (typeof value !== "string" || value === database.value?.database) return;
   sidebarOpen.value = false;
   resetTableState();
@@ -262,7 +261,6 @@ function applyFilter(): void {
 }
 
 function setSort(value: unknown): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- USelect emits unknown values and column sort keys must be strings.
   if (typeof value !== "string") return;
   const nextSort = value === defaultSort ? "" : value;
   if (nextSort === sort.value) return;

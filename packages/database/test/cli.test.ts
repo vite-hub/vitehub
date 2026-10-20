@@ -1,6 +1,8 @@
 import { execFile, spawn as spawnProcess } from "node:child_process"
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { delimiter, join } from "node:path"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { delimiter, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -16,10 +18,14 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
+// The package root has drizzle-kit in its dependencies, like a project that uses `vitehub db`.
+const projectRoot = resolve(import.meta.dirname, "..")
+const drizzleKitBin = join(projectRoot, "node_modules", "drizzle-kit", "bin.cjs")
+
 function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
   return {
     env,
-    rootDir: "/repo",
+    rootDir: projectRoot,
     spawn,
     stderr: { write: vi.fn() },
     stdout: { write: vi.fn() },
@@ -52,17 +58,21 @@ async function writeDrizzleProject(schema: string[]) {
   return rootDir
 }
 
-async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate" = "generate") {
+const pathWithProjectBin = [join(projectRoot, "node_modules", ".bin"), process.env.PATH].join(delimiter)
+const pathWithoutProjectBin = dirname(process.execPath)
+
+async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate" = "generate", options: { path?: string, viteRoot?: string } = {}) {
   const stderr = { write: vi.fn() }
   const contributor = createDbCliContributor(undefined, () => ({
     databaseNames: ["default"],
     databases: { default: { connection: { url: "file:.vitehub/data/database/sqlite.db" } } },
     generatedDrizzleConfigFile: join(rootDir, "drizzle.config.ts"),
+    rootDir,
   }) as unknown as ResolvedDBViteConfig)!
   const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)!
   const exitCode = await command.run([], {
-    env: { ...process.env, PATH: [join(import.meta.dirname, "../node_modules/.bin"), process.env.PATH].join(delimiter) },
-    rootDir,
+    env: { ...process.env, PATH: options.path ?? pathWithProjectBin },
+    rootDir: options.viteRoot ?? rootDir,
     spawn: realSpawn,
     stderr,
     stdout: { write: vi.fn() },
@@ -96,6 +106,45 @@ describe("DB CLI contributor", () => {
     expect(result).toEqual({ exitCode: 0, stderr: "" })
     expect((await readdir(join(rootDir, "migrations"))).some(file => file.endsWith(".sql"))).toBe(true)
   }, 60_000)
+
+  // Nuxt sets the Vite root, and so the CLI root, to `srcDir` (`app/`). The Database root is the Nuxt root.
+  it.each([
+    ["with", pathWithProjectBin],
+    ["without", pathWithoutProjectBin],
+  ])("generates in the Database root when the Vite root is app/, %s node_modules/.bin on PATH", async (_, path) => {
+    const rootDir = await writeDrizzleProject([
+      "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
+      "export const notes = sqliteTable('notes', { id: integer('id').primaryKey() })",
+    ])
+    // Like the generated config: an absolute schema path and an `out` path relative to the Database root.
+    const config = await readFile(join(rootDir, "drizzle.config.ts"), "utf8")
+    await writeFile(join(rootDir, "drizzle.config.ts"), config.replace("'./schema.ts'", JSON.stringify(join(rootDir, "schema.ts"))))
+    const viteRoot = join(rootDir, "app")
+    await mkdir(viteRoot)
+
+    await expect(runRealDrizzleKit(rootDir, "generate", { path, viteRoot })).resolves.toEqual({ exitCode: 0, stderr: "" })
+
+    expect((await readdir(join(rootDir, "migrations"))).some(file => file.endsWith(".sql"))).toBe(true)
+    expect(existsSync(join(viteRoot, "migrations"))).toBe(false)
+  })
+
+  it("fails with an install hint when the project does not have drizzle-kit", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-cli-"))
+    tempDirs.push(rootDir)
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const stderr = { write: vi.fn() }
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      generatedDrizzleConfigFile: join(rootDir, ".vitehub/database/drizzle.config.ts"),
+      rootDir,
+    }) as unknown as ResolvedDBViteConfig)!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], { rootDir, spawn, stderr, stdout: { write: vi.fn() } } as never)).resolves.toBe(1)
+
+    expect(spawn).not.toHaveBeenCalled()
+    expect(stderr.write).toHaveBeenCalledWith(expect.stringContaining(`Cannot find drizzle-kit in the dependencies of ${rootDir}`))
+  })
 
   it("creates the local libSQL data directory before the first migrate", async () => {
     const rootDir = await writeDrizzleProject([
@@ -155,41 +204,45 @@ describe("DB CLI contributor", () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const config = {
       databaseNames: ["analytics", "primary"],
-      generatedDrizzleConfigFile: "/repo/.vitehub/database/drizzle.config.ts",
+      generatedDrizzleConfigFile: join(projectRoot, ".vitehub/database/drizzle.config.ts"),
       generatedDrizzleConfigFilesByDatabase: {
-        analytics: "/repo/.vitehub/database/drizzle/analytics.config.ts",
-        primary: "/repo/.vitehub/database/drizzle/primary.config.ts",
+        analytics: join(projectRoot, ".vitehub/database/drizzle/analytics.config.ts"),
+        primary: join(projectRoot, ".vitehub/database/drizzle/primary.config.ts"),
       },
+      rootDir: projectRoot,
     } as unknown as ResolvedDBViteConfig
     const contributor = createDbCliContributor(undefined, () => config)!
     const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
 
     await expect(generate.run(["--name", "init"], cliContext(spawn))).resolves.toBe(0)
 
-    expect(spawn).toHaveBeenNthCalledWith(1, "drizzle-kit", [
+    expect(spawn).toHaveBeenNthCalledWith(1, process.execPath, [
+      drizzleKitBin,
       "generate",
       "--config",
       ".vitehub/database/drizzle/analytics.config.ts",
       "--name",
       "init",
-    ], expect.objectContaining({ cwd: "/repo" }))
-    expect(spawn).toHaveBeenNthCalledWith(2, "drizzle-kit", [
+    ], expect.objectContaining({ cwd: projectRoot }))
+    expect(spawn).toHaveBeenNthCalledWith(2, process.execPath, [
+      drizzleKitBin,
       "generate",
       "--config",
       ".vitehub/database/drizzle/primary.config.ts",
       "--name",
       "init",
-    ], expect.objectContaining({ cwd: "/repo" }))
+    ], expect.objectContaining({ cwd: projectRoot }))
   })
 
   it("keeps the aggregate Drizzle config for a single database", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
     const config = {
       databaseNames: ["default"],
-      generatedDrizzleConfigFile: "/repo/.vitehub/database/drizzle.config.ts",
+      generatedDrizzleConfigFile: join(projectRoot, ".vitehub/database/drizzle.config.ts"),
       generatedDrizzleConfigFilesByDatabase: {
-        default: "/repo/.vitehub/database/drizzle/default.config.ts",
+        default: join(projectRoot, ".vitehub/database/drizzle/default.config.ts"),
       },
+      rootDir: projectRoot,
     } as unknown as ResolvedDBViteConfig
     const contributor = createDbCliContributor(undefined, () => config)!
     const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
@@ -197,48 +250,80 @@ describe("DB CLI contributor", () => {
     await expect(migrate.run([], cliContext(spawn))).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledOnce()
-    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [
+      drizzleKitBin,
       "migrate",
       "--config",
       ".vitehub/database/drizzle.config.ts",
-    ], expect.objectContaining({ cwd: "/repo" }))
+    ], expect.objectContaining({ cwd: projectRoot }))
   })
 
-  it("prepends the project bin directory for Drizzle Kit", async () => {
+  it("runs Drizzle Kit from the Database root with paths relative to it", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
-    const contributor = createDbCliContributor()!
+    const config = {
+      databaseNames: ["default"],
+      generatedDrizzleConfigFile: join(projectRoot, ".vitehub/database/drizzle.config.ts"),
+      rootDir: projectRoot,
+    } as unknown as ResolvedDBViteConfig
+    const contributor = createDbCliContributor(undefined, () => config)!
     const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
 
-    await expect(generate.run([], cliContext(spawn, { PATH: "/usr/bin" }))).resolves.toBe(0)
+    await expect(generate.run([], { ...(cliContext(spawn) as object), rootDir: join(projectRoot, "app") } as never)).resolves.toBe(0)
 
-    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [
+      drizzleKitBin,
       "generate",
       "--config",
       ".vitehub/database/drizzle.config.ts",
-    ], expect.objectContaining({
-      cwd: "/repo",
-      env: expect.objectContaining({
-        PATH: [join("/repo", "node_modules", ".bin"), "/usr/bin"].join(delimiter),
-      }),
-    }))
+    ], expect.objectContaining({ cwd: projectRoot }))
   })
 
-  it("preserves the current PATH when custom CLI env omits it", async () => {
+  it("prefers the Drizzle Kit dependency from the Database root", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-root-"))
+    tempDirs.push(rootDir)
+    const viteRoot = join(rootDir, "app")
+    const databaseBin = join(rootDir, "node_modules/drizzle-kit/bin.cjs")
+    const viteBin = join(viteRoot, "node_modules/drizzle-kit/bin.cjs")
+    await mkdir(dirname(databaseBin), { recursive: true })
+    await mkdir(dirname(viteBin), { recursive: true })
+    await writeFile(join(rootDir, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs" }))
+    await writeFile(join(viteRoot, "node_modules/drizzle-kit/package.json"), JSON.stringify({ bin: "bin.cjs" }))
+    await writeFile(databaseBin, "")
+    await writeFile(viteBin, "")
+
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
-    const contributor = createDbCliContributor()!
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      generatedDrizzleConfigFile: join(rootDir, ".vitehub/database/drizzle.config.ts"),
+      rootDir,
+    }) as unknown as ResolvedDBViteConfig)!
     const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
 
-    await expect(generate.run([], cliContext(spawn, { DATABASE_URL: "file:dev.db" }))).resolves.toBe(0)
+    await expect(generate.run([], { ...(cliContext(spawn) as object), rootDir: viteRoot } as never)).resolves.toBe(0)
 
-    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [
+      databaseBin,
       "generate",
       "--config",
       ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({ cwd: rootDir }))
+  })
+
+  it("passes the CLI env to Drizzle Kit", async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+
+    await expect(migrate.run([], cliContext(spawn, { DATABASE_URL: "file:dev.db", PATH: "/usr/bin" }))).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [
+      drizzleKitBin,
+      "migrate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
     ], expect.objectContaining({
-      env: expect.objectContaining({
-        DATABASE_URL: "file:dev.db",
-        PATH: [join("/repo", "node_modules", ".bin"), process.env.PATH].filter(Boolean).join(delimiter),
-      }),
+      cwd: projectRoot,
+      env: { DATABASE_URL: "file:dev.db", PATH: "/usr/bin" },
     }))
   })
 })

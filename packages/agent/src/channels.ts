@@ -2719,8 +2719,11 @@ async function createTeamsAdapterFromEnv(options: TeamsAdapterOptions, context: 
   }
   const env = await channelEnv("teams", context)
   const adapterConfig: Record<string, unknown> = { ...options }
+  const appId = hasRuntimeType(options.appId, "function")
+    ? await resolveRuntimeValue(options.appId, context as never)
+    : options.appId
   for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
-    const value = cleanSecret(options[field] ?? env[field])
+    const value = cleanSecret((field === "appId" ? appId : options[field]) ?? env[field])
     if (value) adapterConfig[field] = value
     else delete adapterConfig[field]
   }

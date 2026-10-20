@@ -1,9 +1,10 @@
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
 export type DrizzleCasing = "snake_case" | "camelCase"
-export type DatabaseDialect = "sqlite"
+export type DatabaseDialect = "sqlite" | "postgresql"
 
 export interface RuntimeEnvDeclarationLike {
   default?: unknown
@@ -70,10 +71,42 @@ export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions 
 export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
+  dialect?: "sqlite"
   drizzle?: DatabaseDrizzleOptions
   name?: string
   schema: TSchema
 }
+
+export interface CloudflareHyperdriveConfig {
+  /** Hyperdrive binding. Defaults to `HYPERDRIVE` for a Default Database and `HYPERDRIVE_<NAME>` for a Named Database. */
+  binding?: string
+  /** Hyperdrive configuration id. ViteHub adds the binding to generated Wrangler config when it is set. */
+  hyperdriveId?: DatabaseConfigValue
+}
+
+export interface PostgresConnectionConfig {
+  url?: DatabaseConfigValue
+}
+
+export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+  cloudflare?: CloudflareHyperdriveConfig
+  connection?: PostgresConnectionConfig
+  dialect: "postgresql"
+  drizzle?: DatabaseDrizzleOptions
+  name?: string
+  schema: TSchema
+}
+
+export interface PostgresDatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
+  cloudflare?: CloudflareHyperdriveConfig
+  connection?: PostgresConnectionConfig
+  dialect: "postgresql"
+  drizzle: DatabaseDrizzleOptions
+  name: string
+  schema: TSchema
+}
+
+export type RuntimePostgresDatabase<TSchema extends Record<string, unknown>> = PgDatabase<PgQueryResultHKT, TSchema>
 
 export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
@@ -98,10 +131,16 @@ export interface DatabaseSchemaSource {
 }
 
 export interface DiscoveredDatabaseDefinition {
+  /** Plugin that contributed this Definition, when it was not found in the app. */
+  contributor?: string
   /** The Definition that supplies the database options. */
   handler: string
+  /** Absolute migrations directory, when it is not `migrations/` beside the Definition. */
+  migrationsDir?: string
   mode: "default" | "named"
   name: string
+  /** Explanation supplied by the contributing plugin. */
+  reason?: string
   /** Schema modules merged into this database, lowest precedence first. A later table key replaces an earlier one. */
   schemaSources: DatabaseSchemaSource[]
   source: string
@@ -132,10 +171,17 @@ export interface CloudflareD1Projection {
   resource: "configured" | "inherited" | "opaque"
 }
 
+export interface ResolvedCloudflareHyperdriveConfig {
+  binding: string
+  hyperdriveId?: DatabaseConfigValue
+}
+
 export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseConfig {
   cloudflare?: ResolvedCloudflareD1BindingConfig
   dialect: DatabaseDialect
   generatedSchemaFile: string
+  /** Postgres Definitions only. */
+  hyperdrive?: ResolvedCloudflareHyperdriveConfig
   migrationsDir: string
   mode: "default" | "named"
   orm: "drizzle"

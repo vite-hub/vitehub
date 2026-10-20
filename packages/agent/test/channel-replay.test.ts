@@ -290,9 +290,9 @@ describe("replayChannel()", () => {
 
   it.each([
     { channelName: "mailbox", dryRun: false, key: "m1" },
-    { channelName: "mail box:%", dryRun: false, key: "m 1:%" },
+    { channelName: "mail sandbox:%", dryRun: false, key: "m 1:%" },
     { channelName: "mailbox", dryRun: true, key: "m1" },
-    { channelName: "mail box:%", dryRun: true, key: "m 1:%" },
+    { channelName: "mail sandbox:%", dryRun: true, key: "m 1:%" },
   ])("preserves legacy replay journals for $channelName/$key, dry run: $dryRun", async ({ channelName, dryRun, key }) => {
     const invocations = memoryInvocations()
     const { channel, label } = mailbox()

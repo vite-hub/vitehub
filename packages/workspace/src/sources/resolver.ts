@@ -3,7 +3,7 @@ import { normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorksp
 
 import type { WorkspaceDefinition } from "../core/types.ts"
 
-export interface ResolvedStorePath {
+interface ResolvedStorePath {
   type: "store"
   workspacePath: string
   readonly: false

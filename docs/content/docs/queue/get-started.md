@@ -67,9 +67,13 @@ import { runQueue } from '@vite-hub/queue'
 export default defineEventHandler(async (event) => {
   const { email } = await readBody<{ email: string }>(event)
 
-  return runQueue('welcome-email', { email })
+  const [error, result] = await runQueue('welcome-email', { email })
+  if (error) throw error
+  return result
 })
 ```
+
+`runQueue()` returns `[error, result]`. Check `error` first. Its `code` names the failure, and [Queue limits and errors](/docs/queue/limits-and-errors) explains each code.
 
 The response is an acceptance signal:
 

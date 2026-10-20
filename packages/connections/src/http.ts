@@ -1,7 +1,9 @@
-import { ConnectionError, isConnectionError } from "./errors.ts";
+import { isConnectionError } from "./errors.ts";
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
-import { connectionsRoutes, errorResponse, errorStatus, json, page } from "./internal/http-routes.ts";
+import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
+import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
@@ -20,22 +22,24 @@ export interface ConnectionsHandlerOptions {
   actor: ConnectionsAccessPolicy;
   basePath?: string;
   runtime?: () => ConnectionsRuntime;
+  /** Agent name used to select a function-form `vitehub({ publicUrl })` origin. */
+  agentName?: string;
 }
 
 function normalizeConnectionsBasePath(value: string | undefined): string {
   if (value !== undefined && typeof value !== "string") {
-    throw new ConnectionError("invalid", "Connections basePath must be a string.");
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "type" });
   }
   const path = value === undefined ? CONNECTIONS_ROUTE : value.trim();
   if (!path.startsWith("/")) {
-    throw new ConnectionError("invalid", "Connections basePath must start with `/`.");
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "slash" });
   }
   if (path.includes("?") || path.includes("#")) {
-    throw new ConnectionError("invalid", "Connections basePath must be a pathname without a query or fragment.");
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "path" });
   }
   const normalized = path.length > 1 ? path.replace(/\/+$/g, "") : path;
   if (!normalized || normalized === "/") {
-    throw new ConnectionError("invalid", "Connections basePath must include a route segment.");
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "segment" });
   }
   return normalized;
 }
@@ -45,9 +49,10 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
  * the Connections runtime only through the access that the policy grants for this request.
  *
  * - `POST /_vitehub/connections` runs one JSON action.
- * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow.
+ * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow. An optional
+ *   `?return=/path` names a same-origin page, such as the Console, to return to.
  * - `GET /_vitehub/connections/callback` completes it. The OAuth `state` is single-use and bound to
- *   the browser and the manager that started the flow.
+ *   the browser and the manager that started the flow. The result page returns to the `return` page.
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
@@ -57,23 +62,26 @@ export function createConnectionsHandler(
   return async (request, event) => {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
-      const check = await checkConnectionsAccess(options.actor, request, event, runtime);
+      const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
       if (check.rejection) return check.rejection;
       const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
       if (!route)
-        return json({ error: managementErrorBody("CONNECTION_NOT_FOUND", "Not found.") }, 404);
+        return json({ error: managementErrorBody("CONNECTIONS_ROUTE_NOT_FOUND", "Not found.") }, 404);
       if (request.method !== route.method)
-        return json({ error: managementErrorBody("CONNECTION_METHOD", `Use ${route.method}.`) }, 405, {
+        return json({ error: managementErrorBody("CONNECTIONS_METHOD_NOT_ALLOWED", `Use ${route.method}.`) }, 405, {
           allow: route.method,
         });
       return await route.handle(check.access, base);
     } catch (error) {
       if (request.method === "GET") {
-        return page(
-          "Connection failed",
-          isConnectionError(error) ? error.message : "The connection could not be completed.",
-          errorStatus(error),
-        );
+        return page({
+          code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
+          message: isConnectionError(error) ? error.message : "The connection could not be completed.",
+          outcome: "error",
+          returnTo: requestReturnPath(request),
+          status: errorStatus(error),
+          title: "Connection failed",
+        });
       }
       return errorResponse(error);
     }

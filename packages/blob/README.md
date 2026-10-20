@@ -40,6 +40,7 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubBlob } from "@vite-hub/blob/vite"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -47,13 +48,15 @@ export default defineConfig({
     driver: "fs",
     base: ".vitehub/data/blob",
   },
-  plugins: [hubBlob()],
+  plugins: [hubBlob(), nitro()],
 })
 ```
 
 ## Vite Integration
 
-Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code.
+Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each preset. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
+
+For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions), set `jurisdiction: "eu"`, `"fedramp"`, or `"us"` on the `cloudflare-r2` store, or set `R2_JURISDICTION` at build time. ViteHub adds it to the `r2_buckets` binding, sends the `cf-r2-jurisdiction` header when provisioning lists and creates buckets, and uses the `<account-id>.<jurisdiction>.r2.cloudflarestorage.com` host for HTTP fallback and signed URLs. A `wrangler` `r2_buckets` entry with the same `binding` and another jurisdiction fails the build.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
@@ -114,7 +117,7 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 
 `blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. `handleUpload()` stores file names as written, without URL-decoding.
 
 Browser clients:
 

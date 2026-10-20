@@ -101,13 +101,9 @@ const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint
 
 function cell(value: unknown): ConsoleDatabaseCell {
   if (value === null || typeof value === "undefined") return { kind: "null", value: "NULL" }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database values cross driver boundaries and need a stable JSON representation.
   if (typeof value === "string") return { kind: "text", ...truncate(value) }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database values cross driver boundaries and need a stable JSON representation.
   if (typeof value === "number") return { kind: "number", value: String(value) }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database values cross driver boundaries and need a stable JSON representation.
   if (typeof value === "boolean") return { kind: "boolean", value: value ? "true" : "false" }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON cannot serialize BigInt values, so preserve the exact decimal representation.
   if (typeof value === "bigint") return { kind: "bigint", value: String(value) }
   if (isDateValue(value)) return { kind: "date", value: Date.prototype.toISOString.call(value) }
   if (isUint8ArrayValue(value)) {
@@ -121,7 +117,6 @@ function cell(value: unknown): ConsoleDatabaseCell {
   }
   try {
     const rendered = JSON.stringify(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify may return undefined for unsupported top-level database values.
     return typeof rendered === "string"
       ? { kind: "json", ...truncate(rendered) }
       : { kind: "text", ...truncate(String(value)) }

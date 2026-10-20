@@ -13,7 +13,6 @@ import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../s
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { custom, defineWorkspace, file, github, glob, markdown, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
-import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
@@ -35,7 +34,7 @@ vi.mock("node:child_process", () => ({
 
 const tempDirs: string[] = []
 const workspaceSourceImport = pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href
-const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
+const githubTokenEnvNames = ["VITEHUB_GITHUB_TOKEN", "FORGES_GITHUB_TOKEN"] as const
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-root-"))
@@ -101,9 +100,15 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
 
-  if (requestUrl.startsWith("https://codeload.github.com/")) {
+    if (requestUrl.startsWith("https://codeload.github.com/")) {
       if (archiveStatus !== 200) return new Response("not found", { status: archiveStatus })
       return new Response(createTarGz(files))
+    }
+
+    // The API tarball redirects to a signed codeload URL. Its rate limit is the API limit.
+    const tarball = requestUrl.match(/^https:\/\/api\.github\.com\/repos\/(?<repo>[^/]+\/[^/]+)\/tarball\/(?<ref>.+)$/)?.groups
+    if (tarball && apiStatus === 200) {
+      return new Response(null, { headers: { location: `https://codeload.github.com/${tarball.repo}/legacy.tar.gz/${tarball.ref}?token=signed` }, status: 302 })
     }
 
     if (apiStatus !== 200) {
@@ -111,10 +116,10 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
     }
 
     if (/^https:\/\/api\.github\.com\/repos\/acme\/[^/]+$/.test(requestUrl)) {
-      return jsonResponse({ default_branch: defaultBranch })
+      return jsonResponse({ default_branch: defaultBranch, full_name: requestUrl.replace("https://api.github.com/repos/", "") })
     }
 
-    if (requestUrl.endsWith(`/commits/${defaultBranch}`)) {
+    if (requestUrl.includes("/commits/")) {
       return jsonResponse({ sha: "latest-commit-sha" })
     }
 
@@ -140,14 +145,25 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
     return jsonResponse({
       content: Buffer.from(files[path] || "").toString("base64"),
       encoding: "base64",
+      path,
+      sha: `sha-${path}`,
     })
   }))
 }
 
+function requestAuthorization(init: RequestInit | undefined) {
+  return new Headers(init?.headers).get("authorization") ?? undefined
+}
+
+/** The first archive request: the authenticated API tarball or the anonymous codeload download. Not the signed redirect. */
+function isArchiveRequest(url: unknown) {
+  return /\/tarball\/|^https:\/\/codeload\.github\.com\/[^/]+\/[^/]+\/tar\.gz\//.test(String(url))
+}
+
 function archiveRequestAuthorizations() {
   return vi.mocked(fetch).mock.calls
-    .filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
-    .map(([, init]) => (init?.headers as Record<string, string> | undefined)?.authorization)
+    .filter(([url]) => isArchiveRequest(url))
+    .map(([, init]) => requestAuthorization(init))
 }
 
 function archiveRequestAuthorization() {
@@ -155,7 +171,7 @@ function archiveRequestAuthorization() {
   return authorization
 }
 
-describe("sources, loaders, and publishers", () => {
+describe("sources and loaders", () => {
   it("pins one revision while syncing a mounted build source", async () => {
     const root = await createRoot()
     let resolution = 0
@@ -340,12 +356,12 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    process.env.GITHUB_TOKEN = "first-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "first-token"
 
     const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
-    process.env.GITHUB_TOKEN = "second-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "second-token"
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorizations()).toEqual([
@@ -356,7 +372,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("resolves GitHub auth from local env files without mutating process env", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -366,10 +382,10 @@ describe("sources, loaders, and publishers", () => {
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorization()).toBe("Bearer env-file-token")
-    expect(process.env.GITHUB_TOKEN).toBeUndefined()
+    expect(process.env.VITEHUB_GITHUB_TOKEN).toBeUndefined()
   })
 
-  it.each(["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GH_TOKEN"] as const)("resolves GitHub auth from %s before the GitHub CLI", async (name) => {
+  it.each(["VITEHUB_GITHUB_TOKEN", "FORGES_GITHUB_TOKEN"] as const)("resolves GitHub auth from %s before the GitHub CLI", async (name) => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -385,7 +401,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("re-reads GitHub auth from local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=first-env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=first-env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -393,7 +409,7 @@ describe("sources, loaders, and publishers", () => {
     const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=second-env-file-token\n")
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorizations()).toEqual([
@@ -404,11 +420,11 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers runtime GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    process.env.GITHUB_TOKEN = "runtime-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "runtime-token"
 
     const githubSource = github({ repo: "acme/private" })
 
@@ -419,11 +435,11 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers Cloudflare GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
 
     const githubSource = github({ repo: "acme/private" })
 
@@ -436,7 +452,7 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
 
     const githubSource = github({ auth: "explicit-token", repo: "acme/private" })
 
@@ -447,7 +463,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers explicit GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -461,9 +477,9 @@ describe("sources, loaders, and publishers", () => {
 
   it("skips all GitHub auth fallbacks when auth is false", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
-    process.env.GITHUB_TOKEN = "runtime-token"
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
+    process.env.VITEHUB_GITHUB_TOKEN = "runtime-token"
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -526,7 +542,7 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     }, { apiStatus: 403 })
-    process.env.GITHUB_TOKEN = "stale-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "stale-token"
 
     const githubSource = github({
       repo: "acme/app",
@@ -543,13 +559,13 @@ describe("sources, loaders, and publishers", () => {
     vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
       const requestUrl = String(url)
       if (requestUrl === "https://api.github.com/repos/acme/app") {
-        return jsonResponse({ default_branch: "main" })
+        return jsonResponse({ default_branch: "main", full_name: "acme/app" })
       }
       if (requestUrl.endsWith("/commits/main")) {
         return jsonResponse({ sha: "latest-commit-sha" })
       }
-      if (requestUrl.startsWith("https://codeload.github.com/")) {
-        expect((init?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer token")
+      if (isArchiveRequest(requestUrl)) {
+        expect(requestAuthorization(init)).toBe("Bearer token")
         return new Response(createTarGz({ "metadata.xml": "<metadata />\n" }))
       }
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
@@ -593,7 +609,7 @@ describe("sources, loaders, and publishers", () => {
     await expect(workspace.stat("docs/README.md")).resolves.toMatchObject({ path: "docs/README.md", type: "file" })
     await expect(workspace.exists("docs/guide/setup.md")).resolves.toBe(true)
 
-    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => isArchiveRequest(url))
     expect(archiveCalls).toHaveLength(1)
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([
@@ -628,7 +644,7 @@ describe("sources, loaders, and publishers", () => {
       workspace.readFile("docs/README.md"),
     ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
 
-    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => isArchiveRequest(url))
     expect(archiveCalls).toHaveLength(1)
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: expect.arrayContaining([expect.objectContaining({ path: "docs/README.md", type: "added" })]),
@@ -1720,7 +1736,7 @@ describe("sources, loaders, and publishers", () => {
       .rejects.toThrow("could not access the repository or ref \"main\"")
   })
 
-  it("loads glob/file/custom sources and writes publish artifacts", async () => {
+  it("loads glob/file/custom sources", async () => {
     const root = await createRoot()
     await writeFile(join(root, "one.md"), "# One\n")
     await writeFile(join(root, "skip.txt"), "skip\n")
@@ -1750,10 +1766,6 @@ describe("sources, loaders, and publishers", () => {
           },
         }),
       ],
-      publish: [
-        publish.manifest({ path: "manifest.json" }),
-        publish.types({ path: "workspace.d.ts" }),
-      ],
     }))
 
     const workspace = useWorkspace("sources", { mode: "write" })
@@ -1762,8 +1774,6 @@ describe("sources, loaders, and publishers", () => {
 
     expect(customWrites).toBe(3)
     expect(await workspace.fs.glob("**/*")).toHaveLength(3)
-    expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"docs/one.md"')
-    expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('#vitehub/workspaces/sources')
   })
 
   it("ignores hidden files, .git, and node_modules when discovering glob sources by default", async () => {

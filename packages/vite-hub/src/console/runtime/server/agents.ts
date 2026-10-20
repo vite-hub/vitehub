@@ -5,7 +5,7 @@ import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"
 
 import type { AgentInput, AgentInvocations } from "@vite-hub/agent"
-import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { RuntimeCapabilities } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -21,7 +21,7 @@ export type ConsoleAgentDefinitionEntry = {
 
 export type ConsoleAgentDefinitionInstallation =
   | { capabilities?: RuntimeCapabilities, invocations: AgentInvocations, projectRoot?: never }
-  | { capabilities?: RuntimeCapabilities, invocations?: never, invoke?: boolean, databaseUrl?: string, d1?: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], projectRoot: string, retention?: AgentInvocationRetentionOptions }
+  | { capabilities?: RuntimeCapabilities, invocations?: never, invoke?: boolean, databaseUrl?: string, d1?: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], projectRoot: string, retention?: AgentRetentionPolicy }
 
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentDefinitionsKey]?: ReadonlyMap<string, AgentInput>

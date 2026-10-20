@@ -44,6 +44,12 @@
       "require": "./dist/bridge.js",
       "default": "./dist/bridge.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
@@ -121,7 +127,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/env#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
   "dependencies": {

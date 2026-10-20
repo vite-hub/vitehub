@@ -99,7 +99,6 @@ function recordSummary(row: ConsoleRecord): string {
 
 function queryValue(): string | undefined {
   const value = route.query[selectionQuery.value];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -175,7 +174,6 @@ watch(
     if (name === undefined) {
       selectedName.value = entries.value[0]?.id;
     } else if (
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
       typeof name === "string" &&
       entries.value.some((entry) => entry.id === name)
     ) {

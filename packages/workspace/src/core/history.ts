@@ -21,7 +21,7 @@ const forwardedHistoryCommits = new WeakSet<WorkspaceHistoryCommitOptions>()
 
 export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommitOptions): WorkspaceHistoryCommitOptions {
   const forwardFiles = (files: Record<string, WorkspaceFile> = {}) => Object.fromEntries(Object.entries(files).map(([path, file]) => [path, { content: file.content, mediaType: file.mediaType, metadata: file.metadata }]))
-  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, message: options.message, metadata: options.metadata }
+  const base = { ref: options.ref, ifHead: options.ifHead, message: options.message, metadata: options.metadata }
   const forwarded: WorkspaceHistoryCommitOptions = options.changes
     ? { ...base, changes: { put: forwardFiles(options.changes.put), delete: [...options.changes.delete ?? []] } }
     : { ...base, files: forwardFiles(options.files) }
@@ -210,7 +210,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
           throw error
         }
       }
-      const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, message: options.message, metadata }
+      const base = { ref, ifHead: options.ifHead, message: options.message, metadata }
       const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
         ? { ...base, files: desired }
         : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }

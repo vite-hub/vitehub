@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { ConnectionInspection } from "@vite-hub/connections";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 
 import {
   canSendConnectionKey,
   connectionConnectURL,
+  connectionCredentialLabel,
   connectionResultSchema,
+  connectionStatusColor,
   connectionStatusLabel,
   requestConnectionsManagement,
 } from "../client/connections-management";
@@ -13,7 +15,15 @@ import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
 import ConsoleState from "./console-state.vue";
 
-const props = defineProps<{ connection: ConnectionInspection; endpoint: string }>();
+const props = defineProps<{
+  connection: ConnectionInspection;
+  endpoint: string;
+  initialTab?: "activity" | "approvals" | "details";
+  /** Open the API key form when the panel opens. */
+  keyForm?: boolean;
+  /** The Console page that the provider flow returns to. */
+  returnTo?: string;
+}>();
 const emit = defineEmits<{ changed: [] }>();
 const current = ref<ConnectionInspection>(props.connection);
 watch(
@@ -22,7 +32,7 @@ watch(
     current.value = connection;
   },
 );
-const tab = ref("details");
+const tab = ref(props.initialTab ?? "details");
 const busy = ref(false);
 const error = ref<unknown>();
 const keyBlocked = ref(false);
@@ -31,7 +41,6 @@ const revoking = ref(false);
 const confirmation = ref("");
 const settingKey = ref(false);
 const key = ref("");
-let authorizing = false;
 
 async function run(action: () => Promise<void>) {
   busy.value = true;
@@ -57,19 +66,6 @@ function reload() {
     await inspect();
     emit("changed");
   });
-}
-function onFocus() {
-  if (!authorizing) return;
-  authorizing = false;
-  window.removeEventListener("focus", onFocus);
-  void reload();
-}
-function connect() {
-  // The provider flow ends on a page that asks the user to close its tab, so it opens in a new tab.
-  window.open(connectionConnectURL(props.endpoint, props.connection.name), "_blank", "noopener");
-  notice.value = "Finish the authorization in the new tab. This view reloads when you come back.";
-  if (!authorizing) window.addEventListener("focus", onFocus);
-  authorizing = true;
 }
 function openKeyForm() {
   error.value = undefined;
@@ -105,8 +101,11 @@ function revoke() {
     emit("changed");
   });
 }
-onMounted(() => run(inspect));
-onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
+onMounted(async () => {
+  await run(inspect);
+  // The row action "Set key" opens the panel with the key field ready.
+  if (props.keyForm && !error.value && current.value.credential === "api-key") openKeyForm();
+});
 </script>
 
 <template>
@@ -128,16 +127,23 @@ onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
     </div>
     <template v-if="tab === 'details'">
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-4 text-sm">
+        <dt class="text-muted">Status</dt>
+        <dd>
+          <UBadge
+            :color="connectionStatusColor(current.status)"
+            :label="connectionStatusLabel(current.status)"
+            size="sm"
+            variant="subtle"
+          />
+        </dd>
+        <dt class="text-muted">Type</dt>
+        <dd>{{ connectionCredentialLabel(current.credential) }}</dd>
         <dt class="text-muted">Provider</dt>
         <dd class="break-words text-highlighted">{{ current.provider }}</dd>
-        <dt class="text-muted">Status</dt>
-        <dd :class="current.status === 'reauth_required' ? 'text-error' : undefined">
-          {{ connectionStatusLabel(current.status) }}
-        </dd>
-        <dt class="text-muted">Account</dt>
-        <dd class="break-all">
-          {{ current.account?.email ?? current.account?.id ?? "None" }}
-        </dd>
+        <template v-if="current.account">
+          <dt class="text-muted">Account</dt>
+          <dd class="break-all">{{ current.account.email ?? current.account.id }}</dd>
+        </template>
         <template v-if="current.connectedAt">
           <dt class="text-muted">Connected</dt>
           <dd>
@@ -169,10 +175,6 @@ onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
             {{ current.scopes.missing.join(" ") || "None" }}
           </dd>
         </template>
-        <template v-else>
-          <dt class="text-muted">Credential</dt>
-          <dd>API key</dd>
-        </template>
       </dl>
       <div class="flex flex-wrap gap-2">
         <UButton
@@ -191,10 +193,12 @@ onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
               ? 'Connect'
               : 'Reconnect'
           "
+          :to="connectionConnectURL(endpoint, current.name, returnTo)"
+          external
           color="neutral"
           variant="outline"
+          trailing-icon="i-ph-arrow-up-right-light"
           :disabled="busy"
-          @click="connect"
         />
         <UButton
           v-if="current.status === 'connected' || current.status === 'reauth_required'"
@@ -219,6 +223,7 @@ onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
             v-model="key"
             type="password"
             autocomplete="off"
+            autofocus
             spellcheck="false"
             class="w-full"
             :disabled="busy"
