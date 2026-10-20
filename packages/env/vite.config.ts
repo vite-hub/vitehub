@@ -23,6 +23,7 @@ export default defineConfig({
       "src/index.ts",
       "src/bridge.ts",
       "src/auth.ts",
+      "src/cli.ts",
       "src/http.ts",
       "src/internal/agent.ts",
       "src/internal/connections.ts",
