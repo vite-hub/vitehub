@@ -18,11 +18,6 @@ Select a session to read its messages and reply. This example uses the package s
 ::component-preview{name="ChatAppBlock" flush reset}
 ::
 
-Select an Invocation to read its messages, tool calls, and result. The inspector shows its configuration and activity. This example uses the package styles and built-in layouts.
-
-::component-preview{name="InvocationDashboardBlock" flush reset}
-::
-
 [Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
 
 ## Components
@@ -54,6 +49,8 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `@vite-hub/ui`            | Every styled component, composables, display helpers, and Pierre diff helpers. |
+| `@vite-hub/ui`            | Every styled component, composables, display helpers, and Pierre diff helpers. |
+| `@vite-hub/ui/<name>`     | One component or part family, such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. |
 | `@vite-hub/ui/headless`   | Message scroller primitives without styles or Nuxt UI.                         |
 | `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |

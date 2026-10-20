@@ -84,26 +84,11 @@ export interface AgentHostIdentity {
   readonly workspace?: WorkspaceName
 }
 
-export interface AgentGitHubAccess {
-  /** Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity. */
-  env: Record<string, string>
-  token: string
-}
-
-/** The GitHub identity of an Agent. `createGitHubHost()` from `vite-hub/agent/server/github` returns one. */
-export interface AgentGitHub {
-  access(input?: { repository?: string, signal?: AbortSignal }): Promise<AgentGitHubAccess>
-  /** Login of the identity, when it is known. */
-  identity?(): string | undefined
-}
-
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
   channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
-  /** The Agent GitHub identity from `defineAgent({ github })`. */
-  githubIdentity?: AgentGitHub
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
   runtime: AgentRuntimeName
@@ -2098,11 +2083,6 @@ type AgentSharedSettings<
   sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
-  /**
-   * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
-   * and the pull request checkout and `git()` use its token.
-   */
-  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
@@ -2178,7 +2158,6 @@ export interface AgentDefinition<
   sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
-  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
@@ -2535,6 +2514,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }
   /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
   allowBots?: boolean
+  /**
+   * Give the Agent a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply
+   * and the loading message is removed. Errors and messages that the Agent sent explicitly are still delivered.
+   * Requires `loading` without `delivery: "manual"`.
+   */
+  allowSilentReply?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {

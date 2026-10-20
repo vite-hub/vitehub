@@ -45,8 +45,7 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
-/** Compatibility helpers for the legacy rail and catalog components. */
-export const getDocsRailCatalog = getDocsCatalog;
+/** Compatibility helper for the legacy catalog component. */
 export function getDocsSectionKind(section: DocsSection) {
   if (section.id === docsRootSectionId) return "Get started";
   if (section.id === "ui") return "UI components";

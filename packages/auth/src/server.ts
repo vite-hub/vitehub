@@ -191,6 +191,26 @@ function isRequestLike(value: AuthRequest): value is Request {
   }
 }
 
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  try {
+    let prototype = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    while (prototype && !seen.has(prototype)) {
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "aborted")
+      if (descriptor?.get) {
+        return typeof Reflect.apply(descriptor.get, value, []) === "boolean"
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch {
+    return false
+  }
+  return false
+}
+
 function toRequest(request: AuthRequest): Request {
   if (request instanceof Request || isRequestLike(request)) return request
   const init: RequestInitWithDuplex = {
@@ -199,7 +219,7 @@ function toRequest(request: AuthRequest): Request {
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
   init.headers = new Headers(request.headers as HeadersInit)
-  if (request.signal instanceof AbortSignal) init.signal = request.signal
+  if (isAbortSignalLike(request.signal)) init.signal = request.signal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
