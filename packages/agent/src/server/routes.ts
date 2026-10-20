@@ -724,7 +724,9 @@ function normalizeWebhookPath(path: string): string {
 }
 
 function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
-  return isRuntimeString(registration.path) && normalizeWebhookPath(new URL(request.url).pathname) === normalizeWebhookPath(registration.path)
+  const pathname = normalizeWebhookPath(new URL(request.url).pathname)
+  const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
+  return paths.some(path => isRuntimeString(path) && pathname === normalizeWebhookPath(path))
 }
 
 async function findAgentWebhookRegistration(
@@ -1170,6 +1172,16 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
   return safe
 }
 
+function migratePersistedForgeContext(input: Record<string, unknown>): Record<string, unknown> {
+  const context = input.context
+  if (!isRecord(context)) return input
+  const forge = context.forge || context.codeHost
+  const pullRequest = isRecord(context.pullRequest)
+    ? { ...context.pullRequest, ...(!context.pullRequest.forge && context.pullRequest.host ? { forge: context.pullRequest.host } : {}) }
+    : context.pullRequest
+  return { ...input, context: { ...context, ...(forge ? { forge } : {}), ...(pullRequest ? { pullRequest } : {}) } }
+}
+
 function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: AgentRunInput; run?: unknown; task?: string; requiresPrepare?: boolean }, rehydrate = false): { agentName?: string; input: Record<string, unknown>; run?: unknown; task?: string; requiresPrepare?: true } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
   if (rehydrate && invocation.input.context) {
@@ -1179,7 +1191,7 @@ function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: Age
   }
   return {
     ...(invocation.agent ? { agentName: taskAgentIdentity(invocation.agent).name } : {}),
-    input,
+    input: migratePersistedForgeContext(input),
     ...(invocation.run ? { run: invocation.run } : {}),
     ...(invocation.task !== undefined ? { task: invocation.task } : {}),
     ...(invocation.requiresPrepare ? { requiresPrepare: true as const } : {}),
@@ -1837,6 +1849,9 @@ async function executeQueuedWebhookDelivery(
     }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     let invocation = delivery.invocation as PersistedInvocation | undefined
+    if (invocation?.input) {
+      invocation = { ...invocation, input: migratePersistedForgeContext(invocation.input as Record<string, unknown>) as AgentRunInput }
+    }
     if (!invocation || delivery.rehydrate) {
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)

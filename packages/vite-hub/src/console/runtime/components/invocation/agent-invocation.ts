@@ -1,6 +1,6 @@
+import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
@@ -128,6 +128,7 @@ function renderFolderIcon() {
 
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
+
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
@@ -747,7 +748,16 @@ function renderEventPayload(label: string, value: unknown) {
 
 function renderCommandError(value: unknown) {
   if (value === undefined) return null;
-  const text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : JSON.stringify(value, null, 2);
+  let text: string;
+  if (typeof value === "string") text = value;
+  else {
+    try {
+      text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : payloadText(value);
+    } catch {
+      try { text = payloadText(value); }
+      catch { text = "[Unable to display payload]"; }
+    }
+  }
   return h("section", { class: "vh-invocation-event__payload" }, [
     h("strong", "Error"),
     h("pre", text),

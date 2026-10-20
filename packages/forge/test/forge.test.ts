@@ -19,7 +19,7 @@ function privateKeys(type: "pkcs1" | "pkcs8") {
   return privateKey.export({ format: "pem", type }).toString()
 }
 
-describe("internal Code Host client", () => {
+describe("internal Forge client", () => {
   it("caches installation tokens and refreshes them when asked", async () => {
     const key = privateKeys("pkcs8")
     const fixture = fixtureFetch([

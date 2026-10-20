@@ -104,6 +104,11 @@ beforeEach(() => {
       const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
       return sha ? json({ object: { sha } }) : new Response("missing", { status: 404 })
     }
+    if (url.pathname.includes("/git/commits/")) {
+      const commitId = url.pathname.split("/git/commits/")[1] || ""
+      const commit = commits[commitId as keyof typeof commits]
+      return commit ? json({ sha: commit.sha, tree: commit.commit.tree }) : new Response("missing", { status: 404 })
+    }
     if (url.pathname.includes("/commits/heads%2F")) {
       const ref = decodeURIComponent(url.pathname.split("/commits/heads%2F")[1] || "")
       const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
