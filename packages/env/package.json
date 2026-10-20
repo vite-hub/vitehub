@@ -149,7 +149,7 @@
   "peerDependencies": {
     "vite": "catalog:vite-compat",
     "drizzle-orm": "catalog:database",
-    "@vite-hub/agent": "workspace:*"
+    "@vite-hub/agent": "^0.0.4"
   },
   "peerDependenciesMeta": {
     "vite": {
