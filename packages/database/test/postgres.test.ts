@@ -197,7 +197,7 @@ describe("Postgres build configuration", () => {
 
     const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
-    expect(drizzleConfig).toContain("  dbCredentials: process.env[\"DATABASE_URL\"] ? { url: process.env[\"DATABASE_URL\"] } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+    expect(drizzleConfig).toContain("  dbCredentials: (process.env[\"DATABASE_URL\"])?.trim() ? { url: (process.env[\"DATABASE_URL\"]).trim() } : { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
     expect(drizzleConfig).toContain("out: \"server/databases/migrations\"")
     await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
@@ -207,6 +207,20 @@ describe("Postgres build configuration", () => {
   it("gives Drizzle Kit the PG* environment variables when a Postgres Definition has no URL", async () => {
     const rootDir = await createLoadableProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    await writeGeneratedDatabaseArtifacts(config)
+
+    const drizzleConfig = await readFile(config.generatedDrizzleConfigFile, "utf8")
+    expect(drizzleConfig).toContain("  dbCredentials: { host: process.env[\"PGHOST\"], database: process.env[\"PGDATABASE\"] },\n")
+  })
+
+  it("gives Drizzle Kit the PG* environment variables for an empty literal URL", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/config.ts", [
+      "  dialect: 'postgresql',",
+      "  connection: { url: '   ' },",
+    ])
     const config = resolveDBViteConfig(undefined, rootDir)!
 
     await writeGeneratedDatabaseArtifacts(config)

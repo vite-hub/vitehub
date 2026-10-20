@@ -30,8 +30,8 @@ const postgresEnvNames = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSERNAME", "PGUSE
 
 function readPostgresEnvKey() {
   const env = globalThis.process?.env
-  const values = postgresEnvNames.map(name => env?.[name]?.trim() ?? "")
-  return values.some(Boolean) ? JSON.stringify(values) : undefined
+  const values = postgresEnvNames.map(name => env?.[name] ?? "")
+  return values.some(value => value.trim().length > 0) ? JSON.stringify(values) : undefined
 }
 
 function readHyperdriveConnectionString(binding: unknown) {
