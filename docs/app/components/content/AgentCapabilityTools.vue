@@ -17,7 +17,7 @@ const reference = computed(() => capabilityReferences[`${props.name}.${props.var
 
 <template>
   <div class="not-prose my-5 rounded-lg border border-default bg-default p-2">
-    <AgentToolList v-if="reference" :tools="reference.tools" />
+    <ToolList v-if="reference" :tools="reference.tools" />
     <p v-else class="m-2 text-sm text-muted">
       No build-time tool contract exists for {{ name }}.{{ variant }}.
     </p>

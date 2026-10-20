@@ -1006,11 +1006,29 @@
       "require": "./dist/ui/code-view.js",
       "default": "./dist/ui/code-view.js"
     },
+    "./ui/file-diff": {
+      "types": "./dist/ui/file-diff.d.ts",
+      "import": "./dist/ui/file-diff.js",
+      "require": "./dist/ui/file-diff.js",
+      "default": "./dist/ui/file-diff.js"
+    },
     "./ui/file-tree": {
       "types": "./dist/ui/file-tree.d.ts",
       "import": "./dist/ui/file-tree.js",
       "require": "./dist/ui/file-tree.js",
       "default": "./dist/ui/file-tree.js"
+    },
+    "./ui/file-view": {
+      "types": "./dist/ui/file-view.d.ts",
+      "import": "./dist/ui/file-view.js",
+      "require": "./dist/ui/file-view.js",
+      "default": "./dist/ui/file-view.js"
+    },
+    "./ui/multi-file-diff": {
+      "types": "./dist/ui/multi-file-diff.d.ts",
+      "import": "./dist/ui/multi-file-diff.js",
+      "require": "./dist/ui/multi-file-diff.js",
+      "default": "./dist/ui/multi-file-diff.js"
     },
     "./ui/markdown": {
       "types": "./dist/ui/markdown.d.ts",
@@ -1030,11 +1048,23 @@
       "require": "./dist/ui/message-parts.js",
       "default": "./dist/ui/message-parts.js"
     },
+    "./ui/patch-diff": {
+      "types": "./dist/ui/patch-diff.d.ts",
+      "import": "./dist/ui/patch-diff.js",
+      "require": "./dist/ui/patch-diff.js",
+      "default": "./dist/ui/patch-diff.js"
+    },
     "./ui/prompt-input": {
       "types": "./dist/ui/prompt-input.d.ts",
       "import": "./dist/ui/prompt-input.js",
       "require": "./dist/ui/prompt-input.js",
       "default": "./dist/ui/prompt-input.js"
+    },
+    "./ui/unresolved-file": {
+      "types": "./dist/ui/unresolved-file.d.ts",
+      "import": "./dist/ui/unresolved-file.js",
+      "require": "./dist/ui/unresolved-file.js",
+      "default": "./dist/ui/unresolved-file.js"
     },
     "./ui/tool-list": {
       "types": "./dist/ui/tool-list.d.ts",

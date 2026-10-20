@@ -778,6 +778,7 @@ function isLocalResponseProxy(value: unknown): boolean {
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
   if (value instanceof Response) {
     try {
       const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
@@ -805,12 +806,7 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
               const cloned = Reflect.apply(clone, value, [])
               if (cloned !== value && cloned instanceof Response) return true
             }
-            catch {
-              // Proxies fail the native brand check even when their target is
-              // a genuine Response. The native clone method on the proxy is
-              // sufficient provenance for the snapshot path below.
-              return true
-            }
+            catch { return false }
           }
         }
       }
@@ -1281,21 +1277,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // arbitrary value to Response would stringify it into a new stream and
     // incorrectly admit the malformed authorization result.
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
-
-    // Reader validation yields to the event loop. Re-read the source
-    // response's intrinsic disturbed state immediately before acquiring the
-    // bridge reader so a body consumed during validation cannot be admitted
-    // after its reader is released and `locked` becomes false again.
-    try {
-      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-      nativeBodyState = isLocalResponseProxy(candidate) || (bodyUsed !== undefined
-        && !Reflect.apply(bodyUsed, candidate, []))
-        && (body === null || (typeof lockedGetter === "function" && !Reflect.apply(lockedGetter, Object(body), [])))
-    }
-    catch {
-      return
-    }
 
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
