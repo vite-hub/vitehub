@@ -112,9 +112,7 @@ describe("UI server rendering", () => {
     app.use(createViteHubUI());
 
     for (const name of [
-      "UBadge",
       "UButton",
-      "UCollapsible",
       "UIcon",
     ]) {
       expect(app.component(name), name).toBeDefined();

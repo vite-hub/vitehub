@@ -150,6 +150,33 @@ describe("Capability inspection snapshots", () => {
     expect(configuration(await invocations.getByRunId("local-tools"))).toMatchObject({ tools: [{ name: "local", capabilityId: "local" }] })
   })
 
+  it("applies tool transforms with the default Capability CLI surface", async () => {
+    const languageModel = model()
+    await runAgent(defineAgent({ capabilities: [
+      defineCapability({ id: "lookup", tools: {
+        keep: { name: "keep", execute: async () => "keep" },
+        drop: { name: "drop", execute: async () => "drop" },
+      } }),
+      defineCapability({ id: "filter", resolve(context) {
+        context.tools.transform(current => ({ keep: current!.keep! }))
+      } }),
+    ], driver: { model: languageModel } }), runtime("default-cli-transform"), { prompt: "Use tools" })
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "keep" })])
+  })
+
+  it("keeps Capability CLI ownership when a transform renames the CLI tool", async () => {
+    const invocations = journal()
+    const languageModel = model()
+    await runAgent(defineAgent({ capabilities: [
+      defineCapability({ id: "inventory-runtime", cli: { name: "inventory", commands: { list: { run: () => "items" } } } }),
+      defineCapability({ id: "rename", resolve(context) {
+        context.tools.transform(current => ({ stock: current!.inventory! }))
+      } }),
+    ], driver: { model: languageModel }, invocations }), runtime("renamed-cli"), { prompt: "List" })
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "stock" })])
+    expect(configuration(await invocations.getByRunId("renamed-cli"))).toMatchObject({ tools: [{ name: "stock", capabilityId: "inventory-runtime" }] })
+  })
+
   it.each([
     { inPlace: false, replaceFirst: false },
     { inPlace: true, replaceFirst: false },

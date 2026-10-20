@@ -23,7 +23,9 @@ import manifest from "./package.json" with { type: "json" }
 import { playgroundConsoleContributions } from "./sections.ts"
 
 const fixture = parseConsoleFixture(fixtureDocument)
-const agents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
+const invocationAgents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
+// `meal-logger` stands for a retired Agent. Its sessions stay in invocation history, but the application no longer registers it.
+const agents = invocationAgents.filter(agent => agent !== "meal-logger")
 const store = createMemoryAgentInvocationStore()
 for (const record of fixture.invocations) {
   const { cursor: _cursor, ...input } = record
@@ -428,6 +430,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   if (path === "/api/_vitehub/console/agents") {
     json(response, {
       agents,
+      invocationAgents,
       // Every Agent accepts a new chat from the Console composer. The profiles are synthetic Invoker Profiles.
       invocation: Object.fromEntries(agents.map(agent => [agent, { profiles: agent === "product-reviewer"
         ? [{ id: "reviewer", label: "Reviewer" }, { id: "maintainer", label: "Maintainer" }]

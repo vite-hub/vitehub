@@ -629,6 +629,8 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
+// The Agent Dev Loop sets this on an Agent that runs one Capability CLI command directly.
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
@@ -4902,7 +4904,8 @@ async function createAgentInvocationContext<
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
         if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
-        transformed = resolveCapabilityCli
+        // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
+        transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
           ? { tools: availableTools, originalNames: new Map(Object.keys(availableTools || {}).map(name => [name, name])) }
           : await applyCapabilityToolTransforms(availableTools, capabilities.toolTransforms)
       }
