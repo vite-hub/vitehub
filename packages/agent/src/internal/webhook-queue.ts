@@ -271,9 +271,26 @@ export function createAgentWebhookQueue<Options>(
     try {
       const waitUntil = await ownerOptions.resolveWaitUntil(registration.options)
       while (!stopped) {
+        // A named registration may arrive while this prefix-discovered queue is draining.
+        // Drop the discovered registration before claiming any subsequent delivery.
+        if (discovered.has(id) && ownedByOtherQueue(id)) {
+          discovered.delete(id)
+          registrations.delete(id)
+          break
+        }
         const delivery = await registration.state.claimWebhookDelivery(registration.scope)
         if (!delivery) {
           if (![...active.values()].some(item => item.queueId === id)) schedule(id, Date.now() + retryMs)
+          break
+        }
+        // Ownership can change while claimWebhookDelivery is pending. Return this lease
+        // without executing it, then stop draining this prefix-discovered scope.
+        if (discovered.has(id) && ownedByOtherQueue(id)) {
+          await registration.state
+            .retryWebhookDelivery(registration.scope, delivery.deliveryId, delivery.leaseToken, Date.now(), { incrementAttempts: false })
+            .catch(() => undefined)
+          discovered.delete(id)
+          registrations.delete(id)
           break
         }
         if (stopped) {
@@ -332,7 +349,6 @@ export function createAgentWebhookQueue<Options>(
       return true
     }
     namedScopeOwners.set(id, owner)
-    discovered.delete(id)
     const tracked = trackedStates.get(registration.state)
     if (tracked?.scopes) tracked.scopes.set(registration.scope, registration.backendId)
     else if (!tracked) trackedStates.set(registration.state, {
