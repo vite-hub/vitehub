@@ -84,11 +84,26 @@ export interface AgentHostIdentity {
   readonly workspace?: WorkspaceName
 }
 
+export interface AgentGitHubAccess {
+  /** Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity. */
+  env: Record<string, string>
+  token: string
+}
+
+/** The GitHub identity of an Agent. `createGitHubHost()` from `vite-hub/agent/server/github` returns one. */
+export interface AgentGitHub {
+  access(input?: { repository?: string, signal?: AbortSignal }): Promise<AgentGitHubAccess>
+  /** Login of the identity, when it is known. */
+  identity?(): string | undefined
+}
+
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
   channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
+  /** The Agent GitHub identity from `defineAgent({ github })`. */
+  githubIdentity?: AgentGitHub
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
   runtime: AgentRuntimeName

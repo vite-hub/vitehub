@@ -4,8 +4,8 @@ import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { Adapter, FileInfo, Files } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -76,19 +76,19 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   }
 }
 
-function mapStoredFile(file: StoredFile): BlobObject {
+function mapFileInfo(file: FileInfo): BlobObject {
   return {
-    contentType: file.type,
+    contentType: file.contentType,
     customMetadata: file.metadata || {},
     httpEtag: file.etag,
-    httpMetadata: file.type ? { contentType: file.type } : {},
+    httpMetadata: file.contentType ? { contentType: file.contentType } : {},
     pathname: file.key,
     size: file.size,
     uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
   }
 }
 
-function mapUploadResult(result: UploadResult, fallback: BlobPutOptions): BlobObject {
+function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject {
   const contentType = result.contentType || fallback.contentType
   return {
     contentType,
@@ -99,6 +99,26 @@ function mapUploadResult(result: UploadResult, fallback: BlobPutOptions): BlobOb
     size: result.size,
     uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
   }
+}
+
+function unsupportedSign(driver: string, reason: string) {
+  return blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver}" cannot sign this request: ${reason}.` })
+}
+
+// files-sdk reports per instance whether `url()` and `signedUploadUrl()` mint expiring links,
+// so one implementation serves every files-sdk driver without a permanent-link fallback.
+async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  const { signedUpload, signedUrl } = client.capabilities
+  if (signOptions.method === "GET") {
+    if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")
+    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn }) }
+  }
+  if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
+  if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
+  const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
+  if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")
+  return { headers: upload.headers ?? {}, method: "PUT", url: upload.url }
 }
 
 async function getUploadUrl(client: FilesInstance, pathname: string): Promise<string | undefined> {
@@ -165,7 +185,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     },
     async head(pathname) {
       try {
-        return mapStoredFile(await (await files()).head(pathname))
+        return mapFileInfo(await (await files()).head(pathname))
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -215,7 +235,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
               folders.add(item.key.slice(0, prefix.length + firstSlash + 1))
               continue
             }
-            blobs.push(mapStoredFile(item))
+            blobs.push(mapFileInfo(item))
             if (blobs.length >= limit) break
           }
 
@@ -265,7 +285,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       }
 
       return {
-        blobs: result.items.map(mapStoredFile),
+        blobs: result.items.map(mapFileInfo),
         cursor: result.cursor,
         hasMore: Boolean(result.cursor),
       }
@@ -285,6 +305,9 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
         url: await getUploadUrl(client, result.key),
       }
+    },
+    async sign(pathname, signOptions) {
+      return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
 }
