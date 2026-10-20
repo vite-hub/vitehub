@@ -573,6 +573,20 @@ describe("resolveDBViteConfig", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
   })
 
+  it("allows reused bindings for D1 HTTP Definitions with native identifiers", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `export default defineDatabase({ name: '${name}', cloudflare: { binding: 'DB_SHARED', databaseId: 'id-${name}', databaseName: '${name}', http: true }, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it("preserves opaque resource ownership across spreads without resource keys", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {

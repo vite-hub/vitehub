@@ -640,7 +640,10 @@ export function resolveDBViteConfig(
         cloudflare.binding = resolveCloudflareD1BindingName(definition.name, undefined)
       }
       projection.provisionedId = provisionState.cloudflare?.d1?.[definition.name]
-      if (definitionCloudflare.resource !== "opaque") {
+      // HTTP-backed D1 Definitions are served through the HTTP runtime and do
+      // not emit native Wrangler `d1_databases` entries. Keep them out of the
+      // native projection so their binding names may be reused safely.
+      if (definitionCloudflare.resource !== "opaque" && !cloudflare.http) {
         cloudflare.databaseId = withConfigValueFallback(cloudflare.databaseId, projection.provisionedId)
         const native = resolveCloudflareD1Binding({ ...cloudflare, database: definition.name }, { provisionState })
         if (native.d1Database) projection.binding = native.bindingName
