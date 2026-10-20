@@ -1,4 +1,3 @@
-<<<<<<<< HEAD:packages/ui/src/components/markdown.ts
 import { Markdown as ComarkMarkdown, type MarkdownProps } from "@comark/vue";
 import alert from "@comark/vue/plugins/alert";
 import attributes from "@comark/vue/plugins/attributes";
@@ -98,6 +97,3 @@ export const Markdown = defineComponent({
     };
   },
 });
-========
-export { Markdown } from "./markdown.ts";
->>>>>>>> 38ccfb65cfaa5d2e263ec5fdc96c90ae9166b3f9:packages/ui/src/components/agent-markdown.ts
