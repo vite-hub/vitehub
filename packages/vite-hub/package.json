@@ -45,6 +45,12 @@
       "require": "./dist/_internal/agent.js",
       "default": "./dist/_internal/agent.js"
     },
+    "./_internal/agent/invocations": {
+      "types": "./dist/_internal/agent/invocations.d.ts",
+      "import": "./dist/_internal/agent/invocations.js",
+      "require": "./dist/_internal/agent/invocations.js",
+      "default": "./dist/_internal/agent/invocations.js"
+    },
     "./_internal/agent/cloudflare": {
       "types": "./dist/_internal/agent/cloudflare.d.ts",
       "import": "./dist/_internal/agent/cloudflare.js",
