@@ -24,6 +24,10 @@ The current production assets are generated from the SVG source:
 - `docs/public/favicon.png` for browser tabs
 - `docs/public/apple-touch-icon.png` for install/bookmark surfaces
 - `docs/public/github-org-avatar.png` for the GitHub organization avatar
+- `docs/public/og/vitehub.png` for social previews on every docs page
+- `.github/assets/readme-banner-light.png` and `.github/assets/readme-banner-dark.png` for the README header
+
+Run `node docs/scripts/og-images.mjs` to render the social preview and the README banners again.
 
 Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative logo construction diagrams, and alternate mark systems.
 
