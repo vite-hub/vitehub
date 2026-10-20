@@ -363,11 +363,11 @@ catalogs:
       specifier: ^15.0.0
       version: 15.0.0
     motion-v:
-      specifier: ^2.5.2
-      version: 2.5.2
+      specifier: ^2.8.0
+      version: 2.8.0
     reka-ui:
-      specifier: ^2.10.5
-      version: 2.10.5
+      specifier: ^2.11.0
+      version: 2.11.0
   unjs:
     defu:
       specifier: ^6.1.7
@@ -2379,7 +2379,7 @@ importers:
         version: 4.5.0
       '@types/node':
         specifier: catalog:tooling
-        version: 24.19.1
+        version: 24.19.2
       katex:
         specifier: ^0.17.0
         version: 0.17.0
@@ -2388,7 +2388,7 @@ importers:
         version: 1.3.0
       reka-ui:
         specifier: catalog:ui
-        version: 2.10.5(vue@3.5.43(typescript@6.0.3))
+        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       shiki:
         specifier: ^4.5.0
         version: 4.5.0
@@ -2467,10 +2467,10 @@ importers:
         version: 20.2.0
       '@json-render/core':
         specifier: 0.21.0
-        version: 0.21.0(zod@4.6.5)
+        version: 0.21.0(zod@4.6.7)
       '@json-render/vue':
         specifier: 0.21.0
-        version: 0.21.0(vue@3.5.43(typescript@6.0.3))(zod@4.6.5)
+        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -2563,7 +2563,7 @@ importers:
         version: link:../workspace
       '@vueuse/core':
         specifier: catalog:ui
-        version: 14.4.0(vue@3.5.43(typescript@6.0.3))
+        version: 15.0.0(vue@3.5.44(typescript@6.0.3))
       '@workflow/builders':
         specifier: catalog:workflow
         version: 5.0.5(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
@@ -2669,10 +2669,22 @@ importers:
         version: link:../internal
       '@vitejs/plugin-vue':
         specifier: ^6.0.9
-        version: 6.0.9(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.43(typescript@6.0.3))
+        version: 6.0.10(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
       '@vue/test-utils':
         specifier: 2.5.1
-        version: 2.5.1(@vue/compiler-dom@3.5.43)(@vue/server-renderer@3.5.43)(vue@3.5.43(typescript@6.0.3))
+        version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
+      ai:
+        specifier: catalog:ai
+        version: 7.0.143(zod@4.6.7)
+      box-typescript-sdk-gen:
+        specifier: catalog:storage
+        version: 1.19.1
+      dropbox:
+        specifier: catalog:storage
+        version: 10.47.0
+      google-auth-library:
+        specifier: catalog:storage
+        version: 10.9.1
       h3-v1:
         specifier: npm:h3@^1.15.11
         version: h3@1.15.11
