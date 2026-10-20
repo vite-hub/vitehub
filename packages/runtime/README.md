@@ -132,6 +132,23 @@ methods. The Runtime owner package has no H3 dependency.
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
 and preserves the supplied objects when the host provides them.
 
+### Invocation execution budgets
+
+`createExecutionBudget()` gives one Invocation a shared deadline, cancellation
+signal, and counters for tool calls, input bytes, output bytes, and retries.
+`child()` adds stricter limits while sharing usage with its parent. The budget
+returns a serializable `snapshot()` for inspection and throws
+`ExecutionBudgetExceededError` before a counter can exceed its limit.
+
+Agent input accepts `executionBudget` limits. The Agent runtime creates one
+Invocation-owned budget and Workspace Shell tools spend it, so separate tool
+calls cannot bypass the same limit.
+The AI SDK adapter also charges model usage when the provider reports token
+counts. It estimates four UTF-8 bytes per input or output token because model
+providers do not expose a portable byte count. Missing token counts remain
+unknown and do not spend a byte budget. Each reported model call is charged
+once, including calls made while streaming or repairing output.
+
 ## Understand the boundaries
 
 ### Runtime Host Context

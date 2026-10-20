@@ -66,9 +66,7 @@ export function createCloudflareAccessVerifier(options: CloudflareAccessVerifier
     try {
       const { payload } = await jwtVerify(token, keys, { algorithms: ["RS256"], audience, issuer })
       const identity: CloudflareAccessIdentity = {}
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JWT claims are untrusted JSON values.
       if (typeof payload.email === "string" && payload.email) identity.email = payload.email
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JWT claims are untrusted JSON values.
       if (typeof payload.common_name === "string" && payload.common_name) identity.commonName = payload.common_name
       return identity
     }
@@ -82,7 +80,6 @@ const defaultVerifier = createCloudflareAccessVerifier()
 
 function settingValue(value: unknown): string | undefined {
   const resolved = value instanceof SecretEnv ? value.unseal() : value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Env values cross the generated runtime boundary.
   return typeof resolved === "string" && resolved.trim() ? resolved.trim() : undefined
 }
 

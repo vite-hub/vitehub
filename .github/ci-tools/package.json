@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "pkg-pr-new": "0.0.88",
-    "wrangler": "4.147.0"
+    "pkg-pr-new": "0.0.91",
+    "wrangler": "4.151.1"
   }
 }

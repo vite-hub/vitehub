@@ -3,8 +3,13 @@ import { describe, expect, it } from "vitest"
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
-  it.each(["none" as const, { maxMessages: 1, source: "thread" as const }])("retains coalesced queue input with history %j", (triggerHistory) => {
-    const result = createChatMessageTriggerInput({ concurrency: "queue", triggerHistory }, {
+  it.each([
+    ["queue", "none" as const],
+    ["queue", { maxMessages: 1, source: "thread" as const }],
+    ["steer", "none" as const],
+    ["steer", { maxMessages: 1, source: "thread" as const }],
+  ])("retains coalesced %s input with history %j", (concurrency, triggerHistory) => {
+    const result = createChatMessageTriggerInput({ concurrency, triggerHistory }, {
       messages: [
         { id: "old", parts: [{ type: "text", text: "old history" }], role: "user" },
         { id: "retained", parts: [{ type: "text", text: "retained input" }], role: "user" },

@@ -3,13 +3,14 @@ import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
-  return {
+  const labels = {
     cancelled: "Cancelled",
     completed: "Done",
     failed: "Failed",
     pending: "Queued",
     running: "Working",
-  }[status];
+  };
+  return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
 }
 
 interface RelativeTime {
@@ -83,7 +84,8 @@ function statusIcon(status: AgentInvocationStatus) {
     pending: ["M12 7v5l3 2", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
     running: ["M21 12a9 9 0 1 1-6.219-8.56"],
   };
-  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, paths[status].map(path => h("path", {
+  const iconPaths = Object.hasOwn(paths, status) ? paths[status] : ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"];
+  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, iconPaths.map(path => h("path", {
     d: path,
     "stroke-linecap": "round",
     "stroke-linejoin": "round",
@@ -135,7 +137,27 @@ function renderItem(
   ]);
 }
 
-export const AgentInvocationList = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported component spells out the prop and emit options that `defineComponent` infers.
+type AgentInvocationListPropOptions = {
+  ariaLabel: { default: string; type: StringConstructor };
+  continuationKey: (NumberConstructor | StringConstructor)[];
+  groupBy: PropType<"recency">;
+  hasMore: BooleanConstructor;
+  items: { required: true; type: PropType<readonly AgentInvocationListItem[]> };
+  loading: BooleanConstructor;
+  now: NumberConstructor;
+  remainingStatuses: { default: undefined; type: PropType<readonly AgentInvocationStatus[]> };
+  retryKey: (NumberConstructor | StringConstructor)[];
+  selectedId: StringConstructor;
+};
+
+type AgentInvocationListEmits = {
+  endReached: () => true;
+  select: (_item: AgentInvocationListItem) => true;
+};
+
+const agentInvocationList = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },
@@ -143,11 +165,10 @@ export const AgentInvocationList = defineComponent({
     /** Groups rows under Today, Yesterday, Previous 7 days, and Older. Requires `now`. */
     groupBy: String as PropType<"recency">,
     hasMore: Boolean,
-    /** @deprecated The flat list paginates independently of lifecycle status. */
-    remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,
+    remainingStatuses: Array as PropType<readonly AgentInvocationStatus[]>,
     retryKey: [Number, String],
     selectedId: String,
   },
@@ -250,3 +271,5 @@ export const AgentInvocationList = defineComponent({
     ]);
   },
 });
+
+export const AgentInvocationList: DefineComponent<AgentInvocationListPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentInvocationListEmits> = agentInvocationList;

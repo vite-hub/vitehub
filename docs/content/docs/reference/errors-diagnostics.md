@@ -6,11 +6,35 @@ navigation.group: Runtime and output
 icon: i-lucide-circle-alert
 ---
 
-Each package owns the errors from its public API, configuration, build integration, generated output, and runtime boundary. ViteHub-owned developer defects use [Nostics](https://github.com/vercel-labs/nostics). A diagnostic is an `Error` with a stable `code`, a message, and optional repair guidance, source locations, and documentation.
+Each package owns the errors from its public API, configuration, build integration, generated output, and runtime boundary. ViteHub errors use [Nostics](https://github.com/vercel-labs/nostics). A diagnostic is an `Error` with a stable `code`, a `why`, a `fix`, and a `docs` link.
+
+## The error contract
+
+All ViteHub primitives move to one contract. A package that follows it lists its codes on its `limits-and-errors` page.
+
+- A runtime operation returns `[error, data]`. It does not throw for a failure that the caller can handle.
+- `error` has `code`, `why`, `fix`, `docs`, and `cause`. The type of `error.code` is the union of the codes that the operation can return.
+- Definition and configuration errors throw, at build time, at define time, or when an operation starts. A retry cannot help, because the code or the deployment must change.
+- An error before a stream starts is in the tuple. An error after the stream starts goes into the stream.
+- `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It never includes `cause` or `stack`.
+
+```ts
+import { kv } from 'vite-hub/kv'
+
+const [error, settings] = await kv.get('settings')
+if (error) {
+  error.code // 'KV_OPERATION_FAILED'
+  error.why // 'kv.get() failed on the "default" store.'
+  error.fix // 'Read `error.cause` for the provider error. ...'
+  error.docs // 'https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed'
+}
+```
+
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors), [Email errors](/docs/email/limits-and-errors), and [Queue errors](/docs/queue/limits-and-errors).
 
 ## Diagnostic codes
 
-Diagnostic codes use this format:
+Named codes use the format `<PACKAGE>_<NAME>`, for example `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Packages that follow the error contract use named codes. The other packages still use numbered codes in this format:
 
 | Format | Catalog group |
 | --- | --- |
@@ -18,7 +42,7 @@ Diagnostic codes use this format:
 | `<PACKAGE>_B####` | Build, discovery, and generated-output-specific diagnostics |
 | `<PACKAGE>_R####` | General package diagnostics |
 
-The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
+The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, `SANDBOX_TASK`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
 
 ```ts
 import { getAgentFromRegistry } from '@vite-hub/agent'
@@ -40,7 +64,7 @@ Some code runs where the Nostics package cannot load. Browser page evaluation, u
 
 ## Operational errors
 
-Expected portable failures keep the `ViteHubError` contract from `@vite-hub/runtime`. Examples include authentication requirements, provider operation failures, missing Blob values, Queue delivery failures, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
@@ -100,9 +124,9 @@ Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects wit
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
-Code Host uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Code Host diagnostics](/docs/agents/capabilities/code-host#diagnostics).
+Forge uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
-The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed host requests, and activity errors. See [Code Host Channels](/docs/agents/code-host-channels#limits).
+The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
 
 ## Agent public errors
 
@@ -136,6 +160,7 @@ private response data.
 | `PROVIDER_QUOTA_EXHAUSTED` | The account or project has no remaining provider quota. |
 | `PROVIDER_RATE_LIMITED` | The provider returned a temporary rate limit. |
 | `PROVIDER_UNAVAILABLE` | The provider returned a server or availability failure. |
+| `AGENT_BUDGET_EXCEEDED` | An Invocation used more tokens or estimated USD than its `budget` policy allows in `enforce` mode. `details.limits` contains the configured token and USD limits. `details.exceeded` lists each metric with its `actual` usage and `limit`. |
 | `APPROVAL_REQUIRED` | A Capability needs approval before it can continue. `requestId` identifies the approval request when available. |
 | `HOST_RESTARTED` | The host restarted while an inline Chat invocation ran. `details.retry` is `pending` when ViteHub retries the message after the restart, or `exhausted` after a second interruption. |
 | `AUTHENTICATION_REQUIRED`, `RATE_LIMIT_*`, `LLM_GATE_REJECTED`, `CAPABILITY_*`, `TRANSCRIPTION_*` | ViteHub recognized a public application or Capability failure. |
@@ -148,6 +173,8 @@ timestamp. Unrecognized, unparseable, or ambiguous reset text is omitted. Zone
 abbreviations with multiple regional meanings, such as `IST`, `BST`, and `CST`,
 are ambiguous without provider locale context. A time without
 a zone is read in the server's local time zone.
+
+`AGENT_BUDGET_EXCEEDED` is raised after the Driver reports usage. Treat it as a terminal result for that Invocation, record the `details.exceeded` metrics, and start a new Invocation after changing the policy or input. The error cannot undo a provider request that already ran. When usage has no provider cost, a USD limit is compared only when the pricing resolver can estimate it; an unknown cost does not exceed the policy.
 
 The mapper includes only bounded identifiers, categories, retry delays, reset
 times, and request IDs. It replaces unknown errors with a context-specific `INTERNAL`
@@ -166,14 +193,14 @@ message instead of copying `error.message`.
 
 ## Local response
 
-Start with the error's `code`. A numeric Nostics code identifies the owning package and failure site. A semantic operational code can be read with `getViteHubErrorShape(error)?.code`. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code and `details.driver`.
+Start with the error's `code`. A numeric Nostics code identifies the owning package and failure site. A semantic operational code can be read with `getViteHubErrorShape(error)?.code`. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code. Its `why` names the driver.
 
 For Env, inspect the `ENV_*` code first. Its code set and public messages are fixed. `ENV_DECLARATION_INVALID` can include `details.path`, `ENV_REQUIRED_MISSING` and `ENV_RUNTIME_VALUE_INVALID` can include a bounded source identifier and declaration path, and `ENV_SOURCE_FAILED` can include a bounded source identifier such as `env`, `git:branch`, `package.json`, or `custom`. `ENV_RUNTIME_VALUE_INVALID` never includes the rejected value. Raw labels and diagnostics remain in `cause`, which the serialized shape omits. Custom source resolvers keep application-owned errors unchanged.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
-pnpm --filter @vite-hub/sandbox test
+pnpm --filter @vite-hub/sandbox-task test
 ```
 
 ### Rate Limit diagnostics

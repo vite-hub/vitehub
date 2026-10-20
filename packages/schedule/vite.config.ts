@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -26,9 +28,7 @@ export default defineConfig({
       "src/index.ts",
       "src/nuxt.ts",
       "src/runtime.ts",
-      "src/runtime/console.ts",
       "src/runtime/dev.ts",
-      "src/runtime/driver.ts",
       "src/runtime/kv.ts",
       "src/runtime/process.ts",
       "src/runtime/state.ts",
@@ -37,7 +37,7 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(Object.entries(exports).filter(([key]) => key !== "./definition"));
+        return normalizePackageExports(Object.fromEntries(Object.entries(exports).filter(([key]) => key !== "./definition")));
       },
       inlinedDependencies: false,
     },

@@ -2,7 +2,7 @@ import { describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, rea
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
 import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
-import { sandboxConsoleSection } from "@vite-hub/sandbox/vite"
+import { sandboxTaskConsoleSection } from "@vite-hub/sandbox-task/vite"
 import { scheduleConsoleSection } from "@vite-hub/schedule/vite"
 import { workflowConsoleSection } from "@vite-hub/workflow/vite"
 import { workspaceConsoleSection } from "@vite-hub/workspace/vite"
@@ -14,11 +14,13 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 /** Discovery roots that the host passes to owner section readers. */
 export interface ConsoleSectionDiscoveryContext {
   discoveryRoot: string
+  /** Resolved Vite plugins. Owner packages read build-time contributions from them, for example contributed Workspaces. */
+  plugins?: readonly unknown[]
   projectRoot: string
   queueDiscoveryRoot?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
-  sandboxDiscoveryRoot?: string
+  sandboxTaskDiscoveryRoot?: string
   scheduleDiscoveryRoot?: string
   serverDirs?: string[]
   workspaceDiscoveryRoot?: string
@@ -75,11 +77,12 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     rootDir: context.rateLimitDiscoveryRoot ?? context.projectRoot,
     scanDirs: context.rateLimitScanDirs,
   })),
-  registerConsoleSection(sandboxConsoleSection, context => ({
+  registerConsoleSection(sandboxTaskConsoleSection, context => ({
     projectRoot: context.projectRoot,
-    rootDir: context.sandboxDiscoveryRoot ?? context.projectRoot,
+    rootDir: context.sandboxTaskDiscoveryRoot ?? context.projectRoot,
   })),
   registerConsoleSection(workspaceConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,
@@ -96,6 +99,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
   })),
   registerConsoleSection(scheduleConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,

@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, type BlobModuleOptions, type BlobObject, type BlobResult, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobModuleOptions, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -120,5 +120,38 @@ describe("types", () => {
     expectTypeOf(virtualHosting).toMatchTypeOf<string | undefined>()
     expectTypeOf(virtualBlob).toMatchTypeOf<false | ResolvedBlobModuleOptions>()
     expectTypeOf(virtualConfig.blob).toMatchTypeOf<false | ResolvedBlobModuleOptions>()
+  })
+
+  it("types Blob reference schemas as Standard Schema and Standard JSON Schema", () => {
+    // Structural copies of the @standard-schema/spec v1 interfaces, which this package does not depend on.
+    interface StandardSchemaV1<Input = unknown, Output = Input> {
+      readonly "~standard": {
+        readonly version: 1
+        readonly vendor: string
+        readonly validate: (value: unknown) => { readonly value: Output, readonly issues?: undefined } | { readonly issues: ReadonlyArray<{ readonly message: string, readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined }> } | Promise<unknown>
+        readonly types?: { readonly input: Input, readonly output: Output } | undefined
+      }
+    }
+    interface StandardJSONSchemaV1 {
+      readonly "~standard": {
+        readonly jsonSchema: {
+          readonly input: (options: { readonly target: "draft-2020-12" | "draft-07" | "openapi-3.0" | ({} & string), readonly libraryOptions?: Record<string, unknown> | undefined }) => Record<string, unknown>
+          readonly output: (options: { readonly target: "draft-2020-12" | "draft-07" | "openapi-3.0" | ({} & string), readonly libraryOptions?: Record<string, unknown> | undefined }) => Record<string, unknown>
+        }
+      }
+    }
+    type InferOutput<T extends StandardSchemaV1> = NonNullable<T["~standard"]["types"]>["output"]
+    type InferInput<T extends StandardSchemaV1> = NonNullable<T["~standard"]["types"]>["input"]
+
+    const cover = image({ store: "media", maxSize: "8MB" })
+    expectTypeOf(cover).toMatchTypeOf<StandardSchemaV1<BlobReferenceInput, BlobReference>>()
+    expectTypeOf(cover).toMatchTypeOf<StandardJSONSchemaV1>()
+    expectTypeOf<InferOutput<typeof cover>>().toEqualTypeOf<BlobReference>()
+    expectTypeOf<InferInput<ReturnType<typeof file>>>().toEqualTypeOf<BlobReferenceInput>()
+    expectTypeOf<BlobObject>().toMatchTypeOf<BlobReferenceInput>()
+    expectTypeOf<BlobReference>().toEqualTypeOf<{ pathname: string, contentType?: string, size?: number }>()
+
+    // @ts-expect-error maxSize uses the same BlobSize values as ensureBlob().
+    image({ maxSize: "5MB" })
   })
 })

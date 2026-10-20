@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { filesSdkDriverPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
+import { filesSdkDriverPeers, findMissingFilesSdkPeers, getFilesSdkPeerInstall } from "../src/internal/files-sdk-peers.ts"
 import { importOptionalPeer } from "../src/internal/optional-peer.ts"
 import isBuffer from "../src/internal/vercel-is-buffer.ts"
 import retry from "../src/internal/vercel-retry.ts"
@@ -45,6 +45,18 @@ describe("optional peer imports", () => {
       expect(manifest.peerDependencies).toHaveProperty(peer)
       expect(manifest.peerDependenciesMeta[peer]?.optional).toBe(true)
     }
+  })
+
+  it("names the driver SDKs that the app has not installed", () => {
+    const resolvePeer = (id: string) => {
+      if (id === "@google-cloud/storage") throw Object.assign(new Error("missing"), { code: "ERR_MODULE_NOT_FOUND" })
+      if (id === "uploadthing") throw Object.assign(new Error("no root export"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
+      return id
+    }
+
+    expect(findMissingFilesSdkPeers(["gcs", "gcs", "uploadthing", "s3", "fs"], resolvePeer))
+      .toEqual([{ driver: "gcs", peers: ["@google-cloud/storage"] }])
+    expect(findMissingFilesSdkPeers(["s3", "azure"])).toEqual([])
   })
 
   it("uses caller-owned imports so package builds can bundle each selected peer", async () => {

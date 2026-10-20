@@ -764,7 +764,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           }
           const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await sha256(await previous!.readFile(path, { encoding: "binary" }))
           const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">) =>
-            digest === await sha256(file.content) && entry.mediaType === file.mediaType && JSON.stringify(entry.metadata) === JSON.stringify(file.metadata)
+            digest === await sha256(file.content) &&
+            (file.mediaType === undefined || entry.mediaType === file.mediaType) &&
+            (file.metadata === undefined || JSON.stringify(entry.metadata) === JSON.stringify(file.metadata))
           // The next state of one path: a put file, a deletion, or the unchanged head entry.
           const next = (path: string): WorkspaceFile | WorkspaceEntry | undefined => {
             if (options.files) return options.files[path]

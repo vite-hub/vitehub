@@ -65,7 +65,6 @@ function statementSql(query: string, values: readonly unknown[]): SQL {
 
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The caller supplies the row projection after the runtime named-column check.
 function statementResult<T = Record<string, unknown>>(rows: unknown[]): InvocationResult<T> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates that a driver returned named row objects.
   if (rows.some(row => typeof row !== "object" || row === null || Array.isArray(row))) {
     throw new TypeError("[vitehub] Database Agent Invocations require a driver that returns named columns. The Cloudflare D1 HTTP driver is not supported.")
   }
@@ -99,7 +98,6 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
 }
 
 function d1Client(value: unknown): RuntimeD1Client | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary checks the optional native D1 client methods before use.
   if (!isRecord(value) || typeof Reflect.get(value, "prepare") !== "function" || typeof Reflect.get(value, "batch") !== "function") return
   // SAFETY: The runtime shape check verifies the D1 prepare and batch methods used by this adapter.
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
@@ -107,7 +105,6 @@ function d1Client(value: unknown): RuntimeD1Client | undefined {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the runtime object guard for driver results.
   return typeof value === "object" && value !== null
 }
 

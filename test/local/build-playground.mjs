@@ -23,7 +23,7 @@ const PLACEHOLDERS = {
     KV_REST_API_URL: "https://localhost.invalid",
     TURSO_AUTH_TOKEN: "local-placeholder",
     TURSO_DATABASE_URL: "file:.vitehub/local-e2e.db",
-    VITEHUB_WORKSPACE_BLOB_PREFIX: "vitehub/workspace-local/vite",
+    VITEHUB_WORKSPACE_BLOB_PREFIX: "local/vite",
   },
 }
 

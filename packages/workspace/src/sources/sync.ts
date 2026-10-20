@@ -281,22 +281,15 @@ function statusFromPlan(plan: SourceSyncPlan, details: WorkspaceSyncOptions["det
 }
 
 async function snapshotSyncedWorkspace(
-  definition: WorkspaceDefinition,
   store: WorkspaceStore,
   options: WorkspaceSyncOptions,
 ): Promise<WorkspaceSnapshot | undefined> {
-  const shouldSnapshot = !!options.snapshot || !!options.publish
-  if (!shouldSnapshot) return
+  if (!options.snapshot) return
 
   const snapshotOptions = typeof options.snapshot === "object"
     ? options.snapshot
     : {}
-  const snapshot = await store.snapshot(normalizeSnapshotOptions(snapshotOptions))
-  if (options.publish) {
-    const { publishWorkspaceSnapshot } = await import("../lifecycle.ts")
-    await publishWorkspaceSnapshot(definition, store, snapshot)
-  }
-  return snapshot
+  return await store.snapshot(normalizeSnapshotOptions(snapshotOptions))
 }
 
 function normalizeSnapshotOptions(options: WorkspaceSyncOptions["snapshot"]): SnapshotOptions {
@@ -335,7 +328,6 @@ async function syncWorkspaceSourcesUnlocked(
   if (statuses.some(status => status.status === "error") && !options.publishPartial) {
     return {
       durationMs: Date.now() - started,
-      published: false,
       sources: [...statuses, ...plans.map(plan => ({
         counts: plan.counts,
         mountPath: plan.source.mountPath,
@@ -354,12 +346,11 @@ async function syncWorkspaceSourcesUnlocked(
   const planStatuses = plans.map(plan => statusFromPlan(plan, options.details))
   const resultSources = [...statuses, ...planStatuses]
   const snapshot = resultStatus(resultSources) === "ready" || options.publishPartial && planStatuses.length > 0
-    ? await snapshotSyncedWorkspace(definition, store, options)
+    ? await snapshotSyncedWorkspace(store, options)
     : undefined
 
   return {
     durationMs: Date.now() - started,
-    published: !!options.publish && !!snapshot,
     snapshot,
     sources: resultSources,
     status: resultStatus(resultSources),
@@ -384,7 +375,6 @@ export async function syncWorkspaceSources(
   if (sources.length === 0) {
     return {
       durationMs: 0,
-      published: false,
       sources: [],
       status: "skipped",
     }
@@ -409,7 +399,6 @@ export async function syncWorkspaceSources(
   if (runnableSources.length === 0) {
     return {
       durationMs: Date.now() - started,
-      published: false,
       sources: statuses,
       status: resultStatus(statuses),
     }

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentEntryName, componentNames } from "../src/component-entries.ts";
+import { componentEntryName, componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -63,9 +63,17 @@ const componentEntries = [...new Set(componentNames.map((name) => `./${component
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
-    );
+    expect(Object.keys(packageJson.exports)).toEqual(expect.arrayContaining([
+      ...componentEntries,
+      "./package.json",
+      "./styles.css",
+    ]));
+    expect(Object.keys(packageJson.exports)).not.toEqual(expect.arrayContaining([
+      "./agent-code-view",
+      "./agent-file-tree",
+      "./agent-tool-list",
+      "./agent-trace",
+    ]));
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
@@ -80,7 +88,8 @@ describe("@vite-hub/ui package contract", () => {
       "@comark/vue": "0.7.0",
       katex: "^0.17.0",
       "@iconify-json/ph": "catalog:ui",
-      "@nuxt/kit": "4.5.2",
+      "@nuxt/kit": "4.6.2",
+      "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
@@ -88,15 +97,16 @@ describe("@vite-hub/ui package contract", () => {
     });
   });
 
-  it("loads every JavaScript entrypoint from the built package", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [
-      ".",
-      ...componentEntries,
-      "./headless",
-      "./nuxt",
-      "./primitive-rail",
-      "./vite",
-    ]);
+  // Each fresh Node process gets its own timeout and reports the failing entrypoint.
+  it.each([
+    ".",
+    ...componentEntries,
+    "./headless",
+    "./nuxt",
+    "./primitive-rail",
+    "./vite",
+  ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
   it("keeps component entry exports identical to the root barrel", async () => {

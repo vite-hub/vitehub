@@ -37,9 +37,9 @@ function loadHighlighter(): Promise<HighlighterCore> {
   return highlighter;
 }
 
-// Terminal escape codes such as `\u001b[31m` are noise in plain text, so plain ANSI output drops them.
+// Strip CSI and OSC terminal control sequences from plain ANSI fallback text.
 // eslint-disable-next-line no-control-regex
-const ansiEscapes = /\u001b\[[0-9;]*m/g;
+const ansiEscapes = /(?:\u001B\][^\u0007]*(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~])/g;
 
 function plainLines(code: string, language: string): VNode[] {
   const text = language.toLowerCase() === "ansi" ? code.replace(ansiEscapes, "") : code;

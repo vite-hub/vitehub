@@ -8,7 +8,7 @@ import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDi
 import type { ExecOptions, ExecResult, MkdirOptions, ReadFileOptions, ReadFileResult, Workspace, WorkspaceSearchHit, WorkspaceSession, WorkspaceSessionOptions } from "../core/types.ts"
 
 function unsupportedExec(): never {
-  throw workspaceError("[vitehub] Workspace exec requires a Box session host. Pass the active Box session to workspace.startSession({ host }).")
+  throw workspaceError("[vitehub] Workspace exec requires a Sandbox session host. Pass the active Sandbox session to workspace.startSession({ host }).")
 }
 
 function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {

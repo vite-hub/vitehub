@@ -90,7 +90,17 @@ function catalogComponent(render: (props: Record<string, unknown>, children: VNo
   });
 }
 
-export const AgentCapabilityInspector = defineComponent({
+// The public `vite-hub/console/ui` entry emits declarations with isolatedDeclarations, so the
+// exported component spells out the prop and emit options that `defineComponent` infers.
+type AgentCapabilityInspectorPropOptions = {
+  invocation: { type: PropType<AgentInvocationView>; required: true };
+};
+
+type AgentCapabilityInspectorEmits = {
+  selectActivity: (id: string) => boolean;
+};
+
+const agentCapabilityInspector = defineComponent({
   name: "AgentCapabilityInspector",
   emits: {
     /** Emitted with the first recorded call of a tool the viewer selects. */
@@ -152,3 +162,5 @@ export const AgentCapabilityInspector = defineComponent({
     ]);
   },
 });
+
+export const AgentCapabilityInspector: DefineComponent<AgentCapabilityInspectorPropOptions, {}, {}, {}, {}, ComponentOptionsMixin, ComponentOptionsMixin, AgentCapabilityInspectorEmits> = agentCapabilityInspector;

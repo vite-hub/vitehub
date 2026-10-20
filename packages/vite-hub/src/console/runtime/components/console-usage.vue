@@ -5,6 +5,7 @@ import * as v from "valibot";
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
+import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
 import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
@@ -92,6 +93,14 @@ const providerStatusSchema = v.object({
       checkedAt: v.string(),
       stale: v.boolean(),
       reason: v.optional(v.string()),
+      modelCompatibility: v.optional(v.object({
+        status: v.picklist(["ready", "unavailable", "unknown", "unsupported"]),
+        reason: v.optional(v.string()),
+      })),
+      workspaceCapacity: v.optional(v.object({
+        status: v.picklist(["ready", "unavailable", "unknown", "unsupported"]),
+        reason: v.optional(v.string()),
+      })),
       installed: v.optional(v.boolean()),
       authenticated: v.optional(v.boolean()),
       usageLimits: v.optional(
@@ -454,7 +463,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
           <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
         </div>
-        <UAlert v-if="errorMessage(error)" color="error" variant="subtle" title="Could not load session history" :description="errorMessage(error)" :actions="[{ label: 'Try again', onClick: load }]" />
+        <ConsoleState v-if="error" compact :error="error" title="Could not load session history" :retry="load" />
         <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
           <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           Some usage is unavailable. Recorded totals include only the evidence received.
@@ -926,6 +935,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     >
                   </div>
                   <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
+                  <p v-if="status.modelCompatibility" class="text-xs text-muted">
+                    Model compatibility: {{ status.modelCompatibility.reason || status.modelCompatibility.status }}
+                  </p>
+                  <p v-if="status.workspaceCapacity" class="text-xs text-muted">
+                    Workspace capacity: {{ status.workspaceCapacity.reason || status.workspaceCapacity.status }}
+                  </p>
                   <div class="flex flex-wrap gap-3 text-xs text-muted">
                     <span v-if="status.authenticated !== undefined"
                       >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span

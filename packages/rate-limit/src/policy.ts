@@ -34,22 +34,29 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
   if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0033({ message: "[vitehub] Rate Limit policy must be an object." })
   }
-  if (!Number.isInteger(policy.limit) || policy.limit <= 0) {
+  const limit = Object.hasOwn(policy, "limit") ? policy.limit : undefined
+  const window = Object.hasOwn(policy, "window") ? policy.window : undefined
+  const enforcement = Object.hasOwn(policy, "enforcement") ? policy.enforcement : undefined
+  const failure = Object.hasOwn(policy, "failure") ? policy.failure : undefined
+  if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0034({ message: "[vitehub] Rate Limit limit must be a positive integer." })
   }
-  if (policy.enforcement !== undefined && policy.enforcement !== "best-effort" && policy.enforcement !== "strict") {
+  if (typeof window !== "string") {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
+  }
+  if (enforcement !== undefined && enforcement !== "best-effort" && enforcement !== "strict") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0035({ message: "[vitehub] Rate Limit enforcement must be \"best-effort\" or \"strict\"." })
   }
-  if (policy.failure !== undefined && policy.failure !== "allow" && policy.failure !== "deny") {
+  if (failure !== undefined && failure !== "allow" && failure !== "deny") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0036({ message: "[vitehub] Rate Limit failure must be \"allow\" or \"deny\"." })
   }
 
   return {
-    enforcement: policy.enforcement ?? "best-effort",
-    failure: policy.failure ?? "deny",
-    limit: policy.limit,
-    window: policy.window,
-    windowMs: parseRateLimitWindow(policy.window),
+    enforcement: enforcement ?? "best-effort",
+    failure: failure ?? "deny",
+    limit,
+    window: window as RateLimitWindow,
+    windowMs: parseRateLimitWindow(window as RateLimitWindow),
   }
 }
 

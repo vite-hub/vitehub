@@ -11,6 +11,8 @@ load directly from source, so UI edits use Vite hot module replacement.
 
 The `Review image attachments` session covers persisted input and output images with landscape and portrait fixtures. `mock-rpc.ts` connects the Console's RPC calls to the synthetic HTTP responses.
 
+`meal-logger` is a retired Agent. Its session stays in invocation history, so search lists it under Invocation history and the Agents list does not show it.
+
 The `Inspect MCP tools and title` session provides synthetic server groups, tool contracts, skipped and empty servers, and a completed Title view for the Capabilities tab.
 
 The `Share one empty state across primitive pages` session is the happy path: a configured Agent, a prepared workspace, reasoning, file reads, commands with output, a file change with diffs, commentary, a Markdown answer, a GitHub reply, and usage with cost. The `Sync docs for the 0.0.5 release` session fails while it prepares the workspace, so the preparation group shows a failed step.
