@@ -8,21 +8,21 @@ import { GitHubDependencyConflictError } from "@vite-hub/agent/server/github";
 import * as v from "valibot";
 import { join } from "node:path";
 import { branchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
-import { prepareGitHubRepairBase } from "../../server/github-repair.ts";
-import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
+import { prepareGitHubRepairBase } from "@vite-hub/agent/server/github";
+import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "@vite-hub/agent/server/github";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
-import { createMessage, defineAgent, runAgent, publishAgentActivity } from "../../index.ts";
-import { forgeAccessKey } from "../../internal/forge-access.ts";
-import { resolveAgentCapabilityDefinitions } from "../../capability-runtime.ts";
-import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "../../index.ts";
+import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
+import { forgeAccessKey } from "@vite-hub/agent/server/internal";
+import { resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
-} from "../../server/github.ts";
-import type { GitHubHost } from "../../server/github.ts";
+} from "@vite-hub/agent/server/github";
+import type { GitHubHost } from "@vite-hub/agent/server/github";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";

@@ -1,5 +1,5 @@
-import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
-import type { AgentInvocations } from "../../invocations.ts";
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import type { AgentInvocations } from "@vite-hub/agent";
 import type { Snapshot } from "./inbox/store.ts";
 import { statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
