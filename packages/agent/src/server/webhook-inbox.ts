@@ -141,6 +141,14 @@ export async function openWebhookInbox(webhookState: WebhookInboxState, entry: W
   const key = webhookInboxKey(keyPrefix, entry.id)
   const lock = await state.acquireLock(`${key}:admission`, webhookInboxRetentionMs)
   if (!lock) {
+    // Lock contention alone does not prove that the owner stored the request.
+    // Only acknowledge a duplicate after the replay index contains it; otherwise
+    // let this request take the normal admission path so a crash before storage
+    // cannot be acknowledged as durably accepted.
+    const indexed = (await state.getList(webhookInboxIndexKey(keyPrefix))).some((value) =>
+      isRecord(value) && value.id === entry.id,
+    )
+    if (!indexed) throw new Error("Webhook admission is still being stored")
     return { attempts: 0, duplicate: true, id: entry.id, settle: async () => {}, release: async () => {} }
   }
   activeWebhookInboxLocks.add(key)
