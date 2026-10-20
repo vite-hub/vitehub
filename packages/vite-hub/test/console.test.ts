@@ -1904,11 +1904,13 @@ describe("Agent invocation console", () => {
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
       agents: ["billing"],
+      invocationAgents: [],
     })
 
     scope[consoleProjectRootKey] = "/first"
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
       agents: ["review", "support"],
+      invocationAgents: [],
     })
   })
 
@@ -1931,7 +1933,8 @@ describe("Agent invocation console", () => {
     })
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: ["current"],
+      invocationAgents: ["archived"],
     })
     expect(store.list).not.toHaveBeenCalled()
   })
@@ -2118,7 +2121,7 @@ describe("Agent invocation console", () => {
     expect(Reflect.get(process, consoleInvocationsRegistryKey).has(secondIdentity)).toBe(false)
   })
 
-  it("keeps persisted Agent names alongside discovered definitions", async () => {
+  it("lists persisted Agent names apart from registered Agents", async () => {
     const store = createMemoryAgentInvocationStore()
     store.create({
       agentName: "archived",
@@ -2134,7 +2137,8 @@ describe("Agent invocation console", () => {
     installConsoleAgents(["current"], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: ["current"],
+      invocationAgents: ["archived"],
     })
   })
 
@@ -2150,7 +2154,7 @@ describe("Agent invocation console", () => {
     ], { invocations })
 
     expect(definition.invocations).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("records the discovered name for an unnamed Agent run from server code", async () => {
@@ -2245,6 +2249,7 @@ describe("Agent invocation console", () => {
 
       await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
         agents: ["support"],
+        invocationAgents: [],
         invocation: {
           support: {
             profiles: [
@@ -2258,7 +2263,7 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { projectRoot: root })
-      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+      await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2578,7 +2583,7 @@ describe("Agent invocation console", () => {
     ], { projectRoot })
 
     expect(resolveConsoleInvocations({ process, [consoleInvocationsRootKey]: projectRoot })).toBe(invocations)
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["support"], invocationAgents: [] })
   })
 
   it("rejects multiple discovered Agent invocation journals", () => {
@@ -2621,7 +2626,7 @@ describe("Agent invocation console", () => {
       { definition: { default: definition }, fallbackName: "help" },
     ], { invocations })
 
-    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"] })
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({ agents: ["help"], invocationAgents: [] })
   })
 
   it("rejects Agent names beyond the persisted identity limit", () => {
@@ -2699,7 +2704,8 @@ describe("Agent invocation console", () => {
     installConsoleAgents([], invocations)
 
     await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
-      agents: ["archived", "current"],
+      agents: [],
+      invocationAgents: ["archived", "current"],
     })
   })
 
