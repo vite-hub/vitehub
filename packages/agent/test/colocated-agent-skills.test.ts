@@ -4,8 +4,15 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { defineAgent } from "../src/index.ts"
 import { agentWithSkills, colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
+import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
+import { syncWorkspaceDefinition } from "../../workspace/src/lifecycle.ts"
+import { materializeWorkspaceSources } from "../../workspace/src/sources/materialization.ts"
+import { createLocalWorkspaceStore } from "../../workspace/src/storage/local.ts"
+
+import type { WorkspaceDefinition } from "../../workspace/src/core/types.ts"
 
 const roots: string[] = []
 
@@ -111,6 +118,61 @@ describe("colocated Agent Skills", () => {
     expect(readColocatedAgentSkills(join(root, "agent.ts"))).toHaveProperty(
       "__vitehubAgentSkill:.agents/skills/review/SKILL.md",
     )
+  })
+
+  it.each([
+    ["model", { model: {} as never }, true],
+    ["provider", "codex" as const, false],
+  ] as const)("stores bundled Skills and instructions in a %s Driver Workspace: %s", (_kind, driver, stored) => {
+    const key = "__vitehubAgentSkill:.agents/skills/review/SKILL.md"
+    const skill = { content: "# Review\n", materialize: "startup" as const, mount: "" as const, workspacePath: ".agents/skills/review/SKILL.md" }
+    const userSource = { content: "# Notes\n", workspacePath: "notes.md" }
+    const agent = withColocatedAgentSkills(defineAgent({ driver, runtime: false, workspace: { sources: { notes: userSource } } }), { [key]: skill })
+    const resolved = workspaceAgentWithSourceRoot(agent, tmpdir(), "Support.\n") as { sources?: Record<string, unknown> }
+
+    expect(resolved.sources?.notes).toEqual(userSource)
+    expect(Object.hasOwn(resolved.sources ?? {}, key)).toBe(stored)
+    expect(Object.hasOwn(resolved.sources ?? {}, "__vitehubAgentInstructions")).toBe(stored)
+    expect(Reflect.get(resolved, colocatedAgentSkillsSymbol)).toEqual({ [key]: skill })
+  })
+
+  it("retires copies that an earlier release stored before a provider Driver stopped declaring them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-retire-"))
+    roots.push(root)
+    const storeRoot = join(root, "store")
+    const key = "__vitehubAgentSkill:.agents/skills/review/SKILL.md"
+    const skill = { content: "# Review\n", materialize: "startup" as const, mount: "" as const, workspacePath: ".agents/skills/review/SKILL.md" }
+    const earlier = {
+      name: "support",
+      sources: {
+        [key]: skill,
+        __vitehubAgentInstructions: { content: "Support.\n", materialize: "startup", mount: "", workspacePath: "AGENTS.md" },
+        notes: { content: "# Notes\n", materialize: "startup", workspacePath: "notes.md" },
+      },
+    } as unknown as WorkspaceDefinition
+    const earlierStore = createLocalWorkspaceStore(storeRoot)
+    await syncWorkspaceDefinition(earlier, earlierStore)
+    await materializeWorkspaceSources(earlier, earlierStore)
+    await expect(earlierStore.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md" }),
+      expect.objectContaining({ path: "AGENTS.md" }),
+    ]))
+
+    const agent = withColocatedAgentSkills(defineAgent({
+      driver: "codex",
+      runtime: false,
+      workspace: { sources: { notes: { content: "# Notes\n", materialize: "startup", workspacePath: "notes.md" } } },
+    }), { [key]: skill })
+    const resolved = workspaceAgentWithSourceRoot(agent, root, "Support.\n") as { sources?: WorkspaceDefinition["sources"] }
+    const current: WorkspaceDefinition = { name: "support", sources: resolved.sources }
+    const currentStore = createLocalWorkspaceStore(storeRoot)
+    await syncWorkspaceDefinition(current, currentStore)
+    await materializeWorkspaceSources(current, currentStore)
+
+    const paths = (await currentStore.list("", { recursive: true })).map(entry => entry.path)
+    expect(paths).toContain("notes.md")
+    expect(paths).not.toContain(".agents/skills/review/SKILL.md")
+    expect(paths).not.toContain("AGENTS.md")
   })
 
   it("does not treat a sibling Agent named skills as Skills owned by a flat Agent named agent", async () => {
