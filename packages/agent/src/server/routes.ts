@@ -1748,11 +1748,15 @@ async function executeQueuedWebhookDelivery(
       throw agentDiagnostics.AGENT_R0778({ message: "[vitehub] Persisted webhook concurrency requires inline Agent execution." })
     }
     type PersistedInvocation = {
+      agentName?: string
       input: AgentRunInput
       run?: Parameters<typeof createRuntimeContext>[1]
+      task?: string
+      requiresPrepare?: true
     }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     let invocation = delivery.invocation as PersistedInvocation | undefined
+    const persistedDeliveryInvocation = delivery.invocation as (PersistedInvocation & { trigger?: string }) | undefined
     if (!invocation || delivery.rehydrate) {
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
@@ -1799,14 +1803,14 @@ async function executeQueuedWebhookDelivery(
       }
     }
     let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
-    if (invocation && delivery.invocation && (delivery.invocation.task !== undefined || delivery.invocation.requiresPrepare)) {
+    if (invocation && persistedDeliveryInvocation && (persistedDeliveryInvocation.task !== undefined || persistedDeliveryInvocation.requiresPrepare)) {
       const prepared = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
         if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
         const triggers = await resolveAgentTriggers(agent as never, context as never, { queuedInvocation: invocation as never })
         const trigger = triggers[match.trigger.id]
         if (!trigger) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook trigger "${match.trigger.id}" no longer exists.` })
-        const accepted = { ...invocation, trigger, ...(delivery.invocation.task !== undefined ? { task: delivery.invocation.task } : {}) } as never
+        const accepted = { ...invocation, trigger, ...(persistedDeliveryInvocation.task !== undefined ? { task: persistedDeliveryInvocation.task } : {}) } as never
         return await prepareAgentTriggerInvocation(accepted)
       }), executionTimeout])
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
@@ -8458,7 +8462,21 @@ function createQueuedChannelDispatch(
         ) {
           throw new TypeError(`[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`)
         }
-        const persistedInvocation = { ...persistedWebhookInvocation({ input: invocation.input, run: invocation.run }), trigger: triggerName }
+        const triggerDefinition = invocation.trigger as typeof invocation.trigger & {
+          prepare?: unknown
+          tasks?: Record<string, { prepare?: unknown }>
+        }
+        const taskDefinition = invocation.task === undefined ? undefined : triggerDefinition.tasks?.[invocation.task]
+        const persistedInvocation = {
+          ...persistedWebhookInvocation({
+            ...(invocation.agent ? { agent: invocation.agent } : {}),
+            input: invocation.input,
+            run: invocation.run,
+            ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+            ...((triggerDefinition.prepare || taskDefinition?.prepare) ? { requiresPrepare: true as const } : {}),
+          }),
+          trigger: triggerName,
+        }
         if (!isJsonSafe(persistedInvocation)) {
           throw new TypeError(`[vitehub] Queued dispatch through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`)
         }
