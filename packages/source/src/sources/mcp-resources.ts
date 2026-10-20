@@ -303,8 +303,11 @@ function resourceWithContentMimeType(resource: McpResourceDescriptor, contents: 
   return mimeType ? { ...resource, mimeType } : resource
 }
 
-function resourceKey<TKey extends string>(resource: McpResourceDescriptor, options: McpResourcesSourceOptions<TKey>) {
-  const resolved = options.path?.(resource) ?? defaultResourcePath(resource)
+function resourceKey<TKey extends string>(
+  resource: McpResourceDescriptor,
+  options: McpResourcesSourceOptions<TKey>,
+  resolved = options.path?.(resource) ?? defaultResourcePath(resource),
+) {
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
@@ -312,6 +315,23 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
   if (options.include && !matchesAny(path, options.include)) return false
   if (options.ignore && matchesAny(path, options.ignore)) return false
   return true
+}
+
+function isIgnoredBeforeContentRead(
+  resource: McpResourceDescriptor,
+  candidate: string,
+  options: Pick<McpResourcesSourceOptions, "ignore" | "path">,
+) {
+  if (!options.ignore) return false
+  if (options.path || resource.mimeType || candidate.split("/").at(-1)?.includes(".")) {
+    return matchesAny(candidate, options.ignore)
+  }
+  // An extensionless descriptor is only a provisional path. Its final key is
+  // determined by the content MIME type, so do not guess an extension here.
+  // A global catch-all remains conclusive, while an exact provisional match
+  // must be deferred until MIME inference determines the exposed key.
+  const patterns = Array.isArray(options.ignore) ? options.ignore : [options.ignore]
+  return patterns.some(pattern => (pattern === "**" || pattern === "**/*") && matchesAny(candidate, pattern))
 }
 
 type McpRecord = Record<PropertyKey, unknown>
@@ -465,13 +485,17 @@ async function createEntries<TKey extends string>(
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
   for (const resource of resources) {
+    // Apply an explicit ignore before reading content to infer a missing MIME type.
+    // An excluded resource must not trigger a remote read or leak a provider error.
+    const candidate = resourceKey(resource, options)
+    if (isIgnoredBeforeContentRead(resource, candidate, options)) continue
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
       contents = await readResourceContents(client, resource, options.request)
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
-    const key = resourceKey(resolvedResource, options)
+    const key = resourceKey(resolvedResource, options, options.path ? candidate : undefined)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (seen.has(key)) {

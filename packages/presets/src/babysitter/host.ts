@@ -10,9 +10,15 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process-host";
 import { createProcessAgentHost } from "@vite-hub/agent/runtime/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "@vite-hub/agent/server/github";
+import { createBabysitterPreflight } from "./preflight.ts";
+import { babysitterQueueHealth } from "./queue-health.ts";
+import { presetsBuildRevision } from "../internal/build-revision.ts";
+import { fileURLToPath } from "node:url";
 import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
+
+declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
 /** Reads a plain or sealed Server Env value. */
 export function envString(value: unknown): string | undefined {
@@ -127,7 +133,7 @@ export async function sweepBabysitterWorkspaces(root = tmpdir(), startedAt = per
 /** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 export async function createBabysitterProcessHost(context: AgentProcessHostContext): Promise<AgentProcessHostInstance> {
   // SAFETY: the Babysitter preset attaches this contribution only to its own configured definitions.
-  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"]; placement?: import("../babysitter.ts").BabysitterPlacement } };
+const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; install?: import("../babysitter.ts").BabysitterInstall; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"]; placement?: import("../babysitter.ts").BabysitterPlacement } };
   const repositories = babysitterRepositories(agent.options.filter);
   await cleanupLegacyBabysitterCheckouts(context.dataDir);
   const app = await readGitHubAppEnvironment();
@@ -155,11 +161,17 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
+  // Placement telemetry does not guarantee that every lease is remote:
+  // place() may still return a local lease, which uses hostInstall(). Keep
+  // host prerequisites in admission for all placement configurations.
+  const preflight = createBabysitterPreflight(agent.options.install ?? true);
+  const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),
-    check: agent.options.admission?.check,
+    check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
+  let admissionPrerequisiteSample: string | undefined;
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
     extends: agent,
@@ -212,22 +224,23 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     async health() {
       const health = await host.health();
       const queue = await inbox.summary();
+      // Refresh prerequisites before admission so both health surfaces describe one sample.
+      const prerequisites = await preflight();
+      if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
+        admissionPrerequisiteSample = prerequisites.checkedAt;
+        admission.invalidate();
+      }
       const guard = await admission.health();
       const lastSkip = await inbox.meta("admission-skipped");
-      return { ...health, release: agent.version, concurrency: agent.options.concurrency, repositories, queue: {
-        working: queue.filter(item => item.status === "working").length,
-        ready: queue.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked).length,
-        stackBlocked: queue.filter(item => item.stackBlocked).length,
-        waiting: queue.filter(item => item.status === "waiting").length,
-        // PRs that `reviewPushBudget` or `dailyPassBudget` parked, with the reason and the resume time.
-        parked: budgetParks(queue),
-      }, admission: {
+      return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,
         reason: guard.reason,
         retryAt: guard.retryAt,
         detail: guard.detail,
+        // Retained for existing clients. lastSkip is historical; accepting is current.
         lastSkip,
+        history: { lastSkip },
       }, budget: {
         accounting: guard.accounting,
         observedAt: new Date(guard.observedAt).toISOString(),

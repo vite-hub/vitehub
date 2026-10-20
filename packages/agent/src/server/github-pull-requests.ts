@@ -15,20 +15,20 @@ export type PullRequest = {
   baseRefOid: string;
   baseRefName: string;
   body: string;
-  comments?: unknown;
   feedback?: PullRequestFeedback;
   headRefName: string;
   headRefOid: string;
   headRepository: { nameWithOwner: string } | null;
   isDraft: boolean;
-  labels?: unknown;
+  labels: { name: string }[];
   mergeStateStatus: string;
   number: number;
   reviewDecision: string | null;
-  reviews?: unknown;
-  requiredStatusCheckRollup?: unknown;
+  /** Required checks and statuses of the head commit, read when the full rollup has not passed. */
+  requiredStatusCheckRollup?: unknown[];
   state: string;
-  statusCheckRollup: unknown;
+  /** Check runs (`name`, `status`, `conclusion`) and statuses (`context`, `state`) of the head commit. */
+  statusCheckRollup: unknown[];
   title: string;
   updatedAt: string;
   url: string;
@@ -55,7 +55,14 @@ type FeedbackNode = {
   reviewThreads: Connection<FeedbackThread>;
 };
 
-const pullRequestSchema = v.object({
+const rollupFields = "commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}";
+const pullRequestFields = `baseRefOid baseRefName body headRefName headRefOid headRepository{nameWithOwner} isDraft labels(first:100){nodes{name}} mergeStateStatus number reviewDecision state title updatedAt url ${rollupFields}`;
+const feedbackFields = "comments(first:100,after:$comments){nodes{id body updatedAt author{login}} pageInfo{hasNextPage endCursor}} reviews(first:100,after:$reviews){nodes{id body updatedAt state commit{oid}} pageInfo{hasNextPage endCursor}} reviewThreads(first:100,after:$threads){nodes{id isResolved comments(first:20){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}} pageInfo{hasNextPage endCursor}}";
+
+const rollupSchema = v.object({
+  nodes: v.array(v.object({ commit: v.object({ statusCheckRollup: v.nullable(v.object({ contexts: v.object({ nodes: v.array(v.unknown()) }) })) }) })),
+});
+const pullRequestSchema = v.pipe(v.object({
   baseRefOid: v.string(),
   baseRefName: v.string(),
   body: v.string(),
@@ -63,16 +70,20 @@ const pullRequestSchema = v.object({
   headRefOid: v.string(),
   headRepository: v.nullable(v.object({ nameWithOwner: v.string() })),
   isDraft: v.boolean(),
-  labels: v.optional(v.unknown()),
+  labels: v.object({ nodes: v.array(v.object({ name: v.string() })) }),
   mergeStateStatus: v.string(),
   number: v.pipe(v.number(), v.integer(), v.minValue(1)),
   reviewDecision: v.nullable(v.string()),
   state: v.string(),
-  statusCheckRollup: v.unknown(),
+  commits: rollupSchema,
   title: v.string(),
   updatedAt: v.string(),
   url: v.string(),
-});
+}), v.transform(({ commits, labels, ...pullRequest }): PullRequest => ({
+  ...pullRequest,
+  labels: labels.nodes,
+  statusCheckRollup: commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [],
+})));
 
 function repositoryParts(repository: string) {
   const [owner, name, extra] = repository.split("/");
@@ -88,21 +99,13 @@ function text(value: unknown): string {
   if (!hasRuntimeType(value, "string")) throw new Error("GitHub returned an invalid string field.")
   return value
 }
-function number(value: unknown): number {
-  if (!hasRuntimeType(value, "number") || !Number.isInteger(value) || value <= 0) throw new Error("GitHub returned an invalid PR number.")
-  return value
-}
 function boolean(value: unknown): boolean {
   if (!hasRuntimeType(value, "boolean")) throw new Error("GitHub returned an invalid boolean field.")
   return value
 }
-function graphQL(stdout: string, ...path: string[]): unknown {
-  let value: unknown = JSON.parse(stdout)
+function field(value: unknown, ...path: string[]): unknown {
   for (const key of path) value = record(value)[key]
   return value
-}
-function parsePullRequest(value: unknown): PullRequest {
-  return v.parse(pullRequestSchema, value)
 }
 function parseConnection<T>(value: unknown, parse: (item: unknown) => T): Connection<T> {
   const connection = record(value)
@@ -132,102 +135,43 @@ function parseFeedback(value: unknown): FeedbackNode {
   }
 }
 
-/** Read PR state and fully paginated feedback through the host's credentials and budget. */
+/** Read PR state and fully paginated feedback with the host's Forge credentials. */
 export function createGitHubPullRequests(
-  github: Pick<GitHubHost, "command" | "ensureGraphQLBudget">,
+  github: Pick<GitHubHost, "forge">,
   options: { activityAuthors?: readonly string[], ignoreComment?: (comment: GitHubPullRequestComment) => boolean } = {},
 ): {
   list(repository: string): Promise<PullRequest[]>;
   read(repository: string, number: number): Promise<PullRequest>;
 } {
-  const pullRequestFields =
-    "baseRefOid,baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url";
+  async function graphql(repository: string, query: string, variables: Record<string, string | number | null>): Promise<unknown> {
+    const forge = await github.forge({ repository });
+    const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
+    const response = (await forge.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) } })).data
+    if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length) throw new Error("GitHub could not complete the pull request query.")
+    return isRuntimeRecord(response) && "data" in response ? response.data : response
+  }
+
   async function listPullRequests(repository: string) {
-    return await withGraphQLBudget(repository, 256, async () => {
-      const [result, feedback] = await Promise.all([
-        github.command(
-          [
-            "pr",
-            "list",
-            "--repo",
-            repository,
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            pullRequestFields,
-          ],
-          { repository },
-        ),
-        readOpenPullRequestFeedback(repository),
-      ]);
-      const payload: unknown = JSON.parse(result.stdout);
-      if (!Array.isArray(payload)) throw new Error("GitHub did not return a PR list.");
-      const pullRequests = payload.map(parsePullRequest);
-      return await Promise.all(
-        pullRequests.map((pullRequest) =>
-          readRequiredCheckState(repository, {
-            ...pullRequest,
-            ...(feedback.has(pullRequest.number)
-              ? { feedback: feedback.get(pullRequest.number) }
-              : {}),
-          }),
-        ),
-      );
-    });
+    // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
+    const data = await graphql(repository, `query PullRequestList($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{${pullRequestFields} ${feedbackFields}}}}}`, { ...repositoryParts(repository), comments: null, reviews: null, threads: null });
+    const nodes = field(data, "repository", "pullRequests", "nodes");
+    if (!Array.isArray(nodes)) throw new Error("GitHub did not return a PR list.");
+    return await Promise.all(nodes.map(async (value) => {
+      const pullRequest = v.parse(pullRequestSchema, value);
+      const node = parseFeedback(value);
+      const more = Object.values(feedbackConnections(node)).some(connection => connection.pageInfo.hasNextPage)
+        || node.reviewThreads.nodes.some(thread => thread.comments.pageInfo.hasNextPage);
+      const feedback = more ? await readPullRequestFeedback(repository, pullRequest.number) : digestFeedback(node);
+      return await readRequiredCheckState(repository, { ...pullRequest, feedback });
+    }));
   }
 
   async function readPullRequest(repository: string, number: number) {
-    return await withGraphQLBudget(repository, 16, async () => {
-      const [result, feedback] = await Promise.all([
-        github.command(
-          ["pr", "view", String(number), "--repo", repository, "--json", pullRequestFields],
-          { repository },
-        ),
-        readPullRequestFeedback(repository, number),
-      ]);
-      return await readRequiredCheckState(repository, {
-        ...parsePullRequest(JSON.parse(result.stdout)),
-        feedback,
-      });
-    });
-  }
-
-  async function withGraphQLBudget<T>(repository: string, cost: number, run: () => Promise<T>) {
-    const reservation = await github.ensureGraphQLBudget(repository, { cost });
-    reservation.submit();
-    try {
-      return await run();
-    } finally {
-      // The gh CLI does not expose actual query cost, so settle the reserved upper bound.
-      reservation.settle(cost);
-    }
-  }
-
-  const feedbackFields = `comments(first:100,after:$comments){nodes{id body updatedAt author{login}} pageInfo{hasNextPage endCursor}} reviews(first:100,after:$reviews){nodes{id body updatedAt state commit{oid}} pageInfo{hasNextPage endCursor}} reviewThreads(first:100,after:$threads){nodes{id isResolved comments(first:20){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}} pageInfo{hasNextPage endCursor}}`;
-
-  async function readOpenPullRequestFeedback(repository: string) {
-    // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
-    const { owner, name } = repositoryParts(repository);
-    const query = `query($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number ${feedbackFields}}}}}`;
-    const result = await github.command(
-      ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `query=${query}`],
-      { repository },
-    );
-    const nodes = graphQL(result.stdout, "data", "repository", "pullRequests", "nodes");
-    if (!Array.isArray(nodes)) throw new Error("GitHub did not return pull request feedback.");
-    return new Map<number, PullRequestFeedback>(
-      await Promise.all(
-        nodes.map(async (value): Promise<[number, PullRequestFeedback]> => {
-          const node = parseFeedback(value)
-          const prNumber = number(record(value).number)
-          const more = Object.values(feedbackConnections(node)).some(connection => connection.pageInfo.hasNextPage)
-            || node.reviewThreads.nodes.some(thread => thread.comments.pageInfo.hasNextPage)
-          return [prNumber, more ? await readPullRequestFeedback(repository, prNumber) : digestFeedback(node)]
-        }),
-      ),
-    );
+    const [data, feedback] = await Promise.all([
+      graphql(repository, `query PullRequestSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){${pullRequestFields}}}}`, { ...repositoryParts(repository), number }),
+      readPullRequestFeedback(repository, number),
+    ]);
+    return await readRequiredCheckState(repository, { ...v.parse(pullRequestSchema, field(data, "repository", "pullRequest")), feedback });
   }
 
   function feedbackConnections(
@@ -263,8 +207,7 @@ export function createGitHubPullRequests(
     repository: string,
     number: number,
   ): Promise<PullRequestFeedback> {
-    const { owner, name } = repositoryParts(repository);
-    const query = `query($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`;
+    const query = `query PullRequestFeedback($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`;
     const cursors = new Map<string, string>();
     const collected = {
       comments: new Map<string, GitHubPullRequestComment>(),
@@ -273,23 +216,13 @@ export function createGitHubPullRequests(
     };
     let more = true;
     do {
-      const result = await github.command(
-        [
-          "api",
-          "graphql",
-          "-f",
-          `owner=${owner}`,
-          "-f",
-          `name=${name}`,
-          "-F",
-          `number=${number}`,
-          "-f",
-          `query=${query}`,
-          ...[...cursors].flatMap(([key, value]) => ["-f", `${key}=${value}`]),
-        ],
-        { repository },
-      );
-      const node = parseFeedback(graphQL(result.stdout, "data", "repository", "pullRequest"));
+      const node = parseFeedback(field(await graphql(repository, query, {
+        ...repositoryParts(repository),
+        number,
+        comments: cursors.get("comments") ?? null,
+        reviews: cursors.get("reviews") ?? null,
+        threads: cursors.get("threads") ?? null,
+      }), "repository", "pullRequest"));
       more = false;
       function collect<T extends { id: string }>(key: string, items: Map<string, T>, connection: Connection<T>) {
         for (const item of connection.nodes) items.set(item.id, item)
@@ -302,26 +235,12 @@ export function createGitHubPullRequests(
       collect("comments", collected.comments, node.comments)
       collect("reviews", collected.reviews, node.reviews)
       collect("threads", collected.threads, node.reviewThreads)
-      if (!more) break;
     } while (more);
     for (const thread of collected.threads.values()) {
       while (thread.comments.pageInfo.hasNextPage) {
         const query =
-          "query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}}}}";
-        const result = await github.command(
-          [
-            "api",
-            "graphql",
-            "-f",
-            `id=${thread.id}`,
-            "-f",
-            `after=${thread.comments.pageInfo.endCursor}`,
-            "-f",
-            `query=${query}`,
-          ],
-          { repository },
-        );
-        const page = parseConnection(graphQL(result.stdout, "data", "node", "comments"), parseComment);
+          "query PullRequestThreadComments($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}}}}";
+        const page = parseConnection(field(await graphql(repository, query, { id: thread.id, after: thread.comments.pageInfo.endCursor }), "node", "comments"), parseComment);
         if (page.pageInfo.hasNextPage && page.pageInfo.endCursor === thread.comments.pageInfo.endCursor) throw new Error("GitHub thread pagination did not advance.");
         thread.comments.nodes.push(...page.nodes);
         thread.comments.pageInfo = page.pageInfo;
@@ -334,44 +253,19 @@ export function createGitHubPullRequests(
     });
   }
 
-  async function readRequiredCheckState(repository: string, pullRequest: PullRequest) {
+  async function readRequiredCheckState(repository: string, pullRequest: PullRequest): Promise<PullRequest> {
     if (pullRequestCheckState(pullRequest.statusCheckRollup) === "passed") return pullRequest;
-    const requiredStatusCheckRollup = await readRequiredChecks(repository, pullRequest.number);
-    return requiredStatusCheckRollup === undefined
-      ? pullRequest
-      : { ...pullRequest, requiredStatusCheckRollup };
-  }
-
-  async function readRequiredChecks(repository: string, number: number) {
-    const args = [
-      "pr",
-      "checks",
-      String(number),
-      "--repo",
-      repository,
-      "--required",
-      "--json",
-      "bucket,name,state,workflow",
-    ];
-    try {
-      const result = await github.command(args, { repository });
-      return parseRequiredChecks(result.stdout, result.stderr);
-    } catch (error) {
-      const result = isRuntimeRecord(error) ? error : {};
-      const checks = parseRequiredChecks(
-        hasRuntimeType(result.stdout, "string") ? result.stdout : "",
-        hasRuntimeType(result.stderr, "string") ? result.stderr : "",
-      );
-      if (checks !== undefined) return checks;
-      throw new Error(`Failed to read required checks for ${repository}#${number}.`, {
-        cause: error,
-      });
-    }
+    const query = "query PullRequestRequiredChecks($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion isRequired(pullRequestNumber:$number)} ... on StatusContext{context state isRequired(pullRequestNumber:$number)}}}}}}}}}}";
+    const data = await graphql(repository, query, { ...repositoryParts(repository), number: pullRequest.number });
+    const commits = v.parse(rollupSchema, field(data, "repository", "pullRequest", "commits"));
+    const contexts = commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
+    return { ...pullRequest, requiredStatusCheckRollup: contexts.filter(context => isRuntimeRecord(context) && context.isRequired === true) };
   }
 
   return { list: listPullRequests, read: readPullRequest };
 }
 
+/** The combined state of check runs (`status`, `conclusion`) and statuses (`state`). */
 export function pullRequestCheckState(
   statusCheckRollup: unknown,
   empty: "passed" | "pending" = "pending",
@@ -391,13 +285,7 @@ export function pullRequestCheckState(
       pending = true;
       continue;
     }
-    const { bucket, conclusion, state, status } = value;
-    if (bucket === "fail" || bucket === "cancel") return "failed";
-    if (bucket === "pending") {
-      pending = true;
-      continue;
-    }
-    if (bucket === "pass" || bucket === "skipping") continue;
+    const { conclusion, state, status } = value;
     if (
       state === "ERROR" ||
       state === "FAILURE" ||
@@ -411,19 +299,6 @@ export function pullRequestCheckState(
     } else if (status !== undefined || state !== "SUCCESS") pending = true;
   }
   return pending ? "pending" : "passed";
-}
-
-export function parseRequiredChecks(stdout: string, stderr: string): unknown[] | undefined {
-  if (stdout.trim()) {
-    try {
-      const checks: unknown = JSON.parse(stdout);
-      return Array.isArray(checks) ? checks : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  const message = stderr.trim();
-  return /^no (?:required )?checks reported on the '.+' branch$/.test(message) ? [] : undefined;
 }
 
 /** Derive stable PR thread identity, inspection annotations, and a session link. */
