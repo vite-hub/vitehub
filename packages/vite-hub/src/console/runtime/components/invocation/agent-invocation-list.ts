@@ -147,6 +147,7 @@ type AgentInvocationListPropOptions = {
   items: { required: true; type: PropType<readonly AgentInvocationListItem[]> };
   loading: BooleanConstructor;
   now: NumberConstructor;
+  remainingStatuses: { default: undefined; type: PropType<readonly AgentInvocationStatus[]> };
   retryKey: (NumberConstructor | StringConstructor)[];
   selectedId: StringConstructor;
 };
@@ -167,6 +168,7 @@ const agentInvocationList = defineComponent({
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,
+    remainingStatuses: Array as PropType<readonly AgentInvocationStatus[]>,
     retryKey: [Number, String],
     selectedId: String,
   },

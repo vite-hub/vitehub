@@ -2503,6 +2503,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
    * then start one handler with every message received in that window. Unset keeps the default behavior.
    */
   debounceMs?: number
+  /**
+   * With inline `concurrency: "steer"`, a message from another human in the same thread steers the active
+   * Agent Invocation. The Invocation keeps the invoker of the first message. Defaults to false.
+   */
+  steerFromParticipants?: boolean
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean

@@ -230,6 +230,8 @@ async function recordGeneratedOwners(projectRoot: string, origin: string, hash: 
 }
 
 export interface ConnectionsVitePluginOptions {
+  /** Agent name used to select a function-form `vitehub({ publicUrl })` origin. */
+  agentName?: string;
   /**
    * How long the database keeps Connection activity, one event per provider request. Defaults to
    * 14 days and at most 10,000 events. `false` keeps all activity.
@@ -492,8 +494,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
             // Without an actor module, only a development server allows management.
             actorModule
-              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)} })`
-              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)} })`,
+              ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
+              : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
             "export default (event: { req?: Request, node?: { req?: IncomingMessage & { socket: { encrypted?: boolean } } } }) => {",
             "  const raw = event.req ?? event.node?.req",

@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isAttachmentPart, isBlobValue, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -1170,6 +1170,16 @@ function isJsonSafe(value: unknown, seen = new Set<object>()): boolean {
   return safe
 }
 
+function migratePersistedForgeContext(input: Record<string, unknown>): Record<string, unknown> {
+  const context = input.context
+  if (!isRecord(context)) return input
+  const forge = context.forge || context.codeHost
+  const pullRequest = isRecord(context.pullRequest)
+    ? { ...context.pullRequest, ...(!context.pullRequest.forge && context.pullRequest.host ? { forge: context.pullRequest.host } : {}) }
+    : context.pullRequest
+  return { ...input, context: { ...context, ...(forge ? { forge } : {}), ...(pullRequest ? { pullRequest } : {}) } }
+}
+
 function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: AgentRunInput; run?: unknown; task?: string; requiresPrepare?: boolean }, rehydrate = false): { agentName?: string; input: Record<string, unknown>; run?: unknown; task?: string; requiresPrepare?: true } {
   const input = Object.fromEntries(Object.entries(invocation.input).filter(([key]) => key !== "abortSignal"))
   if (rehydrate && invocation.input.context) {
@@ -1179,7 +1189,7 @@ function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: Age
   }
   return {
     ...(invocation.agent ? { agentName: taskAgentIdentity(invocation.agent).name } : {}),
-    input,
+    input: migratePersistedForgeContext(input),
     ...(invocation.run ? { run: invocation.run } : {}),
     ...(invocation.task !== undefined ? { task: invocation.task } : {}),
     ...(invocation.requiresPrepare ? { requiresPrepare: true as const } : {}),
@@ -1837,6 +1847,9 @@ async function executeQueuedWebhookDelivery(
     }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     let invocation = delivery.invocation as PersistedInvocation | undefined
+    if (invocation?.input) {
+      invocation = { ...invocation, input: migratePersistedForgeContext(invocation.input as Record<string, unknown>) as AgentRunInput }
+    }
     if (!invocation || delivery.rehydrate) {
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
         const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
@@ -4394,7 +4407,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isBlobValue(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
+  if (isAttachmentBlob(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4422,7 +4435,11 @@ function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOpti
 }
 
 function isTextAttachmentOversizeError(error: unknown): boolean {
-  return error instanceof Error && error.message === chatTextAttachmentOversizeMessage
+  if (error instanceof Error) return error.message === chatTextAttachmentOversizeMessage
+  if (!isRuntimeObject(error)) return false
+  // SAFETY: Runtime object validation establishes the record shape before reading its optional diagnostic message.
+  const message = (error as { message?: unknown }).message
+  return isRuntimeString(message) && message === chatTextAttachmentOversizeMessage
 }
 
 async function textAttachmentBytes(attachment: Attachment, options: ChatMessagePartOptions = {}): Promise<Uint8Array | undefined> {
@@ -4431,16 +4448,30 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
     throw agentDiagnostics.AGENT_R0815({ message: chatTextAttachmentOversizeMessage })
   }
   if (isRuntimeFunction(attachment.fetchData)) {
+    let data: unknown
     try {
-      const data = await attachment.fetchData()
-      return checkedTextAttachmentBytes(isBlobValue(data) ? await blobArrayBuffer(data) : data, options)
+      data = await attachment.fetchData()
+    } catch {
+      return undefined
+    }
+    if (isAttachmentBlob(data) && blobSize(data) > chatTextAttachmentMaxBytes) {
+      if (!options.rejectOversizedTextAttachments) return
+      throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
+    }
+    try {
+      if (isAttachmentBlob(data)) return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(data)), options)
+      return checkedTextAttachmentBytes(data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
     }
   }
-  if (isBlobValue(attachment.data)) {
-    return checkedTextAttachmentBytes(await blobArrayBuffer(attachment.data), options)
+  if (isAttachmentBlob(attachment.data)) {
+    if (blobSize(attachment.data) > chatTextAttachmentMaxBytes) {
+      if (!options.rejectOversizedTextAttachments) return
+      throw agentDiagnostics.AGENT_R0814({ message: chatTextAttachmentOversizeMessage })
+    }
+    return checkedTextAttachmentBytes(new Uint8Array(await blobArrayBuffer(attachment.data)), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -5665,6 +5696,7 @@ interface InlineChatTurn {
   settleDelivery?: (delivery: AgentChannelDeliveryTracker) => Promise<void>
   steeredDeliveries?: AgentChannelDeliveryTracker[]
   runId?: string
+  threadId: string
 }
 
 const inlineChatTurns = new Map<string, InlineChatTurn>()
@@ -6175,12 +6207,16 @@ async function handleChatSdkMessage(
               if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
             },
             invoker,
+            threadId: thread.id,
           }
           inlineChatTurns.set(inlineKey, inlineTurn)
           break
         }
         waitedForActiveTurn = true
-        if (active.runId && sameInlineInvoker(active.invoker, invoker)) {
+        // A participant's message steers as input only. The active run keeps its invoker.
+        const steersActiveTurn = sameInlineInvoker(active.invoker, invoker) ||
+          (options?.steerFromParticipants === true && active.threadId === thread.id && message.author.isBot !== true)
+        if (active.runId && steersActiveTurn) {
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
@@ -7438,7 +7474,7 @@ const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array
   const prototype = Object.getPrototypeOf(Uint8Array.prototype)
-  if (ArrayBuffer.isView(value) && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)!.get!.call(value) === "Uint8Array") {
+  if (isUint8ArrayValue(value)) {
     // Native accessors read the typed-array slots, ignoring shadowing own properties.
     bytes = new Uint8Array(
       Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value),
@@ -7550,13 +7586,12 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (isBlobValue(data)) {
-    if (blobSize(data) <= maxBytes) {
+  if (isAttachmentBlob(data)) {
+    const blob = isAttachmentBlob(data) ? data : undefined
+    if (blob && blobSize(blob) <= maxBytes) {
       try {
-        const blob = data
-        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
-        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
-        data = new Uint8Array(buffer as ArrayBuffer)
+        // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -7568,14 +7603,15 @@ async function channelHistoryAttachment(
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     } catch {}
   }
-  if (isBlobValue(data)) {
-    if (blobSize(data) <= maxBytes) {
+  if (isAttachmentBlob(data)) {
+    const blob = isAttachmentBlob(data) ? data : undefined
+    if (blob && blobSize(blob) <= maxBytes) {
       try {
-        const blob = data
-        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
-        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
-        data = new Uint8Array(buffer as ArrayBuffer)
-      } catch { data = undefined }
+        // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
+        data = new Uint8Array(await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal) as ArrayBuffer)
+      } catch {
+        data = undefined
+      }
     } else data = undefined
   }
   let bytes: Uint8Array | undefined

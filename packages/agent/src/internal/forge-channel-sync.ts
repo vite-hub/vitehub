@@ -5,8 +5,8 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
-interface CodeHostChannelSyncOptions {
-  host: "gitlab" | "forgejo"
+interface ForgeChannelSyncOptions {
+  forge: "gitlab" | "forgejo"
   baseUrl?: string
   token?: string
   webhookSecret?: string
@@ -34,7 +34,7 @@ const nativeEvents = {
 
 type ChannelEvent = keyof typeof nativeEvents.gitlab
 
-function channelEvents(options: CodeHostChannelSyncOptions): ChannelEvent[] {
+function channelEvents(options: ForgeChannelSyncOptions): ChannelEvent[] {
   const events = new Set<ChannelEvent>()
   if (options.activity) events.add("state_change")
   if (options.pullRequest) {
@@ -71,22 +71,22 @@ function same(values: readonly string[], expected: readonly string[]): boolean {
   return JSON.stringify(sorted(values)) === JSON.stringify(sorted(expected))
 }
 
-function repositoryNames(options: CodeHostChannelSyncOptions): string[] | undefined {
+function repositoryNames(options: ForgeChannelSyncOptions): string[] | undefined {
   if (options.repositories === undefined) return
   if (!Array.isArray(options.repositories) || options.repositories.length === 0) {
-    throw agentDiagnostics.AGENT_R0991({ message: "Code Host sync.repositories must be a non-empty repository list." })
+    throw agentDiagnostics.AGENT_R0991({ message: "Forge sync.repositories must be a non-empty repository list." })
   }
   for (const repository of options.repositories) {
     if (!hasRuntimeType(repository, "string") || !/^[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)+$/.test(repository)
       || repository.split("/").some(part => part === "." || part === ".." || part.endsWith(".git"))
-      || (options.host === "forgejo" && repository.split("/").length !== 2)) {
-      throw agentDiagnostics.AGENT_R0991({ message: "Code Host sync.repositories requires owner/name paths. GitLab paths can include nested groups." })
+      || (options.forge === "forgejo" && repository.split("/").length !== 2)) {
+      throw agentDiagnostics.AGENT_R0991({ message: "Forge sync.repositories requires owner/name paths. GitLab paths can include nested groups." })
     }
   }
   return sorted(options.repositories)
 }
 
-function redact(value: string, options: CodeHostChannelSyncOptions): string {
+function redact(value: string, options: ForgeChannelSyncOptions): string {
   let result = value
   for (const secret of [options.token, options.webhookSecret]) {
     if (secret) result = result.split(secret).join("[redacted]")
@@ -94,7 +94,7 @@ function redact(value: string, options: CodeHostChannelSyncOptions): string {
   return result
 }
 
-function state(hook: Webhook, options: CodeHostChannelSyncOptions) {
+function state(hook: Webhook, options: ForgeChannelSyncOptions) {
   return {
     id: redact(hook.ref.id, options), url: redact(hook.url, options),
     events: sorted(hook.events).map(value => redact(value, options)),
@@ -114,7 +114,7 @@ async function matchingHook(provider: ForgeProvider, repository: string, url: st
     if (hook.url === url) hooks.push(hook)
   }
   if (hooks.length > 1) {
-    throw agentDiagnostics.AGENT_R0995({ message: `Code Host webhook sync found duplicate hooks for ${repository} at the desired URL. Remove the duplicates before sync.` })
+    throw agentDiagnostics.AGENT_R0995({ message: `Forge webhook sync found duplicate hooks for ${repository} at the desired URL. Remove the duplicates before sync.` })
   }
   return hooks[0]
 }
@@ -139,39 +139,39 @@ function gitlabHookFetch(fetchImpl: typeof fetch, enabled: readonly string[]): t
     const request = new Request(input, init)
     if (request.method !== "POST" && request.method !== "PUT") return await fetchImpl(input, init)
     const body: unknown = await request.json()
-    if (!isRuntimeRecord(body)) throw new ForgeResponseError("Invalid Code Host webhook request body.")
+    if (!isRuntimeRecord(body)) throw new ForgeResponseError("Invalid Forge webhook request body.")
     const flags = Object.fromEntries(["push_events", ...enabled].map(event => [event, false]))
     return await fetchImpl(new Request(request, { method: request.method, body: JSON.stringify({ ...flags, ...body }) }))
   }
 }
 
-export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOptions): AgentChannelSyncProvider {
+export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions): AgentChannelSyncProvider {
   const repositories = repositoryNames(options)
   if (repositories && !options.token) {
-    throw agentDiagnostics.AGENT_R0992({ message: `Code Host webhook sync requires token or VITEHUB_${options.host.toUpperCase()}_TOKEN.` })
+    throw agentDiagnostics.AGENT_R0992({ message: `Forge webhook sync requires token or VITEHUB_${options.forge.toUpperCase()}_TOKEN.` })
   }
   if (repositories && !options.webhookSecret) {
-    throw agentDiagnostics.AGENT_R0993({ message: `Code Host webhook sync requires webhookSecret or VITEHUB_${options.host.toUpperCase()}_WEBHOOK_SECRET.` })
+    throw agentDiagnostics.AGENT_R0993({ message: `Forge webhook sync requires webhookSecret or VITEHUB_${options.forge.toUpperCase()}_WEBHOOK_SECRET.` })
   }
   let instance: string | undefined
   if (repositories) {
     try {
-      const url = new URL(options.baseUrl || (options.host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
+      const url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
       if (url.username || url.password || url.search || url.hash) throw new Error("Invalid instance URL")
       instance = url.href.replace(/\/+$/, "")
     }
     catch {
-      throw agentDiagnostics.AGENT_R0997({ message: "Code Host baseUrl must be an instance URL without credentials, query, or fragment." })
+      throw agentDiagnostics.AGENT_R0997({ message: "Forge baseUrl must be an instance URL without credentials, query, or fragment." })
     }
   }
   const events = channelEvents(options)
-  const subscriptions = sorted(events.flatMap(event => [...nativeEvents[options.host][event]]))
-  const expectedSubscriptions = options.host === "forgejo" ? canonicalForgejoEvents(subscriptions) : subscriptions
+  const subscriptions = sorted(events.flatMap(event => [...nativeEvents[options.forge][event]]))
+  const expectedSubscriptions = options.forge === "forgejo" ? canonicalForgejoEvents(subscriptions) : subscriptions
   const operations = new WeakMap<AgentChannelSyncPlan, SyncOperation>()
   async function provider(fetchImpl: typeof fetch) {
-    const value = await forgeProvider({ forge: options.host, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
+    const value = await forgeProvider({ forge: options.forge, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
     for (const verb of ["webhooks.list", "webhooks.create", "webhooks.update"] as const) {
-      if (!value.can(verb)) throw agentDiagnostics.AGENT_R0994({ message: `Code Host cannot manage hooks with ${verb}.` })
+      if (!value.can(verb)) throw agentDiagnostics.AGENT_R0994({ message: `Forge cannot manage hooks with ${verb}.` })
     }
     return value
   }
@@ -179,8 +179,8 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
     try { return await run() }
     catch (error) {
       const status = forgeErrorStatus(error)
-      const message = redact(error instanceof Error ? error.message : "Unknown request error.", options).replace(/\bforges?\b/gi, "Code Host")
-      throw agentDiagnostics.AGENT_R0996({ message: `Code Host webhook sync failed${status ? ` with HTTP ${status}` : ""}: ${message}` })
+      const message = redact(error instanceof Error ? error.message : "Unknown request error.", options).replace(/\bforges?\b/gi, "Forge")
+      throw agentDiagnostics.AGENT_R0996({ message: `Forge webhook sync failed${status ? ` with HTTP ${status}` : ""}: ${message}` })
     }
   }
   const syncProvider: AgentChannelSyncProvider = {
@@ -190,21 +190,21 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
       if (!repositories) return {
         // No hook is read without repositories, so the plan does not claim a current or desired URL.
         action: "none", current: { repositories: [] }, desired: { repositories: [] },
-        unverifiable: ["Set sync.repositories to manage Code Host webhooks.", "webhookSecret"],
+        unverifiable: ["Set sync.repositories to manage Forge webhooks.", "webhookSecret"],
       }
-      if (!desiredUrl) throw agentDiagnostics.AGENT_R0997({ message: "Code Host webhook sync requires a desired URL." })
+      if (!desiredUrl) throw agentDiagnostics.AGENT_R0997({ message: "Forge webhook sync requires a desired URL." })
       return await request(async () => {
         const client = await provider(fetch)
         const changes: RepositoryChange[] = []
         for (const repository of repositories) {
           const hook = await matchingHook(client, repository, desiredUrl)
-          if (hook && !hook.active && options.host === "gitlab") {
+          if (hook && !hook.active && options.forge === "gitlab") {
             throw new ForgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
           }
           const reasons = !hook ? ["create webhook"] : [
             ...(!same(hook.nativeEvents, expectedSubscriptions) ? ["update events"] : []),
             ...(!hook.active ? ["activate webhook"] : []),
-            ...(options.host === "forgejo" && hook.contentType !== "json" ? ["use JSON content type"] : []),
+            ...(options.forge === "forgejo" && hook.contentType !== "json" ? ["use JSON content type"] : []),
             ...(force ? ["resend webhookSecret"] : []),
           ]
           changes.push({ repository, hook, reasons })
@@ -233,21 +233,21 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
     async apply(plan, fetchImpl) {
       if (plan.action === "none") return plan.current
       const operation = operations.get(plan)
-      if (!operation) throw agentDiagnostics.AGENT_R0997({ message: "Code Host webhook sync requires a plan from this Channel." })
+      if (!operation) throw agentDiagnostics.AGENT_R0997({ message: "Forge webhook sync requires a plan from this Channel." })
       return await request(async () => {
         const client = await provider(fetchImpl)
         const input: WebhookInput = { url: operation.url, nativeEvents: subscriptions, active: true, contentType: "json", secret: options.webhookSecret }
         for (const change of operation.changes) {
           if (!change.reasons.length) continue
-          const writer = options.host === "gitlab" ? await provider(gitlabHookFetch(fetchImpl, change.hook?.nativeEvents ?? [])) : client
+          const writer = options.forge === "gitlab" ? await provider(gitlabHookFetch(fetchImpl, change.hook?.nativeEvents ?? [])) : client
           if (change.hook) await writer.webhooks.update(change.hook.ref, input)
           else await writer.webhooks.create(repoRef(writer, change.repository), input)
         }
         const results = []
         for (const change of operation.changes) {
           const hook = await matchingHook(client, change.repository, operation.url)
-          if (!hook || !hook.active || (options.host === "forgejo" && hook.contentType !== "json") || !same(hook.nativeEvents, expectedSubscriptions)) {
-            throw new ForgeResponseError("Code Host did not return the desired webhook events, content type, and active state.")
+          if (!hook || !hook.active || (options.forge === "forgejo" && hook.contentType !== "json") || !same(hook.nativeEvents, expectedSubscriptions)) {
+            throw new ForgeResponseError("Forge did not return the desired webhook events, content type, and active state.")
           }
           results.push({ repository: redact(change.repository, options), hook: state(hook, options) })
         }
@@ -255,6 +255,6 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
       })
     },
   }
-  if (repositories) syncProvider.resourceKeys = desiredUrl => repositories.map(repository => JSON.stringify([options.host, instance, repository, desiredUrl]))
+  if (repositories) syncProvider.resourceKeys = desiredUrl => repositories.map(repository => JSON.stringify([options.forge, instance, repository, desiredUrl]))
   return syncProvider
 }

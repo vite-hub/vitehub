@@ -566,6 +566,22 @@ async function runAccessAuthorize(
       const adopted = new nativePromiseConstructor((resolve, reject) => {
         try { Reflect.apply(nativePromiseThen, directResult, [resolve, reject]) }
         catch {
+          // A native subclass can reject species construction even though its
+          // promise is already settled. Temporarily use the base Promise
+          // prototype so the intrinsic operation observes that settlement
+          // without consulting the subclass species.
+          try {
+            const prototype = Object.getPrototypeOf(directResult)
+            Object.setPrototypeOf(directResult, Promise.prototype)
+            try {
+              Reflect.apply(nativePromiseThen, directResult, [resolve, reject])
+              return
+            }
+            finally {
+              Object.setPrototypeOf(directResult, prototype)
+            }
+          }
+          catch { /* continue with the guarded species fallback */ }
           // A hostile subclass may throw while exposing its constructor. Treat
           // that as an adoption failure without letting the accessor escape.
           try {

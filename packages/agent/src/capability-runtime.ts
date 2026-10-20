@@ -359,7 +359,13 @@ export async function resolveAgentCapabilityDefinitions<
 
   if (!hasRuntimeType(capabilities, "function")) return resolved
 
-  for (const capability of resolved) {
+  assertInvocationCapabilities(resolved)
+  return resolved
+}
+
+/** Capabilities that join one Invocation cannot add definition-time behavior. */
+export function assertInvocationCapabilities(capabilities: readonly AgentCapabilityDefinition[]): void {
+  for (const capability of capabilities) {
     const accessMetadata = capability.id === "access"
       // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
       ? capability.metadata as { chat?: unknown } | undefined
@@ -373,8 +379,6 @@ export async function resolveAgentCapabilityDefinitions<
       throw agentDiagnostics.AGENT_C0010({ id: capability.id, unsupported })
     }
   }
-
-  return resolved
 }
 
 function validateSandboxCommands(commands: unknown): void {
