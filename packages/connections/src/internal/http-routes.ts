@@ -89,10 +89,12 @@ export function errorResponse(error: unknown): Response {
  * and the origin of the request URL that the server sees. Behind a TLS-terminating proxy without a public
  * URL, the server can see `http:` while the browser sends an `https:` Origin.
  */
-function originRejection(request: Request): Response | undefined {
-  const expected = resolvePublicUrl({ request });
+function originRejection(request: Request, agentName?: string): Response | undefined {
+  const expected = resolvePublicUrl({ agentName, request });
   const origin = request.headers.get("origin");
-  if (origin && origin !== expected && origin !== new URL(request.url).origin) {
+  const requestOrigin = new URL(request.url).origin;
+  const requestHostMatchesPublic = new URL(expected).host === new URL(request.url).host;
+  if (origin && origin !== expected && !(origin === requestOrigin && requestHostMatchesPublic)) {
     const received = origin.slice(0, 256);
     return json({
       error: managementErrorBody(
@@ -168,7 +170,7 @@ const connect: ConnectionsRoute = {
     const connection = v.safeParse(name, connectionName);
     if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
     // The provider redirects the browser, so the callback uses the public origin, not the one behind a proxy.
-    const publicOrigin = resolvePublicUrl({ request });
+    const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
@@ -259,7 +261,7 @@ const action: ConnectionsRoute = {
         403,
       );
     }
-    const rejected = originRejection(request);
+    const rejected = originRejection(request, access.agentName);
     if (rejected) return rejected;
     const parsed = v.safeParse(actionSchema, await readBody(request));
     if (!parsed.success)

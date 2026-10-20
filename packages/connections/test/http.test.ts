@@ -410,6 +410,20 @@ describe("createConnectionsHandler", () => {
         error: { code: "CONNECTIONS_ORIGIN_REJECTED", details: { expectedOrigin: "https://agent.example.com" } },
       });
     });
+
+    it("uses the configured Agent URL and rejects an alternate request host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ agentName: "bot", actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      const request = new Request("http://attacker.example/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "http://attacker.example" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(403);
+    });
   });
 
   it("gives non-JSON requests their own code", async () => {
