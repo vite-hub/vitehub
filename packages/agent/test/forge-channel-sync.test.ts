@@ -250,7 +250,7 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
     expect(status).toBe(0)
     expect(stdout.text()).toContain(`reviewer/${host} (${host}): none`)
     expect(stdout.text()).toContain("Current URL: <none>")
-    expect(stdout.text()).toContain("Set sync.repositories to manage Code Host webhooks.")
+    expect(stdout.text()).toContain("Set sync.repositories to manage Forge webhooks.")
     expect(connections).toEqual([])
   })
 

@@ -72,7 +72,7 @@ export function actionLocation(repository: string, check: GitHubEvidence): { run
   return undefined
 }
 
-/** Fetch failed job evidence before invoking the model. No GraphQL or gh run view. */
+/** Fetch failed job evidence before invoking the model. */
 export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Claim, readers: CiEvidenceReaders, now = Date.now()) {
   const { repository } = claim.snapshot, headSha = claim.snapshot.pr?.head?.sha
   const evidence: CiEvidence[] = [], seenJobs = new Set<number>()
