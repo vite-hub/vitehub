@@ -43,7 +43,7 @@ import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionC
 import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
-import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
+import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
 
 import type {
@@ -3254,9 +3254,10 @@ async function* runProvider<
         : {}),
     })
     const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
+    const providerAgentTools = context.tools ? withAgentToolExecutionBudget(context.tools, context.executionBudget) : context.tools
     if (nativeUnattendedTools) {
       toolServer = await waitForProviderOperation(
-        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        startToolServer(providerAgentTools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
         effectiveSignal,
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
@@ -3561,7 +3562,7 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     if (!toolServer && Object.keys(context.tools || {}).length) {
       toolServer = await waitForProviderOperation(
-        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        startToolServer(providerAgentTools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
         effectiveSignal,
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
