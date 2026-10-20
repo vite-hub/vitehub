@@ -1660,6 +1660,7 @@ async function executeQueuedWebhookDelivery(
   const request = requestFromPersistedWebhook(delivery)
   const ownershipAbort = new AbortController()
   let executionTimedOut = false
+  let executionTimeoutError: ReturnType<typeof agentDiagnostics.AGENT_R0820> | undefined
   let executionTimeoutTimer: ReturnType<typeof setTimeout> | undefined
   const executionStartedAt = Date.now()
   let rejectExecutionTimeout!: (reason: unknown) => void
@@ -1669,6 +1670,7 @@ async function executeQueuedWebhookDelivery(
   const expireExecution = (timeoutMs: number) => {
     executionTimedOut = true
     const reason = agentDiagnostics.AGENT_R0820({ message: `[vitehub] Queued webhook invocation timed out after ${timeoutMs}ms.` })
+    executionTimeoutError = reason
     ownershipAbort.abort(reason)
     return reason
   }
@@ -2020,7 +2022,8 @@ async function executeQueuedWebhookDelivery(
       const failedInvocationWithRun = { ...failedInvocation }
       if (!invocationStarted) delete failedInvocationWithRun.run
       else if (failedInvocationWithRun.run === undefined && invocationRunId) failedInvocationWithRun.run = { runId: invocationRunId }
-      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, error, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
+      const failureError = executionTimedOut && executionTimeoutError ? executionTimeoutError : error
+      if (await deliverQueuedWebhookFailure(agent, state, handlerOptions, delivery, failureError, delivery.attempts + 1, failedInvocationWithRun, invocationStarted)) {
         if (channelDelivery)
           await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "failed" : undefined, "failed", {
             attempt: delivery.attempts + 1,
