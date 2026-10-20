@@ -213,6 +213,7 @@ const dynamicSchedules = {
     })
   },
   async delete(id: string): Promise<boolean> {
+    assertRuntimeScheduleId(id)
     return await getRuntimeScheduleStore().delete(id)
   },
   async disable(id: string): Promise<RuntimeScheduleRecord> {
