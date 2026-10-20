@@ -212,32 +212,12 @@ Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. Vi
 | `signature` | The header carries |
 | --- | --- |
 | Not set | The `secretToken` value itself. |
-| `'bearer'` | `Bearer <secretToken>`. `secretHeader` defaults to `'authorization'`. |
 | `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
 | `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
 | `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
 | `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
 
 `github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
-
-ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is case-insensitive. A missing header or a wrong token answers `401`. When `secretToken` resolves to no secret, a `bearer` webhook answers `500` with an error that names the Channel, so a missing secret does not leave the route open. Return `false` from `secretToken` to turn verification off.
-
-`secretToken` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
-
-```ts [server/agents/ops.ts]
-import { defineChannel } from 'vite-hub/agent/channels'
-import { useServerEnv } from '#vitehub/env/server'
-
-export const prefect = defineChannel('prefect', {
-  messages: false,
-  triggers: { /* ... */ },
-  webhooks: {
-    path: '/api/prefect/webhook',
-    secretToken: () => useServerEnv().prefect.webhookSecret,
-    signature: 'bearer',
-  },
-})
-```
 
 ```ts [server/agents/support.ts]
 import { defineChannel } from 'vite-hub/agent/channels'
@@ -408,6 +388,38 @@ await context.dispatch(changes.map(change => ({
 })), { queue: true, trigger: 'change' })
 ```
 
+### Pull a provider's change log
+
+Some providers send a short notification and keep the changes in a log that you read with a cursor. `context.pull({ key, initialCursor, fetch, trigger, signal? })` reads that log from the saved cursor:
+
+1. It reads the cursor saved at `channelState.keyPrefix + key`, or uses `initialCursor`.
+2. It calls `fetch(cursor, signal)` for a page `{ items, next, more, first? }`.
+3. It admits each item in order through `trigger`, with queued dispatch, so `order` applies.
+4. It saves `next` only after every item of the page is admitted, then fetches again while `more` is `true`.
+
+The pull throws, and keeps the saved cursor, when `first` is not the requested cursor (a gap, such as expired history), when a number cursor moves back, or when `more` is `true` and the cursor did not change. It checks `signal` before each fetch, before each item, and before it saves the cursor. A failure or an abort keeps the saved cursor, so the next pull fetches the page again. Items that were already admitted are then skipped as `stale` or `duplicate`. A lock on the cursor key lets only one pull run at a time. `items` can be an async iterable, so each item loads just before its admission. The cursor is a number or a string, with the type of `initialCursor`.
+
+```ts
+webhook: defineChannelTrigger({
+  async invoke(context, notification: { webhookId: string }) {
+    await context.pull({
+      key: `cursor:${notification.webhookId}`,
+      initialCursor: 1,
+      trigger: 'change',
+      async fetch(cursor, signal) {
+        const page = await provider.payloads(notification.webhookId, { cursor, signal })
+        return {
+          items: page.changes.map(change => ({ input: change, key: change.eventId, order: { key: change.recordId, version: page.cursor } })),
+          next: page.nextCursor,
+          more: page.hasMore,
+        }
+      },
+    })
+    return ignored('pulled')
+  },
+}),
+```
+
 ### Decide and write Channel State in one step
 
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
@@ -518,6 +530,30 @@ Queued GitHub reconciliation reloads the PR head, comments, and files before the
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
+
+### Forge access for Git and Drivers
+
+A github() Channel that sets `app` gives its Agent forge access. The pull request checkout, the [`git()`](/docs/agents/capabilities/git) Capability, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
+
+The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
+
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: { token: async (_context, { repository }) => await vault.githubToken(repository) },
+      pullRequest: true,
+    }),
+  },
+  driver: { kind: 'codex' },
+  workspace: { mode: 'write' },
+})
+```
 
 ## Connect a web chat
 
@@ -634,6 +670,12 @@ Built-in Channels read credentials from Server Env under `env.server.<channel>`.
 
 Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
+`teams()` always builds its adapter. It reads `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` from `env.server.teams`, so `teams()` needs no credential options. Pass `adapter` options such as `userName` or `appType` to set other adapter values, or pass your own adapter or factory. Install `@chat-adapter/teams` in the application.
+
+```ts [server/agents/support.ts]
+teams({ adapter: { userName: 'Support' } })
+```
+
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:
@@ -687,7 +729,7 @@ Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Wor
 
 When the Chat SDK adapter supports native replies, a non-streaming reply answers the message that started the Invocation. Telegram is the built-in adapter with this support: the reply quotes the triggering message, so the user can see which photo or question it answers. Inline delivery, finish hook replies, and durable Workflow delivery use the same rule. Replies that the adapter streams while the Agent writes them, retries after a host restart, and adapters without native replies post a new message in the thread. Thread history and delivery custody record the reply like any other posted message.
 
-For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message; each new commentary segment, such as the next reasoning summary, replaces the previous one, so the message shows the current step. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
 
 ```ts
 messages: {
@@ -699,6 +741,18 @@ messages: {
   final: { delivery: 'new-message' },
 }
 ```
+
+In group chats and channel threads, some messages do not need an answer. Set `messages.allowSilentReply: true` to give the Agent a `skip_reply` tool. When the Agent calls it with a short reason, the Invocation finishes without the final reply and ViteHub removes the loading message. Errors still post the error reply, and messages that the Agent already sent are not removed. The option requires `messages.loading` and cannot be combined with `delivery: 'manual'`, because only a held-back final reply can be skipped.
+
+```ts
+messages: {
+  allowSilentReply: true,
+  final: { delivery: 'placeholder' },
+  loading: { text: 'Thinking…' },
+}
+```
+
+The Invocation records the skip as a final reply delivery effect with `channel.effect.skipped: "skip_reply: <reason>"`, so `vitehub agent invocations export` lists it under `deliveries`.
 
 ## Inspect delivery custody
 

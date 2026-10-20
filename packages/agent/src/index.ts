@@ -1,6 +1,7 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
+import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
@@ -75,7 +76,6 @@ import {
   teams as builtInTeams,
   telegram as builtInTelegram,
   webChat as builtInWebChat,
-  githubChannelIdentity,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -379,6 +379,7 @@ export type {
   AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentChatPlatformAdapter,
   AgentChatPlatformResolver,
   AgentChatPlatformsResolver,
@@ -506,8 +507,6 @@ export type {
   AgentRunResult,
   AgentRuntime,
   AgentSandboxDefinition,
-  AgentGitHub,
-  AgentGitHubAccess,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -893,15 +892,6 @@ interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding
   discoveryDefault: true
 }
 
-// Every Invocation of an Agent with `github` gets its identity, whichever entry point starts it.
-// A caller that already supplies an identity keeps it.
-function withAgentGitHubIdentity<TContext extends AgentRuntimeContext>(
-  agent: Pick<AgentInput<AgentRuntimeContext>, "github">,
-  context: TContext,
-): TContext {
-  return agent.github && !context.githubIdentity ? { ...context, githubIdentity: agent.github } : context
-}
-
 /**
  * Names of the Agents that a registered Agent Definition extends, nearest first. Connection access rules
  * fall back to theirs. An inline Definition that is not discovered under `server/agents/` gets none.
@@ -921,7 +911,8 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: IdentityRuntimeContext<TRuntimeConfig>,
 ): IdentityRuntimeContext<TRuntimeConfig> {
-  context = withAgentGitHubIdentity(agent, context)
+  // Every Invocation of an Agent with a github() Channel App gets its forge access. A caller's forge access stays.
+  context = withForgeAccess(agent.channels, context)
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
@@ -2257,7 +2248,6 @@ function defineBaseAgent<
   const driver = normalizeAgentDriver(options)
   const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
-  const github = options.github ?? githubChannelIdentity(channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
   const capabilitiesResolver = hasRuntimeType(capabilities, "function")
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2345,7 +2335,6 @@ function defineBaseAgent<
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     sandbox,
     ...(options.budget ? { budget: options.budget } : {}),
-    ...(github ? { github } : {}),
     channels,
     chat,
     cli,
@@ -3338,12 +3327,31 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "run" || driver.kind === "ask") return agent
+  // An explicitly declared Workspace instruction Source remains authoritative for
+  // Provider Drivers, even when a colocated instructions.md is present.
+  const workspaceOptions = (agent as AgentDefinition & {
+    __vitehubWorkspaceAgentOptions?: { workspace?: unknown }
+  }).__vitehubWorkspaceAgentOptions
+  const hasExplicitWorkspaceInstructions = (value: unknown): boolean => {
+    if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
+    const sources = isRuntimeRecord(value.sources) ? value.sources : value
+    return Object.hasOwn(sources, "__vitehubAgentInstructions")
+      || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
+  }
+  const explicitWorkspaceInstructions = [
+    settings.workspace,
+    workspaceOptions?.workspace,
+    (agent as AgentDefinition & { sources?: unknown }).sources,
+  ].some(hasExplicitWorkspaceInstructions)
+  if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
   const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
     && "template" in configured && !("mode" in configured)
     ? configured
     : undefined
-  if (template ? template.content !== undefined : configured !== undefined || settings.workspace) return agent
+  // A model Driver with a Workspace reads the document from AGENTS.md in the Workspace.
+  // A Provider Driver gets it as Driver instructions, so the Workspace stores no copy.
+  if (template ? template.content !== undefined : configured !== undefined || (settings.workspace && driver.kind !== "provider")) return agent
   const resolvedInstructions = template ? { ...template, content: instructions } : instructions
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
@@ -3357,6 +3365,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
+  // It also owns its Sources: a Provider Driver with instructions needs no AGENTS.md Source.
+  if (decorations.__vitehubWorkspaceAgent) delete decorations.sources
   const originalRun: unknown = decorations.run?.value
   if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
   // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.
@@ -8466,8 +8476,8 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the GitHub identity here.
-  context = withAgentGitHubIdentity(agent, context)
+  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
+  context = withForgeAccess(agent.channels, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.

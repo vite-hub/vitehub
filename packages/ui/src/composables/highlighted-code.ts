@@ -3,10 +3,6 @@ import { h, onServerPrefetch, shallowRef, type ShallowRef, toValue, type MaybeRe
 
 type LanguageModule = { default: LanguageRegistration[] };
 
-// ANSI output uses Shiki's built-in tokenizer, but still needs a language
-// registration when the core highlighter starts without bundled languages.
-const ansiLanguage: LanguageRegistration = { name: "ansi", scopeName: "source.ansi", patterns: [] };
-
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
   bash: () => import("shiki/langs/bash.mjs"),
@@ -65,7 +61,8 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
     }
     const instance = await loadHighlighter();
     if (!instance.getLoadedLanguages().includes(lang)) {
-      await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
+      if (lang === "ansi") await instance.loadLanguage({ name: "ansi", scopeName: "source.ansi", patterns: [] });
+      else await instance.loadLanguage((await languages[lang]!()).default);
     }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
     const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
@@ -73,8 +70,7 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    const latestRequested = toValue(language).toLowerCase();
-    if (currentRequest !== requestId || source !== toValue(code) || requested !== latestRequested) return;
+    if (currentRequest !== requestId || source !== toValue(code) || requested !== toValue(language).toLowerCase()) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

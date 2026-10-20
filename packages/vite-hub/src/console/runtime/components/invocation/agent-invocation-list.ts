@@ -1,5 +1,5 @@
 import { channelIcon } from "./internal/channel-icon.ts";
-import { type ComponentOptionsMixin, computed, type DefineComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, type DefineComponent, type ComponentOptionsMixin, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {

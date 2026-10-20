@@ -62,9 +62,7 @@ export const Chat = defineComponent({
                               key: message.id,
                               messageId: message.id,
                               scrollAnchor:
-                                props.status === "ready" &&
-                                message.role === "user" &&
-                                index === props.messages.length - 1,
+                                message.role === "user" && index === props.messages.length - 1 && props.status !== "submitted",
                             },
                             {
                               default: () =>

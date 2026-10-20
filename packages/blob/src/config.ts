@@ -9,6 +9,7 @@ import type {
   BlobStoreConfig,
   BlobStoresConfig,
   CloudflareR2BlobStoreConfig,
+  CloudflareR2Jurisdiction,
   FsBlobStoreConfig,
   MinioBlobStoreConfig,
   NetlifyBlobsStoreConfig,
@@ -43,6 +44,22 @@ function resolveFsStore(
   return defu({ base: trimmed(config.base) ?? readEnv(env, "BLOB_FS_BASE") }, { base: ".vitehub/data/blob", driver: "fs" as const })
 }
 
+const CLOUDFLARE_R2_JURISDICTIONS = { eu: true, fedramp: true, us: true } satisfies Record<CloudflareR2Jurisdiction, true>
+
+function resolveCloudflareJurisdiction(
+  value: unknown,
+  env: Record<string, string | undefined>,
+): CloudflareR2Jurisdiction | undefined {
+  const source = value ?? readEnv(env, "R2_JURISDICTION", "CLOUDFLARE_R2_JURISDICTION")
+  if (source === undefined) return
+  const jurisdiction = trimmed(source)
+  if (!jurisdiction || !Object.hasOwn(CLOUDFLARE_R2_JURISDICTIONS, jurisdiction)) {
+    throw blobErrorDiagnostics.BLOB_C0014({ message: `Cloudflare R2 \`jurisdiction\` must be "eu", "fedramp", or "us". Received ${JSON.stringify(source)}.` })
+  }
+  // SAFETY: The own-property check above limits the value to a key of the jurisdiction record.
+  return jurisdiction as CloudflareR2Jurisdiction
+}
+
 function resolveCloudflareStore(
   config: Partial<CloudflareR2BlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
@@ -54,6 +71,7 @@ function resolveCloudflareStore(
       accessKeyId: resolveBuildRuntimeValue(config.accessKeyId, env, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
       binding: trimmed(config.binding),
       bucketName: trimmed(config.bucketName) ?? readEnv(env, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME"),
+      jurisdiction: resolveCloudflareJurisdiction(config.jurisdiction, env),
       secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
     },
     { binding: "BLOB", driver: "cloudflare-r2" as const },

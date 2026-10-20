@@ -1,5 +1,6 @@
 import type { AgentProviderCredentialContext } from "../src/types.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
+import { forgeAccessKey } from "../src/internal/forge-access.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -250,40 +251,34 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
-  it("adds the Agent GitHub environment to the Driver environment", async () => {
+  it("adds the Agent forge access environment to the Driver environment", async () => {
     const threadId = "thread-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async () => ({
-      env: { GH_TOKEN: "installation-token", GIT_AUTHOR_NAME: "app[bot]", GIT_CONFIG_COUNT: "1" },
-      token: "installation-token",
-    }))
+    const access = vi.fn(async () => "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
       repository: { fullName: "acme/portal", name: "portal" },
     })
     await createProviderAgentAdapter({
-      env: { GIT_AUTHOR_NAME: "Override" },
+      env: { GH_TOKEN: "override-token" },
       provider: "codex",
-    }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
-      GH_TOKEN: "installation-token",
-      GIT_AUTHOR_NAME: "Override",
-      GIT_CONFIG_COUNT: "1",
+      GH_TOKEN: "override-token",
+      GITHUB_TOKEN: "installation-token",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
     })
   })
 
-  it("scopes the Agent GitHub environment to the pull request when the managed checkout is disabled", async () => {
+  it("scopes the Agent forge access environment to the pull request when the managed checkout is disabled", async () => {
     const threadId = "thread-github-environment-no-checkout"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      if (!input?.repository) throw new Error("credentials require a repository")
-      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -293,26 +288,21 @@ describe("Provider Agent Driver", () => {
       },
       repository: { fullName: "acme/portal", name: "portal" },
     })
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
-    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
     })
   })
 
-  it("scopes the Agent GitHub environment to the pull request from the Babysitter input context", async () => {
+  it("scopes the Agent forge access environment to the pull request from the Babysitter input context", async () => {
     const threadId = "thread-babysitter-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      if (!input?.repository) throw new Error("credentials require a repository")
-      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     // Babysitter passes these flat fields directly as the Agent input context.
     base.context.set("preparedCheckout", "/caller/prepared-checkout")
@@ -323,24 +313,20 @@ describe("Provider Agent Driver", () => {
     base.context.set("pullRequestSourceRepository", "contributor/portal")
     base.context.set("pullRequestTitle", "Fix portal")
     base.context.set("pullRequestUrl", "https://github.com/acme/portal/pull/42")
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
-    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
     })
   })
 
   it("adds fork credentials while preserving base API access in the Driver environment", async () => {
     const threadId = "thread-github-fork-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      const token = input?.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -350,16 +336,17 @@ describe("Provider Agent Driver", () => {
       },
       repository: { fullName: "acme/portal", name: "portal" },
     })
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
-      GIT_CONFIG_COUNT: "5",
-      GIT_CONFIG_KEY_1: "credential.https://github.com/contributor/portal.helper",
-      GIT_CONFIG_KEY_3: "credential.https://github.com/contributor/portal.git.helper",
+      GIT_CONFIG_COUNT: "4",
+      GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
+      GIT_CONFIG_KEY_1: "http.https://github.com/acme/portal.extraheader",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
+      GIT_CONFIG_KEY_3: "http.https://github.com/contributor/portal.extraheader",
     })
   })
 
@@ -4612,7 +4599,7 @@ cli_auth_credentials_store = "keyring"
   it.each([
     { baseline: true, mount: "portal" },
     { baseline: false, mount: "" },
-  ])("checks out the pull request with the Agent GitHub environment before the Driver starts (mount $mount)", async ({ baseline, mount }) => {
+  ])("checks out the pull request with the Agent forge access environment before the Driver starts (mount $mount)", async ({ baseline, mount }) => {
     const threadId = `thread-pull-request-checkout-${mount || "root"}`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
@@ -4627,7 +4614,7 @@ cli_auth_credentials_store = "keyring"
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
-    const access = vi.fn(async () => ({ env: { GH_TOKEN: "installation-token" }, token: "installation-token" }))
+    const access = vi.fn(async () => "installation-token")
     const base = context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "docs" }, workspaceMode: "write" })
     base.context.set("pullRequest", {
       pullRequest: {
@@ -4638,7 +4625,7 @@ cli_auth_credentials_store = "keyring"
       repository: { fullName: "acme/portal", name: "portal" },
     })
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
     const calls = session.exec.mock.calls.map(([command, args = []]) => `${command} ${args.join(" ")}`)
     const checkout = calls.findIndex(call => call.startsWith("sh -c set -eu"))
@@ -4674,6 +4661,10 @@ cli_auth_credentials_store = "keyring"
         await expect(readFile(join(root, "portal", ".codex/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
         await expect(readFile(join(root, "portal", ".claude/skills/agent-browser/SKILL.md"), "utf8")).resolves.toBe("# Native Browser\n")
         await expect(readFile(join(root, "portal", ".agents/skills/outer-only/SKILL.md"), "utf8")).resolves.toBe("# Outer Only\n")
+        // The Agent's own Skill comes from the invocation context, not the Workspace store, and stays inside the checkout.
+        await expect(readFile(join(root, "portal", ".agents/skills/own-review/SKILL.md"), "utf8")).resolves.toBe("# Own Review\n")
+        await expect(access(join(root, ".agents/skills/own-review"))).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readFile(join(root, "portal", ".git/info/exclude"), "utf8")).resolves.toContain("/.agents/skills/own-review/SKILL.md")
       },
     })
     const session = {
@@ -4741,6 +4732,9 @@ cli_auth_credentials_store = "keyring"
         source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" },
       },
       repository: { fullName: "acme/portal", name: "portal" },
+    })
+    runContext.context.set("agent.colocatedSkills", {
+      "__vitehubAgentSkill:.agents/skills/own-review/SKILL.md": { content: "# Own Review\n", materialize: "startup", mount: "", workspacePath: ".agents/skills/own-review/SKILL.md" },
     })
     const generatedTools = workspaceCommandTools("all", "write", undefined, workspace, { context: runContext.context as never })
     const providerContext = Object.assign(runContext, { tools: generatedTools })

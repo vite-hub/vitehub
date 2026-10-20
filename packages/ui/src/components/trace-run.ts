@@ -15,7 +15,7 @@ import {
 
 type Status = TraceRunView["status"] | TraceStepView["status"];
 
-const statusLabels: Record<string, string> = Object.freeze({ cancelled: "Cancelled", completed: "Completed", failed: "Failed", running: "Working" });
+const statusLabels: Record<string, string> = { cancelled: "Cancelled", completed: "Completed", failed: "Failed", running: "Working" };
 const statusIcons: Record<string, string> = {
   cancelled: "i-ph-minus-circle-light",
   completed: "i-ph-check-circle-light",
@@ -47,7 +47,7 @@ function attributesText(attributes: Record<string, unknown>): string {
 
 function description(status: Status, duration: number | undefined): string {
   // An unknown status from a newer runtime shows as its own text.
-  return [Object.prototype.hasOwnProperty.call(statusLabels, status) ? statusLabels[status]! : String(status), formatDuration(duration)].filter(Boolean).join(" · ");
+  return [Object.hasOwn(statusLabels, status) ? statusLabels[status] : String(status), formatDuration(duration)].filter(Boolean).join(" · ");
 }
 
 // One runtime trace run from deriveTraceRuns(), as a Trace line that expands into its timed steps.
@@ -59,7 +59,7 @@ export const TraceRun = defineComponent({
   },
   setup(props, { slots }) {
     const UIcon = resolveComponent("UIcon");
-    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.prototype.hasOwnProperty.call(statusIcons, status) ? statusIcons[status]! : "i-ph-circle-light" }));
+    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.hasOwn(statusIcons, status) ? statusIcons[status] : "i-ph-circle-light" }));
 
     const step = (value: TraceStepView) => {
       const custom = slots.step?.({ step: value });
@@ -72,12 +72,14 @@ export const TraceRun = defineComponent({
       let attributes: Record<string, unknown> | undefined;
       try {
         const candidate = value.attributes;
-        if (candidate) {
-          attributes = candidate;
-          if (Object.keys(candidate).length === 0) attributes = undefined;
-        }
+        if (candidate && Object.keys(candidate).length > 0) attributes = candidate;
       } catch {
-        // Keep the candidate so attributesText can render its fallback.
+        // Keep an uninspectable attribute object so attributesText() can show its fallback.
+        try {
+          attributes = value.attributes;
+        } catch {
+          attributes = undefined;
+        }
       }
       if (!attributes) return h("div", { "aria-label": value.name, "data-trace-step": value.status, key: value.id, role: "group" }, line);
       return h(TraceCollapsible, { "aria-label": value.name, "data-trace-step": value.status, key: value.id, role: "group" }, () => [

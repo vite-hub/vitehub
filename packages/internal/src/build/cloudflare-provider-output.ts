@@ -113,7 +113,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
   const environments = cloneProviderRecord(wrangler.env)
   const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner)
   const producers = compatibleEntries(queues.producers, contribution.queues?.producers, "binding", ["queue"], owner)
-  const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name"], owner)
+  const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name", "jurisdiction"], owner)
   const rateLimits = compatibleEntries(wrangler.ratelimits, contribution.rateLimits, "name", ["namespace_id", "simple"], owner)
   const currentRequiredSecrets = Array.isArray(secrets.required) ? secrets.required : []
   const requiredSecrets = (contribution.requiredSecrets ?? []).filter(name => !currentRequiredSecrets.includes(name))

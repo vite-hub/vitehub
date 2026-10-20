@@ -37,16 +37,12 @@ export const CodeBlockCopyButton = defineComponent({
       try {
         const clipboard = navigator.clipboard;
         if (!clipboard || typeof clipboard.writeText !== "function") return;
-        void clipboard.writeText(props.value)
-          .then(() => {
-            copied.value = true;
-            clearTimeout(timeout);
-            timeout = setTimeout(() => (copied.value = false), 2_000);
-          })
-          .catch(() => {});
-      } catch {
-        return;
-      }
+        void clipboard.writeText(props.value).then(() => {
+          copied.value = true;
+          clearTimeout(timeout);
+          timeout = setTimeout(() => (copied.value = false), 2_000);
+        }).catch(() => {});
+      } catch { return; }
     };
     return () => [
       h(UButton, {
@@ -63,9 +59,7 @@ export const CodeBlockCopyButton = defineComponent({
           const listener = attrs.onClick;
           if (Array.isArray(listener)) {
             for (const handler of listener) if (typeof handler === "function") handler(event);
-          } else if (typeof listener === "function") {
-            listener(event);
-          }
+          } else if (typeof listener === "function") listener(event);
           void copy();
         },
       }),
@@ -92,9 +86,7 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  if (node.type === Text) return String(node.children ?? "") === "";
-  if (Array.isArray(node.children)) return (node.children as VNode[]).every(isEmptyText);
-  return node.children === undefined || node.children === null || node.children === "";
+  return (node.type === Text && String(node.children ?? "") === "") || (typeof node.type === "string" && String(node.children ?? "") === "");
 }
 
 function textOf(nodes: VNode[]): string | undefined {

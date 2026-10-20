@@ -29,7 +29,6 @@ import type {
   WritableWorkspaceFacade,
   WorkspaceDefinition,
   WorkspaceDefinitionInput,
-  WorkspaceMaterializeMode,
   WorkspaceName,
   WorkspaceRules,
   WorkspaceSourceInput,
@@ -42,6 +41,7 @@ import type {
   AgentWebChatChannelOptions,
   DiscordChannelOptions,
   GitHubChannelOptions,
+  TeamsChannelOptions,
   TelegramChannelOptions,
 } from "./channels.ts"
 
@@ -84,26 +84,11 @@ export interface AgentHostIdentity {
   readonly workspace?: WorkspaceName
 }
 
-export interface AgentGitHubAccess {
-  /** Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity. */
-  env: Record<string, string>
-  token: string
-}
-
-/** The GitHub identity of an Agent. `createGitHubHost()` from `vite-hub/agent/server/github` returns one. */
-export interface AgentGitHub {
-  access(input?: { repository?: string, signal?: AbortSignal }): Promise<AgentGitHubAccess>
-  /** Login of the identity, when it is known. */
-  identity?(): string | undefined
-}
-
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
   channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
-  /** The Agent GitHub identity from `defineAgent({ github })`. */
-  githubIdentity?: AgentGitHub
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
   run?: AgentRunMetadata
   runtime: AgentRuntimeName
@@ -623,10 +608,7 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   message?: unknown
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
-  /**
-   * Key of one of the trigger's `tasks`. The task runs instead of the Agent that owns the trigger.
-   * The webhook queue stores the key with the accepted input, so a restart runs the same task.
-   */
+  /** Key of a task selected by the trigger. */
   task?: string
   webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
@@ -639,20 +621,8 @@ interface AgentWebhookInvocationOwnershipBase {
    * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
    */
   debounce?: { delayMs: number, key: string }
-  /**
-   * Provider delivery ID. It deduplicates retried deliveries. On a Channel trigger, an unset `run.runId` defaults to it
-   * and an unset `run.channelId` to the Channel.
-   *
-   * When a webhook route runs the trigger, it defaults to the SHA-256 (hex) of the raw request body, so a retried
-   * identical body is the same delivery. Set it when the provider sends an event ID, or when two different events can
-   * have the same body.
-   */
-  deliveryId?: string
-  /**
-   * The HTTP answer for an accepted, queued, steered or duplicate delivery, sent after the delivery is admitted.
-   * Defaults to the JSON receipt. Busy and error answers keep their own. Never persisted with a queued delivery.
-   */
-  response?: Response
+  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
+  deliveryId: string
 }
 
 export type AgentWebhookInvocationOwnership<CALL_OPTIONS = unknown> = AgentWebhookInvocationOwnershipBase & (
@@ -855,6 +825,44 @@ export interface AgentChannelState extends AgentChannelStateBinding {
   ): Promise<R>
 }
 
+/** One page that a `context.pull()` fetch returns. */
+export interface AgentChannelPullPage<TCursor extends string | number = string | number> {
+  /** The items of the page in provider order. An async iterable loads each item just before its admission. */
+  items: Iterable<AgentChannelDispatchItem> | AsyncIterable<AgentChannelDispatchItem>
+  /** The cursor after this page. It is saved after every item of the page is admitted. */
+  next: TCursor
+  /** The provider has more items after `next`, so the pull fetches again. */
+  more: boolean
+  /**
+   * The cursor of the first item of the page, for providers that number their log. A value other than the requested
+   * cursor is a gap, such as expired history, and the pull throws before it admits the page.
+   */
+  first?: TCursor
+}
+
+export interface AgentChannelPullOptions<TCursor extends string | number = string | number> {
+  /** State key of the saved cursor, relative to `channelState.keyPrefix`. The raw cursor value is stored there. */
+  key: string
+  /** The cursor of the first pull, when no cursor is saved. */
+  initialCursor: TCursor
+  /** Fetches the page that starts at `cursor`. */
+  fetch: (cursor: TCursor, signal?: AbortSignal) => MaybePromise<AgentChannelPullPage<TCursor>>
+  /** Trigger of this Channel that admits each item, as `dispatch(items, { trigger, queue: true })` does. */
+  trigger: string
+  /** Checked before each fetch, before each item, and before the cursor is saved. An abort keeps the saved cursor. */
+  signal?: AbortSignal
+}
+
+export interface AgentChannelPullResult<TCursor extends string | number = string | number> {
+  /** The saved cursor after the pull. */
+  cursor: TCursor
+  /** Pages fetched and saved. */
+  pages: number
+  /** Items newly queued. */
+  queued: number
+  /** Items answered without a queued delivery, already queued, or stale. */
+  skipped: number
+}
 
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -873,6 +881,34 @@ export interface AgentChannelTriggerContext<
    * With `queue: true`, each item is admitted to the webhook queue instead, and `order` applies.
    */
   dispatch: (items: readonly AgentChannelDispatchItem[], options: AgentChannelDispatchOptions) => Promise<ReplayChannelResult>
+  /**
+   * Drains a provider's change log from the saved cursor. The items of each page are admitted in order through
+   * `trigger` with queued dispatch, so `order` applies. The `next` cursor of the page is saved only after every item
+   * of the page is admitted. A failure or an abort keeps the saved cursor, so the next pull fetches the page again.
+   * A lock on the cursor key serializes pulls. Needs the Channel's State and a queue-capable State.
+   *
+   * @example
+   * invoke: async (context) => {
+   *   await context.pull({
+   *     key: "log-cursor",
+   *     initialCursor: 1,
+   *     trigger: "change",
+   *     async fetch(cursor, signal) {
+   *       const page = await provider.changes({ cursor, signal })
+   *       return {
+   *         items: page.changes.map(change => ({ key: change.id, input: change, order: { key: change.recordId, version: change.sequence } })),
+   *         next: page.cursor,
+   *         more: page.hasMore,
+   *       }
+   *     },
+   *   })
+   *   return ignored("pulled")
+   * }
+   */
+  pull: {
+    (options: AgentChannelPullOptions<number>): Promise<AgentChannelPullResult<number>>
+    (options: AgentChannelPullOptions<string>): Promise<AgentChannelPullResult<string>>
+  }
   trigger: {
     channelId: string
     id: `${string}.${string}`
@@ -881,34 +917,28 @@ export interface AgentChannelTriggerContext<
   }
 }
 
-/** The context of a Channel trigger with `durableState: true`. `channelState` is always present. */
-export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> { channelState: AgentChannelState }
+/** Channel trigger context whose durable state binding is always present. */
+export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> {
+  channelState: AgentChannelState
+}
 
-export type AgentChannelTriggerDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TInput = unknown, CALL_OPTIONS = unknown> =
+export type AgentChannelTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> =
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
-/** The accepted input and run metadata that `prepare` and a task's `run` receive. */
+/** The accepted input and run metadata passed to preparation and task callbacks. */
 export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
 
 export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
 
-/** One task that a trigger's `invoke` selects with `task: name`. Declare exactly one of `agent` or `run`. */
-export interface AgentTriggerTask<
-  TContext = unknown,
-  CALL_OPTIONS = unknown,
-> {
-  /**
-   * The Agent that runs the accepted input. It needs a stable `name`, because the queue stores it with the delivery.
-   * An unset `run.origin` of the Invocation defaults to the task key.
-   */
+/** A task selected by a trigger invocation. */
+export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
   agent?: AgentInput
-  /**
-   * Replaces the trigger's `failed` for this task's queued deliveries, with the same event.
-   * The trigger's `failed` stays the fallback for tasks without one.
-   */
   failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
-  /** Replaces the trigger's `prepare` for this task. A task never runs the trigger's `prepare`. */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
@@ -931,17 +961,7 @@ export interface AgentTriggerDefinition<
   input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
-  /**
-   * Runs on the accepted input of an invocation without a task, just before the Agent starts.
-   * The webhook queue runs it after it stores the delivery, on every attempt, so `invoke` can stay fast and side-effect free.
-   * A returned `Response` settles the delivery without an Invocation: see `AgentTriggerPrepareResult`.
-   */
   prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
-  /**
-   * Named units of work that `invoke` selects with `task: name`. A task runs another Agent or a plain `run` function.
-   * The webhook queue stores the task key, the selected Agent name and the accepted JSON input before `prepare`,
-   * so a restart runs the same task without calling `invoke` again.
-   */
   tasks?: Record<string, AgentTriggerTask<TContext, CALL_OPTIONS>>
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
@@ -1463,12 +1483,6 @@ export interface AgentCapabilityDefinition<
   cli?: AgentCapabilityCliResolver<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
-  /**
-   * Combine this Capability with the parent's Capability of the same `id` when an Agent uses
-   * `defineAgent({ extends })`. Return the Capability that the child uses; it must keep the same `id`.
-   * Without `extend`, the child's Capability replaces the parent's.
-   */
-  extend?: (inherited: AgentCapabilityDefinition<TRuntimeConfig, Name>) => AgentCapabilityDefinition<TRuntimeConfig, Name>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
@@ -1759,11 +1773,8 @@ export interface AgentProviderDriverOptions<
    * Commands the Driver shell needs, such as `git`, `gh`, or `unzip`.
    * `status()` checks them where the Driver runs. With `driver.launch`, a resolver is required
    * and each inspection probe checks commands in its shell before starting the provider.
-   *
-   * In `defineAgent({ extends })`, an array replaces the parent's list and a function receives it:
-   * `requirements: inherited => [...inherited, 'kubectl']`. Without a parent the function receives `[]`.
    */
-  requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
+  requirements?: readonly string[]
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
   /**
@@ -1974,21 +1985,9 @@ export type AgentAskQuestionsResolver<
   | ((context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<AgentAskQuestions<TOutput>>)
 
 /**
- * Answers typed questions with TypeSafe Jev in bounded requests. The answers are the Invocation output.
+ * Answers typed questions with TypeSafe Jev in one request. The answers are the Invocation output.
  * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
  * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
- *
- * Each question is recorded in the Invocation's trace as `agent.tool.start` (`tool.input`: the question sent), then
- * `agent.tool.finish` (`tool.output`: the answer; `ask.answer`: the choice, score, chance or boolean;
- * `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs`) or `agent.tool.error` (`tool.error`,
- * `error.status`, `error.requestId`). All three carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`,
- * `ask.batch.index`, `ask.batch.count`, `ask.batch.size`, `gen_ai.operation.name: "ask"` and
- * `gen_ai.provider.name`. Each Jev request adds `agent.usage.recorded` with `usage.model`, `usage.inputTokens`,
- * `usage.outputTokens`, `usage.totalTokens` and `ask.durationMs`, and adds one call (`model`, `provider`, `usage`) to the
- * Invocation usage record. `usage.record` on `agent.invocation.finish` and `event.invocation.usage` sum these calls, so
- * usage indexes count ask runs, and `usage({ pricing })` prices them. The shared state is `input.data` (or the prompt) on
- * `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`.
- * No credentials or request headers are recorded.
  */
 export interface AgentAskDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -2098,11 +2097,6 @@ type AgentSharedSettings<
   sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
-  /**
-   * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
-   * and the pull request checkout and `git()` use its token.
-   */
-  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
@@ -2178,7 +2172,6 @@ export interface AgentDefinition<
   sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
-  github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
@@ -2504,6 +2497,13 @@ export interface AgentChatFinishExtension {
   sendMessage: AgentChatSendMessage
 }
 
+export interface AgentChatWrapUpOptions {
+  /** How long before `timeout` to steer the Invocation. Defaults to 120000 (2 minutes). */
+  beforeMs?: number
+  /** The steering text. Defaults to a time check that asks for the final reply now. */
+  prompt?: string
+}
+
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
@@ -2535,6 +2535,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }
   /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
   allowBots?: boolean
+  /**
+   * Give the Agent a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply
+   * and the loading message is removed. Errors and messages that the Agent sent explicitly are still delivered.
+   * Requires `loading` without `delivery: "manual"`.
+   */
+  allowSilentReply?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {
@@ -2554,6 +2560,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   timeout?: number
+  /**
+   * Before `timeout` cancels a chat Invocation, steer it to send its final reply with what it found.
+   * On by default for timeouts of 5 minutes or more, 2 minutes before the timeout. `false` turns it off.
+   * Drivers that cannot be steered mid-turn keep only the hard timeout.
+   */
+  wrapUp?: false | AgentChatWrapUpOptions
   /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
   timeZone?: string
   transcripts?: TranscriptsConfig
@@ -2792,7 +2804,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
-  triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
+  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
@@ -2808,6 +2820,7 @@ type AgentBuiltInChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   | AgentWebChatChannelOptions<TRuntimeConfig>
   | DiscordChannelOptions<TRuntimeConfig>
   | GitHubChannelOptions<TRuntimeConfig>
+  | TeamsChannelOptions<TRuntimeConfig>
   | TelegramChannelOptions<TRuntimeConfig>
 
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
@@ -2816,7 +2829,7 @@ export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = Agent
     github?: AgentChannelInput<TRuntimeConfig> | GitHubChannelOptions<TRuntimeConfig>
     http?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
     slack?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    teams?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
+    teams?: AgentChannelInput<TRuntimeConfig> | TeamsChannelOptions<TRuntimeConfig>
     telegram?: AgentChannelInput<TRuntimeConfig> | TelegramChannelOptions<TRuntimeConfig>
     webChat?: AgentChannelInput<TRuntimeConfig> | AgentWebChatChannelOptions<TRuntimeConfig>
   }
@@ -2885,11 +2898,6 @@ export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
   commit?: boolean | string
-  /**
-   * Default `materialize` mode for every Source in `sources` that does not set its own, including
-   * Sources inherited through `extends`. Sources that Capabilities contribute keep their own mode.
-   */
-  materialize?: WorkspaceMaterializeMode
   mode?: AgentCapabilityMode
   name?: never
 }
@@ -3150,6 +3158,7 @@ export interface AgentAdapterRunContext<
   executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
+  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

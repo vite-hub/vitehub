@@ -17,6 +17,34 @@ function uses(source: string) {
 }
 
 describe("built-in Channel discovery", () => {
+  it("keeps Teams Env required for the runtime-supported adapter true value", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: true })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
+  it("keeps Teams Env required for plain adapter options", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { userName: "support" } })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
+  it("keeps Teams Env required for upstream adapter options", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { federated: { clientId: "managed-identity" }, token: () => "token" } })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
+  it("omits Teams Env for custom adapter objects", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: { name: "custom" } })
+    `)).toEqual([{ kind: "teams", keys: ["adapter"] }])
+  })
+
   it.each(["tele\\u0067ram", "tele\\u{67}ram", "\\u0074elegram"])("decodes escaped identifier Channel keys: %s", (key) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
@@ -1242,6 +1270,35 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "discord" })
     expect(createDiscordAdapter).toHaveBeenCalledWith({ applicationId: "app-id", botToken: "bot-token", publicKey: "public-key" })
+  })
+
+  it("builds the Teams adapter from Server Env when teams() has no adapter", async () => {
+    vi.resetModules()
+    vi.doMock("#vitehub/env/server", () => ({
+      useServerEnv: () => ({ teams: { appId: "app-id", appPassword: { unseal: () => "app-password" }, appTenantId: "tenant-id" } }),
+    }))
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    const { teams } = await import("../src/channels.ts")
+    const channel = teams({ adapter: { userName: "support" } })
+
+    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    await expect(channel.adapter({} as never)).resolves.toMatchObject({ name: "teams" })
+    expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "app-id", appPassword: "app-password", appTenantId: "tenant-id", userName: "support" })
+  })
+
+  it("reads Teams host bindings without hubEnv()", async () => {
+    vi.resetModules()
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    const { teams } = await import("../src/channels.ts")
+    const channel = teams()
+
+    if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    await channel.adapter({ cloudflare: { env: { TEAMS_APP_ID: "app-id", TEAMS_APP_PASSWORD: "app-password", TEAMS_APP_TENANT_ID: "tenant-id", TEAMS_API_URL: "https://smba.example" } } } as never)
+    expect(createTeamsAdapter).toHaveBeenCalledWith({ apiUrl: "https://smba.example", appId: "app-id", appPassword: "app-password", appTenantId: "tenant-id" })
   })
 })
 

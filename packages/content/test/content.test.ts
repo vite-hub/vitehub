@@ -14,6 +14,23 @@ import { contentSource, defineContent, defineContentHandler } from "../src/index
 
 afterEach(clearSources)
 
+it("accepts Web Requests from another realm", async () => {
+  const request = runInNewContext(`new Request("https://example.test/content", {
+    method: "POST",
+    body: "hello",
+  })`, { Request }) as Request
+  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
+  const response = await handler({ req: request } as never) as Response
+  expect(response.status).toBe(200)
+  await expect(response.text()).resolves.toBe("hello")
+})
+
+it("rejects spoofed Web Requests", async () => {
+  const request = { get [Symbol.toStringTag]() { return "Request" } }
+  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
+  await expect(handler({ req: request } as never)).rejects.toMatchObject({ code: "CONTENT_R0005" })
+})
+
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((resolvePromise) => {

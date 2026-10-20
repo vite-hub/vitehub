@@ -1,4 +1,9 @@
-import { defineErrors } from "@vite-hub/runtime"
+import { defineDiagnostics } from "nostics"
+
+const dynamicError = { why: (input: any) => {
+  if (input.message !== undefined) return String(input.message)
+  return Object.entries(input).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`).join(", ")
+} }
 
 function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
@@ -48,8 +53,8 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
 }
 
 // Keep published codes stable. Each code has a heading on the docs page.
-export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/database/limits-and-errors",
+export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
     DATABASE_C0007: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
@@ -76,7 +81,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MISSING_CONNECTION: {
       why: ({ database, needs }: { database: string, needs: string }) => `The database "${database}" has no connection. It needs ${needs}.`,
-      fix: "On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url` in the Database Definition or its environment variable.",
+      fix: "On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url` in the Database Definition or its environment variable. A Postgres database can use the PG* environment variables, such as `PGHOST`, instead.",
     },
     DATABASE_MISSING_D1_HTTP_CONFIG: {
       why: ({ database, missing }: { database: string, missing: string }) => `The database "${database}" uses D1 HTTP and needs ${missing} at runtime.`,
@@ -183,5 +188,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
     },
+    DATABASE_C0001: dynamicError, DATABASE_C0002: dynamicError, DATABASE_C0003: dynamicError, DATABASE_C0004: dynamicError, DATABASE_C0005: dynamicError, DATABASE_C0006: dynamicError, DATABASE_C0008: dynamicError, DATABASE_C0009: dynamicError,
+    DATABASE_R0001: dynamicError, DATABASE_R0002: dynamicError, DATABASE_R0003: dynamicError, DATABASE_R0004: dynamicError, DATABASE_R0005: dynamicError, DATABASE_R0006: dynamicError, DATABASE_R0007: dynamicError, DATABASE_R0008: dynamicError, DATABASE_R0009: dynamicError, DATABASE_R0010: dynamicError, DATABASE_R0011: dynamicError, DATABASE_R0012: dynamicError, DATABASE_R0013: dynamicError, DATABASE_R0014: dynamicError, DATABASE_R0015: dynamicError, DATABASE_R0016: dynamicError,
+    DATABASE_B0001: dynamicError, DATABASE_B0002: dynamicError, DATABASE_B0003: dynamicError, DATABASE_B0004: dynamicError, DATABASE_B0005: dynamicError, DATABASE_B0006: dynamicError, DATABASE_B0007: dynamicError, DATABASE_B0008: dynamicError, DATABASE_B0009: dynamicError, DATABASE_B0010: dynamicError,
+    DATABASE_B0012: dynamicError,
+
   },
 })

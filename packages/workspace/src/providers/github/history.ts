@@ -200,22 +200,11 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     return { items, truncated: tree.warnings.some(warning => warning.code === "tree_truncated") }
   }, "tree")
 
-  const readCommitTreeSha = async (commit: GitHubCommit): Promise<string> => await githubRequest(client, async (provider, repo) => {
-    const path = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/git/commits/${encodeURIComponent(commit.sha)}`
-    const response = await provider.request<unknown>("GET", path)
-    const value = response.data
-    const tree = value instanceof Object && "tree" in value ? Reflect.get(value, "tree") : undefined
-    const sha = tree instanceof Object && "sha" in tree ? Reflect.get(tree, "sha") : undefined
-    if (!nonEmptyString(sha)) malformed("commit")
-    return sha
-  }, "commit")
-
   const readTree = async (commit: GitHubCommit): Promise<GitHubHistoryEntry[]> => {
     const cached = treeCache.get(commit.sha)
     if (cached) return cached
-    const treeSha = await readCommitTreeSha(commit)
-    const tree = await readTreeItems(treeSha, true)
-    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(treeSha) : tree.items
+    const tree = await readTreeItems(commit.sha, true)
+    const treeEntries = tree.truncated ? await readTreeWithoutRecursion(commit.sha) : tree.items
     const entries = treeEntries.flatMap(entry => {
       const historyEntry = asHistoryEntry(entry, options.root)
       return historyEntry ? [historyEntry] : []

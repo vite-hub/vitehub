@@ -33,7 +33,6 @@ import type {
   AgentActivityTask,
   AgentActivityUpdate,
   AgentCallbackContext,
-  AgentGitHub,
   AgentCapabilityDefinition,
   AgentChatFinishExtension,
   AgentChatMessage,
@@ -67,6 +66,7 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import { defineMessageChannelInstructions } from "./internal/channels.ts"
+import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
@@ -104,22 +104,6 @@ import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 
-const githubChannelIdentityKey = Symbol.for("vitehub.githubChannelIdentity")
-
-function isAgentGitHub(value: unknown): value is AgentGitHub {
-  return isRecord(value) && hasRuntimeType(value.access, "function")
-}
-
-/** Return the GitHub identity shared by the Agent's github() Channels, when there is exactly one. */
-export function githubChannelIdentity(channels: Readonly<Record<string, object>> | undefined): AgentGitHub | undefined {
-  const identities = new Set<AgentGitHub>()
-  for (const channel of Object.values(channels || {})) {
-    // SAFETY: github() stores its identity under this private symbol.
-    const identity = (channel as { [githubChannelIdentityKey]?: AgentGitHub })[githubChannelIdentityKey]
-    if (identity) identities.add(identity)
-  }
-  return identities.size === 1 ? [...identities][0] : undefined
-}
 const customTitleEffectChannels = new WeakSet<object>()
 
 export {
@@ -189,6 +173,9 @@ export type {
   AgentChannelMessageMethods,
   AgentChannelMessageOf,
   AgentChannelReplyCalls,
+  AgentChannelPullOptions,
+  AgentChannelPullPage,
+  AgentChannelPullResult,
   AgentChannels,
   AgentChannelStateBinding,
   AgentChannelTriggerContext,
@@ -247,7 +234,10 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
   AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>
 
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  /** Use a host-managed credential resolver instead of minting another installation token. */
+  /**
+   * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
+   * credential. It receives the target `repository`.
+   */
   token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal }) => string | undefined | Promise<string | undefined>)
   /** Trusted login of the host's authenticated GitHub identity. */
   identity?: { login: string }
@@ -501,11 +491,8 @@ export const pullRequest = {
       ...(value.base?.ref ? { baseRef: value.base.ref } : {}),
       ...(context.trigger.deliveryId ? { deliveryId: context.trigger.deliveryId } : {}),
       ...(value.source.ref || value.head?.ref ? { headRef: value.source.ref || value.head?.ref } : {}),
-      // Queued invocations persisted before the Forge rename used `host` on
-      // the pull-request context. Keep those deliveries tied to their
-      // original provider while new invocations use `forge`.
-      provider: context.forge?.kind || (isRecord((context as unknown as Record<string, unknown>).host) ? ((context as unknown as Record<string, unknown>).host as Record<string, unknown>).kind as "gitlab" | "forgejo" | undefined : undefined) || "github",
-      instance: context.forge?.instance || (isRecord((context as unknown as Record<string, unknown>).host) && hasRuntimeType(((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance, "string") ? (((context as unknown as Record<string, unknown>).host as Record<string, unknown>).instance as string) : undefined) || githubInstance(value.htmlUrl),
+      provider: context.forge?.kind || "github",
+      instance: context.forge?.instance || githubInstance(value.htmlUrl),
       repository: context.repository.fullName,
       run: context.run,
       trigger: context.trigger,
@@ -593,7 +580,7 @@ export interface GitHubChannelActivityOptions<TRuntimeConfig extends AgentRuntim
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
   extends AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> {
   activity?: boolean | GitHubChannelActivityOptions<TRuntimeConfig>
-  app?: true | GitHubAppOptions<TRuntimeConfig> | AgentGitHub
+  app?: true | GitHubAppOptions<TRuntimeConfig>
   pullRequest?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
 }
 
@@ -681,6 +668,25 @@ export interface DiscordAdapterOptions {
 export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
   extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
   adapter?: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
+/**
+ * Options for the Microsoft Teams adapter. A credential that you omit is read from
+ * `env.server.teams`: TEAMS_APP_ID, TEAMS_APP_PASSWORD, TEAMS_APP_TENANT_ID, and TEAMS_API_URL.
+ */
+export interface TeamsAdapterOptions {
+  apiUrl?: string
+  appId?: MaybeResolvable<string, AgentCallbackContext<AgentRuntimeConfig>>
+  appPassword?: string | { unseal: () => string }
+  appTenantId?: string
+  appType?: "MultiTenant" | "SingleTenant"
+  userName?: string
+}
+
+export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
+  extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
+  adapter?: true | TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -1570,11 +1576,10 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   }
   const env = await githubEnv(context)
   const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
-  // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
-  const installationId = installation
+  const configuredInstallation = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
-    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "installationId", context), "installationId")
+    ?? await githubAppSetting(options, env, "installationId", "installationId", context)
   const credentials = githubAppCredentials({
     appId,
     privateKey: await githubAppPrivateKey(options, env, context),
@@ -1583,6 +1588,10 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     userAgent: options.userAgent,
   })
   try {
+    // Without a fixed installation, find the App installation of the target repository.
+    const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
+      ? await credentials.installation(repository, signal)
+      : requiredNumber(configuredInstallation, "installationId")
     return (await credentials.installationToken(installationId, { signal })).token
   }
   catch (error) {
@@ -2680,6 +2689,38 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
+): AgentChannelOptions<TRuntimeConfig>["adapter"] {
+  if (input !== undefined && (hasRuntimeType(input, "function") || isAdapter(input) || isResolver(input))) {
+    // SAFETY: The runtime guards above establish every supported adapter option variant.
+    return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
+  }
+  // SAFETY: The guards above leave only the plain Teams adapter options.
+  const options = (input ?? {}) as TeamsAdapterOptions
+  return async (context) => {
+    let createTeamsAdapter: (options?: Record<string, unknown>) => Adapter
+    try {
+      ({ createTeamsAdapter } = await import("@chat-adapter/teams"))
+    }
+    catch (error) {
+      throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
+    }
+    const env = await channelEnv("teams", context)
+    const adapterConfig: Record<string, unknown> = { ...options }
+    if (hasRuntimeType(options.appId, "function")) {
+      adapterConfig.appId = options.appId
+    }
+    for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
+      if (field === "appId" && hasRuntimeType(options.appId, "function")) continue
+      const value = cleanSecret(options[field] ?? env[field])
+      if (value) adapterConfig[field] = value
+      else delete adapterConfig[field]
+    }
+    return createTeamsAdapter(adapterConfig)
+  }
+}
+
 const discordApiBaseUrl = "https://discord.com/api/v10"
 
 function discordThreadIdFromAgentThreadId(threadId: string): string | undefined {
@@ -2887,9 +2928,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const accepted = context.queuedInvocation
         const acceptedPullRequest = githubPullRequestRunContextFromUnknown(accepted?.input.context?.pullRequest)
-        const acceptedCommand = githubCommandFromUnknown(services
-          ? forgeCommandForTrigger(accepted?.input.context?.forge || accepted?.input.context?.codeHost)
-          : accepted?.input.context?.github)
+        const acceptedCommand = githubCommandFromUnknown(services ? forgeCommandForTrigger(accepted?.input.context?.forge) : accepted?.input.context?.github)
         if (accepted && acceptedPullRequest && acceptedCommand?.deliveryId) {
           const metadata = await githubPullRequestMetadata(app, context, acceptedCommand, options, undefined, services)
           const refreshed = {
@@ -3221,14 +3260,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods>
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods>
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> {
-  const { activity, app: appInput, pullRequest, ...channelOptions } = options
-  const identity = isAgentGitHub(appInput) ? appInput : undefined
-  const appOptions = isAgentGitHub(appInput)
-    ? {
-        token: async (_context: unknown, scope: { repository?: string, signal?: AbortSignal }) => (await appInput.access(scope)).token,
-        ...(appInput.identity?.() ? { identity: { login: appInput.identity()! } } : {}),
-      }
-    : appInput
+  const { activity, app: appOptions, pullRequest, ...channelOptions } = options
   const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : undefined
   const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : undefined
   const app = githubAppOptions(appOptions)
@@ -3260,7 +3292,15 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
   })
-  if (identity) Object.defineProperty(channel, githubChannelIdentityKey, { enumerable: true, value: identity })
+  if (appOptions) {
+    // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
+    const access: ForgeAccess = async (context, scope) => {
+      // SAFETY: the Agent passes the callback context of its own runtime configuration.
+      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal)
+      return token ? { token, baseUrl: appOptions.apiBaseUrl } : undefined
+    }
+    Object.defineProperty(channel, forgeAccessKey, { enumerable: true, value: access })
+  }
   return channel
 }
 
@@ -3331,7 +3371,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
         const result = await trigger.invoke(context, normalized)
         if (result instanceof Response) return result
         const value = githubPullRequestRunContextFromUnknown(result.input?.context?.pullRequest)
-        const command = githubCommandFromUnknown(result.input?.context?.github || forgeCommandForTrigger(result.input?.context?.forge || result.input?.context?.codeHost))
+        const command = githubCommandFromUnknown(result.input?.context?.github || forgeCommandForTrigger(result.input?.context?.forge))
         if (!value || !command) return result
         const parts = command.repository.split("/")
         command.repo = parts.pop()!
@@ -3701,10 +3741,10 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("slack", options)
 }
 
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
-  return defineMessageChannelInstructions(defineChannel("teams", options), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
+  return defineMessageChannelInstructions(defineChannel("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
 }
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>

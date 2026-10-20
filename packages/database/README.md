@@ -82,18 +82,22 @@ Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or 
 
 ## Contributed tables
 
-Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry gives a `module` (absolute path or package specifier), an optional `export` that holds an object of tables, and an optional `database`. Without `database`, the tables go to the default or only Database:
+Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    databases: () => [{ module: "my-package/schema", export: "historySchema" }],
+    databases: () => [{
+      name: "history",
+      definition: { module: "my-package/schema", export: "historySchema" },
+      reason: "Stores Workspace history.",
+    }],
   },
 }
 ```
 
-Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A key or SQL table name used twice fails with `DATABASE_B0010`. A missing or ambiguous target fails with `DATABASE_B0011` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
+A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup.
 
 Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
@@ -159,7 +163,9 @@ export default defineDatabase({
 
 ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
 
-`vitehub db generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub db migrate` applies them with `connection.url`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
+Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
+
+`vitehub db generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub db migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
 
 ## Nuxt D1 host wiring
 

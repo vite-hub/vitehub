@@ -16,6 +16,7 @@ interface CloudflareQueueProducer {
 export interface CloudflareR2Bucket {
   binding: string
   bucket_name: string
+  jurisdiction?: string
   [key: string]: unknown
 }
 
@@ -147,8 +148,14 @@ export class ProviderOutputCatalog {
       ?? new Map<ProviderOutputProduct, ProviderRuntimeContribution>().entries()
   }
 
-  resetRuntimeContributions(): void {
-    this.#runtimeContributions.clear()
+  resetRuntimeContributions(generation?: ProviderDeploymentOutputGeneration, owner?: ProviderOutputProduct): void {
+    if (generation) {
+      if (owner) this.#runtimeContributionsByGeneration.get(generation)?.delete(owner)
+      else this.#runtimeContributionsByGeneration.delete(generation)
+      return
+    }
+    if (owner) this.#runtimeContributions.delete(owner)
+    else this.#runtimeContributions.clear()
   }
 
   resetRuntimeContribution(product: ProviderOutputProduct, generation?: ProviderDeploymentOutputGeneration): void {
@@ -377,8 +384,8 @@ export function contributeProviderRuntime(catalog: ProviderOutputCatalog | undef
   catalog?.replaceRuntimeContribution(contribution, generation)
 }
 
-export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | undefined): void {
-  catalog?.resetRuntimeContributions()
+export function resetProviderOutputRuntime(catalog: ProviderOutputCatalog | undefined, generation?: ProviderDeploymentOutputGeneration, owner?: ProviderOutputProduct): void {
+  catalog?.resetRuntimeContributions(generation, owner)
 }
 
 export function getProviderRuntimeModule<

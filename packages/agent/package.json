@@ -129,6 +129,12 @@
       "require": "./dist/mcp/stdio.js",
       "default": "./dist/mcp/stdio.js"
     },
+    "./process-host": {
+      "types": "./dist/process-host.d.ts",
+      "import": "./dist/process-host.js",
+      "require": "./dist/process-host.js",
+      "default": "./dist/process-host.js"
+    },
     "./messages": {
       "types": "./dist/messages.d.ts",
       "import": "./dist/messages.js",
@@ -159,11 +165,21 @@
       "require": "./dist/output.js",
       "default": "./dist/output.js"
     },
-    "./process-host": {
-      "types": "./dist/process-host.d.ts",
-      "import": "./dist/process-host.js",
-      "require": "./dist/process-host.js",
-      "default": "./dist/process-host.js"
+    "./presets/babysitter": {
+      "types": "./dist/presets/babysitter.d.ts",
+      "import": "./dist/presets/babysitter.js"
+    },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js"
+    },
+    "./presets/labeller": {
+      "types": "./dist/presets/labeller.d.ts",
+      "import": "./dist/presets/labeller.js"
+    },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js"
     },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
@@ -283,7 +299,8 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.1",
+    "@chat-adapter/teams": "catalog:chat",
+    "@github-tools/eve-extension": "0.8.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -316,6 +333,7 @@
     "@agntn/web": "catalog:ai",
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/connections": "workspace:*",
@@ -340,6 +358,9 @@
       "optional": true
     },
     "@chat-adapter/discord": {
+      "optional": true
+    },
+    "@chat-adapter/teams": {
       "optional": true
     },
     "@vercel/functions": {
