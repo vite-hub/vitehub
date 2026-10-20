@@ -4,6 +4,7 @@ import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type
 import { ViteHubError } from "@vite-hub/runtime"
 import { safeAgentTelemetryMetadata } from "./agent-telemetry.ts"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
+import { colocatedAgentSkillsContextKey } from "./colocated-agent-skills.ts"
 import { mcpSkillsInspectionValue, mcpSkillsRoot, mcpSkillsWorkspaceContribution, readMcpSkills } from "./mcp-skills.ts"
 import type { McpSkill } from "./mcp-skills.ts"
 
@@ -495,7 +496,7 @@ export function defineMcpToolCapability<
     async workspace(context) {
       const servers = skillsByInvocation.get(context.context)
       if (!servers?.length) return
-      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition, context.workspaceMaterializationPaths)
+      return await mcpSkillsWorkspaceContribution(servers, context.workspaceDefinition, context.workspaceMaterializationPaths, context.context.get(colocatedAgentSkillsContextKey))
     },
     async close(context) {
       const clients = clientsByContext.get(context) || []

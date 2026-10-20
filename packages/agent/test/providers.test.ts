@@ -3200,7 +3200,7 @@ export default defineAgent({
         "const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
       )
       expect(denoServer).toContain(
-        "    ...(colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } : {}),",
+        "    ...(storesBundledFiles && colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } : {}),",
       )
       expect(denoServer).toContain("workspaceDefinitionFromOptions")
       expect(denoServer).toContain(
