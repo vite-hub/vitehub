@@ -1,4 +1,5 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
+export { readAgentEnvIdentity, readAgentEnvParents } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"

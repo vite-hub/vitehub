@@ -435,6 +435,7 @@
     "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@tiptap/vue-3": "catalog:realtime",
     "ai": "catalog:ai-compat",
     "box-typescript-sdk-gen": "catalog:storage",
     "comark-content": "catalog:markdown",
