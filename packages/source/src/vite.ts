@@ -15,7 +15,7 @@ import { parseSync as parseJavaScript } from "vite"
 import type { Plugin } from "vite"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
-import { collectCollectionFiles, discoverCollections } from "./internal/collection-discovery.ts"
+import { collectCollectionFiles } from "./internal/collection-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -254,24 +254,6 @@ export function toRuntimeModuleSpecifier(file: string): string {
 
 export function toTypeModuleSpecifier(file: string): string {
   return file.replaceAll("\\", "/")
-}
-
-async function collectCollectionFiles(directory: string): Promise<string[]> {
-  let entries
-  try {
-    entries = await readdir(directory, { withFileTypes: true })
-  }
-  catch (error) {
-    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
-    throw error
-  }
-  const files: string[] = []
-  for (const entry of entries) {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) files.push(...await collectCollectionFiles(path))
-    else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !/\.d\.[cm]?ts$/.test(entry.name)) files.push(path)
-  }
-  return files
 }
 
 /** Inspect route metadata without importing Collection modules or evaluating loaders. */
@@ -852,7 +834,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
   return findRoute(exported?.init) ?? true
 }
 
-async function discoverCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
+async function discoverSourceCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -1173,7 +1155,7 @@ async function writeContentArtifact(
 
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
   const [collections, content] = await Promise.all([
-    discoverCollections(options),
+    discoverSourceCollections(options),
     findContentEntry(options),
   ])
   return [
