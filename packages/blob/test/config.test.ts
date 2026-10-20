@@ -108,6 +108,26 @@ describe("blob config", () => {
     })
   })
 
+  it("resolves the R2 jurisdiction from config, then from env", () => {
+    expect(normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" }, { env: {} })?.store)
+      .toMatchObject({ jurisdiction: "eu" })
+    expect(normalizeBlobOptions({ bucketName: "assets", jurisdiction: "eu" }, { env: {}, hosting: "cloudflare" })?.store)
+      .toMatchObject({ jurisdiction: "eu" })
+    expect(normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2" }, { env: { R2_JURISDICTION: "fedramp" } })?.store)
+      .toMatchObject({ jurisdiction: "fedramp" })
+    expect(normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2" }, { env: { CLOUDFLARE_R2_JURISDICTION: " us " } })?.store)
+      .toMatchObject({ jurisdiction: "us" })
+    expect(normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2" }, { env: {} })?.store)
+      .not.toHaveProperty("jurisdiction")
+  })
+
+  it("rejects an unknown R2 jurisdiction", () => {
+    expect(() => normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "EU.evil" as "eu" }, { env: {} }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0014" }))
+    expect(() => normalizeBlobOptions({ bucketName: "assets", driver: "cloudflare-r2" }, { env: { R2_JURISDICTION: "mars" } }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0014" }))
+  })
+
   it("prefers Cloudflare hosting over Vercel env auto-resolution", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "secret-token" },
