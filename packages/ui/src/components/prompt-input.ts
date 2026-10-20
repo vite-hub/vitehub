@@ -153,7 +153,7 @@ export const PromptInput = defineComponent({
               type: "file",
             }),
             slots.actions?.() ??
-              props.attachments && h(UButton, {
+              (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
                 class: "rounded-full",
                 color: "neutral",
@@ -163,7 +163,7 @@ export const PromptInput = defineComponent({
                 square: true,
                 type: "button",
                 variant: "outline",
-              }),
+              })),
             slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
