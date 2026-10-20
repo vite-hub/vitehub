@@ -20358,6 +20358,39 @@ describe("server helpers", () => {
     )
   })
 
+  it("preserves an id-less commentary prefix when the first id arrives", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", final: { delivery: "new-message" }, loading: { text: "Loading…", updates: "commentary" } },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { delta: "Planning the ", phase: "commentary", type: "text-delta" }
+            yield { delta: "lookup.", id: "step-1", phase: "commentary", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: { "agent:finish": event => event.reply("Final customer reply") },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_115), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Planning the lookup." })
+  })
+
   it("throttles commentary queued during an in-flight loading edit", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
