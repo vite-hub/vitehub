@@ -67,6 +67,9 @@ async function setup() {
   }
 }
 
+/** The Agent finds the scope only through its prefix, so the queue waits one retry interval before its first drain. */
+const firstDrain = { timeout: 5_000 }
+
 const attemptId = (observation: { attributes?: Record<string, unknown> }) => observation.attributes?.["agent.invocation.id"]
 
 describe("queued webhook Invocation interrupted by a queue stop", () => {
@@ -82,7 +85,7 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce(), firstDrain)
     await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
 
     // SIGTERM: the queue aborts active work and reschedules the delivery.
@@ -110,7 +113,7 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
 
     await fixture.invocations.cancel(fixture.id)
     await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "cancelled" }))
@@ -127,12 +130,12 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
     await stopFirstProcess()
 
     await fixture.invocations.cancel(fixture.id)
     fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "cancelled" }))
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "cancelled" }), firstDrain)
     await vi.waitFor(async () => expect(await fixture.state.webhookDeliveries(scope)).toEqual([]))
     expect(fixture.run).toHaveBeenCalledOnce()
   })
@@ -142,7 +145,7 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
     await stopFirstProcess()
 
     // The next claim finds the delivery out of attempts, so the queue does not run it again.
@@ -163,7 +166,7 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({
       error: { message: expect.stringContaining("exhausted 3 execution leases") },
       status: "failed",
-    }))
+    }), firstDrain)
     await vi.waitFor(async () => expect(await state.webhookDeliveries(scope)).toEqual([]))
     expect(fixture.run).toHaveBeenCalledOnce()
   })

@@ -6,7 +6,6 @@ import {
   forgeEnv,
   forgeErrorStatus,
   forgeProvider,
-  ForgeResponseError,
   readForgeEnv,
 } from "@vite-hub/forge";
 import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
@@ -65,14 +64,6 @@ export interface GitHubWorkspaceStoreTarget {
 
 const githubReadAttempts = 3;
 
-/** Keeps exhausted transport failures distinct from Forge response decoding errors. */
-class GitHubNetworkError extends Error {
-  override name = "GitHubNetworkError"
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause), { cause })
-  }
-}
-
 function retryDelay(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
@@ -110,58 +101,14 @@ export async function requestGitHub(input: string | URL | Request, init: Request
       response = await fetch(input, init);
     }
     catch (error) {
-      if (init.signal?.aborted) throw error;
-      if (!retryable || attempt + 1 >= githubReadAttempts) throw new GitHubNetworkError(error);
+      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw error;
       await waitForRetry(100 * 2 ** attempt, init.signal);
       continue;
     }
-    if (!retryable || (response.status !== 429 && response.status < 500) || attempt + 1 >= githubReadAttempts) {
-      await validateGitHubResponse(input, response)
-      return response;
-    }
+    if (!retryable || (response.status !== 429 && response.status < 500) || attempt + 1 >= githubReadAttempts) return response;
     await response.body?.cancel().catch(() => undefined);
     await waitForRetry(retryDelay(response, attempt), init.signal);
   }
-}
-
-/** Validate the response shapes that the Forge GitHub mappers dereference. */
-async function validateGitHubResponse(input: string | URL | Request, response: Response): Promise<void> {
-  if (response.status < 200 || response.status >= 300) return
-  const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-  let url: URL
-  try {
-    url = new URL(rawUrl)
-  }
-  catch {
-    return
-  }
-  const kind = url.pathname.includes("/git/trees/") ? "tree" : url.pathname.includes("/commits/") ? "commit" : url.pathname.endsWith("/branches") ? "branch list" : undefined
-  if (!kind) return
-  let body: unknown
-  try {
-    body = await response.clone().json()
-  }
-  catch {
-    throw new ForgeResponseError(`GitHub returned a malformed ${kind} response.`)
-  }
-  const valid = kind === "commit"
-    ? isRecord(body) && typeof body.sha === "string" && isRecord(body.commit) && isRecord(body.commit.tree) && typeof body.commit.tree.sha === "string"
-    : kind === "tree"
-      ? isRecord(body) && Array.isArray(body.tree) && body.tree.every(isTreeEntry)
-      : Array.isArray(body) && body.every(isBranchEntry)
-  if (!valid) throw new ForgeResponseError(`GitHub returned a malformed ${kind} response.`)
-}
-
-function isTreeEntry(value: unknown): boolean {
-  return isRecord(value) && typeof value.path === "string" && typeof value.type === "string" && typeof value.sha === "string"
-}
-
-function isBranchEntry(value: unknown): boolean {
-  return isRecord(value) && typeof value.name === "string" && isRecord(value.commit) && typeof value.commit.sha === "string"
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
 }
 
 /** A lazy connection: the repository name is checked on the first request. */
@@ -182,12 +129,12 @@ export function connectGitHubRepository(repository: string, token: string): GitH
 
 /**
  * Run one Forge call. A failed request becomes a Workspace error that keeps the Forge error as its cause.
- * With `response`, a Forge response mapping error becomes a malformed `response` error.
+ * With `response`, a `TypeError` from the Forge response mapping becomes a malformed `response` error.
  */
 export async function githubRequest<T>(
   repository: GitHubRepository,
   run: (provider: GitHubProvider, repo: GitHubRepoRef) => Promise<T>,
-  responseKind?: string,
+  response?: string,
 ): Promise<T> {
   const provider = await repository.provider();
   try {
@@ -195,19 +142,12 @@ export async function githubRequest<T>(
   }
   catch (error) {
     const status = forgeErrorStatus(error);
-    // Only the Forge response marker denotes a successful response that could
-    // not be decoded. Other errors (including request validation and abort
-    // failures) must retain their original request/transport classification.
-    if (status === undefined && responseKind && isForgeResponseError(error)) {
-      throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${responseKind} response.`, { cause: error });
+    if (status === undefined && response && error instanceof TypeError) {
+      throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
     }
     if (status === undefined) throw error;
     throw workspaceError(`[vitehub] GitHub workspace request failed for ${repository.name}: ${status} ${error instanceof Error ? error.message : ""}`.trim(), { cause: error });
   }
-}
-
-function isForgeResponseError(error: unknown): boolean {
-  return error instanceof ForgeResponseError;
 }
 
 /** The HTTP status of the GitHub request behind a Workspace error. */
@@ -412,7 +352,7 @@ export async function readGitHubTree(
 
 function isMissingRef(error: unknown): boolean {
   const status = githubRequestStatus(error);
-  return status === 404;
+  return status === 404 || status === 422;
 }
 
 /** The head of `branch`, or of the default branch when `branch` does not exist yet, and the files under `root`. */
@@ -422,7 +362,7 @@ export async function readGitHubBranchState(input: {
   root: string;
 }): Promise<GitHubBranchState> {
   const resolve = async (branch: string) => {
-    const sha = await githubRequest(input.repository, async (provider, repo) => await provider.contents.resolveRef(repo, branch), "commit");
+    const sha = await githubRequest(input.repository, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit");
     if (!sha) throw workspaceError("[vitehub] GitHub workspace returned a malformed commit response.");
     return sha;
   };

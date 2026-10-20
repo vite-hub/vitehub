@@ -322,6 +322,8 @@ MCP and Title provide custom views. Other official Capabilities use the default 
 
 ### Transform MCP tools
 
+`context.tools.transform()` changes the tools that the Driver gets in every Agent run, including Capability CLI tools. `vitehub agent dev --cli` runs a Capability CLI command directly and does not apply transforms.
+
 Each transform receives a copy of each tool definition that preserves its prototype, property flags, and accessor behavior. Accessors and executors use bound functions to retain their contributed instance as receiver, including when they use private fields. Their function identities can change. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
 
 Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:

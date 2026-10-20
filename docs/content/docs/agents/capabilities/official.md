@@ -19,11 +19,11 @@ import {
   chat,
   channelDelivery,
   chatSummary,
-  codeHost,
   title,
   db,
   email,
   fetch,
+  forge,
   git,
   gmail,
   inputCommands,
@@ -91,7 +91,7 @@ import {
 | Fetch tools | [`fetch()`](/docs/agents/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
 | OpenAPI tools | [`openapi()`](/docs/agents/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/agents/capabilities/transcribe) | Turn audio input into text before model execution. |
-| Code Host | [`codeHost()`](/docs/agents/capabilities/code-host) | Read and change repositories on GitHub, GitLab and Forgejo. |
+| Forge | [`forge()`](/docs/agents/capabilities/forge) | Read and change repositories on GitHub, GitLab and Forgejo. |
 | Gmail | [`gmail()`](/docs/agents/capabilities/gmail) | Search and read Gmail or create unsent drafts through a Google Connection. |
 
 ### Decisions and output
