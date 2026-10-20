@@ -1,8 +1,11 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { describeDatabaseContribution } from "../contributions.ts"
-import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
+import { readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { DatabaseContribution } from "../contributions.ts"
+import type { CollectedDatabaseContribution } from "../contributions.ts"
+import type { DiscoveredDatabaseDefinition } from "../types.ts"
 
 export interface DatabaseTableNameOptions {
   /** Import aliases the host applies to the Database Definition, such as Vite `resolve.alias`. */
@@ -36,6 +39,9 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "schema key", name: key, second: part.owner })
       keys.set(key, part.owner)
     }
+    // A schema may export one table under multiple keys. Those aliases are
+    // a single source and must not conflict with themselves; only compare
+    // names across distinct schema parts.
     for (const sqlName of new Set(part.schema.sqlNames.values())) {
       const existing = sqlNames.get(sqlName)
       if (existing) throw databaseErrorDiagnostics.DATABASE_DUPLICATE_TABLE({ database, first: existing, kind: "table", name: sqlName, second: part.owner })
@@ -45,7 +51,7 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return isPlainObject(value)
 }
 
 function errorMessage(error: unknown) {
@@ -97,33 +103,31 @@ async function createLoader(parent: string, alias: Record<string, string> | unde
  * namespace schemas list every table.
  */
 export async function loadDatabaseSchema(handler: string, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
-  let failure: Error
+  let failure: { code: "DATABASE_SCHEMA_LOAD_FAILED" | "DATABASE_INVALID_SCHEMA_EXPORT", error?: unknown, message: string }
   try {
     const module = await (await createLoader(import.meta.url, options.alias)).import<{ default?: unknown }>(handler)
     const schema = isRecord(module.default) ? module.default.schema : undefined
     if (isRecord(schema)) return await describeSchema(schema)
-    failure = databaseErrorDiagnostics.DATABASE_INVALID_SCHEMA_EXPORT({ handler })
+    failure = { code: "DATABASE_INVALID_SCHEMA_EXPORT", message: `[vitehub] Database Definition "${handler}" must default export \`defineDatabase({ schema })\` with a schema object.` }
   }
   catch (error) {
-    failure = databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `The Database Definition "${handler}"` })
+    failure = { code: "DATABASE_SCHEMA_LOAD_FAILED", error, message: `[vitehub] Database Definition "${handler}" could not load to list its tables: ${errorMessage(error)}` }
   }
 
-  if (!options.onFallback) throw failure
-  options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
+  if (!options.onFallback) throw failure.code === "DATABASE_SCHEMA_LOAD_FAILED"
+    ? databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ problem: errorMessage(failure.error), source: handler })
+    : databaseErrorDiagnostics.DATABASE_INVALID_SCHEMA_EXPORT({ handler })
+  options.onFallback(`${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
 }
 
 /**
- * Loads every schema source of a Database Definition. The implicit default Database has an empty schema, so it
- * loads no module. Its module imports the Database runtime and Drizzle, which config resolution must not load.
+ * Loads every schema source of a Database Definition and merges them as the runtime does: a later source, such as the
+ * application over a Nuxt layer, wins a key.
  */
-export function loadDefinitionSchemas(
-  definition: Pick<DiscoveredDatabaseDefinition, "schemaSources" | "source">,
-  options: DatabaseTableNameOptions = {},
-): Promise<LoadedDatabaseSchema[]> {
-  if (isImplicitDefaultDatabase(definition)) return Promise.resolve([{ keys: [], loaded: true, sqlNames: new Map(), tableNames: [] }])
-  return Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
+export async function loadDefinitionSchema(definition: Pick<DiscoveredDatabaseDefinition, "schemaSources">, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
+  return mergeLoadedSchemas(await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))))
 }
 
 /** Merges schema sources in order. A later source wins a key. */
@@ -149,30 +153,30 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
 
 /**
  * Loads the tables of a contribution. `parent` is the file that imports the contribution, so package specifiers
- * resolve from the application. A missing or non-object export fails with `DATABASE_INVALID_CONTRIBUTION`. A module
- * that cannot load fails with `DATABASE_SCHEMA_LOAD_FAILED`, unless `onFallback` accepts it; its tables are then known only at runtime.
+ * resolve from the application. A missing or non-object export fails with `DATABASE_B0012`. A module that cannot
+ * load fails with `DATABASE_B0007`, unless `onFallback` accepts it; its tables are then known only at runtime.
  */
 export async function loadContributedDatabaseSchema(
-  contribution: DatabaseContribution & { contributor?: string },
+  contribution: CollectedDatabaseContribution,
   parent: string,
   options: DatabaseTableNameOptions = {},
 ): Promise<LoadedDatabaseSchema> {
   const source = describeDatabaseContribution(contribution)
   let module: Record<string, unknown>
   try {
-    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.module)
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
   }
   catch (error) {
-    const failure = databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source: `Contributed Database tables ${source}` })
-    if (!options.onFallback) throw failure
-    options.onFallback(`[vitehub] ${failure.message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
+    const message = `[vitehub] Contributed Database tables ${source} could not load: ${errorMessage(error)}`
+    if (!options.onFallback) throw databaseErrorDiagnostics.DATABASE_SCHEMA_LOAD_FAILED({ cause: error, problem: errorMessage(error), source })
+    options.onFallback(`${message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
-  const exportName = contribution.export ?? "default"
+  const exportName = contribution.definition.export
   const schema = module[exportName]
   const { isTableOrView } = await loadDrizzleSchemaTools()
   if (!isRecord(schema) || Array.isArray(schema) || isTableOrView(schema)) {
-    throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `Contributed Database tables ${source} need ${exportName === "default" ? "a default export" : `the export ${JSON.stringify(exportName)}`} that holds an object of Drizzle tables.` })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Contributed Database tables ${source} need ${exportName === "default" ? "a default export" : `the export ${JSON.stringify(exportName)}`} that holds an object of Drizzle tables.` })
   }
   return await describeSchema(schema)
 }

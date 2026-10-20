@@ -87,7 +87,7 @@ const filesSdkMock = vi.hoisted(() => {
         lastModified: "2026-01-01T00:00:00.000Z",
         metadata: {},
         size: 5,
-        type: "text/plain",
+        contentType: "text/plain",
       },
     ],
   }
@@ -133,7 +133,7 @@ vi.mock("files-sdk", () => ({
         key: result.pathname,
         lastModified: result.uploadedAt,
         size: result.size,
-        type: "text/plain",
+        contentType: "text/plain",
       }
     }
 
@@ -147,7 +147,7 @@ vi.mock("files-sdk", () => ({
             key: blob.pathname,
             lastModified: blob.uploadedAt,
             size: blob.size,
-            type: blob.contentType,
+            contentType: blob.contentType,
           })),
         }
       }
@@ -210,7 +210,7 @@ afterEach(() => {
         lastModified: "2026-01-01T00:00:00.000Z",
         metadata: {},
         size: 5,
-        type: "text/plain",
+        contentType: "text/plain",
       },
     ],
   }))
@@ -840,7 +840,7 @@ describe("blob runtime", () => {
       lastModified: "2026-01-01T00:00:00.000Z",
       metadata: {},
       size: 3,
-      type: "text/plain",
+      contentType: "text/plain",
     }] })
     setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
 
@@ -855,7 +855,7 @@ describe("blob runtime", () => {
       lastModified: "2026-01-01T00:00:00.000Z",
       metadata: {},
       size: 5,
-      type: "text/plain",
+      contentType: "text/plain",
     }))
     const first = { cursor: "folders", items: items(["a/first.txt"]) }
     const folders = { cursor: "last", items: items(["a/nested/file.txt"]) }
@@ -905,7 +905,7 @@ describe("blob runtime", () => {
         lastModified: "2026-01-01T00:00:00.000Z",
         metadata: {},
         size: 5,
-        type: "text/plain",
+        contentType: "text/plain",
       }],
     }
     filesSdkMock.list.mockResolvedValueOnce(page).mockResolvedValueOnce(page)
@@ -918,7 +918,7 @@ describe("blob runtime", () => {
   })
 
   it("rejects folded files-sdk cycles across public pages", async () => {
-    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, contentType: "text/plain" }
     filesSdkMock.list
       .mockResolvedValueOnce({ cursor: "A", items: [item] })
       .mockResolvedValueOnce({ cursor: "B", items: [item] })
@@ -934,7 +934,7 @@ describe("blob runtime", () => {
   })
 
   it("preserves cursor history while resuming inside a provider page", async () => {
-    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, type: "text/plain" }
+    const item = { etag: "etag", key: "file.txt", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 5, contentType: "text/plain" }
     filesSdkMock.list
       .mockResolvedValueOnce({ cursor: "A", items: [item] })
       .mockResolvedValueOnce({ cursor: "B", items: [item, item] })
@@ -984,7 +984,7 @@ describe("blob runtime", () => {
         lastModified: "2026-01-01T00:00:00.000Z",
         metadata: {},
         size: 5,
-        type: "text/plain",
+        contentType: "text/plain",
       }],
     }
     filesSdkMock.list.mockResolvedValueOnce(page)
