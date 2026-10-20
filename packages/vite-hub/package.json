@@ -170,6 +170,8 @@
       "require": "./dist/ui/attachment.js",
       "default": "./dist/ui/attachment.js"
     },
+    "./ui/avatar-stack": "./dist/ui/avatar-stack.js",
+    "./ui/connection-status": "./dist/ui/connection-status.js",
     "./ui/bubble": {
       "types": "./dist/ui/bubble.d.ts",
       "import": "./dist/ui/bubble.js",
@@ -269,6 +271,7 @@
       "require": "./dist/ui/tool-list.js",
       "default": "./dist/ui/tool-list.js"
     },
+    "./ui/sync-status": "./dist/ui/sync-status.js",
     "./ui/trace": {
       "types": "./dist/ui/trace.d.ts",
       "import": "./dist/ui/trace.js",
@@ -307,7 +310,13 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./agent/process-host": "./dist/agent/process-host.js",
+    "./console/ui": "./dist/console/ui.js",
+    "./presets/babysitter": "./dist/presets/babysitter.js",
+    "./sandbox-task": "./dist/sandbox-task.js",
+    "./sandbox/ssh": "./dist/sandbox/ssh.js",
+    "./source/files": "./dist/source/files.js"
   },
   "vitehub": {
     "agent": {

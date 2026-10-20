@@ -670,6 +670,12 @@ Built-in Channels read credentials from Server Env under `env.server.<channel>`.
 
 Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
+`teams()` always builds its adapter. It reads `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` from `env.server.teams`, so `teams()` needs no credential options. Pass `adapter` options such as `userName` or `appType` to set other adapter values, or pass your own adapter or factory. Install `@chat-adapter/teams` in the application.
+
+```ts [server/agents/support.ts]
+teams({ adapter: { userName: 'Support' } })
+```
+
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:
@@ -723,7 +729,7 @@ Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Wor
 
 When the Chat SDK adapter supports native replies, a non-streaming reply answers the message that started the Invocation. Telegram is the built-in adapter with this support: the reply quotes the triggering message, so the user can see which photo or question it answers. Inline delivery, finish hook replies, and durable Workflow delivery use the same rule. Replies that the adapter streams while the Agent writes them, retries after a host restart, and adapters without native replies post a new message in the thread. Thread history and delivery custody record the reply like any other posted message.
 
-For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message; each new commentary segment, such as the next reasoning summary, replaces the previous one, so the message shows the current step. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
 
 ```ts
 messages: {

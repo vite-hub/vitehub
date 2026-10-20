@@ -42,9 +42,7 @@ export const CodeBlockCopyButton = defineComponent({
           clearTimeout(timeout);
           timeout = setTimeout(() => (copied.value = false), 2_000);
         }).catch(() => {});
-      } catch {
-        return;
-      }
+      } catch { return; }
     };
     return () => [
       h(UButton, {
@@ -88,9 +86,7 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  if (node.type === Text) return String(node.children ?? "") === "";
-  if (Array.isArray(node.children)) return (node.children as VNode[]).every(isEmptyText);
-  return node.children === undefined || node.children === null || node.children === "";
+  return (node.type === Text && String(node.children ?? "") === "") || (typeof node.type === "string" && String(node.children ?? "") === "");
 }
 
 function textOf(nodes: VNode[]): string | undefined {

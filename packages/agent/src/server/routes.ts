@@ -133,6 +133,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentDefinition,
   PublishedAgentDeliveryArtifact,
   AgentInput,
@@ -2218,6 +2219,7 @@ function createManualDeliveryProgressUpdater(
 } {
   let latest: string | undefined
   let commentary = ""
+  let commentaryId: unknown
   let active = true
   let draining: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -2226,6 +2228,11 @@ function createManualDeliveryProgressUpdater(
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
       if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || !isRuntimeString(event.text)) return
+      // Show the current step, not the whole run: a new commentary segment replaces the previous one.
+      if (event.id !== undefined) {
+        if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
+        commentaryId = event.id
+      }
       commentary += event.text
       return commentary.trim() || undefined
     }
@@ -5608,6 +5615,50 @@ interface InlineChatTurn {
   threadId: string
 }
 
+const chatWrapUpBeforeMs = 120_000
+const chatWrapUpMinimumTimeoutMs = 300_000
+
+/** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
+interface ChatWrapUpTimer {
+  cancel: () => void
+}
+
+function scheduleChatWrapUp(
+  runId: string | undefined,
+  timeout: number | undefined,
+  option: false | AgentChatWrapUpOptions | undefined,
+): ChatWrapUpTimer | undefined {
+  if (!runId || timeout === undefined || option === false) return
+  if (!option && timeout < chatWrapUpMinimumTimeoutMs) return
+  const beforeMs = isRuntimeNumber(option?.beforeMs) ? option.beforeMs : chatWrapUpBeforeMs
+  if (!(beforeMs > 0) || beforeMs >= timeout) return
+  const minutes = Math.max(1, Math.round(beforeMs / 60_000))
+  const prompt = isRuntimeString(option?.prompt)
+    ? option.prompt
+    : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancelled = false
+  const deadline = Date.now() + timeout
+  const steer = async (): Promise<void> => {
+    if (cancelled) return
+    // Driver setup can register its input handler just after this timer fires.
+    // Retry that transient state, while leaving unsupported Drivers alone.
+    const outcome = await sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => "unavailable" as const)
+    if (!cancelled && outcome === "unavailable" && Date.now() < deadline) {
+      timer = setTimeout(() => void steer(), Math.min(50, Math.max(1, deadline - Date.now())))
+      timer.unref?.()
+    }
+  }
+  timer = setTimeout(() => void steer(), timeout - beforeMs)
+  timer.unref?.()
+  return {
+    cancel() {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    },
+  }
+}
+
 const inlineChatTurns = new Map<string, InlineChatTurn>()
 
 async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
@@ -6060,6 +6111,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
+  let wrapUpTimer: ChatWrapUpTimer | undefined
   let inlineOwnershipAbort: AbortController | undefined
   let inlineRestartEntry: InlineChatInvocation | undefined
   const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
@@ -6904,6 +6956,11 @@ async function handleChatSdkMessage(
       ),
       chatFinish,
     )
+    wrapUpTimer = scheduleChatWrapUp(
+      run?.runId,
+      invocationInput.timeout,
+      options?.wrapUp,
+    )
     if (!streamsPhasedReplies) {
       // Manual delivery disables Chat SDK reply streaming, but still consumes
       // normalized Agent events so transient Capability output can update the
@@ -7056,6 +7113,7 @@ async function handleChatSdkMessage(
     await postChatErrorFallback(inlineRestartEntry?.interrupted ? hostRestartedError("pending") : error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline, await invocationReference)
     throw error
   } finally {
+    wrapUpTimer?.cancel()
     try {
       // An interrupted invocation keeps its restart record for the next process.
       if (inlineRestartEntry && !inlineRestartEntry.interrupted) await inlineRestartEntry.forget()
