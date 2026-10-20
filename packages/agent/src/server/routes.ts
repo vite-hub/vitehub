@@ -715,7 +715,9 @@ function normalizeWebhookPath(path: string): string {
 }
 
 function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
-  return isRuntimeString(registration.path) && normalizeWebhookPath(new URL(request.url).pathname) === normalizeWebhookPath(registration.path)
+  const pathname = normalizeWebhookPath(new URL(request.url).pathname)
+  const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
+  return paths.some(path => isRuntimeString(path) && pathname === normalizeWebhookPath(path))
 }
 
 async function findAgentWebhookRegistration(

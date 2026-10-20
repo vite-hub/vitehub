@@ -22,6 +22,8 @@ export interface ConnectionsHandlerOptions {
   actor: ConnectionsAccessPolicy;
   basePath?: string;
   runtime?: () => ConnectionsRuntime;
+  /** Agent name used to select a function-form `vitehub({ publicUrl })` origin. */
+  agentName?: string;
 }
 
 function normalizeConnectionsBasePath(value: string | undefined): string {
@@ -60,7 +62,7 @@ export function createConnectionsHandler(
   return async (request, event) => {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
-      const check = await checkConnectionsAccess(options.actor, request, event, runtime);
+      const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
       if (check.rejection) return check.rejection;
       const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
       if (!route)
