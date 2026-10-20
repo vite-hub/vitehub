@@ -5603,11 +5603,15 @@ const chatWrapUpBeforeMs = 120_000
 const chatWrapUpMinimumTimeoutMs = 300_000
 
 /** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
+interface ChatWrapUpTimer {
+  cancel: () => void
+}
+
 function scheduleChatWrapUp(
   runId: string | undefined,
   timeout: number | undefined,
   option: false | AgentChatWrapUpOptions | undefined,
-): ReturnType<typeof setTimeout> | undefined {
+): ChatWrapUpTimer | undefined {
   if (!runId || timeout === undefined || option === false) return
   if (!option && timeout < chatWrapUpMinimumTimeoutMs) return
   const beforeMs = isRuntimeNumber(option?.beforeMs) ? option.beforeMs : chatWrapUpBeforeMs
@@ -5616,12 +5620,27 @@ function scheduleChatWrapUp(
   const prompt = isRuntimeString(option?.prompt)
     ? option.prompt
     : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
-  const timer = setTimeout(() => {
-    // A Driver that cannot take input mid-turn answers "unsupported"; the timeout still applies.
-    void sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => undefined)
-  }, timeout - beforeMs)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancelled = false
+  const deadline = Date.now() + timeout
+  const steer = async (): Promise<void> => {
+    if (cancelled) return
+    // Driver setup can register its input handler just after this timer fires.
+    // Retry that transient state, while leaving unsupported Drivers alone.
+    const outcome = await sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => "unavailable" as const)
+    if (!cancelled && outcome === "unavailable" && Date.now() < deadline) {
+      timer = setTimeout(() => void steer(), Math.min(50, Math.max(1, deadline - Date.now())))
+      timer.unref?.()
+    }
+  }
+  timer = setTimeout(() => void steer(), timeout - beforeMs)
   timer.unref?.()
-  return timer
+  return {
+    cancel() {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    },
+  }
 }
 
 const inlineChatTurns = new Map<string, InlineChatTurn>()
@@ -6076,7 +6095,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
-  let wrapUpTimer: ReturnType<typeof setTimeout> | undefined
+  let wrapUpTimer: ChatWrapUpTimer | undefined
   let inlineOwnershipAbort: AbortController | undefined
   let inlineRestartEntry: InlineChatInvocation | undefined
   const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
@@ -6923,7 +6942,7 @@ async function handleChatSdkMessage(
     )
     wrapUpTimer = scheduleChatWrapUp(
       run?.runId,
-      maximumInvocationDeadline === undefined ? undefined : invocationInput.timeout,
+      invocationInput.timeout,
       options?.wrapUp,
     )
     if (!streamsPhasedReplies) {
@@ -7078,7 +7097,7 @@ async function handleChatSdkMessage(
     await postChatErrorFallback(inlineRestartEntry?.interrupted ? hostRestartedError("pending") : error, thread, message, options, input, run, toolResults, manualDeliveryState, maximumInvocationDeadline, await invocationReference)
     throw error
   } finally {
-    if (wrapUpTimer) clearTimeout(wrapUpTimer)
+    wrapUpTimer?.cancel()
     try {
       // An interrupted invocation keeps its restart record for the next process.
       if (inlineRestartEntry && !inlineRestartEntry.interrupted) await inlineRestartEntry.forget()
