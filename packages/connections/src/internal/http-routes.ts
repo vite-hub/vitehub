@@ -1,5 +1,6 @@
 import * as v from "valibot";
 
+import { resolvePublicUrl } from "@vite-hub/runtime";
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
 import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
@@ -84,25 +85,27 @@ export function errorResponse(error: unknown): Response {
 }
 
 /**
- * The same-origin check of the action route. `url` is the request URL that the server sees. Behind a
- * TLS-terminating proxy that the server does not trust, it can be `http:` while the browser sends an `https:` Origin.
+ * The same-origin check of the action route. It accepts the public origin from `vitehub({ publicUrl })`
+ * and the origin of the request URL that the server sees. Behind a TLS-terminating proxy without a public
+ * URL, the server can see `http:` while the browser sends an `https:` Origin.
  */
-function originRejection(request: Request, url: URL): Response | undefined {
+function originRejection(request: Request): Response | undefined {
+  const expected = resolvePublicUrl({ request });
   const origin = request.headers.get("origin");
-  if (origin && origin !== url.origin) {
+  if (origin && origin !== expected && origin !== new URL(request.url).origin) {
     const received = origin.slice(0, 256);
     return json({
       error: managementErrorBody(
         "CONNECTIONS_ORIGIN_REJECTED",
-        `The request Origin ${received} does not match the server origin ${url.origin}.`,
+        `The request Origin ${received} does not match the server origin ${expected}.`,
         undefined,
-        { expectedOrigin: url.origin, receivedOrigin: received },
+        { expectedOrigin: expected, receivedOrigin: received },
       ),
     }, 403);
   }
   if (request.headers.get("sec-fetch-site") === "cross-site") {
     return json({
-      error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: url.origin }),
+      error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: expected }),
     }, 403);
   }
   return undefined;
@@ -164,12 +167,14 @@ const connect: ConnectionsRoute = {
     }
     const connection = v.safeParse(name, connectionName);
     if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
+    // The provider redirects the browser, so the callback uses the public origin, not the one behind a proxy.
+    const publicOrigin = resolvePublicUrl({ request });
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
-      redirectUri: `${url.origin}${base}/callback`,
+      redirectUri: `${publicOrigin}${base}/callback`,
     });
-    const secure = url.protocol === "https:" ? "; Secure" : "";
+    const secure = publicOrigin.startsWith("https:") ? "; Secure" : "";
     const headers = new Headers({ "cache-control": "no-store", location: authorization.url });
     headers.append("set-cookie", `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
     // The callback page returns to the Console page that started the flow.
@@ -254,7 +259,7 @@ const action: ConnectionsRoute = {
         403,
       );
     }
-    const rejected = originRejection(request, new URL(request.url));
+    const rejected = originRejection(request);
     if (rejected) return rejected;
     const parsed = v.safeParse(actionSchema, await readBody(request));
     if (!parsed.success)
