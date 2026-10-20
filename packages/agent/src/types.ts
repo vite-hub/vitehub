@@ -2521,6 +2521,12 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }
   /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
   allowBots?: boolean
+  /**
+   * Give the Agent a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply
+   * and the loading message is removed. Errors and messages that the Agent sent explicitly are still delivered.
+   * Requires `loading` without `delivery: "manual"`.
+   */
+  allowSilentReply?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {

@@ -653,6 +653,18 @@ messages: {
 }
 ```
 
+In group chats and channel threads, some messages do not need an answer. Set `messages.allowSilentReply: true` to give the Agent a `skip_reply` tool. When the Agent calls it with a short reason, the Invocation finishes without the final reply and ViteHub removes the loading message. Errors still post the error reply, and messages that the Agent already sent are not removed. The option requires `messages.loading` and cannot be combined with `delivery: 'manual'`, because only a held-back final reply can be skipped.
+
+```ts
+messages: {
+  allowSilentReply: true,
+  final: { delivery: 'placeholder' },
+  loading: { text: 'Thinking…' },
+}
+```
+
+The Invocation records the skip as a final reply delivery effect with `channel.effect.skipped: "skip_reply: <reason>"`, so `vitehub agent invocations export` lists it under `deliveries`.
+
 ## Inspect delivery custody
 
 Every built-in and custom Agent Channel records a delivery timeline before the Agent starts. The record keeps the provider event id separate from ViteHub's delivery id, then appends admission, invocation, retry, outbound, completion, and failure events. Discord Gateway and Telegram polling listeners also emit structured lifecycle events, so a listener gap can be distinguished from an event that reached ViteHub.

@@ -1,4 +1,5 @@
-import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { defineInternalTool } from "./capabilities/internal.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
@@ -7,6 +8,7 @@ import { chatFinalReplyIntent, chatFinalReplyMode, chatFinalReplyNotices, setCha
 import { formatChannelCitationText } from "./internal/channel-citations.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
+import { traceAgentChannelDeliveryEffect } from "./trace.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -236,8 +238,13 @@ function durableChatErrorFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   return effect
 }
 
+// Invocations whose Agent called skip_reply, with the reason it gave.
+const silentReplies = new WeakMap<AgentInvocationContextStore, string>()
+const skipReplyToolName = "skip_reply"
+
 function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
   const effect = defineFinishEffect<TRuntimeConfig>((context) => {
+    if (silentReplies.has(context.context)) return
     const text = context.text?.trim()
     const mode = chatFinalReplyMode(context.input)
     const notices = chatFinalReplyNotices(context.input)
@@ -487,6 +494,9 @@ export function assertChatDeliveryOptions(options: AgentChatOptions): void {
   if (options.loading?.intervalMs !== undefined && (!Number.isFinite(options.loading.intervalMs) || options.loading.intervalMs <= 0)) {
     throw agentDiagnostics.AGENT_R0380({ message: "[vitehub] messages.loading.intervalMs must be a positive finite number." })
   }
+  if (options.allowSilentReply === true && (options.loading === undefined || options.delivery === "manual")) {
+    throw agentDiagnostics.AGENT_R1007({ message: '[vitehub] messages.allowSilentReply requires messages.loading without delivery: "manual", because a streamed or manual reply is not held back for the final reply.' })
+  }
   if (options.final?.delivery !== undefined && options.final.delivery !== "new-message" && options.final.delivery !== "placeholder") {
     throw agentDiagnostics.AGENT_R0381({ message: '[vitehub] messages.final.delivery must be "new-message" or "placeholder".' })
   }
@@ -528,6 +538,36 @@ export function defineChatCapability<
     } satisfies ChatCapabilityMetadata<ChatRuntimeConfigOf<TOptions>>,
     prepare(context) {
       context.state.require("chat-history", { optional: true })
+    },
+    resolve(context) {
+      // Only an Invocation whose final reply ViteHub still has to post can finish silently.
+      if (options.allowSilentReply !== true || chatFinalReplyMode(context.input.get()) !== "pending") return
+      context.tools.add({
+        [skipReplyToolName]: defineInternalTool({
+          description: "Finish without posting a reply. Call it as your last action, only when the message needs no answer and no action remains, and give a short reason. Errors and messages that you already sent are still delivered.",
+          inputSchema: { additionalProperties: false, properties: { reason: { type: "string" } }, required: ["reason"], type: "object" },
+          name: skipReplyToolName,
+          async execute(input) {
+            const reason = isRuntimeRecord(input) && hasRuntimeType(input.reason, "string") ? input.reason.trim() : ""
+            if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
+            silentReplies.set(context.context, reason)
+            const runtimeContext = context.runtimeContext
+            if (runtimeContext) {
+              await traceAgentChannelDeliveryEffect({
+                context: context.context,
+                input: context.input.get(),
+                invoker: context.invoker,
+                run: runtimeContext.run,
+                runtime: runtimeContext,
+              }, { intent: chatFinalReplyIntent, kind: "reply" }, {
+                ...(runtimeContext.run?.channelId ? { "channel.effect.channel": runtimeContext.run.channelId } : {}),
+                "channel.effect.skipped": `${skipReplyToolName}: ${reason}`,
+              })
+            }
+            return { reason, skipped: true }
+          },
+        }),
+      })
     },
     output(context) {
       context.finish.provide(() => context.context.get(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
