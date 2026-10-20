@@ -17,6 +17,7 @@ catalog:
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
+linkWorkspacePackages: true
 
 catalogs:
   ai:
