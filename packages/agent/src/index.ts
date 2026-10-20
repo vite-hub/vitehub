@@ -45,7 +45,7 @@ import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAge
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
@@ -552,6 +552,7 @@ export type {
   AgentToolStep,
   AgentWaitUntil,
   AgentProviderCredentialContext,
+  AgentProviderReadinessCheck,
   AgentProviderStatus,
   AgentProviderUsageLimits,
   AgentProviderCredentialResolver,
@@ -3526,7 +3527,8 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  executionBudget: ReturnType<typeof createExecutionBudget>
+  executionBudget?: ReturnType<typeof createExecutionBudget>
+  executionBudgetActive: boolean
   activity?: ActiveAgentActivity
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
@@ -4481,11 +4483,13 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
-  executionBudget: ReturnType<typeof createExecutionBudget> = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  }),
+  executionBudget: ReturnType<typeof createExecutionBudget> | undefined = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const replayHasContext = hasUnreplayableAgentInputContext(input.context)
@@ -4908,7 +4912,8 @@ async function createAgentInvocationContext<
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const configuredWorkspace = workspaceOptions?.workspace
-    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
+    const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object")
+      && !(Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string"))
       ? configuredWorkspace.commit
       : undefined
     const workspaceInstructions = workspaceOptions && activeWorkspace
@@ -4998,6 +5003,7 @@ async function createAgentInvocationContext<
       close: capabilities.close,
       context: invocationContext,
       executionBudget,
+      executionBudgetActive: executionBudget !== undefined,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       durableErrorFallbackTimeout: (() => {
         const options = getChatCapabilityOptions(definition?.capabilities || [])
@@ -5358,7 +5364,7 @@ function withEagerStreamUsageExtensions<
         const usageRecord = usageRecordFromStreamChunk(chunk, result)
         if (!usageRecord) {
           if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-            const fallbackUsage = await runExtensions(await resolveAgentUsageRecord(result, context.run))
+            const fallbackUsage = await runExtensions(await resolveAgentUsageRecordDuringStream(result, context.run))
             if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk
@@ -8505,19 +8511,25 @@ async function executeAgentInvocation<
     }
     markAgentInvocationCallerAbortSignal(input, callerAbortSignal)
   }
-  const executionBudget = createExecutionBudget({
-    ...(input.executionBudget || {}),
-    ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
-    signal: input.abortSignal,
-  })
+  const executionBudget = executionBudgetHasConstraints(input)
+    ? createExecutionBudget({
+        ...(input.executionBudget || {}),
+        ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
+        signal: input.abortSignal,
+      })
+    : undefined
   const callerAbortSignal = agentInvocationCallerAbortSignal(input)
-  const budgetedInput = {
+  const budgetInput = {
     ...input,
-    abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal,
+    abortSignal: executionBudget
+      ? input.abortSignal
+        ? AbortSignal.any([input.abortSignal, executionBudget.signal])
+        : executionBudget.signal
+      : input.abortSignal,
   }
-  transferParsedAgentWorkflowInput(input, budgetedInput)
-  markAgentInvocationCallerAbortSignal(budgetedInput, callerAbortSignal)
-  input = budgetedInput
+  markAgentInvocationCallerAbortSignal(budgetInput, callerAbortSignal)
+  transferParsedAgentWorkflowInput(input, budgetInput)
+  input = budgetInput
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {

@@ -6,6 +6,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 import type { ExecutionBudget } from "@vite-hub/runtime"
+import { executionBudgetCharged, executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -294,7 +295,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
-          abortSignal: execOptions.signal,
+          ...(execOptions.signal ? { abortSignal: execOptions.signal } : undefined),
           timeout: execOptions.timeout,
         })
         execOptions.onStdout?.(result.stdout)
@@ -667,7 +668,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   const result: Record<string, Tool<any, any>> = {}
 
   if (resolved.commands.length) {
-    result.shell = tool({
+    result.shell = Object.assign(tool({
       description: describeShellCommands(resolved.commands, {
         sourceRequests: resolved.commands.includes("curl"),
       }),
@@ -684,6 +685,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
       }),
       execute: async ({ command }, executionOptions) => {
         const abortSignal = executionOptions?.abortSignal
+        const executionBudget = (executionOptions as (typeof executionOptions & { [executionBudgetOverride]?: ExecutionBudget }) | undefined)?.[executionBudgetOverride] ?? resolved.budget
         if (typeof resolved.maxShellCalls === "number" && shellCalls >= resolved.maxShellCalls) {
           return {
             command,
@@ -695,9 +697,11 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
           } satisfies WorkspaceShellResult
         }
         shellCalls += 1
-        return await runShellCommand(input, command, { ...resolved, signal: abortSignal })
+        if (!(executionOptions as (typeof executionOptions & { [executionBudgetCharged]?: boolean }) | undefined)?.[executionBudgetCharged]) executionBudget?.recordToolCall()
+        return await runShellCommand(input, command, { ...resolved, budget: executionBudget, signal: abortSignal })
       },
-    })
+    }))
+    if (resolved.budget) markExecutionBudgetHandled(result.shell, resolved.budget)
   }
 
   if (resolved.materialize) {
@@ -727,11 +731,18 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         return await materializeWorkspaceSourcesTool(input, { path, sources })
       },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
+    if (resolved.budget) markExecutionBudgetHandled(result.materialize_sources, resolved.budget)
   }
 
   if (writeEnabled) {
     // SAFETY: writeEnabled is only set for a mutable Workspace with write operations.
-    Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
+    const writeTools = createWriteTools(input as Workspace, resolved.write, resolved.budget)
+    Object.assign(result, writeTools)
+    if (resolved.budget) {
+      for (const writeTool of Object.values(writeTools)) {
+        if (writeTool) markExecutionBudgetHandled(writeTool, resolved.budget)
+      }
+    }
   }
 
   // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.
