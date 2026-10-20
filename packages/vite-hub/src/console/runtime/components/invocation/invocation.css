@@ -36,11 +36,9 @@
   font-size: 0.6875rem;
   font-weight: 650;
   gap: 0.375rem;
-  letter-spacing: 0.04em;
   margin: 0;
   min-height: 1.75rem;
   padding: 0.25rem 0.75rem;
-  text-transform: uppercase;
   user-select: none;
 }
 
@@ -126,17 +124,16 @@
 }
 
 .vh-invocation-list__item:hover {
-  background: color-mix(in oklab, var(--vh-ui-text) 6%, transparent);
+  background: var(--ui-bg-elevated, color-mix(in oklab, var(--vh-ui-text) 6%, transparent));
 }
 
 .vh-invocation-list__item:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 52%, transparent);
-  outline-offset: -2px;
+  outline: 1px solid var(--ui-border-accented, var(--vh-ui-border));
+  outline-offset: -1px;
 }
 
 .vh-invocation-list__item[aria-current="true"] {
-  background: color-mix(in oklab, var(--vh-ui-text) 10%, transparent);
-  border-color: color-mix(in oklab, var(--ui-primary, var(--vh-ui-info)) 30%, var(--vh-ui-border));
+  background: var(--ui-bg-accented, color-mix(in oklab, var(--vh-ui-text) 10%, transparent));
 }
 
 .vh-invocation-list__context,
@@ -149,7 +146,7 @@
 }
 
 .vh-invocation-list__context {
-  color: var(--vh-ui-muted);
+  color: var(--ui-text-dimmed, var(--vh-ui-muted));
   gap: 0.375rem;
   min-height: 1.25rem;
 }
@@ -217,7 +214,7 @@
 }
 
 .vh-invocation-list__title {
-  color: color-mix(in oklab, var(--vh-ui-text) 92%, transparent);
+  color: var(--vh-ui-highlighted);
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.35;
@@ -998,8 +995,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-image-details > strong {
   color: var(--vh-ui-muted);
   font-size: 0.625rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .vh-invocation-image-details > code,
@@ -1291,8 +1286,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   color: var(--vh-ui-dimmed);
   font-size: 0.6875rem;
   font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .vh-invocation-event__payload > summary code {
@@ -2149,9 +2142,7 @@ a.vh-invocation-inspector__badge:hover {
   flex: 1;
   font-size: 0.6875rem;
   font-weight: 500;
-  letter-spacing: 0.04em;
   min-width: 0;
-  text-transform: uppercase;
 }
 
 .vh-invocation-inspector__group-heading small {
