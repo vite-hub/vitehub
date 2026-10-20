@@ -39,6 +39,10 @@
       "import": "./dist/attachment.js",
       "default": "./dist/attachment.js"
     },
+    "./avatar-stack": {
+      "types": "./dist/avatar-stack.d.ts",
+      "import": "./dist/avatar-stack.js"
+    },
     "./bubble": {
       "types": "./dist/bubble.d.ts",
       "import": "./dist/bubble.js",
@@ -67,6 +71,10 @@
     "./code-view": {
       "types": "./dist/code-view.d.ts",
       "import": "./dist/code-view.js"
+    },
+    "./connection-status": {
+      "types": "./dist/connection-status.d.ts",
+      "import": "./dist/connection-status.js"
     },
     "./file-diff": {
       "types": "./dist/file-diff.d.ts",
@@ -131,6 +139,10 @@
       "import": "./dist/prompt-input.js",
       "default": "./dist/prompt-input.js"
     },
+    "./sync-status": {
+      "types": "./dist/sync-status.d.ts",
+      "import": "./dist/sync-status.js"
+    },
     "./tool-list": {
       "types": "./dist/tool-list.d.ts",
       "import": "./dist/tool-list.js"
@@ -156,6 +168,11 @@
     },
     "./package.json": "./package.json",
     "./styles.css": "./dist/styles.css",
+    "./agent-chat": {
+      "types": "./dist/components/agent-chat.d.ts",
+      "import": "./dist/components/agent-chat.js",
+      "default": "./dist/components/agent-chat.js"
+    },
     "./agent-chat-message": {
       "types": "./dist/components/agent-chat-message.d.ts",
       "import": "./dist/components/agent-chat-message.js",
@@ -166,10 +183,20 @@
       "import": "./dist/components/agent-chat-prompt.js",
       "default": "./dist/components/agent-chat-prompt.js"
     },
+    "./agent-markdown": {
+      "types": "./dist/components/agent-markdown.d.ts",
+      "import": "./dist/components/agent-markdown.js",
+      "default": "./dist/components/agent-markdown.js"
+    },
     "./agent-message-parts": {
       "types": "./dist/components/agent-message-parts.d.ts",
       "import": "./dist/components/agent-message-parts.js",
       "default": "./dist/components/agent-message-parts.js"
+    },
+    "./agent-session": {
+      "types": "./dist/components/agent-session.d.ts",
+      "import": "./dist/components/agent-session.js",
+      "default": "./dist/components/agent-session.js"
     }
   },
   "scripts": {

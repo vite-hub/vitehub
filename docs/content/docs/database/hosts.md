@@ -69,6 +69,9 @@ A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) t
 
 1. When the Cloudflare Hyperdrive binding is present, ViteHub uses `env.<binding>.connectionString`.
 2. Otherwise it uses `connection.url`.
+3. Outside a Cloudflare request, when the URL is empty, postgres.js reads the PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
+
+Use the PG* variables on Node and container hosts that give discrete credentials instead of a URL. Workers ignore them, and Vercel output still needs `connection.url`.
 
 Cloudflare Workers cannot use a socket from one request in a different request. Inside a Cloudflare request, ViteHub creates one client for that request and reuses it for all queries in the request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, which keeps a request inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
 
@@ -93,7 +96,7 @@ export default defineDatabase({
 
 Create the Hyperdrive configuration for your Neon or other Postgres database with `wrangler hyperdrive create`. Set `cloudflare.hyperdriveId` to its id. Cloudflare output then contains a `hyperdrive` binding named `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database. A generated binding replaces a Nitro Wrangler binding with the same name. Without `cloudflare.hyperdriveId`, add the binding to your Wrangler config yourself, or the Worker connects directly with `connection.url`.
 
-`vitehub db generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition. It does not need a database connection. `vitehub db migrate` applies them with `connection.url`. Run migrations from a deployment workflow, not from the Worker.
+`vitehub db generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition. It does not need a database connection. `vitehub db migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Run migrations from a deployment workflow, not from the Worker.
 
 For `wrangler dev`, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>` to a local Postgres URL. See Cloudflare's [Hyperdrive local development guide](https://developers.cloudflare.com/hyperdrive/configuration/local-development/).
 
