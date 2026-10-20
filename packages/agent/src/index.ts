@@ -1,6 +1,7 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
+import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
@@ -75,7 +76,6 @@ import {
   teams as builtInTeams,
   telegram as builtInTelegram,
   webChat as builtInWebChat,
-  githubChannelIdentity,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -506,8 +506,6 @@ export type {
   AgentRunResult,
   AgentRuntime,
   AgentSandboxDefinition,
-  AgentGitHub,
-  AgentGitHubAccess,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -893,15 +891,6 @@ interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding
   discoveryDefault: true
 }
 
-// Every Invocation of an Agent with `github` gets its identity, whichever entry point starts it.
-// A caller that already supplies an identity keeps it.
-function withAgentGitHubIdentity<TContext extends AgentRuntimeContext>(
-  agent: Pick<AgentInput<AgentRuntimeContext>, "github">,
-  context: TContext,
-): TContext {
-  return agent.github && !context.githubIdentity ? { ...context, githubIdentity: agent.github } : context
-}
-
 /**
  * Names of the Agents that a registered Agent Definition extends, nearest first. Connection access rules
  * fall back to theirs. An inline Definition that is not discovered under `server/agents/` gets none.
@@ -921,7 +910,8 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: IdentityRuntimeContext<TRuntimeConfig>,
 ): IdentityRuntimeContext<TRuntimeConfig> {
-  context = withAgentGitHubIdentity(agent, context)
+  // Every Invocation of an Agent with a github() Channel App gets its forge access. A caller's forge access stays.
+  context = withForgeAccess(agent.channels, context)
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
@@ -2257,7 +2247,6 @@ function defineBaseAgent<
   const driver = normalizeAgentDriver(options)
   const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
-  const github = options.github ?? githubChannelIdentity(channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
   const capabilitiesResolver = hasRuntimeType(capabilities, "function")
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2345,7 +2334,6 @@ function defineBaseAgent<
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     sandbox,
     ...(options.budget ? { budget: options.budget } : {}),
-    ...(github ? { github } : {}),
     channels,
     chat,
     cli,
@@ -8466,8 +8454,8 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the GitHub identity here.
-  context = withAgentGitHubIdentity(agent, context)
+  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
+  context = withForgeAccess(agent.channels, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.

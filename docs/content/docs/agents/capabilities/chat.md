@@ -7,7 +7,7 @@ navigation.group: Capabilities
 icon: i-lucide-messages-square
 ---
 
-`chat()` adds chat behavior to an Agent Definition. It registers the `chat.message` Agent Trigger, requests optional Chat History state, and adds a chat finish extension and final reply delivery. It adds no model-facing tools.
+`chat()` adds chat behavior to an Agent Definition. It registers the `chat.message` Agent Trigger, requests optional Chat History state, and adds a chat finish extension and final reply delivery. It adds no model-facing tools unless you set `allowSilentReply`.
 
 The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to the CLI Dev Loop. [Channels](/docs/agents/channels) own route admission and delivery for message platforms.
 
@@ -47,7 +47,7 @@ During preparation, the Capability requests Chat History state as an optional re
 
 ## Security and approval
 
-`chat()` adds no model-facing tool and has no `policy` option.
+`chat()` has no `policy` option. Its only model-facing tool is `skip_reply`, which it adds when `allowSilentReply` is set.
 
 - Chat messages come from end users of the chat interface. Treat them as untrusted model input.
 - The final reply and the error fallback text go back to the chat interface.
@@ -100,6 +100,7 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `loading` | `{ text: string \| string[] \| null \| function; updates?: "commentary"; intervalMs?: number }` | none | Post a loading message and replace it with the final text when the Agent finishes. Cannot be combined with `stream` or `commentary`. `intervalMs` must be a positive number. |
 | `delivery` | `"automatic" \| "manual"` | `"automatic"` | `"manual"` posts no final text. Finish hooks own all replies with `event.reply()`. Cannot be combined with `stream` or `commentary`. |
 | `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message before removing the loading message. |
+| `allowSilentReply` | `boolean` | `false` | Add a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply and the loading message is removed. The trace records a skipped `chat.final-reply` delivery effect with the reason. Requires `loading` without `delivery: "manual"`. |
 | `timeout` | `number` | none | Positive time limit in milliseconds for inline execution and the durable handoff's typing indicator. |
 | `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`. Allows only `concurrency: "parallel"` or `"steer"`. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function receives `error`, `publicError`, `invocation`, and `defaultText`, the text ViteHub sends when this option is not set. `invocation` is `{ id, consoleUrl? }` when the error belongs to a run. |

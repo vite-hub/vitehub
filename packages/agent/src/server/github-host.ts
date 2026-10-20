@@ -9,7 +9,7 @@ import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
@@ -45,6 +45,10 @@ export interface GitHubHostOptions {
 }
 
 export interface GitHubHostAccess {
+  /**
+   * Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, and the commit identity. With a `repository`,
+   * it also has the Git credentials for that repository in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`.
+   */
   env: Record<string, string>
   token: string
 }
@@ -188,86 +192,6 @@ function owner(repository: string): string {
   return repository.split("/", 1)[0]!.toLowerCase()
 }
 
-function rateLimitMessage(error: unknown): boolean {
-  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
-  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
-  return /(?:rate limit[^\n]*exceeded|exceeded[^\n]*rate limit)/i.test(message)
-}
-
-function secondaryRateLimitMessage(error: unknown): boolean {
-  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
-  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
-  return /secondary rate limit/i.test(message)
-}
-
-function isGraphQLCommand(args: string[]): boolean {
-  if (args[0] !== "api") return false
-  const optionsWithValues = new Set([
-    "--cache", "--field", "--header", "--hostname", "--input", "--jq", "--method", "--preview", "--raw-field", "--template",
-    "-F", "-H", "-X", "-f", "-p", "-q", "-t",
-  ])
-  for (let index = 1; index < args.length; index += 1) {
-    const argument = args[index]!
-    if (optionsWithValues.has(argument)) {
-      index += 1
-      continue
-    }
-    if (argument.startsWith("-")) continue
-    return argument === "graphql"
-  }
-  return false
-}
-
-/** A failure that the same request can fix on retry: an HTML gateway page instead of JSON, an HTTP 5xx or a dropped connection. */
-function transientGitHubFailure(error: unknown): boolean {
-  if (rateLimitMessage(error)) return false
-  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
-  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
-  return /invalid character '<'|HTTP 5\d\d|\b50[234]\b|bad gateway|service unavailable|gateway time-?out|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|connection reset|TLS connection|i\/o timeout|unexpected EOF/i.test(message)
-}
-
-/** `gh api <path>` without a method, fields or input is a REST read, so a retry cannot repeat a write. */
-function isRestRead(args: string[]): boolean {
-  if (args[0] !== "api" || isGraphQLCommand(args)) return false
-  let method: string | undefined
-  let hasWriteArguments = false
-  let hasInput = false
-  for (let index = 1; index < args.length; index += 1) {
-    const argument = args[index]!
-    if (argument === "-X" || argument === "--method") {
-      method = args[++index]?.toUpperCase()
-      if (method !== "GET") return false
-      continue
-    }
-    if (/^(?:-X|--method)=/i.test(argument)) {
-      method = argument.slice(argument.indexOf("=") + 1).toUpperCase()
-      if (method !== "GET") return false
-      continue
-    }
-    if (/^(?:--input)(?:=|$)/.test(argument)) hasInput = true
-    if (/^(?:-f|-F|--field|--raw-field)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
-      hasWriteArguments = true
-    }
-  }
-  return method === "GET" ? !hasInput : !hasInput && !hasWriteArguments
-}
-
-const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
-
-async function retryTransient<T>(run: () => Promise<T>, signal: AbortSignal, retry: boolean): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await run()
-    }
-    catch (error) {
-      const delay = TRANSIENT_RETRY_DELAYS_MS[attempt]
-      if (!retry || delay === undefined || signal.aborted || !transientGitHubFailure(error)) throw error
-      await sleep(delay, undefined, { signal })
-    }
-  }
-}
-
-
 function abortError(reason?: unknown): Error {
   if (reason instanceof Error) return reason
   return new DOMException("The operation was aborted.", "AbortError")
@@ -397,17 +321,23 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       credentialKey = tokenKey(token)
     }
 
+    // Git sends the token only to the scoped repository. An empty helper stops Git from asking an ambient credential helper.
+    const header = input.repository
+      ? forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository: input.repository, token }))
+      : undefined
     const env: Record<string, string> = {
       GH_HOST: "github.com",
       GH_TOKEN: token,
       GITHUB_TOKEN: token,
-      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_COUNT: header ? "2" : "1",
       GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
-      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_VALUE_0: "",
-      GIT_CONFIG_VALUE_1: '!f() { if [ "$1" = get ]; then printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; fi; }; f',
       GIT_TERMINAL_PROMPT: "0",
+    }
+    if (header) {
+      env.GIT_CONFIG_KEY_1 = header.key
+      env.GIT_CONFIG_VALUE_1 = header.value
     }
     if (identity.login) {
       env.GIT_AUTHOR_NAME = identity.login
@@ -610,7 +540,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return identity.login?.trim() || undefined
     },
     channel(channelOptions = {}) {
-      return github({ ...channelOptions, app: host })
+      const login = host.identity()
+      return github({
+        ...channelOptions,
+        app: {
+          token: async (_context, scope) => (await access(scope)).token,
+          ...(login ? { identity: { login } } : {}),
+        },
+      })
     },
     async environment() {
       const current = checkoutScope.getStore()
