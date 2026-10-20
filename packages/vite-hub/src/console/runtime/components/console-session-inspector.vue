@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, AgentPatchDiff, invocationActivities, type AgentInvocationView } from "@vite-hub/ui";
+import { FileTree, PatchDiff } from "@vite-hub/ui";
+import { AgentCapabilityInspector, AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
@@ -480,12 +481,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so strings are validated at the host boundary.
   return typeof value === "string" ? value : undefined;
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so numbers are validated at the host boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -651,7 +650,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <AgentPatchDiff :patch="diff.patch" class="session-inspector__patch" />
+          <PatchDiff :patch="diff.patch" class="session-inspector__patch" />
         </section>
       </div>
     </div>
@@ -741,7 +740,7 @@ function message(error: unknown) {
             </div>
           </div>
           <aside v-if="treeOpen && workspace" ref="filesPanel" class="session-inspector__files">
-            <AgentFileTree
+            <FileTree
               class="session-inspector__tree"
               :paths="workspace.paths"
               :options="treeOptions"

@@ -30,6 +30,7 @@ export interface ConnectionsAccess {
   /** The manager that the policy accepted, as `user:<id>`. */
   readonly actor: string
   readonly request: Request
+  readonly agentName?: string
 }
 
 /** Result of the access check: the access of the request, or the rejection response. */
@@ -62,11 +63,12 @@ export async function checkConnectionsAccess(
   request: Request,
   event: unknown,
   runtime: () => ConnectionsRuntime,
+  agentName?: string,
 ): Promise<ConnectionsAccessCheck> {
   let actor: unknown
   if (policy === "development") {
     if (!v.is(developmentProcessSchema, globalThis.process)) {
-      return reject(500, "CONNECTION_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.")
+      return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires Auth outside local development. Configure an actor module or Console Auth.")
     }
     actor = "user:local"
   }
@@ -75,13 +77,13 @@ export async function checkConnectionsAccess(
     if (actor instanceof Response) return { rejection: actor }
   }
   else {
-    return reject(500, "CONNECTION_AUTH_REQUIRED", "createConnectionsHandler() requires an actor policy.")
+    return reject(500, "CONNECTIONS_AUTH_REQUIRED", "createConnectionsHandler() requires an actor policy.")
   }
   const manager = v.safeParse(managerSchema, actor)
   if (!manager.success) {
-    return reject(403, "CONNECTION_FORBIDDEN", "The management route found no signed-in manager for this request.")
+    return reject(403, "CONNECTIONS_FORBIDDEN", "The management route found no signed-in manager for this request.")
   }
-  const access: ConnectionsAccess = Object.freeze({ [connectionsAccessBrand]: true as const, actor: manager.output, request })
+  const access: ConnectionsAccess = Object.freeze({ [connectionsAccessBrand]: true as const, actor: manager.output, request, agentName })
   grants.set(access, runtime)
   return { access }
 }

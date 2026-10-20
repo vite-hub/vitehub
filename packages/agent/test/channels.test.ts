@@ -147,6 +147,7 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("2m 35s")
       expect(stored?.body).toContain("Review complete.")
       expect(stored?.body).toContain("| Started | Duration |")
+      expect(stored?.body).toContain("Latest result\n\nReview complete.")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await update(context("run-2", "running") as never)
 
@@ -159,7 +160,9 @@ describe("agent channels", () => {
       expect(stored?.body).toContain("https://console.test/invocations/run-2")
       expect(stored?.body).toContain("<summary>Final answers</summary>")
       expect(stored?.body).toContain("Review complete.")
-      expect(stored?.body.match(/Latest answer/g)).toHaveLength(1)
+      // The previous run's answer moves to "Final answers" instead of reading as the current result.
+      expect(stored?.body).not.toContain("Latest result")
+      expect(stored?.body).toContain("In progress\n\nThe agent is working. Open the current session for live details.")
       expect(stored?.body).toContain("<relative-time datetime=")
       expect(stored?.body).toContain("https://console.test/invocations/run-1")
       expect(stored?.body).toContain("[View session](<https://console.test/invocations/run-1>)")
@@ -436,7 +439,6 @@ describe("agent channels", () => {
   })
 
   it("serializes separate activity channels created from the same GitHub host", async () => {
-    const { github } = await import("../src/channels.ts")
     const { createGitHubHost } = await import("../src/server/github.ts")
     let release!: () => void, entered!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
@@ -456,8 +458,8 @@ describe("agent channels", () => {
         return Response.json({ id: 7 })
       } finally { activeWrites-- }
     })
-    const host = createGitHubHost({ cacheMs: 0, credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
-    const channels = [github({ activity: true, app: host }), github({ activity: true, app: host })]
+    const host = createGitHubHost({ credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
+    const channels = [host.channel({ activity: true }), host.channel({ activity: true })]
     const context = (channel: typeof channels[number], status: "waiting" | "running") => ({
       activity: { agentName: "shared-reviewer", links: [], runId: "shared-run", status, tasks: [], summary: "Shared status" },
       channel, memo: vi.fn(), run: { runId: "shared-run" }, runtime: "unknown", target: { repository: "acme/shared-host", issue: 42 }, waitUntil: vi.fn(),
@@ -471,6 +473,47 @@ describe("agent channels", () => {
     finally { release(); await Promise.all([first, second]); vi.unstubAllGlobals() }
     expect(maxActiveWrites).toBe(1)
     expect(storedBody).toContain("| Running |")
+  })
+
+  it.each([undefined, "A worker will resume this review."])("renders one queued status with linked history and summary %s", async summary => {
+    const { github } = await import("../src/channels.ts")
+    let storedBody = ""
+    const channel = github({ activity: true, app: {
+      token: "queued-history-token",
+      identity: { login: "queued-history-bot" },
+      fetch: async (_input, init) => {
+        if (!init?.method || init.method === "GET") {
+          return Response.json(storedBody ? [{ id: 7, body: storedBody, user: { login: "queued-history-bot" } }] : [])
+        }
+        const payload: unknown = JSON.parse(String(init.body))
+        if (!isRuntimeRecord(payload) || !hasRuntimeType(payload.body, "string")) throw new Error("Invalid comment body")
+        storedBody = payload.body
+        return Response.json({ id: 7 })
+      },
+    } })
+    const update = channel.activity?.update
+    if (!update) throw new Error("Missing activity updater")
+    const context = (queued: boolean) => ({
+      activity: {
+        agentName: "queued-reviewer",
+        links: queued ? [] : [{ label: "Session", url: "https://console.test/invocations/previous" }],
+        runId: queued ? "next-queued-run" : "previous-run",
+        status: queued ? "queued" : "completed",
+        summary: queued ? summary : "Previous review complete.",
+        tasks: [],
+      },
+      channel, memo: vi.fn(), run: { runId: queued ? "next-queued-run" : "previous-run" },
+      runtime: "unknown", target: { repository: "acme/queued-history", issue: 42 }, waitUntil: vi.fn(),
+    })
+    // SAFETY: These fixtures supply the callback fields consumed by GitHub activity updates.
+    await update(context(false) as never)
+    await update(context(true) as never)
+    expect(storedBody).toContain("[View session](<https://console.test/invocations/previous>)")
+    expect(storedBody).toContain("Previous review complete.")
+    expect(storedBody.match(/Queued\n\n/g)).toHaveLength(1)
+    expect(storedBody).not.toContain("Waiting to start.")
+    if (summary) expect(storedBody.split(summary)).toHaveLength(2)
+    else expect(storedBody).toContain("Waiting for a worker slot.")
   })
 
   it("creates queued GitHub activity when a pull request opens", async () => {
@@ -529,7 +572,8 @@ describe("agent channels", () => {
       releaseIdentity!()
       await background[0]
       expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/repos/acme/app/issues/42/comments"), expect.objectContaining({ method: "POST" }))
-      expect(storedBody).toContain("Waiting to start.")
+      expect(storedBody).toContain("Waiting for a worker slot.")
+      expect(storedBody).toContain("Queued\n\n")
       expect(storedBody).not.toContain("| Session |")
 
       // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
@@ -1247,6 +1291,30 @@ describe("agent channels", () => {
     }
   })
 
+  it("prefers explicit Teams adapter options over Server Env", async () => {
+    vi.resetModules()
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    try {
+      const { teams } = await import("../src/channels.ts")
+      const channel = teams({ adapter: { appId: "option-app", appPassword: { unseal: () => "option-password" }, appType: "SingleTenant" } })
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+      await channel.adapter({ cloudflare: { env: { TEAMS_APP_ID: "env-app", TEAMS_APP_TENANT_ID: "env-tenant" } } } as never)
+      expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "option-app", appPassword: "option-password", appTenantId: "env-tenant", appType: "SingleTenant" })
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/teams")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps a Teams adapter factory as given", async () => {
+    const { teams } = await import("../src/channels.ts")
+    const factory = () => ({ name: "teams" }) as never
+    expect(teams({ adapter: factory }).adapter).toBe(factory)
+  })
+
   it("uses polling Telegram channels without a webhook route", async () => {
     const { telegram } = await import("../src/channels.ts")
     expect(telegram({ mode: "polling" }).webhooks).toBe(false)
@@ -1717,6 +1785,61 @@ describe("agent channels", () => {
     })
   })
 
+  it("skips no-findings bot reviews and debounces a trigger's deliveries per PR", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      pullRequest: {
+        reconcile: {
+          triggers: [
+            { events: ["issue_comment"], mentions: ["@agent"] },
+            { debounceMs: 60_000, events: ["pull_request_review"], noFindingsReviews: ["> ✅ No new issues found."], reviewStates: ["commented"] },
+          ],
+        },
+        reply: false,
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    const review = (id: number, body: string) => ({
+      github: { deliveryId: `review-${id}`, event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        installation: { id: 123 },
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body,
+          html_url: `https://github.test/acme/app/pull/42#pullrequestreview-${id}`,
+          id,
+          state: "commented",
+          user: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+        },
+        sender: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const clean = await trigger.invoke(context as never, review(57, "> ✅ No new issues found.\n\n**Reviewed changes**"))
+    expect(clean).toBeInstanceOf(Response)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
+    if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
+    expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42:1" }, deliveryId: "review-58" })
+  })
+
   it.each([1, 4])("limits reconciled queue deliveries per PR to %i", async (limit) => {
     const { github } = await import("../src/channels.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
@@ -1741,7 +1864,7 @@ describe("agent channels", () => {
             github: { deliveryId, event: "pull_request", installationId: 123 },
             payload,
           })
-          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit) {
+          if (result instanceof Response || !result.webhook?.concurrencyGroup || !result.webhook.concurrencyLimit || !result.webhook.deliveryId) {
             throw new Error("Expected GitHub reconciliation ownership.")
           }
           await queue.enqueueWebhookDelivery({

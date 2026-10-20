@@ -30,6 +30,7 @@ function queueState(claims: AgentWebhookQueueLease[] = []) {
     enqueueWebhookDelivery: vi.fn(async () => true),
     extendWebhookDeliveryLease: vi.fn(async () => true),
     retryWebhookDelivery: vi.fn(async () => true),
+    queuedWebhookDeliveries: vi.fn(async () => []),
     webhookDeliveries: vi.fn(async () => []),
     webhookDeliveryScopes: vi.fn(async () => ["scope"]),
   } as unknown as AgentWebhookQueueStateAdapter
@@ -150,6 +151,75 @@ describe("Agent webhook queue owner", () => {
 
     await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce())
     await stop()
+  })
+
+  it("leaves a scope registered by name to the queue that registered it", async () => {
+    const scope = "webhook:bot:airtable:"
+    const fixture = queueState([{ ...delivery("airtable"), scope }])
+    const { state } = fixture
+    state.webhookDeliveryScopes = vi.fn(async () => [scope])
+    const prefixExecute = vi.fn(async () => undefined)
+    const prefixQueue = createAgentWebhookQueue({
+      execute: prefixExecute,
+      resolveBackendId: async () => "backend",
+      resolveWaitUntil: async () => undefined,
+      retryMs: 100,
+    })
+    const ownerExecute = vi.fn(async () => undefined)
+    const ownerQueue = createAgentWebhookQueue({ execute: ownerExecute, resolveWaitUntil: async () => undefined, retryMs: 100 })
+
+    // The Agent queue resumes first and finds the scope only through its prefix.
+    const stopPrefix = prefixQueue.resume(async registrar => registrar.track(state, {}, "webhook:bot:"))
+    await vi.waitFor(() => expect(state.webhookDeliveryScopes).toHaveBeenCalled(), { interval: 1 })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const stopOwner = ownerQueue.resume(async (registrar) => {
+      await registrar.register({ backendId: "backend", options: {}, scope, state })
+    })
+
+    await vi.waitFor(() => expect(ownerExecute).toHaveBeenCalledOnce(), { interval: 1 })
+    await new Promise(resolve => setTimeout(resolve, 250))
+    await Promise.all([stopPrefix(), stopOwner()])
+    expect(prefixExecute).not.toHaveBeenCalled()
+  })
+
+  it("stops a prefix drain when a named owner registers after its first drain", async () => {
+    const scope = "webhook:bot:airtable:"
+    const fixture = queueState([delivery("airtable")])
+    const { state } = fixture
+    state.webhookDeliveryScopes = vi.fn(async () => [scope])
+    let releaseClaim!: () => void
+    const claimBlocked = new Promise<void>(resolve => { releaseClaim = resolve })
+    let firstClaim = true
+    state.claimWebhookDelivery = vi.fn(async () => {
+      if (firstClaim) {
+        firstClaim = false
+        await claimBlocked
+        return null
+      }
+      return fixture.queued.shift() ?? null
+    })
+    const prefixExecute = vi.fn(async () => undefined)
+    const prefixQueue = createAgentWebhookQueue({
+      execute: prefixExecute,
+      resolveBackendId: async () => "backend",
+      resolveWaitUntil: async () => undefined,
+      retryMs: 5,
+    })
+    const ownerExecute = vi.fn(async () => undefined)
+    const ownerQueue = createAgentWebhookQueue({ execute: ownerExecute, resolveWaitUntil: async () => undefined, retryMs: 50 })
+
+    const stopPrefix = prefixQueue.resume(async registrar => registrar.track(state, {}, "webhook:bot:"))
+    await vi.waitFor(() => expect(state.claimWebhookDelivery).toHaveBeenCalledOnce(), { interval: 1 })
+    const stopOwner = ownerQueue.resume(async registrar => {
+      await registrar.register({ backendId: "backend", options: {}, scope, state })
+    })
+    fixture.queued.push(delivery("airtable"))
+    releaseClaim()
+
+    await vi.waitFor(() => expect(ownerExecute).toHaveBeenCalled(), { timeout: 200, interval: 1 })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await Promise.all([stopPrefix(), stopOwner()])
+    expect(prefixExecute).not.toHaveBeenCalled()
   })
 
   it("waits for scope discovery before stop resolves", async () => {

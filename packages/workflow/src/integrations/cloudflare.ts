@@ -6,12 +6,30 @@ import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 const cloudflareWorkflowNameMaxLength = 64
 
 function shortHash(value: string): string {
+  let hash = 0xcbf29ce484222325n
+  for (const char of value) {
+    hash ^= BigInt(char.codePointAt(0) || 0)
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
+  }
+  return hash.toString(16).padStart(16, "0")
+}
+
+function legacyShortHash(value: string): string {
   let hash = 0x811c9dc5
   for (const char of value) {
     hash ^= char.codePointAt(0) || 0
     hash = Math.imul(hash, 0x01000193)
   }
   return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
+function workflowClassPrefix(name: string): string {
+  return name
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map(segment => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join("")
+    || "Default"
 }
 
 export function getCloudflareWorkflowBindingName(name: string): string {
@@ -31,14 +49,12 @@ export function getCloudflareWorkflowName(name: string): string {
 }
 
 export function getCloudflareWorkflowClassName(name: string): string {
-  const suffix = name
-    .split(/[^a-z0-9]+/i)
-    .filter(Boolean)
-    .map(segment => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
-    .join("")
-    || "Default"
+  return `ViteHub${workflowClassPrefix(name)}${shortHash(name)}Workflow`
+}
 
-  return `ViteHub${suffix}${shortHash(name)}Workflow`
+/** The pre-64-bit class export kept for existing Cloudflare Workflow instances. */
+export function getLegacyCloudflareWorkflowClassName(name: string): string {
+  return `ViteHub${workflowClassPrefix(name)}${legacyShortHash(name)}Workflow`
 }
 
 interface CloudflareWorkflowBindingDescriptor {

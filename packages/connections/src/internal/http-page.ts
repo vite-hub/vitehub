@@ -3,7 +3,7 @@ import { managementErrorBody } from "./http-diagnostics.ts";
 /** The cookie that keeps the Console page to return to while the provider flow runs. */
 export const RETURN_COOKIE = "vitehub_connection_return";
 /** Seconds that a success page waits before it returns to the Console. */
-export const RETURN_DELAY_SECONDS = 2;
+const RETURN_DELAY_SECONDS = 2;
 
 const MAX_RETURN_LENGTH = 2048;
 
@@ -11,7 +11,7 @@ const MAX_RETURN_LENGTH = 2048;
  * A same-origin path to return to after the provider flow, or `undefined`. Only a path such as
  * `/_vitehub/connections` passes, so a crafted link cannot send the browser to another site.
  */
-export function returnPath(value: string | null | undefined, origin: string): string | undefined {
+function returnPath(value: string | null | undefined, origin: string): string | undefined {
   if (!value || value.length > MAX_RETURN_LENGTH || !value.startsWith("/") || value.startsWith("//") || value.includes("\\"))
     return undefined;
   try {

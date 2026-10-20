@@ -99,18 +99,6 @@
       "require": "./dist/eve.js",
       "default": "./dist/eve.js"
     },
-    "./evlog": {
-      "types": "./dist/evlog.d.ts",
-      "import": "./dist/evlog.js",
-      "require": "./dist/evlog.js",
-      "default": "./dist/evlog.js"
-    },
-    "./evlog/posthog": {
-      "types": "./dist/evlog/posthog.d.ts",
-      "import": "./dist/evlog/posthog.js",
-      "require": "./dist/evlog/posthog.js",
-      "default": "./dist/evlog/posthog.js"
-    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -140,6 +128,12 @@
       "import": "./dist/mcp/stdio.js",
       "require": "./dist/mcp/stdio.js",
       "default": "./dist/mcp/stdio.js"
+    },
+    "./process-host": {
+      "types": "./dist/process-host.d.ts",
+      "import": "./dist/process-host.js",
+      "require": "./dist/process-host.js",
+      "default": "./dist/process-host.js"
     },
     "./messages": {
       "types": "./dist/messages.d.ts",
@@ -173,27 +167,19 @@
     },
     "./presets/babysitter": {
       "types": "./dist/presets/babysitter.d.ts",
-      "import": "./dist/presets/babysitter.js",
-      "require": "./dist/presets/babysitter.js",
-      "default": "./dist/presets/babysitter.js"
+      "import": "./dist/presets/babysitter.js"
     },
     "./presets/babysitter/server": {
       "types": "./dist/presets/babysitter/server.d.ts",
-      "import": "./dist/presets/babysitter/server.js",
-      "require": "./dist/presets/babysitter/server.js",
-      "default": "./dist/presets/babysitter/server.js"
+      "import": "./dist/presets/babysitter/server.js"
     },
     "./presets/labeller": {
       "types": "./dist/presets/labeller.d.ts",
-      "import": "./dist/presets/labeller.js",
-      "require": "./dist/presets/labeller.js",
-      "default": "./dist/presets/labeller.js"
+      "import": "./dist/presets/labeller.js"
     },
     "./presets/workspace": {
       "types": "./dist/presets/workspace.d.ts",
-      "import": "./dist/presets/workspace.js",
-      "require": "./dist/presets/workspace.js",
-      "default": "./dist/presets/workspace.js"
+      "import": "./dist/presets/workspace.js"
     },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
@@ -230,12 +216,6 @@
       "import": "./dist/server/github.js",
       "require": "./dist/server/github.js",
       "default": "./dist/server/github.js"
-    },
-    "./server/github-inbox": {
-      "types": "./dist/server/github-inbox.d.ts",
-      "import": "./dist/server/github-inbox.js",
-      "require": "./dist/server/github-inbox.js",
-      "default": "./dist/server/github-inbox.js"
     },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",
@@ -284,7 +264,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/agent#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
@@ -295,23 +275,20 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@t3tools/provider-runtime": "catalog:",
-    "@vercel/connect": "2.4.0",
+    "@vercel/connect": "2.5.2",
     "@vercel/nft": "catalog:vercel",
     "@yarnpkg/parsers": "catalog:tooling",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
-    "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27",
-    "forges": "catalog:",
+    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",
@@ -322,6 +299,7 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@github-tools/eve-extension": "0.8.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -333,7 +311,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
-    "eve": "0.72.1",
+    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -342,8 +320,10 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0"
+    "evlog": "^2.32.0",
+    "posthog-node": "^5.56.2",
+    "@t3tools/provider-runtime": "catalog:",
+    "forges": "catalog:"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -353,11 +333,12 @@
     "@agntn/web": "catalog:ai",
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -365,7 +346,7 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "eve": "0.46.1 || 0.72.1",
+    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0"
   },
@@ -379,19 +360,22 @@
     "@chat-adapter/discord": {
       "optional": true
     },
+    "@chat-adapter/teams": {
+      "optional": true
+    },
     "@vercel/functions": {
       "optional": true
     },
     "@vite-hub/blob": {
       "optional": true
     },
+    "@vite-hub/connections": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },
     "@vite-hub/email": {
-      "optional": true
-    },
-    "@vite-hub/schedule": {
       "optional": true
     },
     "@vite-hub/workflow": {

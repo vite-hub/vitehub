@@ -160,7 +160,9 @@ Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define.
 
-File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
+history object.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
 uncompressed file bytes across committed revisions on every ref. Workspaces have separate
@@ -267,9 +269,9 @@ search remains literal or regular-expression filesystem search over the visible
 tree; use Comark Content through `@vite-hub/content` for parsed-document
 navigation, query, cache, and ranked full-text search.
 
-## Box sessions
+## Sandbox sessions
 
-Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
+Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 
@@ -324,36 +326,18 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry gives the Workspace `name`, a `module` (absolute path or package specifier), and an optional `export`:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    workspaces: () => [{
-      name: "content",
-      definition: { module: "my-package/workspace", export: "contentWorkspace" },
-      reason: "Stores CMS documents.",
-    }],
+    workspaces: ({ projectRoot }) => [{ name: "content", module: "my-package/workspace", export: "contentWorkspace" }],
   },
 }
 ```
 
 Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
-
-## Publishing current state
-
-`workspace.snapshot()` creates a durable Store snapshot, then runs every configured Workspace publisher. Use `workspace.publish()` when the current Store contents should be published without advancing the Store's snapshot history:
-
-```ts
-const workspace = useWorkspace("docs", { mode: "write" })
-
-await workspace.publish({ name: "chore: publish docs" })
-```
-
-Publishers receive a transient snapshot-shaped view of the current Store entries. `PublishContext.durable` is `false` for this direct lifecycle and `true` for snapshot-driven publication. Repeated publication remains a no-op when a publisher, such as the GitHub publisher, already has the same content.
-
-A GitHub publisher cannot publish directly to the repository and branch backing the active GitHub Store because that would move the Store branch behind its loaded baseline. Use `workspace.snapshot()` for that branch, or configure the publisher with a different repository or branch.
 
 ## Hosted Cloudflare runtime
 
@@ -408,6 +392,13 @@ The Vite Integration writes matching module-level and discovered definition-leve
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
+## Vercel Blob persistence
+
+The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
+`_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
+letters, numbers, underscores, dashes, and single slashes.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
@@ -423,7 +414,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub-backed Stores also expose the retained history reader. Repository branches are
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
@@ -432,23 +423,6 @@ views read the configured Workspace root from the commit tree and fetch file byt
 that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
-
-Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
-
-```ts
-import { github } from "@vite-hub/workspace/publish"
-
-export default defineWorkspace({
-  publish: [github({
-    repository: "owner/repo",
-    branch: "main",
-    root: "generated/docs",
-    deleteUntracked: false,
-  })],
-})
-```
-
-By default, the publisher treats `root` as an exact mirror and deletes remote paths that are absent from the Workspace snapshot. Set `deleteUntracked: false` when the publisher owns only part of `root`; Workspace files are still created and updated, while every remote-only path remains on GitHub, including files from earlier snapshots.
 
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 

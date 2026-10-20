@@ -1,7 +1,7 @@
 import { AgentHttpError } from "../http-error.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-export const defaultAgentInboundBodyBytes = 1024 * 1024
+const defaultAgentInboundBodyBytes = 1024 * 1024
 export const maximumAgentInboundBodyBytes = 10 * 1024 * 1024
 
 export interface CapturedAgentInboundBody {

@@ -1,4 +1,5 @@
 import { isConnectionError } from "./errors.ts";
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
 import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
@@ -21,6 +22,26 @@ export interface ConnectionsHandlerOptions {
   actor: ConnectionsAccessPolicy;
   basePath?: string;
   runtime?: () => ConnectionsRuntime;
+  /** Agent name used to select a function-form `vitehub({ publicUrl })` origin. */
+  agentName?: string;
+}
+
+function normalizeConnectionsBasePath(value: string | undefined): string {
+  if (value !== undefined && typeof value !== "string") {
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "type" });
+  }
+  const path = value === undefined ? CONNECTIONS_ROUTE : value.trim();
+  if (!path.startsWith("/")) {
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "slash" });
+  }
+  if (path.includes("?") || path.includes("#")) {
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "path" });
+  }
+  const normalized = path.length > 1 ? path.replace(/\/+$/g, "") : path;
+  if (!normalized || normalized === "/") {
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "segment" });
+  }
+  return normalized;
 }
 
 /**
@@ -37,24 +58,24 @@ export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
 ): (request: Request, event?: unknown) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
-  const base = options.basePath?.replace(/\/+$/, "") || CONNECTIONS_ROUTE;
+  const base = normalizeConnectionsBasePath(options.basePath);
   return async (request, event) => {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
-      const check = await checkConnectionsAccess(options.actor, request, event, runtime);
+      const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
       if (check.rejection) return check.rejection;
       const route = connectionsRoutes.find((candidate) => candidate.matches(path, base));
       if (!route)
-        return json({ error: managementErrorBody("CONNECTION_NOT_FOUND", "Not found.") }, 404);
+        return json({ error: managementErrorBody("CONNECTIONS_ROUTE_NOT_FOUND", "Not found.") }, 404);
       if (request.method !== route.method)
-        return json({ error: managementErrorBody("CONNECTION_METHOD", `Use ${route.method}.`) }, 405, {
+        return json({ error: managementErrorBody("CONNECTIONS_METHOD_NOT_ALLOWED", `Use ${route.method}.`) }, 405, {
           allow: route.method,
         });
       return await route.handle(check.access, base);
     } catch (error) {
       if (request.method === "GET") {
         return page({
-          code: isConnectionError(error) ? error.code : "CONNECTION_FAILED",
+          code: isConnectionError(error) ? error.code : "CONNECTIONS_REQUEST_FAILED",
           message: isConnectionError(error) ? error.message : "The connection could not be completed.",
           outcome: "error",
           returnTo: requestReturnPath(request),

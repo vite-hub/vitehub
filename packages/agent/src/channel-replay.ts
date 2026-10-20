@@ -7,7 +7,7 @@ import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentI
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
-import { agentChannelOptions, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
+import { agentChannelOptions, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
 
 import type {
   AgentChannelDispatchItem,
@@ -22,11 +22,6 @@ import type {
 } from "./types.ts"
 
 export { channelMessageRunId }
-
-/** @deprecated Use channelMessageRunId. */
-export function channelReplayRunId(channel: string, key: string, options: { dryRun?: boolean } = {}): string {
-  return channelMessageRunId(channel, key, options)
-}
 
 export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Actor supplied by a verified host entry point. */
@@ -49,7 +44,7 @@ export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig 
   signal?: AbortSignal
 }
 
-export type ReplayChannelItemStatus = "completed" | "failed" | "skipped" | "started"
+export type ReplayChannelItemStatus = "completed" | "failed" | "queued" | "skipped" | "started"
 
 export interface ReplayChannelItem {
   /** Error message when `status` is `failed`. */
@@ -57,8 +52,11 @@ export interface ReplayChannelItem {
   /** The Invocation run ID. */
   id: string
   key: string
-  /** Why the item was skipped: an existing Invocation, or the trigger answered without an Invocation. */
-  reason?: "existing" | "handled"
+  /**
+   * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
+   * already queued, or its `order.version` was not newer than the last one admitted for its `order.key`.
+   */
+  reason?: "duplicate" | "existing" | "handled" | "stale"
   status: ReplayChannelItemStatus
 }
 
@@ -67,7 +65,7 @@ export interface ReplayChannelResult {
   items: ReplayChannelItem[]
   /** Pass it as `cursor` to continue. `null` when the history has no more items. */
   nextCursor: string | null
-  /** Items that started an Invocation. A Workflow runtime reports them as `started`; inline runs as `completed`. */
+  /** Items that started an Invocation. A Workflow runtime reports them as `started`; inline runs as `completed`; queued dispatch as `queued`. */
   processed: number
   skipped: number
 }
@@ -222,7 +220,12 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     if (!run.force && run.invocations) reservation = await reserveAgentChannelItem(run.agent, itemRuntime)
     // SAFETY: Execution context normalization supplies the resolved runtime configuration.
     const triggerContext = createExecutionContext(itemRuntime) as ResolvedAgentRuntimeContext<TRuntimeConfig>
-    const invocation = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
+    const resolved = await resolveAgentTriggerInvocation(run.agent, triggerContext, run.triggerId, item, { verifyWebhook: run.verifyWebhook })
+    // Replay records each item in the replaying Agent's Invocation journal, so it cannot start another Agent's Invocation.
+    if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.agent && resolved.agent !== run.agent) {
+      throw new Error(`Task "${resolved.task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`)
+    }
+    const invocation = await prepareAgentTriggerInvocation(resolved)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) { await reservation?.finish("completed"); return { id, key, reason: "handled", status: "skipped" } }
     const runMetadata = { ...itemRuntime.run, ...invocation.run, runId: id, annotations: {
       ...(invocation.run ?? itemRuntime.run)?.annotations,

@@ -183,7 +183,6 @@ channelDelivery({
 
 - [Agent Channels](/docs/agents/channels)
 - [Channels Server Primitive](/docs/channels)
-- [Schedule Capability](/docs/schedule/agent-capability)
 - [Schedule primitive](/docs/schedule)
 - [Custom capabilities](/docs/agents/capabilities/custom)
 - [Official capabilities](/docs/agents/capabilities/official)

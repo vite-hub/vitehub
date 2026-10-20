@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { delimiter, join } from "node:path"
 
 import type { DBModulePublicOptions } from "./types.ts"
@@ -10,6 +11,8 @@ import { dirname, isAbsolute, relative, resolve } from "pathe"
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 
+const require = createRequire(import.meta.url)
+
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
 type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
 type MaybePromise<T> = Promise<T> | T
@@ -17,7 +20,7 @@ type MaybePromise<T> = Promise<T> | T
 interface ViteHubCliContext {
   env?: NodeJS.ProcessEnv
   rootDir: string
-  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
+  spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, shell?: boolean, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
@@ -69,9 +72,16 @@ function toConfigPath(rootDir: string, file: string): string {
 function withProjectBinPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") || "PATH"
   const processPathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") || "PATH"
+  const invokingRoot = process.cwd()
+  const bins = [
+    join(rootDir, "node_modules", ".bin"),
+    join(invokingRoot, "node_modules", ".bin"),
+    env[pathKey],
+    process.env[processPathKey],
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
   return {
     ...env,
-    [pathKey]: [join(rootDir, "node_modules", ".bin"), env[pathKey] ?? process.env[processPathKey]].filter(Boolean).join(delimiter),
+    [pathKey]: bins.join(delimiter),
   }
 }
 
@@ -82,13 +92,14 @@ async function runDrizzleKit(
   getConfig?: ResolvedDBViteConfigProvider,
 ): Promise<number> {
   const config = await getConfig?.({ strict: feature === "generate" })
+  const rootDir = config?.rootDir ?? context.rootDir
   const runs = config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
   for (const { configFile, database } of runs) {
-    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, context)
-    const result = await runDrizzleKitWithConfig(feature, args, context, toConfigPath(context.rootDir, configFile))
+    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, { ...context, rootDir })
+    const result = await runDrizzleKitWithConfig(feature, args, { ...context, rootDir }, toConfigPath(rootDir, configFile), [rootDir, context.rootDir])
     if (result !== 0) return result
   }
   return 0
@@ -119,7 +130,24 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
-async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string): Promise<number> {
+function resolveDrizzleKit(rootDirs: string[]): string | undefined {
+  for (const rootDir of [...new Set(rootDirs)]) {
+    try {
+      // Prefer the Database project, then the invoking application. Both roots
+      // are supported when the Database project is external to the app.
+      return createRequire(join(rootDir, "package.json")).resolve("drizzle-kit")
+    } catch {
+      // Try the next supported project root.
+    }
+  }
+  try {
+    return require.resolve("drizzle-kit")
+  } catch {
+    return undefined
+  }
+}
+
+async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string, drizzleKitRoots: string[] = [context.rootDir, process.cwd()]): Promise<number> {
   const drizzleArgs = [
     feature,
     "--config",
@@ -127,9 +155,23 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     ...forwardDrizzleArgs(args),
   ]
   const env = withProjectBinPath(context.rootDir, context.env)
-  const result = await context.spawn("drizzle-kit", drizzleArgs, {
+  // Windows package-manager shims require a shell, but shell parsing would
+  // lose argument boundaries for names containing spaces or metacharacters.
+  // Run Drizzle Kit's JavaScript entry through Node instead.
+  const windows = process.platform === "win32"
+  const command = windows ? process.execPath : "drizzle-kit"
+  const drizzleKitEntry = windows ? resolveDrizzleKit(drizzleKitRoots) : undefined
+  if (windows && !drizzleKitEntry) {
+    context.stderr.write("[vitehub] drizzle-kit is not installed or cannot be resolved from the Database or invoking project root. Install drizzle-kit and try again.\n")
+    return 1
+  }
+  const commandArgs = windows
+    ? [join(dirname(drizzleKitEntry!), "bin.cjs"), ...drizzleArgs]
+    : drizzleArgs
+  const result = await context.spawn(command, commandArgs, {
     cwd: context.rootDir,
     env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
+    shell: false,
     stderr: "inherit",
     stdout: "inherit",
   })

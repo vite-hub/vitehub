@@ -25,14 +25,13 @@ pnpm add -D vite wrangler
 Enable Browser on the Cloudflare deployment preset.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default {
   plugins: [vitehub({
     preset: 'cloudflare',
     browser: { remote: true },
-  }), nitro() as never],
+  })],
 }
 ```
 

@@ -16,6 +16,8 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
+import { resolveContentPreset } from "./presets.ts"
+import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
@@ -35,6 +37,7 @@ export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugi
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional } from "./documents.ts"
+export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export type {
   ContentField,
   ContentFieldIssue,
@@ -160,6 +163,11 @@ export type DefineContentOptions<
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
+  /**
+   * Preset that fills Definition options, such as `cms` from `vite-hub/content/presets/cms`, or `[preset, options]`.
+   * The `cms` preset sets `workspace`, so do not pass both.
+   */
+  extends?: ContentPresetSelection
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
   /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
@@ -205,7 +213,12 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  if (options.extends !== undefined && options.workspace !== undefined) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
+  }
+  const { source, sources, collections, authorize, ...sharedOptions } = options
+  const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
+  const workspace = options.workspace ?? presetDefaults.workspace
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -216,7 +229,7 @@ export function defineContent<
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {
@@ -397,55 +410,112 @@ export function defineContentHandler(
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (!content.preview) return await serveContent(content, event)
-    return await content.preview.run(event, () => serveContent(content, event))
+    if (isRequestLike(event.req)) {
+      return await (content.preview
+        ? content.preview.run(event, () => content.handler(event.req))
+        : content.handler(event.req))
+    }
+
+    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+    const nodeRequest = event.node.req as NodeContentRequest
+    const method = event.method || nodeRequest.method || "GET"
+    const dispatch = async () => {
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(nodeRequest.headers)) {
+      if (value === undefined) continue
+      if (Array.isArray(value)) {
+        for (const entry of value) headers.append(name, entry)
+      }
+      else headers.set(name, value)
+    }
+    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+      || headers.get("host")
+      || "localhost"
+    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+    let body: Uint8Array | undefined
+    if (method !== "GET" && method !== "HEAD") {
+      const chunks: Uint8Array[] = []
+      for await (const chunk of nodeRequest) {
+        const bytes = nodeBodyChunk(chunk)
+        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+        chunks.push(bytes)
+      }
+      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+      body = new Uint8Array(length)
+      let offset = 0
+      for (const chunk of chunks) {
+        body.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+    }
+    const abort = new AbortController()
+    if (nodeRequest.aborted) abort.abort()
+    else nodeRequest.once("aborted", () => abort.abort())
+
+    return await content.handler(new Request(url, {
+      body,
+      headers,
+      method,
+      signal: abort.signal,
+    }))
+    }
+    return await (content.preview
+      ? content.preview.run(event, dispatch)
+      : dispatch())
   }) as ContentHandler
 }
 
-async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
-  if (event.req instanceof Request) return await content.handler(event.req)
-
-  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-  const nodeRequest = event.node.req as NodeContentRequest
-  const method = event.method || nodeRequest.method || "GET"
-  const headers = new Headers()
-  for (const [name, value] of Object.entries(nodeRequest.headers)) {
-    if (value === undefined) continue
-    if (Array.isArray(value)) {
-      for (const entry of value) headers.append(name, entry)
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Request
+    const findDescriptor = (key: PropertyKey) => {
+      let prototype: object | null = Object.getPrototypeOf(request)
+      for (let depth = 0; prototype && depth < 32; depth++) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor) return { descriptor, prototype }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return undefined
     }
-    else headers.set(name, value)
+    const methodDescriptor = findDescriptor("method")
+    const urlDescriptor = findDescriptor("url")
+    const headersDescriptor = findDescriptor("headers")
+    if (!methodDescriptor || !urlDescriptor || !headersDescriptor) return false
+    const requestConstructor = Object.getOwnPropertyDescriptor(methodDescriptor.prototype, "constructor")?.value
+    const requestPrototype = typeof requestConstructor === "function" ? requestConstructor.prototype : undefined
+    if (!requestPrototype) return false
+    for (const [key, found] of [["method", methodDescriptor], ["url", urlDescriptor], ["headers", headersDescriptor]] as const) {
+      if (Object.getOwnPropertyDescriptor(requestPrototype, key)?.get !== found.descriptor.get) return false
+    }
+    const methodGetter = methodDescriptor.descriptor.get
+    const urlGetter = urlDescriptor.descriptor.get
+    const headersGetter = headersDescriptor.descriptor.get
+    if (typeof methodGetter !== "function" || typeof urlGetter !== "function" || typeof headersGetter !== "function") return false
+    const method = Reflect.apply(methodGetter, request, [])
+    const url = Reflect.apply(urlGetter, request, [])
+    const headers = Reflect.apply(headersGetter, request, [])
+    let headersPrototype: object | null = Object.getPrototypeOf(headers)
+    let headersGet: unknown
+    let headersForEach: unknown
+    for (let depth = 0; headersPrototype && depth < 32; depth++) {
+      headersGet = Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+      headersForEach = Object.getOwnPropertyDescriptor(headersPrototype, "forEach")?.value
+      if (typeof headersGet === "function" && typeof headersForEach === "function") break
+      headersPrototype = Object.getPrototypeOf(headersPrototype)
+    }
+    const headersConstructor = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "constructor")?.value
+    const headersNativePrototype = typeof headersConstructor === "function" ? headersConstructor.prototype : undefined
+    if (!headersNativePrototype || Object.getOwnPropertyDescriptor(headersNativePrototype, "get")?.value !== headersGet
+      || Object.getOwnPropertyDescriptor(headersNativePrototype, "forEach")?.value !== headersForEach) return false
+    Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
+    Reflect.apply(headersForEach, headers, [() => {}])
+    return typeof method === "string" && typeof url === "string"
   }
-  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-    || headers.get("host")
-    || "localhost"
-  const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-  let body: Uint8Array | undefined
-  if (method !== "GET" && method !== "HEAD") {
-    const chunks: Uint8Array[] = []
-    for await (const chunk of nodeRequest) {
-      const bytes = nodeBodyChunk(chunk)
-      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-      chunks.push(bytes)
-    }
-    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-    body = new Uint8Array(length)
-    let offset = 0
-    for (const chunk of chunks) {
-      body.set(chunk, offset)
-      offset += chunk.byteLength
-    }
+  catch {
+    return false
   }
-  const abort = new AbortController()
-  if (nodeRequest.aborted) abort.abort()
-  else nodeRequest.once("aborted", () => abort.abort())
 
-  return await content.handler(new Request(url, {
-    body,
-    headers,
-    method,
-    signal: abort.signal,
-  }))
 }

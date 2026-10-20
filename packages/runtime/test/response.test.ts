@@ -1,24 +1,15 @@
 import { describe, expect, it } from "vitest"
+import { runInNewContext } from "node:vm"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
-  it("normalizes a Response-shaped impostor instead of returning it", () => {
-    const foreignPrototype = {
-      [Symbol.toStringTag]: "Response",
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
-      clone() { return this },
-    }
-    const foreign = Object.assign(Object.create(foreignPrototype), {
-      body: null,
-      headers: { get: () => null, [Symbol.toStringTag]: "Headers" },
-      status: 200,
-      statusText: "",
-    }) as Response
+  it("accepts ArrayBuffer values created in another realm", async () => {
+    const value = runInNewContext("new ArrayBuffer(3)")
+    new Uint8Array(value)[0] = 0x41
+    const response = toResponse(value)
 
-    const normalized = toResponse(foreign)
-    expect(normalized).not.toBe(foreign)
-    expect(normalized.headers).toBeInstanceOf(Headers)
-    expect(normalized.status).toBe(200)
+    expect(response.headers.get("content-type")).toBeNull()
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.of(0x41, 0, 0))
   })
 
   it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {

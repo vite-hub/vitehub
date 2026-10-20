@@ -43,7 +43,6 @@ try {
       alwaysBundle: [
         /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
-        "effect",
         "fdir",
         "mrmime",
         "ocache",
@@ -53,8 +52,10 @@ try {
     },
     entry: [
       "src/client.ts",
+      "src/drizzle.ts",
       "src/index.ts",
       "src/file.ts",
+      "src/files.ts",
       "src/github.ts",
       "src/glob.ts",
       "src/markdown.ts",

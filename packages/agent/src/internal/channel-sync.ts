@@ -7,7 +7,7 @@ import type {
 
 export const agentChannelSyncProviderHeader = "x-vitehub-channel-provider"
 
-export type AgentChannelSyncAction = "create" | "delete" | "none" | "update"
+type AgentChannelSyncAction = "create" | "delete" | "none" | "update"
 
 export interface AgentChannelSyncPlan {
   action: AgentChannelSyncAction

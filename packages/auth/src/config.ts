@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
 
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { defaultExportExpression, objectProperties, scanModule, staticString, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
+
+import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 import { discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -15,125 +17,70 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface DefinitionObjectBody {
-  body: string
+  body: ObjectExpression
   callback: boolean
 }
 
-function objectLiteralBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed?.startsWith("{")) return
-  const closeIndex = findMatching(trimmed, 0, "{", "}")
-  return typeof closeIndex === "undefined" ? undefined : trimmed.slice(1, closeIndex)
-}
-
-function readReturnedObjectBody(block: string): string | undefined {
-  const body = objectLiteralBody(block)
-  if (typeof body === "undefined") return
-
-  const match = /\breturn\s*/.exec(body)
-  if (!match) return
-
-  return readExpressionObjectBody(body.slice(match.index + match[0].length))
-}
-
-function readExpressionObjectBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return
-
-  if (trimmed.startsWith("{")) {
-    return objectLiteralBody(trimmed)
+/** The object that a callback returns, from `() => ({ ... })` or the first `return { ... }` in its body. */
+function readReturnedObject(callback: Expression): ObjectExpression | undefined {
+  if (callback.type !== "ArrowFunctionExpression") return
+  if (callback.body.type !== "BlockStatement") {
+    const body = unwrapExpression(callback.body)
+    return body.type === "ObjectExpression" ? body : undefined
   }
-
-  if (trimmed.startsWith("(")) {
-    const closeIndex = findMatching(trimmed, 0, "(", ")")
-    if (typeof closeIndex === "undefined") return
-    return objectLiteralBody(trimmed.slice(1, closeIndex))
-  }
-}
-
-function readDefinitionArgumentObjectBody(argument: string | undefined): DefinitionObjectBody | undefined {
-  const trimmed = argument?.trim()
-  if (!trimmed) return
-
-  if (trimmed.startsWith("{")) {
-    const objectBody = objectLiteralBody(trimmed)
-    return objectBody === undefined ? undefined : { body: objectBody, callback: false }
-  }
-
-  const arrowIndex = trimmed.indexOf("=>")
-  if (arrowIndex !== -1) {
-    const body = trimmed.slice(arrowIndex + 2).trim()
-    const callbackBody = body.startsWith("{")
-      ? readReturnedObjectBody(body)
-      : readExpressionObjectBody(body)
-    return typeof callbackBody === "undefined" ? undefined : { body: callbackBody, callback: true }
-  }
-
-  const objectBody = readExpressionObjectBody(trimmed)
-  if (typeof objectBody !== "undefined") return { body: objectBody, callback: false }
+  let returned: Expression | null | undefined
+  walk(callback.body, (node) => {
+    if (returned !== undefined) return false
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+    if (node.type === "ReturnStatement") {
+      returned = node.argument
+      return false
+    }
+  })
+  const value = returned ? unwrapExpression(returned) : undefined
+  return value?.type === "ObjectExpression" ? value : undefined
 }
 
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
-  const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineAuth")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-  return readDefinitionArgumentObjectBody(call?.arguments[0])
+  const call = defaultExportExpression(scanModule(readFileSync(file, "utf8"), file))
+  if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
+  const argument = call.arguments[0]
+  if (argument === undefined || argument.type === "SpreadElement") return
+  const options = unwrapExpression(argument)
+  if (options.type === "ObjectExpression") return { body: options, callback: false }
+  const returned = readReturnedObject(options)
+  return returned === undefined ? undefined : { body: returned, callback: true }
 }
 
-function arrayLiteralBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed?.startsWith("[")) return
-  const closeIndex = findMatching(trimmed, 0, "[", "]")
-  return typeof closeIndex === "undefined" ? undefined : trimmed.slice(1, closeIndex)
-}
-
-function readEntryKey(entry: string): string | undefined {
-  const property = /^\s*(?:([A-Za-z_$][\w$]*)|["'`]([^"'`]+)["'`])\s*(?::|$)/.exec(entry)
-  if (property) return property[1] || property[2]
-  return /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(entry)?.[1]
-}
-
-function readEntryValue(entry: string): string | undefined {
-  const match = /^\s*(?:[A-Za-z_$][\w$]*|["'`][^"'`]+["'`])\s*:/.exec(entry)
-  return match ? entry.slice(match[0].length).trim() : undefined
-}
-
-function splitEntries(body: string): string[] {
-  return splitTopLevel(body)
-    .map(entry => entry.replace(/^(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*(?:\n|$)))*\s*/, ""))
-}
-
-function readObjectEntries(body: string | undefined): Array<{ key: string; value: string | undefined }> {
+/** Object entries. `key` is empty for spread and computed keys. `value` is undefined for methods and accessors. */
+function readObjectEntries(body: ObjectExpression | undefined): Array<{ key: string; value: Expression | undefined }> {
   if (!body) return []
-  return splitEntries(body)
-    .filter(entry => entry.length > 0)
-    .map((entry) => ({ key: readEntryKey(entry) ?? "", value: readEntryValue(entry) }))
+  return objectProperties(body).map(property => ({
+    key: property.computed ? "" : property.key ?? "",
+    value: property.node.type === "Property" && property.node.kind === "init" && !property.node.method ? property.value : undefined,
+  }))
 }
 
-function readObjectPropertyValue(body: string | undefined, property: string): string | undefined {
+function readObjectPropertyValue(body: ObjectExpression | undefined, property: string): Expression | undefined {
   return readObjectEntries(body).find(entry => entry.key === property)?.value
 }
 
-function hasObjectProperty(body: string | undefined, property: string): boolean {
+function hasObjectProperty(body: ObjectExpression | undefined, property: string): boolean {
   return readObjectEntries(body).some(entry => entry.key === property)
 }
 
-function readStaticStringLiteral(expression: string | undefined): string | undefined {
-  const trimmed = expression?.trim()
-  if (!trimmed) return
-  return /^["']([^"']*)["']$/.exec(trimmed)?.[1]
-    ?? /^`([^`$]*)`$/.exec(trimmed)?.[1]
+function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
+  return value?.type === "ObjectExpression" ? value : undefined
 }
 
-function readStaticBooleanLiteral(expression: string | undefined): boolean | undefined {
-  const trimmed = expression?.trim()
-  if (trimmed === "true") return true
-  if (trimmed === "false") return false
+function readStaticBooleanLiteral(expression: Expression | undefined): boolean | undefined {
+  const value = expression && staticValue(expression)
+  return typeof value === "boolean" ? value : undefined
 }
 
-function readStaticStringProperty(body: string | undefined, property: string, label: string): string | undefined {
+function readStaticStringProperty(body: ObjectExpression | undefined, property: string, label: string): string | undefined {
   if (!hasObjectProperty(body, property)) return
-  const value = readStaticStringLiteral(readObjectPropertyValue(body, property))
+  const value = staticString(readObjectPropertyValue(body, property))
   if (typeof value === "undefined") {
     throw authErrorDiagnostics.AUTH_C0001({ message: `\`defineAuth()\` ${label} must be an inline string literal.` })
   }
@@ -143,7 +90,7 @@ function readStaticStringProperty(body: string | undefined, property: string, la
   return value
 }
 
-function readStaticRouteProperty(body: string | undefined, property: string, label: string): string | undefined {
+function readStaticRouteProperty(body: ObjectExpression | undefined, property: string, label: string): string | undefined {
   const value = readStaticStringProperty(body, property, label)
   if (typeof value !== "undefined" && !value.startsWith("/")) {
     throw authErrorDiagnostics.AUTH_C0003({ message: `\`defineAuth()\` ${label} must start with \`/\`.` })
@@ -151,7 +98,7 @@ function readStaticRouteProperty(body: string | undefined, property: string, lab
   return value
 }
 
-function readStaticBooleanProperty(body: string | undefined, property: string, label: string): boolean | undefined {
+function readStaticBooleanProperty(body: ObjectExpression | undefined, property: string, label: string): boolean | undefined {
   if (!hasObjectProperty(body, property)) return
   const value = readStaticBooleanLiteral(readObjectPropertyValue(body, property))
   if (typeof value === "undefined") {
@@ -160,7 +107,7 @@ function readStaticBooleanProperty(body: string | undefined, property: string, l
   return value
 }
 
-function assertOnlyObjectKeys(body: string | undefined, allowed: Set<string>, label: string): void {
+function assertOnlyObjectKeys(body: ObjectExpression | undefined, allowed: Set<string>, label: string): void {
   const unknownEntry = readObjectEntries(body).find(entry => !entry.key || !allowed.has(entry.key))
   if (!unknownEntry) return
   if (!unknownEntry.key) {
@@ -169,13 +116,13 @@ function assertOnlyObjectKeys(body: string | undefined, allowed: Set<string>, la
   throw authErrorDiagnostics.AUTH_C0006({ message: `\`defineAuth()\` ${label} does not support the "${unknownEntry.key}" option.` })
 }
 
-function assertStaticObjectKeys(body: string | undefined, label: string): void {
+function assertStaticObjectKeys(body: ObjectExpression | undefined, label: string): void {
   if (readObjectEntries(body).some(entry => !entry.key)) {
     throw authErrorDiagnostics.AUTH_C0007({ message: `\`defineAuth()\` ${label} must use static object keys.` })
   }
 }
 
-function readAuthRouteConfig(body: string | undefined): false | string {
+function readAuthRouteConfig(body: ObjectExpression | undefined): false | string {
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
   if (!hasObjectProperty(body, "route")) return basePath
 
@@ -184,8 +131,8 @@ function readAuthRouteConfig(body: string | undefined): false | string {
   throw authErrorDiagnostics.AUTH_C0008({ message: "`defineAuth()` route can only be `false` when provided." })
 }
 
-function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRoute {
-  const route = readStaticStringLiteral(entry)
+function readAuthAccessRoute(entry: Expression | undefined, index: number): ResolvedAuthAccessRoute {
+  const route = staticString(entry)
   if (typeof route !== "undefined") {
     if (!route.startsWith("/")) {
       throw authErrorDiagnostics.AUTH_C0009({ message: `\`defineAuth()\` access.routes[${index}] must start with \`/\`.` })
@@ -193,7 +140,7 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
     return { route }
   }
 
-  const routeObject = objectLiteralBody(entry)
+  const routeObject = objectLiteral(entry && unwrapExpression(entry))
   if (typeof routeObject === "undefined") {
     throw authErrorDiagnostics.AUTH_C0010({ message: `\`defineAuth()\` access.routes[${index}] must be an inline route string or route object.` })
   }
@@ -215,30 +162,29 @@ function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRo
   return resolved
 }
 
-function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAccessRoute[] {
-  const access = objectLiteralBody(readObjectPropertyValue(body, "access"))
+function readAuthAccessRoutesConfig(body: ObjectExpression | undefined): ResolvedAuthAccessRoute[] {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
   if (!access || !hasObjectProperty(access, "routes")) return []
 
-  const routes = arrayLiteralBody(readObjectPropertyValue(access, "routes"))
-  if (typeof routes === "undefined") {
+  const routes = readObjectPropertyValue(access, "routes")
+  if (routes?.type !== "ArrayExpression") {
     throw authErrorDiagnostics.AUTH_C0012({ message: "`defineAuth()` access.routes must be an inline array." })
   }
 
-  const entries = splitEntries(routes)
-  if (entries.at(-1) === "") entries.pop()
-  return entries.map((entry, index) => readAuthAccessRoute(entry, index))
+  return routes.elements.map((entry, index) => readAuthAccessRoute(entry === null || entry.type === "SpreadElement" ? undefined : entry, index))
 }
 
-function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = false): ResolvedAuthDatabaseConfiguration {
+function readAuthDatabaseConfig(body: ObjectExpression | undefined, allowRuntimeValue = false): ResolvedAuthDatabaseConfiguration {
   if (!hasObjectProperty(body, "database")) return { mode: "default" }
 
-  const expression = readObjectPropertyValue(body, "database")?.trim()
-  if (expression === "true") return { mode: "default" }
-  if (expression === "false") {
+  const expression = readObjectPropertyValue(body, "database")
+  const flag = readStaticBooleanLiteral(expression)
+  if (flag === true) return { mode: "default" }
+  if (flag === false) {
     throw authErrorDiagnostics.AUTH_C0013({ message: "`defineAuth()` database cannot be `false`." })
   }
 
-  const database = objectLiteralBody(expression)
+  const database = objectLiteral(expression)
   if (typeof database === "undefined") {
     if (allowRuntimeValue) return { mode: "default" }
     throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
@@ -255,16 +201,17 @@ function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = fa
   }
 }
 
-function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeValue = false): false | ResolvedAuthSecondaryStorageConfiguration {
+function readAuthSecondaryStorageConfig(body: ObjectExpression | undefined, allowRuntimeValue = false): false | ResolvedAuthSecondaryStorageConfiguration {
   if (!hasObjectProperty(body, "secondaryStorage")) return false
 
-  const expression = readObjectPropertyValue(body, "secondaryStorage")?.trim()
-  if (expression === "true") return { mode: "default" }
-  if (expression === "false") {
+  const expression = readObjectPropertyValue(body, "secondaryStorage")
+  const flag = readStaticBooleanLiteral(expression)
+  if (flag === true) return { mode: "default" }
+  if (flag === false) {
     throw authErrorDiagnostics.AUTH_C0016({ message: "`defineAuth()` secondaryStorage cannot be `false`." })
   }
 
-  const secondaryStorage = objectLiteralBody(expression)
+  const secondaryStorage = objectLiteral(expression)
   if (typeof secondaryStorage === "undefined") {
     if (allowRuntimeValue) return false
     throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage must be `true` or an inline object with `store`." })

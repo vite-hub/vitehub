@@ -168,6 +168,10 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
+Workers can use `readRepairState` to inspect the assigned head and base, verified publication, installation status, and claim validity without querying GitHub. `pushRepair` returns the verified published `head` alongside `pushed: true`.
+
+`readFeedback` reads a comment, review, or inline review comment from the assigned PR's durable snapshot. Pass `kind` as `comment`, `review`, or `review-comment`, plus its `id`. Bodies arrive in pages of at most 16,000 JavaScript string characters. Continue with the returned `next.offset` and `next.version` until `complete` is true. Edits invalidate the version, and stale claims cannot read another head. Full feedback remains in the initial context in this release.
+
 The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
 
 Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
@@ -195,14 +199,26 @@ To replace the process, send SIGUSR2, wait until the drain route reports `draine
 
 Feedback that a pass assessed, or answered with a repair push, stays assessed on later heads. A later head needs a model pass only for new feedback, so a pull request whose push satisfied every finding merges without another pass. Bot issue comments count by identity, so a bot that edits its status comment does not cause a pass. Without required checks on the base branch, the newest run of every current-head check must finish before a merge. An earlier run of a rerun check is ignored.
 
+A wait is bound to the head that the pass saw. A new head clears it, and a closed pull request stops its work. The host builds the wake condition from structured check, review, base and mergeability evidence, never from the model's text. A wait does not authorize a merge. The inbox is private Babysitter state; read it through the health route.
+
 A pull request that ends `noProgressBudget` passes on one head without progress waits until its head changes or a person comments. Stack parents are claimed before other work, and a restart releases the claims of the previous process. A stacked pull request whose parent merged into the default branch is moved to the default branch.
 
 The host installs dependencies in each pass workspace before the model starts. The install gets only `PATH`, `HOME`, locale, package manager and `NODE_OPTIONS` variables, never the provider or GitHub credentials, and disables lifecycle scripts for detected installs. Custom install commands are trusted host configuration. The result is in `.git/vitehub-install.json` for the model.
 
 On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier pass with the same repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches and Node version. The host copies trees with independent writable inodes (using copy-on-write when supported), and verifies them with a frozen offline install; a failed check gets a clean install. Passes that need the same trees wait for the first install. It defaults to `BABYSITTER_INSTALL_CACHE` or `vitehub-install-cache` in the temporary directory, and keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8 entries. Set `install: { cache: false }` to disable it.
 
-When the process temporary directory is inside the service's working directory, the host removes pass workspaces left by an earlier process at startup.
+When the process temporary directory is inside the service's working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
+
+### Health and prerequisites
+
+The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+
+Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
 
 ### Token admission estimates
+
+The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+
+Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
 
 `admission.inputTokens.hourly` and `admission.inputTokens.daily` are best-effort thresholds over retained Invocation journal usage, not hard host budgets or billing caps. Health reports identify this accounting as `best-effort-retained-journal`. The host samples at most once per minute and caches the largest input-token observation per Invocation, assigned to its latest update time. Active observations are included through the journal API. Concurrent writes during pagination can be missed until a later scan; retention and host restarts can omit usage permanently. The standalone journal retains 5,000 terminal records. Read errors appear in health diagnostics and do not block admission. Use provider-side spending limits when a hard cap is required.

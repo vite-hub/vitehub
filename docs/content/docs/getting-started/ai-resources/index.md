@@ -41,7 +41,7 @@ Cursor, VS Code, Windsurf, and Codex use other commands and configuration files.
 
 ## Load a documentation index
 
-Each index lists documentation pages and links every page to its raw Markdown version.
+Each index lists documentation pages and links every page to its raw Markdown version. Raw pages, `llms-full.txt`, and the MCP server contain all the text that the site shows, plus agent-only notes: routing hints, exact commands, and mistakes that coding agents make. The site does not show these notes.
 
 | URL | Content |
 | --- | --- |

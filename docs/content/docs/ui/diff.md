@@ -11,42 +11,63 @@ The diff components are Vue adapters for Pierre's `@pierre/diffs` views. They us
 ::component-preview{name="PatchDiffExample"}
 ::
 
-## Usage
+## Installation
 
-Render a unified patch:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the components. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entries `@vite-hub/ui/patch-diff`, `@vite-hub/ui/multi-file-diff`, `@vite-hub/ui/file-diff`, and `@vite-hub/ui/unresolved-file`:
 
-```vue
-<AgentPatchDiff :patch="patch" />
+```ts
+import { FileDiff, MultiFileDiff, PatchDiff, UnresolvedFile } from "@vite-hub/ui";
 ```
 
-| Component             | Input                                   | Use it when                                          |
-| --------------------- | --------------------------------------- | ---------------------------------------------------- |
-| `AgentPatchDiff`      | A unified patch string                  | You have `git diff` output for one file.             |
-| `AgentMultiFileDiff`  | Two `FileContents` values               | You have the old and new file contents.              |
-| `AgentFileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
-| `AgentUnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
+The [helpers](#helpers) and types come from `@vite-hub/ui`.
 
-Nuxt registers every component. In Vue with Vite, import them from `@vite-hub/ui`. Syntax highlighting loads only when a code view first renders.
+## Usage
 
-## Examples
+```ts
+import { PatchDiff } from "@vite-hub/ui";
+```
 
-### Compare two files
+```vue
+<template>
+  <PatchDiff :patch="patch" />
+</template>
+```
+
+Pick the component that matches the input you have:
+
+| Component        | Input                                   | Use it when                                          |
+| ---------------- | --------------------------------------- | ---------------------------------------------------- |
+| `PatchDiff`      | A unified patch string                  | You have `git diff` output for one file.             |
+| `MultiFileDiff`  | Two `FileContents` values               | You have the old and new file contents.              |
+| `FileDiff`       | Parsed `FileDiffMetadata`               | You already parsed the patch, or hydrate partial diffs. |
+| `UnresolvedFile` | A `FileContents` with conflict markers  | You show a merge conflict with resolution controls.  |
+
+## Features
+
+- Four views: a unified patch, two file versions, a parsed diff, and a merge conflict.
+- Pierre owns parsing, syntax highlighting, selection, and rendering.
+- The theme follows Nuxt UI backgrounds, borders, radius, typography, and semantic colors.
+- Syntax highlighting loads only when a code view first renders.
+- Split and unified layouts through `options.diffStyle`.
+- `selectedLines` highlights a range from application state.
+
+## Compare Two Files
 
 Pass `null` for the missing side of an added or deleted file. Set `options.diffStyle` to `'split'` or `'unified'`.
 
 ::component-preview{name="MultiFileDiffExample"}
 ::
 
-### Parsed diffs
+## Parsed Diffs
 
 Parse a multi-file patch once with `parsePatchFiles()`, then render each file from its metadata.
 
 ::component-preview{name="FileDiffExample"}
 ::
 
-### Merge conflict
+## Merge Conflict
 
-`AgentUnresolvedFile` renders conflict markers with controls to resolve each conflict.
+`UnresolvedFile` renders conflict markers with controls to resolve each conflict.
 
 ::component-preview{name="UnresolvedFileExample"}
 ::
@@ -68,11 +89,19 @@ The default theme maps Pierre's CSS properties to Nuxt UI's `--ui-*` properties.
 
 Pass Pierre's `theme` option for different syntax token colors. Backgrounds and diff colors still follow the application theme.
 
-## API reference
+## Accessibility
 
-The diff components accept Pierre's options and annotations. See the Pierre types for the option fields.
+- ViteHub turns off pointer line selection. Set `selectedLines` to highlight a range from application state.
+- Diff views always expand unchanged lines, so no context hides behind collapsed hunks.
+- Keep Pierre's file header, or add your own heading, so readers know which file changed.
 
-### AgentPatchDiff
+## API Reference
+
+The diff components accept Pierre's options and annotations. See the Pierre types for the option fields. Other attributes go to the Pierre view.
+
+### PatchDiff
+
+Renders one file from a unified patch.
 
 #### Props
 
@@ -83,7 +112,9 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentMultiFileDiff
+### MultiFileDiff
+
+Renders the diff between an old and a new version of one file.
 
 #### Props
 
@@ -95,7 +126,9 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentFileDiff
+### FileDiff
+
+Renders one file from parsed diff metadata.
 
 #### Props
 
@@ -106,7 +139,9 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on diff lines.             |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
 
-### AgentUnresolvedFile
+### UnresolvedFile
+
+Renders a file with merge conflict markers and resolution controls.
 
 #### Props
 
@@ -116,14 +151,6 @@ The diff components accept Pierre's options and annotations. See the Pierre type
 | `options`         | `UnresolvedFileOptions`              |          | Pierre options for the conflict view.          |
 | `lineAnnotations` | `DiffLineAnnotation[]`               |          | Application content on lines.                  |
 | `selectedLines`   | `SelectedLineRange \| null`          |          | The selected line range. Controlled when set.  |
-
-Other attributes go to the Pierre view.
-
-## Accessibility
-
-- ViteHub turns off pointer line selection. Set `selectedLines` to highlight a range from application state.
-- Diff views always expand unchanged lines, so no context hides behind collapsed hunks.
-- Keep Pierre's file header, or add your own heading, so readers know which file changed.
 
 ## Related
 

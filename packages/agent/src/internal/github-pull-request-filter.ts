@@ -1,6 +1,6 @@
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext, GitHubPullRequestFilterRules } from '../channels.ts'
 
-export function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
+function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
   if (!rule) return true
   if (value === undefined) return false
   const text = String(value)

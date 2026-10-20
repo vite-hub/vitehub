@@ -218,13 +218,10 @@ export function resolveConsoleInvocationsByIdentity(
 }
 
 function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
   // SAFETY: The structural checks below validate every ConsoleInvocationsByRoot member before use.
   const registry = value as Partial<ConsoleInvocationsByRoot>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
   return typeof registry.get === "function"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
     && typeof registry.delete === "function"
     && typeof registry.set === "function"
     && Number.isInteger(registry.size)
@@ -240,11 +237,9 @@ function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined
 
 
 function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
   // SAFETY: The structural checks below validate every ConsoleSectionsByRoot member before use.
   const registry = value as Partial<ConsoleSectionsByRoot>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
   return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
     ? // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
       registry as ConsoleSectionsByRoot

@@ -81,6 +81,59 @@ function record(value: unknown): value is Record<string, unknown> {
 const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch"])
 const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
 
+type RequirementsExtension = (inherited: readonly string[]) => unknown
+
+function requirementsExtension(value: unknown): RequirementsExtension | undefined {
+  // SAFETY: Driver validation checks the list that the function returns.
+  return hasRuntimeType(value, "function") ? value as RequirementsExtension : undefined
+}
+
+// A function in `driver.requirements` receives the inherited list. An array replaces it.
+function inheritRequirements(parent: unknown, child: Record<string, unknown>): Record<string, unknown> {
+  const extend = requirementsExtension(child.requirements)
+  if (!extend) return child
+  const inherited = record(parent) ? parent.requirements : undefined
+  const inheritedExtension = requirementsExtension(inherited)
+  if (inheritedExtension) {
+    return { ...child, requirements: (list: readonly string[]) => extend(asRequirementList(inheritedExtension(list))) }
+  }
+  // Keep the function until a layer provides a list. resolveRequirements() applies it to [] at the end.
+  if (!Array.isArray(inherited)) return child
+  return { ...child, requirements: extend([...inherited]) }
+}
+
+function asRequirementList(value: unknown): readonly string[] {
+  // SAFETY: Driver validation rejects a final value that is not a list of command names.
+  return Array.isArray(value) ? value as string[] : []
+}
+
+/** Resolve a remaining `driver.requirements` function with an empty inherited list. */
+function resolveRequirements(settings: unknown): unknown {
+  if (!record(settings) || !record(settings.driver)) return settings
+  const extend = requirementsExtension(settings.driver.requirements)
+  if (!extend) return settings
+  return { ...settings, driver: { ...settings.driver, requirements: extend([]) } }
+}
+
+interface ExtensibleCapability {
+  id: string
+  extend?: unknown
+}
+
+function extensibleCapability(value: unknown): value is ExtensibleCapability {
+  return record(value) && hasRuntimeType(value.id, "string")
+}
+
+// A child Capability with `extend()` combines with the parent's Capability of the same `id`.
+function extendCapability(inherited: unknown, capability: ExtensibleCapability): unknown {
+  if (inherited === undefined || inherited === capability || !hasRuntimeType(capability.extend, "function")) return capability
+  const extended: unknown = Reflect.apply(capability.extend, capability, [inherited])
+  if (!extensibleCapability(extended) || extended.id !== capability.id) {
+    throw new TypeError(`[vitehub] Capability "${capability.id}" extend() must return a Capability with the same id.`)
+  }
+  return extended
+}
+
 function merge(parent: unknown, child: unknown, path: string): unknown {
   if (child === undefined) return parent
   if (path === "driver.instructions") {
@@ -91,6 +144,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
     if (hasRuntimeType(child, "string")) child = { kind: child }
+    if (record(child)) child = inheritRequirements(parent, child)
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
       && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
       return {
@@ -111,16 +165,25 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     }
     if (record(child) && hasRuntimeType(child.model, "object")) return child
   }
-  if (path === "workspace" && record(parent) && record(child) && (("name" in parent) !== ("name" in child))) return child
+  if (path === "workspace" && parent && child && hasRuntimeType(parent, "object") && hasRuntimeType(child, "object")
+    && !Array.isArray(parent) && !Array.isArray(child)) {
+    const parentIsReference = Object.hasOwn(parent, "name") && hasRuntimeType((parent as Record<string, unknown>).name, "string")
+    const childIsReference = Object.hasOwn(child, "name") && hasRuntimeType((child as Record<string, unknown>).name, "string")
+    if (parentIsReference !== childIsReference) return child
+    parent = { ...parent }
+    child = { ...child }
+  }
   if (opaqueOptions.has(path)) return child
   if (path === "capabilities") {
     if (!Array.isArray(parent) || !Array.isArray(child)) return child
     const capabilities = new Map<string, unknown>()
-    for (const capability of [...parent, ...child]) {
-      if (!record(capability) || !hasRuntimeType(capability.id, "string")) {
+    const inherited = new Map<string, unknown>()
+    for (const [index, capability] of [...parent, ...child].entries()) {
+      if (!extensibleCapability(capability)) {
         throw new TypeError("[vitehub] Agent layers require explicit capability definitions with stable IDs.")
       }
-      capabilities.set(capability.id, capability)
+      if (index < parent.length) inherited.set(capability.id, capability)
+      capabilities.set(capability.id, index < parent.length ? capability : extendCapability(inherited.get(capability.id), capability))
     }
     return [...capabilities.values()]
   }
@@ -150,7 +213,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
   if (!record(input)) return input
   if (!("extends" in input)) {
     if ("options" in input) throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
-    return input
+    return resolveRequirements(input)
   }
   const { extends: parent, options: presetOptions, ...overrides } = input
   if (!parent || !hasRuntimeType(parent, "object") || !layerMetadata(parent)) {
@@ -180,7 +243,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     const applicableDefaults = ownsWorkspace(settings as AgentSettings)
       ? { ...discoveryDefaults, workspace: discoveredWorkspace }
       : discoveryDefaults
-    const resolved = merge(applicableDefaults, settings, "")
+    const resolved = resolveRequirements(merge(applicableDefaults, settings, ""))
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
@@ -196,7 +259,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
-  const resolved = merge(defaults, overrides, "")
+  const resolved = resolveRequirements(merge(defaults, overrides, ""))
   if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
   inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
   // SAFETY: Resolved settings merge a registered definition with its overrides.
@@ -209,9 +272,9 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
     discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
-    "resolve", "run", "health", "status", "box", "github", "capabilities", "channels", "chat", "cli", "description",
+    "resolve", "run", "health", "status", "sandbox", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
-    "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
+    "bindings", "commit", "loaders", "plugins", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
     Symbol.for("vitehub.baseAgentDriverKind"), Symbol.for("vitehub.baseAgentDriver"),
@@ -297,7 +360,6 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   return result
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-in and plain option objects.
 function clonePresetDescriptors(source: object, target: object, memo: WeakMap<object, unknown>, active: WeakMap<object, unknown>): void {
   for (const key of Reflect.ownKeys(source)) {
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -358,7 +420,6 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
-  // doctor-disable-next-line typescript/evidence/no-object-parameters -- Each clone has its own built-in shape; this step only copies descriptors.
   const finish = (clone: object) => {
     memo.set(value, clone)
     clonePresetDescriptors(value, clone, memo, active)
@@ -468,7 +529,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
   if (input.configKey !== undefined && (!hasRuntimeType(input.configKey, "string") || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
-    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "box", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
+    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
     throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
   }
   const configKey = hasRuntimeType(input.configKey, "string") ? input.configKey : undefined

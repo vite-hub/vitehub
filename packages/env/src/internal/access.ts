@@ -6,7 +6,7 @@ import type { EnvAccessContext, EnvAccessScope, EnvActor, EnvBridge, EnvPermissi
 /** Marks the type of contexts that Env creates. The bridge trusts only the `envAccess` grant registry, not this marker. */
 export const envAccessGrant: unique symbol = Symbol("vitehub.env.access-grant");
 
-export type EnvKeyPermission = EnvPermission | "activity";
+type EnvKeyPermission = EnvPermission | "activity";
 export type EnvAuthority =
   | { readonly kind: "admin" }
   /**
@@ -30,7 +30,6 @@ const envAccess = defineGrant("vitehub.env.access", (authority: EnvAuthority): E
       : Object.freeze({ ...authority }));
 
 export function envIdentifier(value: unknown): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bridge identifiers must be primitive strings before length and control-character validation.
   if (typeof value !== "string") throw envBridgeError("invalid");
   // eslint-disable-next-line no-control-regex
   if (!value || value.length > 512 || /[\u0000-\u001f]/.test(value))

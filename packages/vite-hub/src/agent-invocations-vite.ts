@@ -45,7 +45,6 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
     async config(config) {
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, nitro?: Record<string, unknown> }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional extension value before resolving its path.
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(config.root || process.cwd())

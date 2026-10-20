@@ -12,7 +12,6 @@ import type { RealtimeDocumentStatus, RealtimeIssue, RealtimeUser } from "./type
 export const realtimeDocumentLayout = Object.freeze({ body: "body", fields: "fields", status: "status" } as const)
 
 function text(value: unknown): string | null {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Status values cross the Yjs boundary as unknown JSON.
   return typeof value === "string" ? value : null
 }
 

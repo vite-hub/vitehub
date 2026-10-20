@@ -41,12 +41,10 @@ function readEnv(name: string): string | undefined {
   // SAFETY: This provider runs in hosts where Node's process global is optional.
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
   const value = env?.[name]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment values cross an optional host boundary and require representation validation.
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime configuration accepts a string or an environment declaration at this boundary.
   if (typeof value === "string" || typeof value === "undefined") {
     return value
   }
@@ -54,7 +52,6 @@ function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined
     const resolved = readEnv(name)
     if (resolved) return resolved
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Declaration defaults cross the runtime configuration boundary as unknown values.
   return typeof value.default === "string" && value.default.trim() ? value.default.trim() : undefined
 }
 
@@ -158,7 +155,6 @@ async function createOpenWorkflowRuntime(
       // SAFETY: The discriminated storage options select the matching dynamically imported backend module.
       backend = await (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path, importer), {
         namespaceId: options.namespaceId,
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration accepts an optional external boolean.
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })
     }
@@ -166,7 +162,6 @@ async function createOpenWorkflowRuntime(
       // SAFETY: The discriminated storage options select the matching dynamically imported backend module.
       backend = await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
         namespaceId: options.namespaceId,
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider configuration accepts an optional external boolean.
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
         schema: options.schema,
       })
@@ -212,7 +207,6 @@ function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryP
     ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
     // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted interval representation.
     ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Retry limits enter through public Workflow step options and require numeric validation.
     ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
   }
 }

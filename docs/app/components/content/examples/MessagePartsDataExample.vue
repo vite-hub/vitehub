@@ -13,7 +13,7 @@ const parts = [
 </script>
 
 <template>
-  <AgentMessageParts :parts="parts">
+  <MessageParts :parts="parts">
     <template #fallback="{ part }">
       <div
         v-if="part.type === 'data-deploy'"
@@ -26,5 +26,5 @@ const parts = [
         <UBadge :label="part.data.status" color="neutral" variant="outline" />
       </div>
     </template>
-  </AgentMessageParts>
+  </MessageParts>
 </template>

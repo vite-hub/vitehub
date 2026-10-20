@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineSchedule, defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
 import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
-import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
+import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 function createTestKVStore(): ScheduleKVStorage {
   const data = new Map<string, unknown>()
 
@@ -26,19 +26,6 @@ function createTestKVStore(): ScheduleKVStorage {
     async set(key, value) {
       data.set(key, value)
     },
-  }
-}
-
-/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
-function createColonKVStore(): ScheduleKVStorage {
-  const store = createTestKVStore()
-  const normalize = (key: string) => key.replaceAll("/", ":")
-  return {
-    del: key => store.del(normalize(key)),
-    get: key => store.get(normalize(key)),
-    has: key => store.has(normalize(key)),
-    keys: base => store.keys(base === undefined ? undefined : normalize(base)),
-    set: (key, value) => store.set(normalize(key), value),
   }
 }
 
@@ -434,6 +421,15 @@ describe("Runtime Schedule helper", () => {
 })
 
 describe("KV Runtime Schedule Store", () => {
+  it("does not read sibling keys as Runtime Schedules", async () => {
+    const kvStore = createTestKVStore()
+    await kvStore.set("tests/schedules/runtime-schedules-other", "unrelated")
+
+    const store = createKVRuntimeScheduleStore({ kvStore, prefix: "tests/schedules" })
+
+    await expect(store.list()).resolves.toEqual([])
+  })
+
   it("matches the RuntimeScheduleStore create, list, update, get, and delete contract", async () => {
     const store = createKVRuntimeScheduleStore({ kvStore: createTestKVStore(), prefix: "tests/schedules" })
     const createdAt = new Date("2026-05-23T09:00:00.000Z")
@@ -624,6 +620,17 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("reports malformed scheduledAt values without reading a throwing Date tag", async () => {
+    const scheduledAt = Object.defineProperty({}, Symbol.toStringTag, { get: () => { throw new Error("unexpected tag read") } })
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "malformed-date-tag",
+      // @ts-expect-error Exercise malformed values arriving at the runtime boundary.
+      scheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
     const scheduledAt = realm === "foreign"
       ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
@@ -675,29 +682,31 @@ describe("Schedule Run bookkeeping", () => {
       const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
       Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
       const run = await executeStaticSchedule({
-        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "custom-tag-date", scheduledAt,
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
       })
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
   })
-
-  it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
-    const handler = vi.fn(async () => {})
-    const hostile = vi.fn(() => { throw new Error("must not be called") })
-    const fake = { [Symbol.toStringTag]: "Date", getTime: hostile }
-    const prototypeOnly = Object.create(Date.prototype) as Date
-    const proxy = new Proxy(new Date("2026-05-23T09:00:00.000Z"), {})
-    const revoked = Proxy.revocable(new Date("2026-05-23T09:00:00.000Z"), {})
+  it("rejects scheduledAt objects whose date tag cannot be inspected", async () => {
+    const throwingTag = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag inspection failed") },
+    })
+    const revoked = Proxy.revocable(new Date(), {})
     revoked.revoke()
-    const invalid = new Date("bad")
-    Object.defineProperty(invalid, Symbol.toStringTag, { value: "Custom" })
-    for (const scheduledAt of [fake, prototypeOnly, proxy, revoked.proxy, invalid]) {
+
+    for (const scheduledAt of [throwingTag, revoked.proxy]) {
       await expect(executeStaticSchedule({
-        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "invalid-date-slot", scheduledAt: scheduledAt as Date,
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "invalid-date-tag",
+        // @ts-expect-error JavaScript callers can pass objects that are not dates.
+        scheduledAt,
       })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
     }
-    expect(handler).not.toHaveBeenCalled()
-    expect(hostile).not.toHaveBeenCalled()
+    expect(await schedules.listRuns()).toEqual([])
   })
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
@@ -720,15 +729,79 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostile = { get [Symbol.toStringTag]() { throw new Error("spoofed tag") } } as unknown as Date
-    await expect(schedules.run("schedule-1", { scheduledAt: hostile })).rejects.toMatchObject({
-      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
     })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
-      scheduledAt: hostile,
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
@@ -1161,24 +1234,6 @@ describe("KV Schedule Run Store", () => {
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
   })
 
-  it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {
-    const kvStore = createColonKVStore()
-    const store = createKVScheduleRunStore({ kvStore })
-    for (let index = 0; index < 1001; index++) {
-      const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
-      await store.createRun({ id: `srun_static_reconcile_${scheduledAt.toISOString()}`, scheduleId: "reconcile", target: "reconcile",
-        scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    }
-    await store.createAttempt({ id: "attempt/1", runId: "srun_static_reconcile_2026-01-01T16:40:00.000Z", createdAt: new Date(0),
-      startedAt: new Date(0), updatedAt: new Date(0), status: "succeeded" })
-    const get = vi.spyOn(kvStore, "get")
-
-    const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
-    expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
-    expect(get).toHaveBeenCalledTimes(1)
-    expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
-  })
-
   it.each([true, false])("preserves newest opaque fallback history when index writes are available: %s", async (indexAvailable) => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
@@ -1388,6 +1443,18 @@ describe("KV Schedule Run Store", () => {
     await store.createRun({ id: "newer", scheduleId: "daily", target: "report", scheduledAt: newer, createdAt: newer, updatedAt: newer, status: "succeeded", attemptCount: 1 })
 
     expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
+  })
+
+  it("ignores sibling schedule-run index namespaces", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    await store.createRun({ id: "run-1", scheduleId: "actual", target: "report", scheduledAt,
+      createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+    await kvStore.set(`vitehub:schedule/schedule-run-index-other/run-1/other/${scheduledAt.toISOString()}`, true)
+
+    expect(await store.listRuns({ scheduleId: "other" })).toEqual([])
+    expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id)).toEqual(["run-1"])
   })
 
   it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {

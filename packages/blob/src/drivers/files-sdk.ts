@@ -20,8 +20,14 @@ function isNotFound(error: unknown): boolean {
   return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
 }
 
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join("")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
 function encodeFoldedCursor(value: FoldedCursor) {
-  return Buffer.from(JSON.stringify(value)).toString("base64url")
+  return encodeBase64Url(JSON.stringify(value))
 }
 
 function isNumber(value: unknown): value is number {
@@ -35,9 +41,23 @@ function isString(value: unknown): value is string {
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
-  const decoded = Buffer.from(cursor, "base64url")
-  if (decoded.toString("base64url") !== cursor) throw new TypeError("Invalid Blob cursor.")
-  const parsed: unknown = JSON.parse(decoded.toString("utf8"))
+  let decoded: string
+  try {
+    const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+    decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
+  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded)
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (

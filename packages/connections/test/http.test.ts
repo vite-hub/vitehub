@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsRuntime } from "../src/runtime.ts";
 import { createConnectionsHandler } from "../src/http.ts";
@@ -106,7 +106,7 @@ describe("createConnectionsHandler", () => {
     }, { highWaterMark: 0 });
     const response = await handler(streamedPost(body));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_INVALID" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
     expect(reads).toBe(9);
     expect(cancel).toHaveBeenCalledOnce();
     expect(runtime).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
@@ -258,7 +258,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
@@ -291,7 +291,7 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
         docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
         fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
@@ -362,7 +362,7 @@ describe("createConnectionsHandler", () => {
     const body = await response.json();
     expect(body).toEqual({
       error: {
-        code: "CONNECTION_ORIGIN_REJECTED",
+        code: "CONNECTIONS_ORIGIN_REJECTED",
         details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
         docs: "https://vitehub.dev/docs/connections/server-api#origin-checks",
         fix: expect.stringContaining("TLS-terminating proxy"),
@@ -372,13 +372,89 @@ describe("createConnectionsHandler", () => {
     expect(JSON.stringify(body)).not.toContain("Sign in");
   });
 
+  describe("behind a TLS-terminating proxy with a configured public URL", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      ["one origin", { url: "https://agent.example.com" }],
+      ["an origin per Agent", { agents: { bot: "https://agent.example.com", "bot-dev": "https://agent-dev.example.com" } }],
+    ])("builds the OAuth callback from the public URL (%s)", async (_form, config) => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", config);
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      // The proxy terminates TLS, so the server sees http:// for the public host.
+      const start = await handler(new Request("http://agent.example.com/_vitehub/connections/connect/mail"));
+      expect(start.status).toBe(302);
+      const location = new URL(start.headers.get("location")!);
+      expect(location.searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      expect(start.headers.get("set-cookie")).toContain("; Secure");
+    });
+
+    it("accepts the browser Origin of the public URL", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://agent.example.com" });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const request = (origin: string) => new Request("http://agent.example.com/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin },
+        method: "POST",
+      });
+      expect((await handler(request("https://agent.example.com"))).status).toBe(200);
+      // The origin that the server sees stays valid, for example through a port forward.
+      expect((await handler(request("http://agent.example.com"))).status).toBe(200);
+      const rejected = await handler(request("https://attacker.example.com"));
+      expect(rejected.status).toBe(403);
+      expect(await rejected.json()).toMatchObject({
+        error: { code: "CONNECTIONS_ORIGIN_REJECTED", details: { expectedOrigin: "https://agent.example.com" } },
+      });
+    });
+
+    it("uses the configured Agent URL and rejects an alternate request host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ agentName: "bot", actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+      const request = new Request("http://attacker.example/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "http://attacker.example" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(403);
+    });
+
+    it("uses the only configured Agent URL behind an internal host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("http://internal:3000/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://agent.example.com/_vitehub/connections/callback");
+    });
+
+    it("keeps request-origin behavior for an alternate public host", async () => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { bot: "https://agent.example.com" } });
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:ada", runtime: () => test.runtime });
+      const start = await handler(new Request("https://alternate.example.com/_vitehub/connections/connect/mail"));
+      expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe("https://alternate.example.com/_vitehub/connections/callback");
+      const request = new Request("https://alternate.example.com/_vitehub/connections", {
+        body: JSON.stringify({ action: "list" }),
+        headers: { "content-type": "application/json", origin: "https://alternate.example.com" },
+        method: "POST",
+      });
+      expect((await handler(request)).status).toBe(200);
+    });
+  });
+
   it("gives non-JSON requests their own code", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime });
     const response = await handler(post({ action: "list" }, { "content-type": "text/plain" }));
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
-      error: { code: "CONNECTION_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
+      error: { code: "CONNECTIONS_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
     });
   });
 
@@ -390,7 +466,7 @@ describe("createConnectionsHandler", () => {
     });
     const response = await handler(post({ action: "inspect", name: "missing" }));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_INVALID" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
     expect((await handler(post({ action: "approve", id: "approval_missing" }))).status).toBe(400);
   });
 
@@ -528,7 +604,7 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain('role="alert"');
       expect(html).toContain("<h1>Connection cancelled</h1>");
       expect(html).toContain("Connect again and approve the access that the Connection asks for.");
-      expect(html).toContain("CONNECTION_AUTHORIZATION_CANCELLED · 400");
+      expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
       expect(html).toContain('href="https://vitehub.dev/docs/connections/server-api#management-routes"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
       // A failure waits for the user and never shows the provider's free text.
@@ -548,7 +624,7 @@ describe("createConnectionsHandler", () => {
       const mismatch = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=state`));
       expect(mismatch.status).toBe(400);
       const html = await mismatch.text();
-      expect(html).toContain("CONNECTION_STATE_MISMATCH · 400");
+      expect(html).toContain("CONNECTIONS_STATE_MISMATCH · 400");
       expect(html).toContain("Start the connection again in this browser.");
     });
 
@@ -560,7 +636,7 @@ describe("createConnectionsHandler", () => {
       expect(response.status).toBe(400);
       const html = await response.text();
       expect(html).toContain("The authorization request is unknown or expired. Start the connection again.");
-      expect(html).toContain("CONNECTION_INVALID · 400");
+      expect(html).toContain("CONNECTIONS_INVALID_REQUEST · 400");
     });
   });
 });
