@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createDriver as createCloudflareDriver } from "../src/drivers/cloudflare.ts"
+import { createDriver as createNativeCloudflareDriver } from "../src/drivers/cloudflare-native.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
 const awsMock = vi.hoisted(() => ({
@@ -132,6 +133,52 @@ describe("signed Blob requests", () => {
       config: Record<string, unknown>
     }
     expect(client.config.requestChecksumCalculation).toBe("WHEN_REQUIRED")
+  })
+
+  it("signs on the default R2 host without a jurisdiction", async () => {
+    const [error] = await createR2Storage().sign("source.mp3", { expiresIn: 60, method: "GET" })
+
+    expect(error).toBeNull()
+    const client = awsMock.getSignedUrl.mock.calls.at(-1)?.[0] as { config: Record<string, unknown> }
+    expect(client.config.endpoint).toBe("https://account.r2.cloudflarestorage.com")
+  })
+
+  it("signs on the jurisdiction R2 host", async () => {
+    const storage = createBlobStorage(createCloudflareDriver({
+      accountId: "account",
+      accessKeyId: "access-key",
+      binding: "BLOB",
+      bucketName: "private-audio",
+      driver: "cloudflare-r2",
+      jurisdiction: "eu",
+      secretAccessKey: "secret-key",
+    }))
+
+    const [error] = await storage.sign("source.mp3", { expiresIn: 60, method: "GET" })
+
+    expect(error).toBeNull()
+    const client = awsMock.getSignedUrl.mock.calls.at(-1)?.[0] as { config: Record<string, unknown> }
+    expect(client.config.endpoint).toBe("https://account.eu.r2.cloudflarestorage.com")
+  })
+
+  it("signs on the jurisdiction R2 host with the Worker driver", async () => {
+    const storage = createBlobStorage(createNativeCloudflareDriver({
+      accountId: "account",
+      accessKeyId: "access-key",
+      binding: "BLOB",
+      bucketName: "private-audio",
+      driver: "cloudflare-r2",
+      jurisdiction: "eu",
+      secretAccessKey: "secret-key",
+    }))
+
+    const [error, signed] = await storage.sign("source.mp3", { expiresIn: 60, method: "GET" })
+
+    expect(error).toBeNull()
+    const url = new URL(signed!.url)
+    expect(url.hostname).toBe("account.eu.r2.cloudflarestorage.com")
+    expect(url.pathname).toBe("/private-audio/source.mp3")
+    expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy()
   })
 
   it("requires R2 HTTP credentials even when CRUD uses a binding", async () => {
