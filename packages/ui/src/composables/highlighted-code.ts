@@ -39,7 +39,7 @@ function loadHighlighter(): Promise<HighlighterCore> {
 
 // Strip CSI and OSC terminal control sequences from plain ANSI fallback text.
 // eslint-disable-next-line no-control-regex
-const ansiEscapes = /(?:\u001B\](?:[^\u0007\u001B]|\u001B(?!\\))*(?:\u0007|\u001B\\)|\u001B\[[0-?]*[ -/]*[@-~])/g;
+const ansiEscapes = /(?:\u001B\]|\u009D)(?:[^\u0007\u001B\u009C]|\u001B(?!\\))*?(?:\u0007|\u001B\\|\u009C)|(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]|\u0090[^\u009C\u001B]*(?:\u001B\\|\u009C)/g;
 
 function plainLines(code: string, language: string): VNode[] {
   const text = language.toLowerCase() === "ansi" ? code.replace(ansiEscapes, "") : code;
@@ -70,7 +70,7 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (source !== toValue(code)) return;
+    if (source !== toValue(code) || requested !== toValue(language).toLowerCase()) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

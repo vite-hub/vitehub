@@ -30,6 +30,7 @@ export const PromptInput = defineComponent({
   inheritAttrs: false,
   props: {
     accept: { type: String },
+    attachments: { default: true, type: Boolean },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
     modelValue: { default: "", type: String },
@@ -82,7 +83,7 @@ export const PromptInput = defineComponent({
     };
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;
-      if (!clipboard) return;
+      if (!props.attachments || !clipboard) return;
       const hasText = clipboard.getData("text/plain").length > 0;
       const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/") || !hasText);
       if (files.length === 0) return;
@@ -136,7 +137,7 @@ export const PromptInput = defineComponent({
             value: props.modelValue,
           }),
           h("div", { "data-slot": "prompt-input-toolbar" }, [
-            h("input", {
+            props.attachments && h("input", {
               accept: props.accept,
               "aria-label": "Add attachment",
               class: "vh-visually-hidden",
@@ -152,7 +153,7 @@ export const PromptInput = defineComponent({
               type: "file",
             }),
             slots.actions?.() ??
-              h(UButton, {
+              (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
                 class: "rounded-full",
                 color: "neutral",
@@ -162,7 +163,7 @@ export const PromptInput = defineComponent({
                 square: true,
                 type: "button",
                 variant: "outline",
-              }),
+              })),
             slots["footer-leading"]?.(),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
