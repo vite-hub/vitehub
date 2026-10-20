@@ -16,8 +16,6 @@ import {
 
 definePageMeta({
   layout: "docs",
-  // The docs layout renders the site footer inside its content column.
-  footer: false,
 });
 
 const route = useRoute();
@@ -34,9 +32,6 @@ if (!routeState.page || !rawDoc.value) {
 const { page } = useDocsPage(routeState.sourcePath, rawDoc, getDocsPageFallback(routeState.page));
 
 const isReferencePage = computed(() => route.path.replace(/\/+$/, "") === "/docs/reference");
-const isSupportMatrix = computed(
-  () => route.path.replace(/\/+$/, "") === "/docs/frameworks-hosts/support-matrix",
-);
 // A product Overview is a landing page with a hero and page cards beside the shared navigation.
 const landingSection = computed(() =>
   isDocsLandingPath(docsManifest.sections, route.path)
@@ -49,9 +44,7 @@ const isTutorialPage = computed(
 </script>
 
 <template>
-  <SupportMatrix v-if="page && isSupportMatrix" />
-
-  <DocsProductLanding v-else-if="page && landingSection" :page="page" :section="landingSection" />
+  <DocsProductLanding v-if="page && landingSection" :page="page" :section="landingSection" />
 
   <!-- Remount numbered steps when navigating between tutorials. -->
   <DocsTutorial v-else-if="page && isTutorialPage" :key="page.path" :page="page" />

@@ -48,8 +48,10 @@ function plainLines(code: string): VNode[] {
  */
 export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: MaybeRefOrGetter<string>): ShallowRef<VNode[]> {
   const lines = shallowRef(plainLines(toValue(code)));
+  let requestId = 0;
 
   async function highlight() {
+    const currentRequest = ++requestId;
     const source = toValue(code);
     const requested = toValue(language).toLowerCase();
     const lang = aliases[requested] ?? requested;
@@ -58,14 +60,17 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       return;
     }
     const instance = await loadHighlighter();
-    if (lang !== "ansi" && !instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage((await languages[lang]!()).default);
+    if (!instance.getLoadedLanguages().includes(lang)) {
+      if (lang === "ansi") await instance.loadLanguage({ name: "ansi", scopeName: "source.ansi", patterns: [] });
+      else await instance.loadLanguage((await languages[lang]!()).default);
+    }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
     const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
       defaultColor: false,
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (source !== toValue(code)) return;
+    if (currentRequest !== requestId || source !== toValue(code) || requested !== toValue(language).toLowerCase()) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

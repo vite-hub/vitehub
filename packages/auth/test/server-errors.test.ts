@@ -1,5 +1,9 @@
+import { runInNewContext } from "node:vm"
+import { Window } from "happy-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
+import { H3 } from "h3"
+import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
@@ -30,6 +34,74 @@ describe("server authentication provider boundaries", () => {
       api: { getSession: providerMocks.getSession },
       handler: providerMocks.handler,
     })
+  })
+
+  it.each(["withAuth", "withAuthorization"] as const)("runs a foreign handler through %s after checking the session", async (wrapper) => {
+    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization) => string
+    const guarded = wrapper === "withAuth"
+      ? withAuth(handler, definition)
+      : withAuthorization(true, handler, definition)
+
+    providerMocks.getSession.mockResolvedValue(null)
+    await expect(guarded(request)).resolves.toMatchObject({ status: 401 })
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("user-1")
+  })
+
+  it("runs a foreign authorization callback and enforces its verdict", async () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (authorization: AuthAuthorization) => boolean
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("protected")
+
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).toHaveBeenCalledOnce()
+  })
+
+  it("preserves a foreign custom authorization response", async () => {
+    const denied = runInNewContext(`(() => {
+      class ForeignResponse extends Response {}
+      return new ForeignResponse(null, { status: 404 })
+    })()`, { Response }) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toBe(denied)
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
+  it("rejects forged response prototypes", async () => {
+    const denied = runInNewContext(`(() => {
+      const prototype = {
+        constructor: { name: "Response" },
+        get status() { return 404 },
+        get statusText() { return "Not Found" },
+        get headers() { return new Headers() },
+        get body() { return null },
+      }
+      return Object.create(prototype)
+    })()`, { Headers }) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
+  it("rejects spoofed authorization responses", async () => {
+    const denied = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 404,
+    })`) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -124,6 +196,176 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockRejectedValueOnce(providerError)
 
     await expect(handleAuthRequest(definition, request)).rejects.toBe(providerError)
+  })
+
+  it("keeps a cross-realm Request as the Better Auth input", async () => {
+    const window = new Window()
+    try {
+      const foreignRequest = new window.Request("https://example.com/api/private", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "foreign body" }),
+      })
+      expect(foreignRequest instanceof Request).toBe(false)
+      const response = new Response("ok")
+      providerMocks.handler.mockImplementationOnce(async (input: Request) => {
+        expect(input).toBe(foreignRequest)
+        expect(input.bodyUsed).toBe(false)
+        await expect(input.clone().json()).resolves.toEqual({ message: "foreign body" })
+        expect(input.bodyUsed).toBe(false)
+        await expect(input.json()).resolves.toEqual({ message: "foreign body" })
+        return response
+      })
+
+      await expect(handleAuthRequest(definition, foreignRequest as unknown as Request)).resolves.toBe(response)
+    }
+    finally {
+      await window.happyDOM.close()
+    }
+  })
+
+  it("normalizes a method-bearing Request-named spoof", async () => {
+    const spoofedRequest = runInNewContext(`new (class Request {
+      get body() { return null }
+      get bodyUsed() { return false }
+      get headers() { return { get() { return null } } }
+      get method() { return "GET" }
+      get signal() { return undefined }
+      get url() { return "https://example.com/api/private" }
+      // Return a tagged clone so the authenticity check must reject the
+      // caller-controlled Request constructor itself, rather than relying on
+      // the clone shape to reject this spoof.
+      clone() { return new this.constructor() }
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+      blob() { return Promise.resolve(new Blob()) }
+      formData() { return Promise.resolve(new FormData()) }
+      json() { return Promise.resolve({}) }
+      text() { return Promise.resolve("") }
+      get [Symbol.toStringTag]() { return "Request" }
+      static marker = "[native code]"
+    })()`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
+  })
+
+  it("normalizes a complete structural Request spoof", async () => {
+    const spoofedRequest = runInNewContext(`({
+      url: "https://example.com/api/private",
+      method: "GET",
+      body: null,
+      bodyUsed: false,
+      headers: {
+        get() { return null },
+        has() { return false },
+        set() {},
+        append() {},
+        delete() {},
+        entries() { return [][Symbol.iterator]() },
+        forEach() {},
+        constructor: { name: "Headers" },
+        get [Symbol.toStringTag]() { return "Headers" },
+      },
+      signal: { aborted: false, constructor: { name: "AbortSignal" }, get [Symbol.toStringTag]() { return "AbortSignal" } },
+      clone() { return this },
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+      blob() { return Promise.resolve(new Blob()) },
+      formData() { return Promise.resolve(new FormData()) },
+      json() { return Promise.resolve({}) },
+      text() { return Promise.resolve("") },
+      get [Symbol.toStringTag]() { return "Request" },
+    })`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
+  })
+
+  it("normalizes a Request spoof with an intermediate prototype", async () => {
+    const spoofedRequest = runInNewContext(`(() => {
+      class Request {
+        get body() { return null }
+        get bodyUsed() { return false }
+        get headers() { return { get() { return null } } }
+        get method() { return "GET" }
+        get signal() { return undefined }
+        get url() { return "https://example.com/api/private" }
+        clone() { return Object.create(Object.getPrototypeOf(this)) }
+        arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+        blob() { return Promise.resolve(new Blob()) }
+        formData() { return Promise.resolve(new FormData()) }
+        json() { return Promise.resolve({}) }
+        text() { return Promise.resolve("") }
+        get [Symbol.toStringTag]() { return "Request" }
+      }
+      const intermediate = Object.create(Request.prototype)
+      Object.defineProperty(intermediate, "constructor", { value: Request })
+      return Object.create(intermediate)
+    })()`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
+  })
+
+  it("normalizes a Request spoof with the previously accepted prototype topology", async () => {
+    const spoofedRequest = runInNewContext(`(() => {
+      class Body {
+        get body() { return null }
+        get bodyUsed() { return false }
+        get headers() { return { get() { return null } } }
+        get method() { return "GET" }
+        get signal() { return undefined }
+        get url() { return "https://example.com/api/private" }
+        clone() { return new this.constructor() }
+        arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
+        blob() { return Promise.resolve(new Blob()) }
+        formData() { return Promise.resolve(new FormData()) }
+        json() { return Promise.resolve({}) }
+        text() { return Promise.resolve("") }
+        get [Symbol.toStringTag]() { return "Request" }
+      }
+      class Request extends Body {}
+      return new Request()
+    })()`)
+    providerMocks.handler.mockImplementationOnce((input: Request) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return new Response("ok")
+    })
+
+    await handleAuthRequest(definition, spoofedRequest as never)
+  })
+
+  it("preserves an independent Request with accessors on its immediate prototype without cloning it", async () => {
+    const foreignRequest = new ForeignRequest("https://example.com/api/private", {
+      method: "POST",
+      body: "foreign body",
+    })
+    expect(foreignRequest instanceof Request).toBe(false)
+    const clone = vi.spyOn(foreignRequest, "clone")
+    providerMocks.handler.mockImplementationOnce(async (input: Request) => {
+      expect(input).toBe(foreignRequest)
+      expect(clone).not.toHaveBeenCalled()
+      expect(input.bodyUsed).toBe(false)
+      await expect(input.text()).resolves.toBe("foreign body")
+      return new Response("ok")
+    })
+
+    await handleAuthRequest(definition, foreignRequest as unknown as Request)
   })
 
   it("does not unwrap an inherited host request property", async () => {
@@ -311,6 +553,19 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAuthorization(() => denied, protectedAction, definition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("normalizes a genuine foreign runtime authorization response", async () => {
+      const denied = new ForeignResponse("Not your photo", { status: 404 })
+      expect(denied).not.toBeInstanceOf(Response)
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      const response = await withAuthorization(() => denied as never, protectedAction, definition)(request)
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) throw new Error("Expected an authorization Response")
+      expect(response.status).toBe(404)
+      await expect(response.text()).resolves.toBe("Not your photo")
       expect(protectedAction).not.toHaveBeenCalled()
     })
 

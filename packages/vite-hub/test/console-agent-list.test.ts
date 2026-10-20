@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
+  resolveConsoleAgentCatalog,
   resolveConsoleAgentRows,
 } from "../src/console/runtime/components/console-agent-list.ts"
 
@@ -57,5 +58,17 @@ describe("console Agent list", () => {
     }
     expect(readConsoleAgentListOpen(blocked)).toBe(true)
     expect(() => rememberConsoleAgentListOpen(false, blocked)).not.toThrow()
+  })
+
+  it("keeps names from invocation history out of the registered Agents", () => {
+    expect(resolveConsoleAgentCatalog({
+      agents: ["support", "review", "support", " ", 3],
+      invocationAgents: ["nightly-digest", "support", "", null, "nightly-digest"],
+    })).toEqual({ agents: ["support", "review"], historicalAgents: ["nightly-digest"] })
+  })
+
+  it("reads a response without invocation history", () => {
+    expect(resolveConsoleAgentCatalog({ agents: ["support"] })).toEqual({ agents: ["support"], historicalAgents: [] })
+    expect(resolveConsoleAgentCatalog(undefined)).toEqual({ agents: [], historicalAgents: [] })
   })
 })

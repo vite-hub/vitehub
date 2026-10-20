@@ -2,7 +2,7 @@
 title: Build your first UI view
 description: Render a local question and reply with Chat in a Nuxt application.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 navigation.group: Start
 icon: i-lucide-rocket

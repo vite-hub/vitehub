@@ -64,13 +64,19 @@ corepack pnpm --dir packages/vite-hub run test
 
 For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
 
-For one regression, build first, then run from the package directory so Vitest uses its package config:
+The package `typecheck` script builds the package and its workspace dependencies first. It works from a fresh install without a manual build:
 
 ```sh
-corepack pnpm exec vp run -t vite-hub#build
-corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
 corepack pnpm --dir packages/vite-hub run typecheck
 ```
+
+For one regression, build the package and its dependencies, then run Vitest from the package directory so it uses the package config:
+
+```sh
+corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
+```
+
+With `--cache`, Vite+ replays package builds whose inputs did not change, so a repeat build takes about one second. Root Vitest runs only root contracts. If you give it a package test path, it stops and shows these commands. `vp check --no-fmt` is the CI lint gate. It needs no build, but it does not run TypeScript checks.
 
 Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and use the matching directory. Use the Vite+ target build for dependency builds; `run-package-task.mjs build --packages` builds only the selected packages. The root `build` task builds every package in dependency order and caches each package build by the files it reads, so it rebuilds only packages whose inputs changed. `--no-cache` does not reach its nested run; run `corepack pnpm exec vp cache clean` first to force a full rebuild. Add the following checks only when their behavior is affected:
 
@@ -117,11 +123,35 @@ Keep changes small. Use existing code or a suitable library before building infr
 
 ViteHub is in active development. Breaking changes and removal of unused compatibility are welcome when they clarify the final contract. Use Better Auth as a composition reference and UnJS for host-independent behavior. Document public behavior in `docs/content/docs/` and the affected package README.
 
+### Errors
+
+Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result`, `ResultError`, and `defineErrors()`.
+
+1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
+2. Definition and config errors throw, at build time, at define time, or when an operation starts.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
+5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+
 ### Documentation structure
 
 `docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview, rendered as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail; give a new section its rail icon in `docs/app/utils/docs-sidebar-icons.ts`, from the `@vite-hub/ui/primitive-rail` icon family. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.
 
+### Content for agents
 
+Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and through the docs MCP server. They get everything a human sees, plus agent-only blocks:
+
+```md
+::agent-only
+Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+::
+```
+
+The site renders nothing for `::agent-only`. Use it only for content that helps a coding agent and distracts a human: CLI or code equivalents of Console or UI steps, host-specific mistakes that agents make, and internals that an agent needs to debug a failure. Add a block when a real agent run or the agent docs eval shows the failure, not before. Put full option lists, edge cases, and long examples in visible content, such as `::collapsible` or a reference page, so that humans review them too. Agents get `::collapsible` content inline.
+
+A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
+
+Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
 
 ## Downstream patch loop
 

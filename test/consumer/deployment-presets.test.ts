@@ -13,7 +13,7 @@ import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vi
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
 
-import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/provider-output.ts"
+import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 
 const execFile = promisify(execFileCallback)
 
@@ -218,7 +218,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
           kv: false,
           queue: true,
           rateLimit: true,
-          sandbox: true,
+          sandboxTask: true,
           workflow: false,
           workspace: false,
         }),

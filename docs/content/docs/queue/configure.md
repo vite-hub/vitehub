@@ -2,7 +2,7 @@
 title: Queue configuration
 description: Configure the Queue Vite Integration, Queue Providers, generated names, and Queue Definitions.
 navigation.title: Configure
-navigation.order: 4
+navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
@@ -47,7 +47,7 @@ Disables runtime queue dispatch and skips generated Vercel queue consumer functi
 | Provider | Configure with | Generated output | Notes |
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
-| Vercel | `queue: { provider: 'vercel', region?: string }` | `.vercel/output` queue consumer functions with Vercel queue triggers. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
+| Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
 
 ViteHub has no Queue Provider for local delivery, Deno, or self-hosted Node. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
 

@@ -144,7 +144,7 @@ function skipBlockComment(source: string, index: number) {
 }
 
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\p{ID_Continue}$]/u.test(char)
+  return !!char && /[\p{ID_Continue}$\u200C\u200D]/u.test(char)
 }
 
 function isIdentifierStart(char: string | undefined) {
@@ -757,17 +757,47 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
   }
 }
 
-function isMethodDeclarationName(source: string, index: number, closeParen: number) {
+function isMethodDeclarationName(source: string, index: number, closeParen: number, controlFlowRegexes: ControlFlowRegexCache) {
   const previous = previousNonWhitespace(source, index)
-  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
+  const afterClose = skipWhitespaceAndComments(source, closeParen + 1)
+  if (source[afterClose] === "{") return previous !== "(" && previous !== "=" && previous !== "," && previous !== ":"
+  // TypeScript interface/type-literal members use a return-type annotation
+  // instead of a method body: `defineThing(value: Value): Result`.
+  if (source[afterClose] !== ":") return false
+  // A switch case expression can also be followed by a colon. It is an
+  // executable call, rather than a type-member return annotation.
+  const prefix = maskSourceLiteralsWithContext(source.slice(0, index), controlFlowRegexes)
+  // Conditional expressions inside a case clause may contain colons before
+  // the call (`case ready ? fallback : defineThing():`). Use statement/block
+  // boundaries here so those expression colons do not hide the `case` token.
+  const boundary = Math.max(prefix.lastIndexOf(";"), prefix.lastIndexOf("{"), prefix.lastIndexOf("}"))
+  if (/\bcase\b[\s\S]*$/u.test(prefix.slice(boundary + 1))) return false
+  let cursor = afterClose + 1
+  const depths = { "{": 0, "[": 0, "<": 0 }
+  for (; cursor < source.length; cursor++) {
+    const char = source[cursor]
+    if (char === "{") depths["{"]++
+    else if (char === "}") {
+      if (depths["{"] > 0) depths["{"]--
+      else break
+    } else if (char === "[") depths["["]++
+    else if (char === "]") depths["["] = Math.max(0, depths["["] - 1)
+    else if (char === "<") depths["<"]++
+    else if (char === ">") depths["<"] = Math.max(0, depths["<"] - 1)
+    else if (!depths["{"] && !depths["["] && !depths["<"] && (char === ";" || char === "," || isLineTerminator(char))) break
+  }
+  const typedSignature = cursor < source.length && (source[cursor] === ";" || source[cursor] === "," || source[cursor] === "}" || isLineTerminator(source[cursor]))
+  return typedSignature
     && previous !== "("
     && previous !== "="
     && previous !== ","
     && previous !== ":"
+    && previous !== "?"
 }
 
 function isMemberAccessName(source: string, index: number) {
-  return previousNonWhitespace(source, index) === "."
+  const previous = previousNonWhitespace(source, index)
+  return previous === "." || previous === "#"
 }
 
 function findMatchingWithContext(source: string, index: number, open: string, close: string, controlFlowRegexes: ControlFlowRegexCache): number | undefined {
@@ -1113,7 +1143,7 @@ function findIdentifierCallsWithContext(source: string, name: string, controlFlo
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
-    if (isMethodDeclarationName(source, index, closeParen)) {
+    if (isMethodDeclarationName(source, index, closeParen, controlFlowRegexes)) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }

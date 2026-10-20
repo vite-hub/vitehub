@@ -10,9 +10,9 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineConnection`, `oauth2`, `apiKey`, `useConnection` from `vite-hub/connections` | Define a Connection, use a generic OAuth 2 or API key provider, and call a Connection from server code. |
-| `google`, `gmail`, `gmailOperations` from `vite-hub/connections/google` | Google OAuth preset and typed Gmail REST Operations. |
-| `createConnectionsRuntime`, `useConnectionsRuntime` from `vite-hub/connections/server` | Runtime access for hosts and tests. |
+| `defineConnection`, `apiKey`, `oauthLogin` from `vite-hub/connections` | Define a Connection or a [keyed Connection](/docs/connections/configure#keyed-connections), and use an API key provider or an [OAuth login provider](/docs/connections/configure#oauth-login-connections). |
+| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods. |
+| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code, and runtime access for hosts and tests. |
 | `createConnectionsHandler` from `vite-hub/connections/http` | Management, connect, and callback routes. The Console mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 
@@ -24,15 +24,26 @@ Each route checks access itself before it reads or changes a Connection. With th
 
 | Console access | Check | Manager |
 | --- | --- | --- |
-| Console Auth | The Console Auth session and its `authorize` callback. | The signed-in user. |
-| `access: 'auth'` with an Auth Definition | The app Auth access routes that protect the Console. | The signed-in user. |
-| Cloudflare Access | The Cloudflare Access token. | `user:cloudflare-access` |
-| `exposure: 'host-managed'` | The host `console.authorize` function. | `user:host-managed` |
-| `console: true` | Development server only. | `user:local` |
+| `auth: { ... }` (Console Auth) | The Console Auth session and its `authorize` callback. | The signed-in user. |
+| `auth: 'app'` | The app Auth session and the access routes that protect the Console. | The signed-in user. |
+| `auth: { provider: 'cloudflare-access' }` | The Cloudflare Access token. | `user:cloudflare-access` |
+| `auth: false` | No sign-in. | `user:open` |
 
-A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, or `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
+`console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
+
+A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
 
 The OAuth callback is reached by a redirect from the provider. It completes the flow only for the browser that started it (the `state` cookie) and for the same manager. The `state` works one time only and expires after 10 minutes. A `state` from another manager returns `403`.
+
+Add `?return=/path` to the connect route to name the page to return to, for example `/_vitehub/connections/connect/google?return=/settings`. Only a same-origin path is kept. The callback shows a result page in light or dark mode. After a success, it returns to that page after two seconds and shows a **Back to Connections** link. A failure shows the error code, the fix, a docs link, and the same link, and it does not return by itself. Without `return`, a success asks the user to close the tab.
+
+The action route takes only `POST`, so a `GET` of `/_vitehub/connections` reaches the Console Connections page.
+
+### Origin checks
+
+The `POST` action route accepts only `application/json` requests from the app origin. It compares the browser `Origin` header with the public origin from `vitehub({ publicUrl })` and with the origin of the request URL that the server sees. A different origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request without a JSON content type returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
+
+Behind a TLS-terminating proxy, the server can see `http://` while the browser sends an `https://` origin. Set `vitehub({ publicUrl })` to the public origin. The connect route then builds the OAuth `redirectUri` from that origin and marks its cookies `Secure` for `https://`. Without `publicUrl`, both routes use the request URL, so the server must trust `X-Forwarded-Proto` and `X-Forwarded-Host`.
 
 ## Calls
 
@@ -42,7 +53,7 @@ The OAuth callback is reached by a redirect from the provider. It completes the 
 | --- | --- |
 | `call(operation, input)` | Runs a typed Operation. An Operation has an `id`, an `effect` (`read` or `write`), and a `request(input)` builder. |
 | `fetch(url, init)` | Sends a request with the access token. `GET` and `HEAD` are reads with the id `fetch.get` or `fetch.head`. Other methods are writes. |
-| `status()` | Returns the Connection summary without tokens. |
+| `status()` | Resolves the Connection status, for example `'connected'`. It never rejects: a Connection that cannot be inspected, for example because the store cannot open, is `'disconnected'`. |
 
 Each call checks access, gets a valid access token, and sends the request. ViteHub refreshes the token 60 seconds before it expires. When the provider returns `401`, ViteHub refreshes once and retries once. When the provider rejects the refresh token, the status changes to `needs-reconnect`.
 
@@ -51,7 +62,7 @@ Options:
 | Option | Default | Description |
 | --- | --- | --- |
 | `event` | None | The request event. The route becomes the actor, for example `GET /api/labels`. |
-| `actor` | Route from `event`, else `{ id: 'server', kind: 'service' }` | The actor for access rules and activity. An `agent:` actor fails with `CONNECTION_INVALID`: Agent actors come only from the ViteHub Agent runtime, through the Connection capabilities of the Agent. |
+| `actor` | Route from `event`, else `{ id: 'server', kind: 'service' }` | The actor for access rules and activity. An `agent:` actor fails with `CONNECTIONS_INVALID_ACTOR`: Agent actors come only from the ViteHub Agent runtime, through the Connection capabilities of the Agent. |
 | `dryRun` | `false` | Write Operations return `{ skipped: 'dry-run', operation }` and do not call the provider. `fetch` returns `204` with the `x-vitehub-connection-skipped` header. |
 | `audit` | `'changes'` | `'changes'` records writes, denials, skipped calls, and failures. `'all'` also records reads. |
 | `signal` | None | Cancels token refresh, refresh-lease waits, and the Operation request, including its response body. |

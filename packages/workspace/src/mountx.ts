@@ -86,9 +86,8 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
     async hasItem(key: string) {
       return assertProjectableEntry(await findEntry(session, keyToPath(key)))?.type === "file"
     },
-    ...(readOnly
-      ? {}
-      : {
+    ...(!readOnly
+      ? {
           async removeItem(key: string) {
             await session.rm(keyToPath(key), { force: true })
           },
@@ -103,7 +102,8 @@ function createWorkspaceStorage(session: WorkspaceSession, readOnly: boolean) {
               metadata: entry?.metadata,
             })
           },
-        }),
+        }
+      : undefined),
   }
 
   return storage as unknown as Parameters<typeof createUnstorageDriver>[0]

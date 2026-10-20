@@ -17,7 +17,7 @@ or provider SDKs.
 
 | Framework | Register | Guide |
 | --- | --- | --- |
-| Vite | `vitehub()` from `vite-hub` and `nitro()` from `nitro/vite` | [Installation](/docs/getting-started/installation) |
+| Vite | `vitehub()` from `vite-hub`. It includes Nitro's Vite plugin. | [Installation](/docs/getting-started/installation) |
 | Nuxt | The `vite-hub/nuxt` module | [Nuxt](/docs/frameworks-hosts/nuxt) |
 
 Both integrations use Nitro to build the server output.

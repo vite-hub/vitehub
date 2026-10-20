@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 3600ms; --scene-delay: -396ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.job,
+.command,
+.budget {
+  opacity: 0.55;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.q-worker,
+.sch-ring,
+.mail-unread {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.q-belt { animation-name: q-belt; }
+.q-in { animation-name: q-in; }
+.q-out { animation-name: q-out; }
+.q-worker { animation-name: q-worker; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes q-belt {
+  0%, 20% { transform: translateX(0); }
+  60%, 99.9% { transform: translateX(12px); }
+  100% { transform: translateX(0); }
+}
+@keyframes q-in {
+  0%, 20% { opacity: 0; }
+  55%, 99.9% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+@keyframes q-out {
+  0%, 32% { opacity: 0.55; }
+  58%, 99.9% { opacity: 0; }
+  100% { opacity: 0.55; }
+}
+@keyframes q-worker {
+  0%, 52% { opacity: 0.35; transform: scale(1); }
+  62% { opacity: 0.85; transform: scale(1.15); }
+  80% { opacity: 0.85; transform: scale(1); }
+  96%, 100% { opacity: 0.35; transform: scale(1); }
+}
+</style>
+      <path d="M6 20h40" class="line" />
+      <rect x="46" y="13" width="12" height="14" rx="2" class="line" />
+      <rect x="49" y="17" width="6" height="6" rx="1" class="soft a q-worker" />
+      <g class="a q-belt">
+        <circle cx="2" cy="20" r="3" class="job a q-in" />
+        <circle cx="14" cy="20" r="3" class="job" />
+        <circle cx="26" cy="20" r="3" class="job" />
+        <circle cx="38" cy="20" r="3" class="job a q-out" />
+      </g>
+</svg>

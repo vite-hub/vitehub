@@ -24,6 +24,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -119,10 +120,6 @@ const summary = computed(() => {
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The console could not load its configuration.";
-}
-
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
   await recentSessions.refresh();
@@ -210,17 +207,12 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <UAlert
+            <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-10"
-              color="error"
-              variant="subtle"
-              icon="i-ph-cloud-slash-light"
+              :error="error"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections },
-              ]"
+              :retry="loadSections"
             />
 
             <template v-else>
@@ -301,10 +293,8 @@ onBeforeUnmount(() => request++);
                     <div v-if="recentSessions.pending.value && !sessionItems.length" class="grid gap-2 p-4" aria-hidden="true">
                       <USkeleton v-for="index in 3" :key="index" class="h-6 rounded-md" />
                     </div>
-                    <div v-else-if="recentSessions.error.value" class="flex flex-1 items-center gap-2 px-4 py-6 text-sm text-muted">
-                      <UIcon name="i-ph-cloud-slash-light" class="size-4 shrink-0" />
-                      <span class="min-w-0 flex-1">Could not load recent sessions.</span>
-                      <UButton color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
+                    <div v-else-if="recentSessions.error.value" class="p-3">
+                      <ConsoleState compact :error="recentSessions.error.value" title="Could not load recent sessions" :retry="loadRecentSessions" />
                     </div>
                     <p v-else-if="!sessionItems.length" class="flex flex-1 items-center px-4 py-6 text-sm text-muted">
                       No Agent sessions yet. Invoke an Agent to see its sessions here.

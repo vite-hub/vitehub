@@ -11,9 +11,10 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
+| `image`, `file` from `@vite-hub/blob` | Validate stored Blob references and describe them as JSON Schema for pickers. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
-| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
+| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
 | `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 
@@ -86,6 +87,8 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. `list()` checks `prefix` the same way and accepts a trailing slash.
+
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
 
 ## Serve a transformed object
@@ -96,7 +99,7 @@ The optional `transform` receives the original `Blob` and returns the response `
 
 Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.del(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.del`. No background eviction runs.
 
-Filesystem cache keys normalize dot segments and separators. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
+Filesystem cache keys normalize repeated slashes. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
 
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
@@ -139,6 +142,8 @@ The cache is best effort across runtimes. Concurrent source updates can evict a 
 
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without any directory part, is the pathname.
+ViteHub stores the name as written and does not URL-decode it, so a file named
+`..%2Fevil.txt` stays inside `prefix`.
 It returns `[error, objects]`. A request without files, with too many files, or
 with a file that fails `ensure` throws an H3 400 error before anything is
 stored.
@@ -293,6 +298,76 @@ if (uploadError) throw uploadError
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
 
 Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
+
+## Blob reference schemas
+
+A record that points at a stored object, such as a post cover or an attachment, keeps a Blob reference: the object's pathname plus the content type and size recorded at upload.
+
+```ts
+interface BlobReference {
+  pathname: string
+  contentType?: string
+  size?: number
+}
+```
+
+`image()` and `file()` from `@vite-hub/blob` return validators for that shape. A reference has no URL, because signed and served URLs expire or depend on routes. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
+
+```ts [server/api/profile/avatar.put.ts]
+import { image } from '@vite-hub/blob'
+
+const avatar = image({ maxSize: '2MB' })
+
+export default defineEventHandler(async (event) => {
+  const result = avatar['~standard'].validate(await readBody(event))
+  if (result.issues) {
+    throw createError({ statusCode: 400, message: result.issues[0]!.message })
+  }
+  await saveAvatar(event, result.value) // { pathname, contentType, size }
+})
+```
+
+The validators accept a `BlobObject` from `blob.put()` or `blob.handleUpload()`, or its JSON form, and return only `pathname`, `contentType`, and `size`. They check:
+
+- The value is an object with a string `pathname`.
+- The pathname is relative to its Blob Store. It has no leading slash, no backslashes, no control characters, and no empty, `.`, or `..` segments. It is not under the `_vitehub/derived/` cache namespace that `blob.put()` also rejects.
+- `contentType` matches `accept`, ignoring case and parameters such as `; charset=utf-8`. A reference must include `contentType` when the schema has `accept`.
+- `size`, when present, is a non-negative integer no larger than `maxSize`.
+
+A failed check returns every issue at once, with a `path` such as `['pathname']`. The validators don't read the Blob Store. They don't prove that the object exists, and they compare `maxSize` only with the recorded `size`. Enforce upload limits with [`ensureBlob()`](#ensureblobblob-options) or `handleUpload({ ensure })`.
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `store` | `BlobStoreName` | Named Blob Store that holds the object. Defaults to `default`. |
+| `accept` | `string \| string[]` | MIME types or patterns, such as `image/png`, `image/*`, or `*/*`. `image()` defaults to `image/*`. `file()` accepts every type by default. |
+| `maxSize` | `BlobSize` | Largest recorded `size`, such as `512KB` or `8MB`. |
+
+Invalid options throw when the schema is defined.
+
+### JSON Schema and pickers
+
+Both validators implement [Standard Schema](https://standardschema.dev) and Standard JSON Schema. `['~standard'].jsonSchema.input({ target })` and `.output({ target })` return an object schema for `draft-2020-12`, `draft-07`, or `openapi-3.0`, and throw for other targets. The schema carries an `x-vitehub-blob` keyword that forms read to render an image or file picker for the right store. This is the input schema for `image({ store: 'media', maxSize: '8MB' })`, without the property descriptions:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pathname": { "type": "string", "minLength": 1 },
+    "contentType": { "type": "string", "minLength": 1 },
+    "size": { "type": "integer", "minimum": 0, "maximum": 8388608 }
+  },
+  "required": ["pathname", "contentType"],
+  "x-vitehub-blob": { "kind": "image", "store": "media", "accept": ["image/*"], "maxSize": "8MB" }
+}
+```
+
+The output schema also sets `additionalProperties: false`, because validation drops extra fields. `accept` and `maxSize` appear in the hint only when they restrict the value.
+
+### Use with other schema libraries
+
+Pass `image()` or `file()` anywhere that reads a Standard Schema directly, such as an Agent tool `inputSchema`, or call `['~standard'].validate()` yourself.
+
+Zod 4 and Valibot object schemas accept only their own schema types. `z.object({ cover: image() })` throws `Invalid element at key "cover": expected a Zod schema`, and a Valibot `v.object()` with an `image()` entry fails when it parses. These schemas can't be fields inside a Zod or Valibot object yet.
 
 ## `ensureBlob(blob, options)`
 

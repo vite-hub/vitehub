@@ -15,7 +15,7 @@ export default defineConfig({
     vitehub({
       preset: 'node',
       agent: true,
-      console: true,
+      console: { auth: false },
       publicUrl: 'https://agents.example.com',
       observability: {
         service: 'support-agent',

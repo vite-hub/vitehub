@@ -34,6 +34,10 @@ import {
 ```
 
 ```vue
+<script setup lang="ts">
+const open = ref(false);
+</script>
+
 <template>
   <Attachment>
     <AttachmentMedia>
@@ -122,6 +126,10 @@ Add an `AttachmentTrigger` to make the whole attachment open a link or a dialog.
 ::
 
 ```vue
+<script setup lang="ts">
+const open = ref(false);
+</script>
+
 <template>
   <Attachment>
     <!-- media, content, actions -->

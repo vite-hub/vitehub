@@ -1,17 +1,17 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 
-import type { QueueErrorCode, QueueErrorDetails } from "@vite-hub/queue"
+import { dynamicQueue, type QueueErrorCode, type QueueSendResult } from "@vite-hub/queue"
 
-const code = "QUEUE_PROVIDER_OPERATION_FAILED" satisfies QueueErrorCode
-const details = {
-  operation: "send",
-  provider: "vercel",
-} satisfies QueueErrorDetails<"QUEUE_PROVIDER_OPERATION_FAILED">
+const pending = dynamicQueue.run("welcome", { email: "ada@example.test" }) satisfies Promise<Result<QueueSendResult, QueueErrorCode>>
 
-const error = new ViteHubError<typeof code, typeof details>(code, "Queue provider operation failed.", { details })
-error.code satisfies QueueErrorCode
-error.details satisfies QueueErrorDetails<typeof code> | undefined
-
-// @ts-expect-error Queue operations use the closed ViteHub vocabulary.
-const invalidDetails: QueueErrorDetails<"QUEUE_PROVIDER_OPERATION_FAILED"> = { operation: "cancel", provider: "vercel" }
-void invalidDetails
+export async function enqueue(): Promise<void> {
+  const [error, sent] = await pending
+  if (error) {
+    error.code satisfies QueueErrorCode
+    error.why satisfies string
+    // @ts-expect-error Config codes throw. They are not in the returned union.
+    void (error.code === "QUEUE_DISABLED")
+    return
+  }
+  sent.status satisfies "queued"
+}

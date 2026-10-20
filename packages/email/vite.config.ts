@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus"
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -30,9 +32,9 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).filter(([key]) => key !== "./cli" && key !== "./runtime/empty-definition" && key !== "./runtime/outbox"),
-        )
+        ))
       },
       inlinedDependencies: false,
     },

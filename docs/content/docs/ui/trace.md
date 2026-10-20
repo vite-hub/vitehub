@@ -68,7 +68,6 @@ Trace
     ├── TraceIcon
     ├── TraceTitle
     ├── TraceDescription
-    └── TraceIcon
 ```
 
 Wrap the line in a `TraceCollapsible` to show more detail when it expands:
@@ -262,6 +261,55 @@ Show tool parts from the AI SDK. Map the state of the part to the title and the 
 ## Trace Runs
 
 `TraceRun` renders one runtime trace run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts. It shows one Trace line with the run title, its status, and its duration. The line expands into one line for each timed step. A step with attributes expands into a small Code Block. Open failed runs by default. Use the `step` slot when a known trace schema needs more than the default name, duration, and attributes.
+
+```vue
+<template>
+  <Trace>
+    <TraceLine>
+      <TraceIcon><UIcon name="i-ph-magnifying-glass-light" /></TraceIcon>
+      <TraceTitle>Searched for minimumReleaseAge</TraceTitle>
+    </TraceLine>
+    <TraceCollapsible>
+      <TraceCollapsibleTrigger>
+        <TraceLine>
+          <TraceIcon><UIcon name="i-ph-terminal-light" /></TraceIcon>
+          <TraceTitle>Ran node --version</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>v24.18.0</TraceCollapsibleContent>
+    </TraceCollapsible>
+  </Trace>
+</template>
+```
+
+The parts compose as follows. `TraceLine` is always the line. To make a line do something, wrap it in a trigger, a link, or a button.
+
+```text
+Trace
+├── TraceLine
+│   ├── TraceIcon
+│   ├── TraceTitle
+│   └── TraceDescription
+└── TraceCollapsible
+    ├── TraceCollapsibleTrigger
+    │   └── TraceLine
+    └── TraceCollapsibleContent
+```
+
+### Status
+
+| Status      | Use for                                                                       |
+| ----------- | ----------------------------------------------------------------------------- |
+| none        | Work that is done: "Ran pnpm install".                                        |
+| `"error"`   | Work that failed. Say so in the title: "Failed to run pnpm lint".             |
+| `"running"` | Work in progress. Write the title in the present tense: "Running pnpm build". |
+| `"pending"` | Work that has not started, such as a plan step: "Run pnpm test".              |
+
+shadcn/ui animates a running title with a shimmer. ViteHub does not use continuous animations, so write the state in the title.
+
+### Trace runs
+
+`TraceRun` renders one runtime trace run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts: a Trace line with the run title, its status, and its duration, which expands into one line per timed step. A step with attributes expands into a small Code Block. Open failed runs by default. Use the `step` slot when a known trace schema needs more than the default name, duration, and attributes.
 
 ```vue
 <script setup lang="ts">

@@ -1,11 +1,13 @@
 import type { AgentProviderCredentialContext } from "../src/types.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
+import { forgeAccessKey } from "../src/internal/forge-access.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -62,6 +64,12 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
+// Launch failure tests expect one attempt. The retry test sets short delays.
+const providerLaunchRetry = vi.hoisted(() => ({ delaysMs: [] as number[] }))
+vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/provider-launch-retry.ts")>(),
+  get providerLaunchRetryDelaysMs() { return providerLaunchRetry.delaysMs },
+}))
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -82,6 +90,13 @@ import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleT
 import { prepareGitHubPullRequestWorkspace } from "../src/server/github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts"
 
+/** The `developer_instructions` value of the last Codex launch, as Codex parses it. */
+function launchedCodexDeveloperInstructions(): string | undefined {
+  const [, value] = /-c "developer_instructions=((?:[^"\\]|\\.)*)"/.exec(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)) ?? []
+  // The runtime unescapes these characters inside a double-quoted argument. Codex parses the result as TOML.
+  return value === undefined ? undefined : JSON.parse(value.replace(/\\(["\\$`])/g, "$1"))
+}
+
 function event(type: string, threadId: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return { payload, threadId, type, ...extra }
 }
@@ -91,8 +106,8 @@ function runtime(threadId: string, events: unknown[], options: {
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
-  resumeCursor?: string
-  turnResumeCursor?: string
+  resumeCursor?: unknown
+  turnResumeCursor?: unknown
 } = {}) {
   let mcp: { authorizationHeader: string, endpoint: string } | undefined
   const value = {
@@ -236,40 +251,34 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
-  it("adds the Agent GitHub environment to the Driver environment", async () => {
+  it("adds the Agent forge access environment to the Driver environment", async () => {
     const threadId = "thread-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async () => ({
-      env: { GH_TOKEN: "installation-token", GIT_AUTHOR_NAME: "app[bot]", GIT_CONFIG_COUNT: "1" },
-      token: "installation-token",
-    }))
+    const access = vi.fn(async () => "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
       repository: { fullName: "acme/portal", name: "portal" },
     })
     await createProviderAgentAdapter({
-      env: { GIT_AUTHOR_NAME: "Override" },
+      env: { GH_TOKEN: "override-token" },
       provider: "codex",
-    }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
-      GH_TOKEN: "installation-token",
-      GIT_AUTHOR_NAME: "Override",
-      GIT_CONFIG_COUNT: "1",
+      GH_TOKEN: "override-token",
+      GITHUB_TOKEN: "installation-token",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
     })
   })
 
-  it("scopes the Agent GitHub environment to the pull request when the managed checkout is disabled", async () => {
+  it("scopes the Agent forge access environment to the pull request when the managed checkout is disabled", async () => {
     const threadId = "thread-github-environment-no-checkout"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      if (!input?.repository) throw new Error("credentials require a repository")
-      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -279,26 +288,21 @@ describe("Provider Agent Driver", () => {
       },
       repository: { fullName: "acme/portal", name: "portal" },
     })
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
-    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
     })
   })
 
-  it("scopes the Agent GitHub environment to the pull request from the Babysitter input context", async () => {
+  it("scopes the Agent forge access environment to the pull request from the Babysitter input context", async () => {
     const threadId = "thread-babysitter-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      if (!input?.repository) throw new Error("credentials require a repository")
-      const token = input.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     // Babysitter passes these flat fields directly as the Agent input context.
     base.context.set("preparedCheckout", "/caller/prepared-checkout")
@@ -309,24 +313,20 @@ describe("Provider Agent Driver", () => {
     base.context.set("pullRequestSourceRepository", "contributor/portal")
     base.context.set("pullRequestTitle", "Fix portal")
     base.context.set("pullRequestUrl", "https://github.com/acme/portal/pull/42")
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
-    expect(access).not.toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.any(String) }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
     })
   })
 
   it("adds fork credentials while preserving base API access in the Driver environment", async () => {
     const threadId = "thread-github-fork-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async (input?: { repository?: string }) => {
-      const token = input?.repository === "contributor/portal" ? "fork-token" : "installation-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -336,16 +336,17 @@ describe("Provider Agent Driver", () => {
       },
       repository: { fullName: "acme/portal", name: "portal" },
     })
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/portal" }))
-    expect(access).toHaveBeenCalledWith(expect.objectContaining({ repository: "contributor/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "acme/portal" }))
+    expect(access).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ repository: "contributor/portal" }))
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
       GH_TOKEN: "installation-token",
-      VITEHUB_GITHUB_HEAD_TOKEN: "fork-token",
-      GIT_CONFIG_COUNT: "5",
-      GIT_CONFIG_KEY_1: "credential.https://github.com/contributor/portal.helper",
-      GIT_CONFIG_KEY_3: "credential.https://github.com/contributor/portal.git.helper",
+      GIT_CONFIG_COUNT: "4",
+      GIT_CONFIG_KEY_0: "http.https://github.com/acme/portal.git.extraheader",
+      GIT_CONFIG_KEY_1: "http.https://github.com/acme/portal.extraheader",
+      GIT_CONFIG_KEY_2: "http.https://github.com/contributor/portal.git.extraheader",
+      GIT_CONFIG_KEY_3: "http.https://github.com/contributor/portal.extraheader",
     })
   })
 
@@ -747,6 +748,45 @@ describe("Provider Agent Driver", () => {
     })
   })
 
+  it("launches a provider again when it exits before its first event", async () => {
+    const threadId = "thread-launch-retry"
+    const failedLaunch = {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        spawnSync(String(options?.settings?.binaryPath), [], { encoding: "utf8", env: options?.environment })
+        throw new Error("Codex App Server process exited with code 1")
+      },
+    }
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [], failedLaunch)
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "ready", streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const launches = createProviderRuntime.mock.calls.length
+    providerLaunchRetry.delaysMs = [1, 1]
+    try {
+      const result = await createProviderAgentAdapter({
+        launch: {
+          args: ["-e", 'process.stderr.write("failed to initialize sqlite state runtime\\n");process.exit(1)'],
+          command: process.execPath,
+        },
+        provider: "codex",
+        // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise a relaunch.
+      }).generate(context(threadId) as never)
+
+      expect(result).toMatchObject({ text: "ready" })
+      expect(createProviderRuntime.mock.calls.length - launches).toBe(3)
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn.mock.calls[0]?.[1]).toBe("failed to initialize sqlite state runtime")
+    }
+    finally {
+      providerLaunchRetry.delaysMs = []
+      warn.mockRestore()
+    }
+  })
+
   it("bounds diagnostics while forwarding high-volume provider stderr", async () => {
     const threadId = "thread-launch-stderr-backpressure"
     const stderrBytes = 256 * 1024
@@ -841,7 +881,8 @@ describe("Provider Agent Driver", () => {
       expect(provider.close).toHaveBeenCalledOnce()
       expect(abortSignal.aborted).toBe(false)
       root = cwd
-      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toContain("exit evidence instructions")
+      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe("")
+      expect(launchedCodexDeveloperInstructions()).toBe("exit evidence instructions")
       evidence = await readFile(join(cwd, "proof.txt"), "utf8")
       if (fail) throw new Error("evidence failed")
     })
@@ -2167,6 +2208,113 @@ cli_auth_credentials_store = "keyring"
     expect(homePath).toBeDefined()
     await Promise.allSettled(deferredCleanup)
     await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("gives a local invocation a private TMPDIR and removes it after the turn", async () => {
+    const threadId = "thread-private-tmpdir"
+    let environment: Record<string, string> | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      onStartSession: async () => {
+        environment = createProviderRuntime.mock.lastCall?.[0].environment
+        // A provider command leaves a fixture and a Node.js compile cache entry.
+        await mkdir(join(environment!.TMPDIR!, "node-compile-cache"), { recursive: true })
+        await writeFile(join(environment!.TMPDIR!, "node-compile-cache", "entry"), "cache")
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+    const temporary = environment?.TMPDIR
+    expect(temporary?.startsWith(join(tmpdir(), "vitehub-provider-tmp-"))).toBe(true)
+    expect(environment).toMatchObject({ TEMP: temporary, TMP: temporary })
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes the private TMPDIR after a failed turn", async () => {
+    const threadId = "thread-private-tmpdir-failed"
+    let temporary: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        temporary = createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)).rejects.toThrow("provider failed")
+
+    expect(temporary).toBeDefined()
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes the private TMPDIR after cancellation", async () => {
+    const threadId = "thread-private-tmpdir-aborted"
+    const controller = new AbortController()
+    const deferredCleanup: Promise<unknown>[] = []
+    let temporary: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        temporary = createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR
+        controller.abort(new DOMException("cancelled", "AbortError"))
+      },
+    })
+    const runContext = context(threadId, { input: { abortSignal: controller.signal, prompt: "hello" } })
+    // SAFETY: This fixture replaces waitUntil with the same promise-accepting runtime contract.
+    runContext.runtime.waitUntil = ((cleanup: Promise<unknown>) => {
+      deferredCleanup.push(cleanup)
+    }) as never
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("cancelled")
+
+    expect(temporary).toBeDefined()
+    await Promise.allSettled(deferredCleanup)
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps a TMPDIR that driver.env supplies", async () => {
+    const threadId = "thread-configured-tmpdir"
+    const configured = await mkdtemp(join(tmpdir(), "vitehub-configured-tmpdir-test-"))
+    try {
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ env: { TMPDIR: configured }, provider: "codex" }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR).toBe(configured)
+      await expect(access(configured)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(configured, { force: true, recursive: true })
+    }
+  })
+
+  it("removes a private TMPDIR only after its owner process stops", async () => {
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    const stale = await mkdtemp(join(tmpdir(), "vitehub-provider-tmp-"))
+    await writeFile(join(stale, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(stale, "tmp", "vitehub-fixture"), { recursive: true })
+    // Without an owner record, ViteHub cannot prove that the root is unused.
+    const unknown = await mkdtemp(join(tmpdir(), "vitehub-provider-tmp-"))
+    try {
+      const threadId = "thread-scavenge-private-tmpdir"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+      await vi.waitFor(async () => await expect(access(stale)).rejects.toMatchObject({ code: "ENOENT" }))
+      await expect(access(unknown)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(stale, { force: true, recursive: true })
+      await rm(unknown, { force: true, recursive: true })
+    }
   })
 
   it("scavenges an invocation-private credential root abandoned by a dead process", async () => {
@@ -3584,6 +3732,54 @@ cli_auth_credentials_store = "keyring"
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
   })
 
+  it.each([
+    { name: "a new native thread", started: "native-b", resumed: false },
+    { name: "the same native thread", started: "native-a", resumed: true },
+    { name: "an opaque cursor", started: undefined, resumed: true },
+  ])("chooses the prompt and usage from the resumed provider thread ($name)", async ({ started, resumed }) => {
+    const threadId = `thread-resume-check-${started ?? "opaque"}`
+    const cursor = (nativeId: string) => ({ providerThread: { id: `provider-${nativeId}`, nativeThreadRef: { driver: "codex", nativeId, strength: "strong" } }, version: 2 })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      turnResumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    })
+    const raw = { totalProcessedTokens: 100 }
+    const second = runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: raw }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { resumeCursor: started === undefined ? "opaque-cursor" : cursor(started) })
+    const adapter = createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    const secondContext = context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "first answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = await adapter.generate({ ...secondContext, runtime: { ...secondContext.runtime, traceLog } } as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({
+      resumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
+    }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: resumed
+        ? "continue"
+        : '<message role="user">\nhello\n</message>\n<message role="assistant">\nfirst answer\n</message>\n<message role="user">\ncontinue\n</message>',
+    }))
+    expect(result).toMatchObject({ usageRecord: { raw, usage: { totalTokens: resumed ? undefined : 100 } } })
+    const failures = traceLog.entries().filter(entry => entry.name === "agent.provider.session.resume-failed")
+    expect(failures.map(entry => entry.attributes)).toEqual(resumed ? [] : [expect.objectContaining({
+      "gen_ai.provider.name": "codex",
+      "vitehub.provider.requested_thread.id": "native-a",
+      "vitehub.provider.started_thread.id": "native-b",
+    })])
+  })
+
   it("replays message history instead of resuming an ephemeral credential Home", async () => {
     const threadId = "thread-private-credentials-resume"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
@@ -4403,7 +4599,7 @@ cli_auth_credentials_store = "keyring"
   it.each([
     { baseline: true, mount: "portal" },
     { baseline: false, mount: "" },
-  ])("checks out the pull request with the Agent GitHub environment before the Driver starts (mount $mount)", async ({ baseline, mount }) => {
+  ])("checks out the pull request with the Agent forge access environment before the Driver starts (mount $mount)", async ({ baseline, mount }) => {
     const threadId = `thread-pull-request-checkout-${mount || "root"}`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const session = {
@@ -4418,7 +4614,7 @@ cli_auth_credentials_store = "keyring"
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
-    const access = vi.fn(async () => ({ env: { GH_TOKEN: "installation-token" }, token: "installation-token" }))
+    const access = vi.fn(async () => "installation-token")
     const base = context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "docs" }, workspaceMode: "write" })
     base.context.set("pullRequest", {
       pullRequest: {
@@ -4429,7 +4625,7 @@ cli_auth_credentials_store = "keyring"
       repository: { fullName: "acme/portal", name: "portal" },
     })
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, githubIdentity: { access } } } as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate({ ...base, runtime: { ...base.runtime, [forgeAccessKey]: access } } as never)
 
     const calls = session.exec.mock.calls.map(([command, args = []]) => `${command} ${args.join(" ")}`)
     const checkout = calls.findIndex(call => call.startsWith("sh -c set -eu"))
@@ -4453,7 +4649,8 @@ cli_auth_credentials_store = "keyring"
       async onStartSession() {
         expect(createProviderRuntime.mock.lastCall?.[0].cwd).toBe(join(root, "portal"))
         expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: join(root, "portal") }))
-        const instructions = await readFile(join(root, "portal", "AGENTS.md"), "utf8")
+        expect(await readFile(join(root, "portal", "AGENTS.md"), "utf8")).toBe("")
+        const instructions = launchedCodexDeveloperInstructions()
         expect(instructions).toContain("provider instructions")
         expect(instructions).toContain('"mount": ""')
         expect(instructions).not.toContain('"mount": "portal"')
@@ -4590,7 +4787,14 @@ cli_auth_credentials_store = "keyring"
     })
 
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
-    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({ AGENT_BROWSER_SESSION: "managed", AGENT_BROWSER_SOCKET_DIR: "/managed/socket", VITEHUB_BROWSER_ACTIVE: "1", PATH: "/managed/bin:/caller/bin", LD_LIBRARY_PATH: "/managed/lib:/caller/lib" }) }))
+    expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({
+      AGENT_BROWSER_SESSION: "managed",
+      AGENT_BROWSER_SOCKET_DIR: "/managed/socket",
+      VITEHUB_BROWSER_ACTIVE: "1",
+      PATH: "/managed/bin:/caller/bin",
+      LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
+      TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
+    }) }))
   })
 
   it.each([
@@ -4743,8 +4947,11 @@ cli_auth_credentials_store = "keyring"
           expect(git("rev-parse", "MERGE_HEAD").trim()).toBe(git("rev-parse", "target").trim())
           expect(git("show", ":AGENTS.md")).toBe("updated source instructions")
           expect(git("show", ":CLAUDE.md")).toBe("updated source Claude instructions")
-          const promptPath = provider === "codex" ? "AGENTS.md" : ".claude/vitehub-system-prompt.md"
-          expect(await readFile(join(root, promptPath), "utf8")).toBe("generated repair instructions")
+          if (provider === "codex") {
+            expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("")
+            expect(launchedCodexDeveloperInstructions()).toBe("generated repair instructions")
+          }
+          else expect(await readFile(join(root, ".claude/vitehub-system-prompt.md"), "utf8")).toBe("generated repair instructions")
           await writeFile(join(root, "repair.txt"), "repair")
           git("add", "-A")
           git("commit", "-qm", "finish repair merge")
@@ -5118,6 +5325,86 @@ cli_auth_credentials_store = "keyring"
         : change === "edit" ? "edited instructions\nprovider addition"
           : change === "replace" ? "replacement instructions" : original)
     }
+  })
+
+  it("keeps Codex driver instructions in a prompt prefix that is identical across invocations", async () => {
+    // Codex renders AGENTS.md under "# AGENTS.md instructions for <cwd>". Each
+    // invocation has its own root, so that header must not carry the instructions.
+    const invocations: Array<{ agents: string, launchArgs: string, root: string }> = []
+    for (const index of [1, 2]) {
+      const threadId = `thread-codex-stable-prefix-${index}`
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onStartSession() {
+          const options = createProviderRuntime.mock.lastCall?.[0]
+          const root = String(options?.cwd)
+          invocations.push({ agents: await readFile(join(root, "AGENTS.md"), "utf8"), launchArgs: String(options?.settings?.launchArgs), root })
+        },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ instructions: "Repair one \"PR\" with `git` and $HOME.\nThen stop.", provider: "codex" }).generate(context(threadId) as never)
+    }
+    const [first, second] = invocations
+    expect(first!.root).not.toBe(second!.root)
+    expect(first!.agents).toBe("")
+    expect(second!.agents).toBe("")
+    expect(first!.launchArgs).toBe(second!.launchArgs)
+    expect(first!.launchArgs).not.toContain(first!.root)
+    expect(launchedCodexDeveloperInstructions()).toBe("Repair one \"PR\" with `git` and $HOME.\nThen stop.")
+  })
+
+  it("resumes a Codex session only with the developer instructions it started with", async () => {
+    const threadId = `thread-codex-developer-resume-${crypto.randomUUID()}`
+    const path = `.vitehub/${threadId}.sqlite`
+    const persistedThreadId = JSON.stringify(["unknown", "user", "invoker", threadId])
+    let instructions = "first instructions"
+    const turn = (cursor: string) => runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: cursor })
+    const messages = [
+      { parts: [{ text: "previous question", type: "text" }], role: "user" },
+      { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+      { parts: [{ text: "continue", type: "text" }], role: "user" },
+    ]
+    const generate = () => createProviderAgentAdapter({ instructions: () => instructions, provider: "codex", sessionStorePath: path })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      .generate(context(threadId, { messages, prompt: "continue" }) as never)
+
+    turn("cursor-1")
+    await generate()
+    const durableStore = await lastDurableProviderSessionStore()
+    expect(await durableStore.get(persistedThreadId)).toEqual({
+      __vitehubProviderSessionCursor: "ready",
+      instructions: createHash("sha256").update("first instructions").digest("hex"),
+      value: "cursor-1",
+    })
+
+    const unchanged = turn("cursor-2")
+    await generate()
+    expect(unchanged.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "cursor-1" }))
+    expect(unchanged.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue" }))
+
+    // Codex would keep rendering the old developer instructions in a resumed thread.
+    instructions = "changed instructions"
+    const changed = turn("cursor-3")
+    await generate()
+    expect(changed.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(changed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining("previous answer") }))
+
+    // A cursor stored before developer instructions belongs to a thread that read AGENTS.md.
+    await durableStore.set(persistedThreadId, { __vitehubProviderSessionCursor: "ready", value: "legacy-cursor" })
+    const legacy = turn("cursor-4")
+    await generate()
+    expect(legacy.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+  })
+
+  it("keeps Codex driver instructions in AGENTS.md when a launch-argument override would drop them", async () => {
+    const threadId = "thread-codex-launch-override-instructions"
+    let agents = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { agents = await readFile(join(String(createProviderRuntime.mock.lastCall?.[0].cwd), "AGENTS.md"), "utf8") },
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ env: { T3CODE_CODEX_LAUNCH_ARGS: "--enable example" }, instructions: "override instructions", provider: "codex" }).generate(context(threadId) as never)
+    expect(agents).toBe("override instructions")
+    expect(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)).not.toContain("developer_instructions")
   })
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {

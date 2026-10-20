@@ -2,6 +2,7 @@ import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/
 
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -23,9 +24,49 @@ export interface RunCloudflareWorkflowOptions {
 }
 
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
-  return error instanceof Error && (error as { isRetryable?: unknown }).isRetryable === false
-}
+  if (!hasRuntimeType(error, "object") || error === null) return false
+  try {
+    const candidate = error as object
+    const retryable = Reflect.get(candidate, "isRetryable")
+    if (retryable !== false) return false
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    if (hasRuntimeType(nativeIsError, "function")) {
+      return (nativeIsError as (value: unknown) => unknown)(candidate) === true
+    }
 
+
+    const clone = Reflect.get(globalThis, "structuredClone")
+    if (!hasRuntimeType(clone, "function")) return false
+    try {
+      return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+    }
+    catch {
+      // Error objects can carry configurable, non-cloneable application fields.
+      // Hide those fields for the brand check, then restore the object exactly.
+      const descriptors = new Map<PropertyKey, PropertyDescriptor>()
+      try {
+        for (const key of Reflect.ownKeys(candidate)) {
+          const descriptor = Reflect.getOwnPropertyDescriptor(candidate, key)
+          if (!descriptor?.configurable || !("value" in descriptor)) continue
+          descriptors.set(key, descriptor)
+          Reflect.defineProperty(candidate, key, { ...descriptor, value: undefined })
+        }
+        try {
+          return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+        }
+        catch {
+          return false
+        }
+      }
+      finally {
+        for (const [key, descriptor] of descriptors) Reflect.defineProperty(candidate, key, descriptor)
+      }
+    }
+  }
+  catch {
+    return false
+  }
+}
 function translateNonRetryableError(
   error: unknown,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],

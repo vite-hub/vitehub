@@ -36,7 +36,7 @@ export default defineAgent({
 })
 ```
 
-Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/code-host-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
+Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
 
 `teams()` instructs the Agent to cite sources with descriptive Markdown links to verified URLs. Chat SDK Channel delivery labels unresolved native web citations as `[source link unavailable]`, including during streaming. Codex app-server does not supply a citation-ID-to-URL map, so ViteHub cannot recover those links from the IDs. Ordinary source links remain intact.
 
@@ -66,6 +66,36 @@ Message filters receive `deliveryKind: 'subscribed'` for these replies. All
 concurrency modes use the same admission policy. The provider must deliver the
 messages first. For Teams, the Team app installation needs channel-message read
 permission and consent.
+
+## Ignore other bots
+
+Built-in chat Channels ignore messages from bot authors, including mentions and direct messages. Two bots that answer each other can loop without end. The Chat SDK already skips the Agent's own messages. Set `messages.allowBots: true` on the Agent or on one Channel to admit other bots:
+
+```ts
+teams({
+  messages: {
+    allowBots: true,
+  },
+})
+```
+
+An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
+## Steer with other participants
+
+With `messages.concurrency: 'steer'`, a later message steers the active Agent Invocation only when it comes from the same invoker. A message from another person waits and then starts its own Invocation. Set `messages.steerFromParticipants: true` to let other people in the same thread steer the active work:
+
+```ts
+teams({
+  messages: {
+    concurrency: 'steer',
+    durable: false,
+    steerFromParticipants: true,
+  },
+})
+```
+
+The message must pass admission first, so group conversations still require a mention, and `messages.filter` and `access()` still apply. Only human authors in the same thread steer, also when `lockScope` covers more than one thread. The Invocation keeps the invoker of the first message, with its identity and authority. The steered message is input only, and its message header names its author. When the Driver does not support live steering, the message starts its own Invocation after the active one, the same as for one invoker. This applies to inline steering. With durable Workflow delivery, a message from another invoker still queues as a separate Invocation.
 
 ## Act on the Channel message in hooks
 
@@ -143,6 +173,87 @@ The Console shows the recorded call, such as `label(["Receipts"])`. The call tex
 On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/api/_vitehub/agents/:agent/webhooks/:webhook` route. Both paths use the same handler, authentication, HEAD probe, and Channel history export. Other application routes keep their request body.
 
 If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
+
+`webhooks.aliases` adds more paths to the same registration, such as an old URL that a provider still calls.
+
+### Give a Channel its own route
+
+A Channel does not need an Agent to own its webhook. Put it in `server/channels/<name>/index.ts`, default-export `defineChannel()`, and set `webhooks.path`. ViteHub serves the path without an Agent Definition. The trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+
+```ts [server/channels/tickets/index.ts]
+import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+import triage from '../../agents/triage'
+import { ticketEvent } from './events'
+
+export default defineChannel('tickets', {
+  messages: false,
+  triggers: {
+    webhook: defineChannelTrigger({
+      input: ticketEvent,
+      tasks: { triage: { agent: triage } },
+      invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
+    }),
+  },
+  webhooks: { path: '/api/tickets/webhook', aliases: ['/webhooks/tickets'] },
+})
+```
+
+- The Channel name comes from the folder, as for [outbound Channels](/docs/channels/get-started). A file such as `server/channels/tickets.ts` also works. In a folder with an `index` module, the other files, such as `events.ts`, are helpers. They are never Channels.
+- One `index` module can also export `connectors`, so one folder can be the outbound and the inbound `tickets` Channel.
+- ViteHub reads `webhooks.path` and `webhooks.aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
+- A module that has no `webhooks.path`, or that exports a function that returns a Channel, is not served on its own. Attach it to an Agent in `channels`. Do not do both with one Channel.
+- The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
+- Standalone Channels need a Nitro host. Restart the development server after you add or remove one.
+
+### Verify a webhook signature
+
+Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+| `signature` | The header carries |
+| --- | --- |
+| Not set | The `secretToken` value itself. |
+| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
+| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
+
+`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
+
+```ts [server/agents/support.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export const airtable = defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    secretHeader: 'x-airtable-content-mac',
+    secretToken: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+  },
+})
+```
+
+### Answer slow webhooks early
+
+Some providers wait only a short time for an answer. GitHub closes the connection after 10 seconds and does not send the delivery again. A trigger that reads the provider's API before it queues the delivery, or a process that is still starting, can take longer than that.
+
+With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Objects, ViteHub stores the verified request before the trigger runs. The route then answers within `ackTimeoutMs`, counted from the request's arrival. The default is 5000 ms.
+
+- When admission finishes in time, the provider gets the trigger's own answer.
+- When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+
+The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
+
+```ts [server/agents/support.ts]
+webhooks: {
+  path: '/api/github/webhook',
+  ackTimeoutMs: 8_000, // `false` waits for admission
+}
+```
+
+Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
 
 ## Replay Channel history
 
@@ -261,6 +372,77 @@ triggers: {
 
 Set `webhooks: []` on the trigger that only receives dispatched items, so the Channel's webhook route does not reach it.
 
+### Queue dispatched items
+
+`context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue instead of running it now, as if the item arrived as its own webhook delivery. The receiving trigger must answer with `webhook.deliveryId` and `webhook.serialize` or `webhook.concurrencyLimit`, so `debounce` and the queue's retries apply. Items are admitted in order. The first item that cannot be admitted throws, and later items are not admitted. An item that the trigger answers below 400 without a delivery, such as `ignored()`, is skipped with reason `handled`. An item whose delivery ID is already queued is skipped with reason `duplicate`. When a queued item fails its last attempt, the `failed` callback of the receiving trigger runs.
+
+Queued dispatch is available while the Channel's webhook route runs the calling trigger with a queue-capable State, such as SQLite or libSQL. `dryRun` is not available with `queue`.
+
+Give an item `order: { key, version }` when a provider can send changes to one entity again or out of order. The item is skipped with reason `stale`, before the trigger runs, unless `version` is greater than the last version admitted or answered for `key` through the same trigger. The new version commits with the admission of the item. An item whose trigger throws or answers 400 or above does not change the version, so a retry admits it.
+
+```ts
+await context.dispatch(changes.map(change => ({
+  input: change,
+  key: change.eventId,
+  order: { key: change.recordId, version: change.sequence },
+})), { queue: true, trigger: 'change' })
+```
+
+### Pull a provider's change log
+
+Some providers send a short notification and keep the changes in a log that you read with a cursor. `context.pull({ key, initialCursor, fetch, trigger, signal? })` reads that log from the saved cursor:
+
+1. It reads the cursor saved at `channelState.keyPrefix + key`, or uses `initialCursor`.
+2. It calls `fetch(cursor, signal)` for a page `{ items, next, more, first? }`.
+3. It admits each item in order through `trigger`, with queued dispatch, so `order` applies.
+4. It saves `next` only after every item of the page is admitted, then fetches again while `more` is `true`.
+
+The pull throws, and keeps the saved cursor, when `first` is not the requested cursor (a gap, such as expired history), when a number cursor moves back, or when `more` is `true` and the cursor did not change. It checks `signal` before each fetch, before each item, and before it saves the cursor. A failure or an abort keeps the saved cursor, so the next pull fetches the page again. Items that were already admitted are then skipped as `stale` or `duplicate`. A lock on the cursor key lets only one pull run at a time. `items` can be an async iterable, so each item loads just before its admission. The cursor is a number or a string, with the type of `initialCursor`.
+
+```ts
+webhook: defineChannelTrigger({
+  async invoke(context, notification: { webhookId: string }) {
+    await context.pull({
+      key: `cursor:${notification.webhookId}`,
+      initialCursor: 1,
+      trigger: 'change',
+      async fetch(cursor, signal) {
+        const page = await provider.payloads(notification.webhookId, { cursor, signal })
+        return {
+          items: page.changes.map(change => ({ input: change, key: change.eventId, order: { key: change.recordId, version: page.cursor } })),
+          next: page.nextCursor,
+          more: page.hasMore,
+        }
+      },
+    })
+    return ignored('pulled')
+  },
+}),
+```
+
+### Decide and write Channel State in one step
+
+A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
+
+```ts
+invoke: (context, change: { id: string, version: number, text: string }) =>
+  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+    if (record.value && record.value.version >= change.version) return ignored('stale_update')
+    record.set({ version: change.version })
+    return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
+  }),
+```
+
+Inside `invoke` on the Channel's webhook route, or in an item of a queued dispatch, the staged write commits with the queue admission of the returned invocation. It commits at once when the trigger answers below 400 without a queued delivery, such as with `ignored()`, or when the delivery runs inline. A thrown error, a `Response` with status 400 or above, or a failed admission writes nothing and releases the lock, so the retried delivery decides again. In other places the write commits when `run` returns. The commit fails, and writes nothing, when the lock lease (`ttlMs`, 60 seconds by default) expired. Run at most one transaction per key in one trigger call.
+
+How the write and the admission commit depends on the State:
+
+| State | Commit |
+| --- | --- |
+| SQLite and libSQL | One transaction checks the locks, queues the delivery, and writes the values. A crash before the commit keeps the old value and queues nothing. |
+| A custom State with `commitWebhookState()` | The State's own transaction, with the same contract. |
+| Other States, such as Cloudflare Durable Objects | ViteHub extends the locks, queues the delivery, then writes the values. A crash between those steps keeps the delivery and loses the write, so the retried trigger decides again and the delivery ID removes the duplicate admission. These States have no webhook queue, so only `ignored()` and inline deliveries commit there. |
+
 ## Publish Agent activity without opening a chat
 
 Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened` unless `pullRequest.reconcile.events` explicitly excludes `opened`; later invocations reuse it. If that event is excluded, the first later invocation creates the comment. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the newest available session's final answer appear below it. All session answers stay in one collapsed section, newest first, with one session link and one paragraph per answer. The full transcript stays in the linked session when one is configured.
@@ -348,6 +530,30 @@ Queued GitHub reconciliation reloads the PR head, comments, and files before the
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
+
+### Forge access for Git and Drivers
+
+A github() Channel that sets `app` gives its Agent forge access. The pull request checkout, the [`git()`](/docs/agents/capabilities/git) Capability, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
+
+The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
+
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: { token: async (_context, { repository }) => await vault.githubToken(repository) },
+      pullRequest: true,
+    }),
+  },
+  driver: { kind: 'codex' },
+  workspace: { mode: 'write' },
+})
+```
 
 ## Connect a web chat
 
@@ -462,7 +668,7 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
-Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. Use the canonical name when the vendor name is taken, for example `VITEHUB_GITHUB_TOKEN` in CI. See [Server Env variable names](/docs/env/configure).
+Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
@@ -515,7 +721,9 @@ Set `messages.commentary: 'message'` only when the Driver emits explicit comment
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
 
-For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+When the Chat SDK adapter supports native replies, a non-streaming reply answers the message that started the Invocation. Telegram is the built-in adapter with this support: the reply quotes the triggering message, so the user can see which photo or question it answers. Inline delivery, finish hook replies, and durable Workflow delivery use the same rule. Replies that the adapter streams while the Agent writes them, retries after a host restart, and adapters without native replies post a new message in the thread. Thread history and delivery custody record the reply like any other posted message.
+
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message; each new commentary segment, such as the next reasoning summary, replaces the previous one, so the message shows the current step. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
 
 ```ts
 messages: {
@@ -527,6 +735,18 @@ messages: {
   final: { delivery: 'new-message' },
 }
 ```
+
+In group chats and channel threads, some messages do not need an answer. Set `messages.allowSilentReply: true` to give the Agent a `skip_reply` tool. When the Agent calls it with a short reason, the Invocation finishes without the final reply and ViteHub removes the loading message. Errors still post the error reply, and messages that the Agent already sent are not removed. The option requires `messages.loading` and cannot be combined with `delivery: 'manual'`, because only a held-back final reply can be skipped.
+
+```ts
+messages: {
+  allowSilentReply: true,
+  final: { delivery: 'placeholder' },
+  loading: { text: 'Thinking…' },
+}
+```
+
+The Invocation records the skip as a final reply delivery effect with `channel.effect.skipped: "skip_reply: <reason>"`, so `vitehub agent invocations export` lists it under `deliveries`.
 
 ## Inspect delivery custody
 
@@ -564,9 +784,29 @@ export default defineAgent({
 
 Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Actor at the route, trigger, or `access()` boundary.
 
+## Add instructions to one Channel
+
+Set `instructions` on a Channel to give the Agent rules that apply only to the Invocations that this Channel starts. ViteHub adds them after the Agent instructions. Built-in Channels such as `teams()` and `telegram()` already add formatting guidance; your instructions come after it.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      instructions: 'Review only the files that the pull request changes. Link each finding to its line.',
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+Channel instructions are trusted text from code. ViteHub reads them when the Invocation runs, so a queued delivery uses the current text. Direct `runAgent()` calls do not get them. Agent inspection lists them as `Channel "<name>" instructions`. Drivers with their own `run` function do not receive Agent instructions, so they do not receive Channel instructions either.
+
 ## Handle attachments
 
-Adapter Channels preserve incoming images, audio, and files as typed message parts. An attachment on the message selected by the current reply is also current Agent input automatically. Replies reached only through fetched history remain metadata references, so ViteHub does not repeatedly download old media.
+Adapter Channels preserve incoming images, audio, and files as typed message parts. An attachment on the message selected by the current reply is also current Agent input automatically. Attachments on history messages are not Agent input, so ViteHub does not repeatedly download old media. The message header names each one with `(not shown)`. To send recent history photos again, set [`triggerHistory.maxImages`](/docs/agents/chat-history-sessions#send-recent-history-photos).
 
 Model-backed Drivers can consume inline data and adapter-owned `fetchData` within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. A URL-only attachment remains a typed reference; ViteHub does not fetch it from the Agent server. Resolve private or provider-owned files in the Channel adapter so its authentication, destination checks, timeouts, and size limits stay in force.
 

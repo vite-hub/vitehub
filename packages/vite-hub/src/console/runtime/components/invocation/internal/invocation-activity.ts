@@ -217,7 +217,7 @@ function skillReadDetails(attributes: Record<string, unknown>): InvocationSkillR
       }
       if (action?.type !== "unknown" || !hasRuntimeType(action.command, "string")) continue;
       const tokens = action.command.trim().split(/\s+/);
-      if (tokens[0] !== "cat" || tokens.length < 2 || tokens.slice(1).some(token => token.startsWith("-") || /[\\'"`$;&|<>(){}\[\]*?!]/.test(token))) continue;
+      if (tokens[0] !== "cat" || tokens.length < 2 || tokens.slice(1).some(token => token.startsWith("-") || /[\\'"`$;&|<>(){}[\]*?!]/.test(token))) continue;
       for (const token of tokens.slice(1)) add(token.replace(/^\.\//, ""));
     }
   }

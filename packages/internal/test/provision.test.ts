@@ -147,6 +147,19 @@ describe("provision request errors", () => {
     expect(error.message).not.toContain("provider-secret")
   })
 
+  it("sends request headers without replacing the client authorization", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ success: true, result: {} }))
+    const request = createCloudflareProvisionClient({ accountId: "account", token: "token" }, fetch)
+
+    await request("/r2/buckets", { body: { name: "assets" }, headers: { "authorization": "Bearer other", "cf-r2-jurisdiction": "eu" }, method: "POST" })
+
+    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({
+      "authorization": "Bearer token",
+      "cf-r2-jurisdiction": "eu",
+      "content-type": "application/json",
+    })
+  })
+
   it("ignores unsafe provider error codes", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
       error: { code: "provider-secret\nsecond-log-line" },

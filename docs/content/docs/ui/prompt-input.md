@@ -130,6 +130,7 @@ Renders a `<form>` with a textarea, the attachments, and the attach and submit b
 | Prop          | Type                                           | Default   | Description                                                      |
 | ------------- | ---------------------------------------------- | --------- | ---------------------------------------------------------------- |
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
+| `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and attachment handling.             |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `status`      | `ChatStatus`                                   | `"ready"` | AI SDK chat status. Controls the submit button and the submit rule. |
 | `accept`      | `string`                                       |           | Accepted file types for the picker, in `<input accept>` format.  |

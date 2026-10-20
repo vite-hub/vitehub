@@ -17,6 +17,7 @@ import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route
 import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import { resolveConsoleAgentCatalog } from "./console-agent-list";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -58,6 +59,8 @@ const props = defineProps<{
   /** Commands of the current page. Search lists them first, in an "Actions" group. */
   actions?: CommandPaletteItem[]
   agentNames?: string[]
+  /** Agent names that appear only in invocation history. Search lists them apart from the Agents. */
+  historicalAgentNames?: string[]
   agentsBase: string
   definitionsBase: string
   kvBase: string
@@ -74,6 +77,7 @@ const debouncedSearchTerm = ref("")
 const sections = ref<ConsoleSectionId[]>([])
 const installedNavigation = shallowRef<ConsoleNavigation>()
 const discoveredAgentNames = ref<string[]>([])
+const discoveredHistoricalAgentNames = ref<string[]>([])
 const definitionItems = ref<ConsoleDefinitionSearchItem[]>([])
 const kvItems = ref<ConsoleKVSearchItem[]>([])
 const kvSearchTruncated = ref(false)
@@ -87,6 +91,9 @@ const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
 
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value);
+const availableHistoricalAgentNames = computed(() =>
+  props.agentNames ? props.historicalAgentNames ?? [] : discoveredHistoricalAgentNames.value,
+);
 const inactiveSearchFilter: ConsoleSearchFilter = {};
 const searchFilter = computed<ConsoleSearchFilter>(() => {
   if (!agentsEnabled.value || !sessionSearchEnabled.value) return inactiveSearchFilter;
@@ -199,6 +206,17 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         label: "Agents",
       }]
     : []),
+  ...(agentsEnabled.value && availableHistoricalAgentNames.value.length
+    ? [{
+        id: "historical-agents",
+        items: availableHistoricalAgentNames.value.map(name => ({
+          icon: "i-ph-clock-counter-clockwise-light",
+          label: name,
+          onSelect: () => selectAgent(name),
+        })),
+        label: "Invocation history",
+      }]
+    : []),
   ...(definitionSearchItems.value.length
     ? [{ id: "definitions", items: definitionSearchItems.value, label: "Definitions" }]
     : []),
@@ -270,7 +288,6 @@ function itemDescription(item: ConsoleSearchItem): string {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ? value.filter((item): item is string => typeof item === "string")
     : []
 }
@@ -294,11 +311,8 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
     Array.isArray(value?.definitions)
       ? value.definitions.flatMap((entry) => {
           const definition = record(entry)
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
           return typeof definition?.name === "string"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.file === "string"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.source === "string"
             ? [{ details, file: definition.file, name: definition.name, section, source: definition.source }]
             : []
@@ -309,7 +323,6 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   if (installed.includes("kv")) {
     const query = { limit: 50 }
     const first = record(await requestConsole(props.kvBase, { query, signal }))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const firstStore = typeof first?.store === "string" ? first.store : "default"
     const stores = strings(first?.stores)
     const remainingStores = stores.filter(store => store !== firstStore)
@@ -335,6 +348,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
   navigationLoading.value = true
   if (discoverContent) {
     discoveredAgentNames.value = []
+    discoveredHistoricalAgentNames.value = []
     definitionItems.value = []
     kvItems.value = []
     kvSearchTruncated.value = false
@@ -350,15 +364,10 @@ async function loadNavigation(discoverContent = false): Promise<void> {
 
     if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
       const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
-      const names = Array.isArray(agentsValue?.agents)
-        ? agentsValue.agents.filter((name): name is string => {
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
-            return typeof name === "string" && Boolean(name.trim());
-          })
-        : [];
+      const catalog = resolveConsoleAgentCatalog(agentsValue)
       if (navigationRequest !== controller) return;
-      discoveredAgentNames.value = [...new Set(names)];
+      discoveredAgentNames.value = catalog.agents;
+      discoveredHistoricalAgentNames.value = catalog.historicalAgents;
     }
     if (discoverContent) await loadContent(installed, controller.signal)
     navigationError.value = undefined

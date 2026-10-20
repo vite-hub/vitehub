@@ -1,10 +1,10 @@
+import { hasAgentModuleTrait } from "./agent-module-traits.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 const providerPackageNames = new Set(["@vite-hub/agent", "vite-hub/agent"])
 const capabilityPackageNames = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
 const providerFactoryNames = new Set(["codexDriver", "claudeCodeDriver"])
 const providerCapabilityNames = new Set(["title", "progressSummary"])
-const providerPresetPattern = /^(?:@vite-hub\/agent|vite-hub\/agent)\/presets\/(?:workspace|babysitter(?:\/server)?)$/
 const providerKinds = new Set(["codex", "claude-code"])
 
 interface PositionedNode {
@@ -305,8 +305,11 @@ function hasProviderDriverDefinition(
   return capabilities ? hasProviderCapabilityDriver(capabilities, capabilityBindings, capabilityNamespaces, ancestors) : false
 }
 
-/** Reports whether a server module selects a provider Agent Driver from statically recognizable syntax. */
-export function usesProviderAgentDriver(source: string, parse: (source: string) => unknown): boolean {
+/**
+ * Reports whether a server module selects a provider Agent Driver from statically recognizable syntax,
+ * or imports a package subpath that declares the `providerDriver` trait.
+ */
+export function usesProviderAgentDriver(source: string, parse: (source: string) => unknown, file: string): boolean {
   const parsed = parse(source)
   if (!isPositionedNode(parsed)) return false
   const program = parsed
@@ -323,7 +326,7 @@ export function usesProviderAgentDriver(source: string, parse: (source: string) 
     const importedSource = literalString(node.source)
     if (!importedSource) return
     const specifiers = Array.isArray(node.specifiers) ? node.specifiers : []
-    if (providerPresetPattern.test(importedSource)) {
+    if (hasAgentModuleTrait(importedSource, file, "providerDriver")) {
       if (specifiers.some(hasValueImport)) hasProviderPreset = true
       return
     }

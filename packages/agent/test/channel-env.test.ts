@@ -49,7 +49,9 @@ describe("built-in Channel discovery", () => {
 
   it.each(["-", "+", "*", "/", "%", "**", "<", "<=", ">", ">=", "==", "===", "!=", "!==", "<<", ">>", ">>>", "^", "in", "instanceof", "&&", "||", "??"])("rejects runtime %s after Channel option assertions", (operator) => {
     for (const assertion of ["as", "satisfies"]) {
-      for (const type of ["TelegramChannelOptions", "Options<Runtime>"]) {
+      // The parser reads `<` after a plain type name as the start of type arguments, so `{} as Type < value` does
+      // not parse. TypeScript also rejects `<` and `<<` there.
+      for (const type of operator.startsWith("<") ? ["Options<Runtime>"] : ["TelegramChannelOptions", "Options<Runtime>"]) {
         expect(uses(`
           import { telegram } from "vite-hub/agent/channels"
           telegram({} ${assertion} ${type} ${operator} dynamicOptions)
@@ -1103,11 +1105,11 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
   })
 
   it("reads the canonical VITEHUB_ name before host names without Server Env", async () => {
-    const context = { cloudflare: { env: { TELEGRAM_BOT_TOKEN: "vendor-token", VITEHUB_TELEGRAM_BOT_TOKEN: "canonical-token", VITEHUB_GITHUB_TOKEN: "", GH_TOKEN: "gh-token" } } }
+    const context = { cloudflare: { env: { TELEGRAM_BOT_TOKEN: "vendor-token", VITEHUB_TELEGRAM_BOT_TOKEN: "canonical-token", VITEHUB_GITHUB_TOKEN: "", GH_TOKEN: "gh-token", FORGES_GITHUB_TOKEN: "forges-token" } } }
     // SAFETY: channelEnvValue reads only `cloudflare.env` from the callback context.
     expect(await channelEnvValue("telegram", "botToken", context as never)).toBe("canonical-token")
     // SAFETY: channelEnvValue reads only `cloudflare.env` from the callback context.
-    expect(await channelEnvValue("github", "token", context as never)).toBe("gh-token")
+    expect(await channelEnvValue("github", "token", context as never)).toBe("forges-token")
   })
 
   it.each([
@@ -1243,26 +1245,26 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
   })
 })
 
-describe("Code Host Server Env discovery", () => {
+describe("Forge Server Env discovery", () => {
   it.each([
-    ["codeHost()", ["github"]],
-    ["codeHost({ host: 'gitlab' })", ["gitlab"]],
-    ["codeHost({ host: `gitlab` })", ["gitlab"]],
-    ["codeHost({ host: `${selected}` })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab', host: selected })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'forgejo' })", ["forgejo"]],
-    ["codeHost({ host: selected })", ["github", "gitlab", "forgejo"]],
-    ["codeHost(options)", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab' + suffix })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab', ...options })", ["github", "gitlab", "forgejo"]],
-    ["codeHost(({ host: 'gitlab' }))", ["gitlab"]],
-  ])("declares optional host fields for %s", async (expression, hosts) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-code-host-env-"))
+    ["forge()", ["github"]],
+    ["forge({ forge: 'gitlab' })", ["gitlab"]],
+    ["forge({ forge: `gitlab` })", ["gitlab"]],
+    ["forge({ forge: `${selected}` })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab', forge: selected })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'forgejo' })", ["forgejo"]],
+    ["forge({ forge: selected })", ["github", "gitlab", "forgejo"]],
+    ["forge(options)", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab' + suffix })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab', ...options })", ["github", "gitlab", "forgejo"]],
+    ["forge(({ forge: 'gitlab' }))", ["gitlab"]],
+  ])("declares optional Forge fields for %s", async (expression, hosts) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-forge-env-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "reviewer.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { codeHost } from "vite-hub/agent/capabilities"
+        import { forge } from "vite-hub/agent/capabilities"
         export default defineAgent({ capabilities: [${expression}] })
       `)
       const env = discoverAgentChannelEnv({ rootDir: root })
@@ -1276,21 +1278,21 @@ describe("Code Host Server Env discovery", () => {
   })
 
   it.each(["vite-hub/agent/capabilities", "@vite-hub/agent/capabilities"])("reads static strings from aliases and namespaces in %s", (module) => {
-    const source = `import { codeHost as host } from '${module}'; import * as caps from '${module}'; host({ host: 'gitlab' }); caps.codeHost({ host: 'forgejo' })`
-    const uses = discoverBuiltInChannelUses(source, ["codeHost"], { modules: new Set([module]), shorthands: false })
-    expect(uses.map(use => use.stringOptions?.get("host"))).toEqual(["gitlab", "forgejo"])
+    const source = `import { forge as host } from '${module}'; import * as caps from '${module}'; host({ forge: 'gitlab' }); caps.forge({ forge: 'forgejo' })`
+    const uses = discoverBuiltInChannelUses(source, ["forge"], { modules: new Set([module]), shorthands: false })
+    expect(uses.map(use => use.stringOptions?.get("forge"))).toEqual(["gitlab", "forgejo"])
   })
 })
 
 it.each(["gitlab", "forgejo"] as const)("discovers and reads the shared %s Channel Env", async kind => {
   expect(uses(`import { ${kind} } from "vite-hub/agent/channels"; ${kind}({ token: "explicit" })`)).toEqual([{ kind, keys: ["token"] }])
   expect(builtInChannelEnv[kind]).toEqual({
-    baseUrl: { names: [`${kind.toUpperCase()}_BASE_URL`] },
-    token: { names: [`${kind.toUpperCase()}_TOKEN`], secret: true },
-    webhookSecret: { names: [`${kind.toUpperCase()}_WEBHOOK_SECRET`], secret: true },
+    baseUrl: { names: [`VITEHUB_${kind.toUpperCase()}_BASE_URL`, `FORGES_${kind.toUpperCase()}_BASE_URL`] },
+    token: { names: [`VITEHUB_${kind.toUpperCase()}_TOKEN`, `FORGES_${kind.toUpperCase()}_TOKEN`], secret: true },
+    webhookSecret: { names: [`VITEHUB_${kind.toUpperCase()}_WEBHOOK_SECRET`, `FORGES_${kind.toUpperCase()}_WEBHOOK_SECRET`], secret: true },
   })
   const context = { capabilities: {}, memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn(),
-    cloudflare: { env: { [`${kind.toUpperCase()}_TOKEN`]: "host-token", [`${kind.toUpperCase()}_BASE_URL`]: "https://host.test" } } }
+    cloudflare: { env: { [`FORGES_${kind.toUpperCase()}_TOKEN`]: "host-token", [`FORGES_${kind.toUpperCase()}_BASE_URL`]: "https://host.test" } } }
   expect(await channelEnvValue(kind, "token", context)).toBe("host-token")
   expect(await channelEnvValue(kind, "baseUrl", context)).toBe("https://host.test")
 })
