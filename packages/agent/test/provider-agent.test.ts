@@ -6,7 +6,7 @@ import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -2221,6 +2221,113 @@ cli_auth_credentials_store = "keyring"
     expect(homePath).toBeDefined()
     await Promise.allSettled(deferredCleanup)
     await expect(access(homePath!)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("gives a local invocation a private TMPDIR and removes it after the turn", async () => {
+    const threadId = "thread-private-tmpdir"
+    let environment: Record<string, string> | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      onStartSession: async () => {
+        environment = createProviderRuntime.mock.lastCall?.[0].environment
+        // A provider command leaves a fixture and a Node.js compile cache entry.
+        await mkdir(join(environment!.TMPDIR!, "node-compile-cache"), { recursive: true })
+        await writeFile(join(environment!.TMPDIR!, "node-compile-cache", "entry"), "cache")
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+
+    const temporary = environment?.TMPDIR
+    expect(temporary?.startsWith(join(tmpdir(), "vitehub-provider-tmp-"))).toBe(true)
+    expect(environment).toMatchObject({ TEMP: temporary, TMP: temporary })
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes the private TMPDIR after a failed turn", async () => {
+    const threadId = "thread-private-tmpdir-failed"
+    let temporary: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { errorMessage: "provider failed", state: "failed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        temporary = createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)).rejects.toThrow("provider failed")
+
+    expect(temporary).toBeDefined()
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("removes the private TMPDIR after cancellation", async () => {
+    const threadId = "thread-private-tmpdir-aborted"
+    const controller = new AbortController()
+    const deferredCleanup: Promise<unknown>[] = []
+    let temporary: string | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      beforeEvent: async () => {
+        temporary = createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR
+        controller.abort(new DOMException("cancelled", "AbortError"))
+      },
+    })
+    const runContext = context(threadId, { input: { abortSignal: controller.signal, prompt: "hello" } })
+    // SAFETY: This fixture replaces waitUntil with the same promise-accepting runtime contract.
+    runContext.runtime.waitUntil = ((cleanup: Promise<unknown>) => {
+      deferredCleanup.push(cleanup)
+    }) as never
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("cancelled")
+
+    expect(temporary).toBeDefined()
+    await Promise.allSettled(deferredCleanup)
+    await expect(access(dirname(temporary!))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps a TMPDIR that driver.env supplies", async () => {
+    const threadId = "thread-configured-tmpdir"
+    const configured = await mkdtemp(join(tmpdir(), "vitehub-configured-tmpdir-test-"))
+    try {
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ env: { TMPDIR: configured }, provider: "codex" }).generate(context(threadId) as never)
+
+      expect(createProviderRuntime.mock.lastCall?.[0].environment?.TMPDIR).toBe(configured)
+      await expect(access(configured)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(configured, { force: true, recursive: true })
+    }
+  })
+
+  it("removes a private TMPDIR only after its owner process stops", async () => {
+    const processNamespace = await readlink("/proc/self/ns/pid").catch(() => undefined)
+    const stale = await mkdtemp(join(tmpdir(), "vitehub-provider-tmp-"))
+    await writeFile(join(stale, ".vitehub-owner.json"), `${JSON.stringify({
+      hostname: hostname(),
+      pid: 2_147_483_647,
+      processNamespace,
+      startedAt: "stale process identity",
+    })}\n`, { mode: 0o600 })
+    await mkdir(join(stale, "tmp", "vitehub-fixture"), { recursive: true })
+    // Without an owner record, ViteHub cannot prove that the root is unused.
+    const unknown = await mkdtemp(join(tmpdir(), "vitehub-provider-tmp-"))
+    try {
+      const threadId = "thread-scavenge-private-tmpdir"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId) as never)
+
+      await vi.waitFor(async () => await expect(access(stale)).rejects.toMatchObject({ code: "ENOENT" }))
+      await expect(access(unknown)).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(stale, { force: true, recursive: true })
+      await rm(unknown, { force: true, recursive: true })
+    }
   })
 
   it("scavenges an invocation-private credential root abandoned by a dead process", async () => {

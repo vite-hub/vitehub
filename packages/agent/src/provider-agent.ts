@@ -1110,10 +1110,21 @@ async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: num
   }
 }
 
-async function scavengeCodexCredentialHomes(): Promise<void> {
+/** Records this process as the owner of a temporary root, so a later process can remove the root after a crash. */
+async function writeTemporaryRootOwner(root: string): Promise<void> {
+  const startedAt = await codexCredentialProcessIdentity
+  const processNamespace = await codexCredentialProcessNamespace
+  await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
+}
+
+/**
+ * Removes `prefix` roots in the temporary directory whose owner process stopped.
+ * A root with a missing or unreadable owner record, or an owner that can still run, stays.
+ */
+async function scavengeOwnedTemporaryRoots(prefix: string, remove: (root: string) => Promise<void>): Promise<void> {
   const entries = await readdir(tmpdir(), { withFileTypes: true }).catch(() => [])
   await Promise.all(entries
-    .filter(entry => entry.isDirectory() && entry.name.startsWith(codexCredentialTemporaryPrefix))
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(prefix))
     .map(async (entry) => {
       const root = join(tmpdir(), entry.name)
       const rootEntry = await lstat(root).catch(() => undefined)
@@ -1134,8 +1145,12 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
         || !hasRuntimeType(owner.startedAt, "string")
         || !owner.startedAt
         || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, processNamespace: owner.processNamespace, startedAt: owner.startedAt })) return
-      await rm(root, { force: true, recursive: true }).catch(() => undefined)
+      await remove(root).catch(() => undefined)
     }))
+}
+
+async function scavengeCodexCredentialHomes(): Promise<void> {
+  await scavengeOwnedTemporaryRoots(codexCredentialTemporaryPrefix, root => rm(root, { force: true, recursive: true }))
 }
 
 async function runCodexCredentialHomeScavenger(): Promise<void> {
@@ -1144,14 +1159,40 @@ async function runCodexCredentialHomeScavenger(): Promise<void> {
   await scavenging
 }
 
+const providerTemporaryPrefix = "vitehub-provider-tmp-"
+let providerTemporaryScavenging = Promise.resolve()
+
+/** Removes provider temporary roots left by a process that stopped before its invocation cleanup ran. */
+function runProviderTemporaryRootScavenger(): Promise<void> {
+  const scavenging = providerTemporaryScavenging.then(() => scavengeOwnedTemporaryRoots(providerTemporaryPrefix, removeProviderRoot))
+  providerTemporaryScavenging = scavenging.catch(() => undefined)
+  return scavenging
+}
+
+/**
+ * Creates the `$TMPDIR` of one local provider invocation. The owner record stays
+ * in the root, outside the directory that provider commands write to.
+ */
+async function createProviderTemporaryRoot(): Promise<{ root: string, path: string }> {
+  const root = await mkdtemp(join(tmpdir(), providerTemporaryPrefix))
+  try {
+    await writeTemporaryRootOwner(root)
+    const path = join(root, "tmp")
+    await mkdir(path, { mode: 0o700 })
+    return { root, path }
+  }
+  catch (error) {
+    await rm(root, { force: true, recursive: true }).catch(() => undefined)
+    throw error
+  }
+}
+
 async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
   const root = await mkdtemp(join(tmpdir(), codexCredentialTemporaryPrefix))
   const homePath = join(root, "home")
   try {
     await chmod(root, 0o700)
-    const startedAt = await codexCredentialProcessIdentity
-    const processNamespace = await codexCredentialProcessNamespace
-    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
+    await writeTemporaryRootOwner(root)
     await mkdir(homePath, { mode: 0o700 })
     await configureCodexCredentialHome(homePath)
     await writeCodexCredentials(homePath, credentials)
@@ -2885,6 +2926,7 @@ async function* runProvider<
     : undefined
   let root: string
   let launchRoot: string | undefined
+  let temporaryRoot: { root: string, path: string } | undefined
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
@@ -2908,9 +2950,16 @@ async function* runProvider<
     }
     try {
       launchRoot = options.launch === undefined && !options.sandbox ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
+      // The provider and its commands run on this host, so they get a temporary
+      // directory that the invocation removes. A Sandbox has its own filesystem.
+      if (!options.sandbox) {
+        void runProviderTemporaryRootScavenger().catch(() => undefined)
+        temporaryRoot = await createProviderTemporaryRoot()
+      }
     }
     catch (error) {
       if (ownsRoot) await removeProviderRoot(providerRoot).catch(() => undefined)
+      if (launchRoot) await rm(launchRoot, { force: true, recursive: true }).catch(() => undefined)
       throw error
     }
     root = providerRoot
@@ -2985,12 +3034,14 @@ async function* runProvider<
     ])
   }
   const removeOwnedRoot = () => ownsRoot ? removeProviderRoot(root) : Promise.resolve()
-  const removeRoots = () => launchRoot
-    ? Promise.all([
-        removeOwnedRoot(),
-        rm(launchRoot, { force: true, recursive: true }),
-      ]).then(() => undefined)
-    : removeOwnedRoot()
+  // A command can leave a file that the invocation cannot remove. That must not fail
+  // the invocation. A later invocation removes the root after this process stops.
+  const removeTemporaryRoot = () => temporaryRoot ? removeProviderRoot(temporaryRoot.root).catch(() => undefined) : Promise.resolve()
+  const removeRoots = () => Promise.all([
+    removeOwnedRoot(),
+    removeTemporaryRoot(),
+    launchRoot ? rm(launchRoot, { force: true, recursive: true }) : undefined,
+  ]).then(() => undefined)
   const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(removeRoots, async (error: unknown) => {
     await removeRoots().catch(() => undefined)
     throw error
@@ -3242,6 +3293,8 @@ async function* runProvider<
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      // Test fixtures, tool caches, and Node's compile cache go to $TMPDIR. driver.env can replace it.
+      ...(temporaryRoot ? { TEMP: temporaryRoot.path, TMP: temporaryRoot.path, TMPDIR: temporaryRoot.path } : {}),
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
       VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
