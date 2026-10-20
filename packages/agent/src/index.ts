@@ -102,6 +102,7 @@ import {
 import {
   applyCapabilityToolTransforms,
   applyOutputRenderers,
+  assertInvocationCapabilities,
   createAgentInvocationExtensions,
   normalizeCapabilities,
   resolveAgentCapabilities,
@@ -628,6 +629,8 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
+// The Agent Dev Loop sets this on an Agent that runs one Capability CLI command directly.
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
@@ -839,6 +842,11 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
+  /**
+   * Agent Capabilities for this Invocation only. They follow the Agent's own Capabilities and do not change the
+   * Agent Definition. They are not the host values in `runtimeContext.capabilities`.
+   */
+  capabilities?: readonly AgentCapabilityDefinition[]
   /**
    * Runtime context values supplied by trusted standalone callers. Inside a running host, a standalone run
    * already gets the runtime capabilities that the generated routes give Agents; `runtimeContext.capabilities`
@@ -2437,7 +2445,7 @@ function createSyntheticWorkspaceRun<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input, "run", undefined, undefined, executionBudget)
+      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input, "run", undefined, undefined, undefined, executionBudget)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -3520,6 +3528,7 @@ function deliveryReminderUsageAttributes(result: unknown): Record<string, number
 }
 
 interface RunAgentInlineOptions {
+  capabilities?: readonly AgentCapabilityDefinition[]
   output?: "raw" | "rendered"
   tools?: AgentToolSet
 }
@@ -4484,6 +4493,7 @@ async function createAgentInvocationContext<
   invocationKind: "run" | "stream" = "run",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
+  invocationCapabilities: readonly AgentCapabilityDefinition[] = [],
   executionBudget: ReturnType<typeof createExecutionBudget> | undefined = executionBudgetHasConstraints(input)
     ? createExecutionBudget({
         ...(input.executionBudget || {}),
@@ -4535,6 +4545,7 @@ async function createAgentInvocationContext<
   const initialTelemetry = agentCapabilityTelemetry([
     ...(definition?.capabilities || []),
     ...channelCapabilities,
+    ...invocationCapabilities,
   ])
   const initialTelemetryUsesContent = initialTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
   const mayResolveContentTelemetry = capabilitiesResolver !== undefined
@@ -4621,6 +4632,8 @@ async function createAgentInvocationContext<
       }
     }
 
+    const normalizedInvocationCapabilities = normalizeCapabilities(invocationCapabilities) as AgentCapabilityDefinition<TRuntimeConfig>[]
+    assertInvocationCapabilities(normalizedInvocationCapabilities)
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
           ...agentInvocationCallbackContextValues(invocationContext),
@@ -4639,6 +4652,7 @@ async function createAgentInvocationContext<
       ...invocationResolvedCapabilities,
       ...(definition?.capabilities || []),
       ...channelCapabilities,
+      ...normalizedInvocationCapabilities,
     ]) as AgentCapabilityDefinition<TRuntimeConfig>[]
     failureTelemetry = agentCapabilityTelemetry(resolvedCapabilityDefinitions)
     const resolvedTelemetryUsesContent = failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))
@@ -4890,7 +4904,8 @@ async function createAgentInvocationContext<
         const collisions = Object.keys(invocationTools || {}).filter(name => Object.hasOwn(capabilities.tools || {}, name))
         if (collisions.length) throw new Error(`[vitehub] Invocation tool name already exists: ${collisions.join(", ")}.`)
         const availableTools = invocationTools ? { ...capabilities.tools, ...invocationTools } : capabilities.tools
-        transformed = resolveCapabilityCli
+        // Tool transforms shape the model-facing tools. A direct Capability CLI run has no model.
+        transformed = definition && Reflect.get(definition, capabilityCliRunSurface) === true
           ? { tools: availableTools, originalNames: new Map(Object.keys(availableTools || {}).map(name => [name, name])) }
           : await applyCapabilityToolTransforms(availableTools, capabilities.toolTransforms)
       }
@@ -7150,6 +7165,7 @@ type AgentInvocationExecutionOptions =
     onCapacityBypass?: () => void
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
     tools?: AgentToolSet
+    capabilities?: readonly AgentCapabilityDefinition[]
   }
 
 async function finishPreparedInvocationFailure<
@@ -7225,10 +7241,11 @@ async function createAgentInvocationContextWithWorkflowFailureDelivery<
   kind: "run" | "stream",
   invocationJournal?: AgentInvocationJournal<TRuntimeConfig>,
   invocationTools?: AgentToolSet,
+  invocationCapabilities?: readonly AgentCapabilityDefinition[],
   executionBudget?: ReturnType<typeof createExecutionBudget>,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   try {
-    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal, invocationTools, executionBudget)
+    return await createAgentInvocationContext(definition, context, input, kind, invocationJournal, invocationTools, invocationCapabilities, executionBudget)
   }
   catch (error) {
     try {
@@ -7261,7 +7278,7 @@ async function executeAgentInvocationWithCapacityLease<
     ? asUnknownBoundary(agent) as AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput>
     : undefined
   const invocation = preparedInvocation
-    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools, executionBudget)
+    ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools, options.capabilities, executionBudget)
   invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
   const lifecycle = openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
@@ -8545,6 +8562,7 @@ async function executeAgentInvocation<
         options.kind,
         invocationJournal,
         options.tools,
+        options.capabilities,
         executionBudget,
       )
     }
@@ -8675,6 +8693,7 @@ export async function runAgentInline<
     kind: "run",
     renderOutput: options.output !== "raw",
     tools: options.tools,
+    capabilities: options.capabilities,
   }) as TOutput
 }
 
@@ -8974,11 +8993,11 @@ export async function runAgent<
   }
   try {
     const binding = resolveAgentWorkflowRuntimeBinding(agent)
-    const hasInvocationTools = Object.keys(standaloneOptions?.tools || {}).length > 0
-    if (binding && "discoveryDefault" in binding && !hasInvocationTools) {
+    const runsInline = requiresInlineInvocation(standaloneOptions)
+    if (binding && "discoveryDefault" in binding && !runsInline) {
       throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Standalone runAgent() cannot discover an Agent Workflow without a host context. Set runtime: false for inline execution, configure an explicit workflow(\"name\") binding, or use runAgent(agent, runtimeContext, input)." })
     }
-    if (binding && standaloneOptions?.output === "drained" && !hasInvocationTools) {
+    if (binding && standaloneOptions?.output === "drained" && !runsInline) {
       throw new Error("[vitehub] Drained output requires inline execution; a Workflow returns a run handle.")
     }
     // SAFETY: The two-argument overload requires invocation input as its second argument.
@@ -8991,6 +9010,11 @@ export async function runAgent<
     await runtime.flushWaitUntil().catch(() => {})
     return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
   }
+}
+
+/** Invocation tools and Capabilities hold functions that a Workflow cannot serialize, so they need an inline run. */
+function requiresInlineInvocation(options: RunAgentOptions | undefined): boolean {
+  return Object.keys(options?.tools || {}).length > 0 || Boolean(options?.capabilities?.length)
 }
 
 async function runAgentWithContext<
@@ -9034,13 +9058,15 @@ async function runAgentWithContext<
   }
   const invocationContext = withAgentIdentityOwner(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding(agent)
-  const hasInvocationTools = Object.keys(options.tools || {}).length > 0
-  if (hasInvocationTools && binding && !("discoveryDefault" in binding)) {
-    throw new Error("[vitehub] Invocation tools cannot be used with an explicit Agent Workflow. Callable tools require inline execution.")
+  const runsInline = requiresInlineInvocation(options)
+  if (runsInline && binding && !("discoveryDefault" in binding)) {
+    throw new Error(options.capabilities?.length
+      ? "[vitehub] Invocation capabilities cannot be used with an explicit Agent Workflow. They require inline execution."
+      : "[vitehub] Invocation tools cannot be used with an explicit Agent Workflow. Callable tools require inline execution.")
   }
   // Discovered Workflows are optional host defaults. Invocation-scoped functions
   // require an inline run because they cannot be serialized into Workflow input.
-  const workflow = hasInvocationTools ? undefined : await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
+  const workflow = runsInline ? undefined : await runAgentAsWorkflow<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, invocationContext, input)
   if (workflow) {
     return workflow.run
   }
@@ -9051,7 +9077,7 @@ async function runAgentWithContext<
     await activity?.update(invocationFailureWasCancelled(error, input.abortSignal) ? "cancelled" : "failed", error)
     throw error
   }
-  const result = await runAgentInline(agent, invocationContext, input, { tools: hasInvocationTools ? options.tools : undefined })
+  const result = await runAgentInline(agent, invocationContext, input, { tools: runsInline ? options.tools : undefined, capabilities: options.capabilities })
   // SAFETY: The caller requested the rendered output contract, including a collected stream result.
   return options.output === "drained" ? await drainAgentRunOutput(result) as TOutput : result
 }

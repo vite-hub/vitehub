@@ -30,6 +30,7 @@ export interface ConnectionsAccess {
   /** The manager that the policy accepted, as `user:<id>`. */
   readonly actor: string
   readonly request: Request
+  readonly agentName?: string
 }
 
 /** Result of the access check: the access of the request, or the rejection response. */
@@ -62,6 +63,7 @@ export async function checkConnectionsAccess(
   request: Request,
   event: unknown,
   runtime: () => ConnectionsRuntime,
+  agentName?: string,
 ): Promise<ConnectionsAccessCheck> {
   let actor: unknown
   if (policy === "development") {
@@ -81,7 +83,7 @@ export async function checkConnectionsAccess(
   if (!manager.success) {
     return reject(403, "CONNECTIONS_FORBIDDEN", "The management route found no signed-in manager for this request.")
   }
-  const access: ConnectionsAccess = Object.freeze({ [connectionsAccessBrand]: true as const, actor: manager.output, request })
+  const access: ConnectionsAccess = Object.freeze({ [connectionsAccessBrand]: true as const, actor: manager.output, request, agentName })
   grants.set(access, runtime)
   return { access }
 }
