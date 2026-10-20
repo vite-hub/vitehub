@@ -34,7 +34,7 @@ catalogs:
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
-    better-auth: ^1.7.10
+    better-auth: 1.7.10
     jose: ^6.2.12
   browser:
     "@cloudflare/playwright": ^1.3.6
