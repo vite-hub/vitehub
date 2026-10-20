@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   docsManifestRoutes,
   markdownAnchors,
@@ -9,8 +9,15 @@ import {
   validateDocumentationLinks,
 } from "../scripts/markdown-links.mjs";
 
+const fixtureRoots: string[] = [];
+
+afterAll(() => {
+  for (const root of fixtureRoots.splice(0)) rmSync(root, { force: true, recursive: true });
+});
+
 function fixture(files: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), "vitehub-doc-links-"));
+  fixtureRoots.push(root);
   for (const [path, contents] of Object.entries(files)) {
     const target = join(root, path);
     mkdirSync(join(target, ".."), { recursive: true });

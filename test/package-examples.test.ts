@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import {
   assertExampleOutputs,
@@ -18,6 +18,7 @@ describe("package example contracts", () => {
 
   it("removes stale output and requires a non-empty declared artifact", () => {
     const root = mkdtempSync(join(tmpdir(), "vitehub-package-example-"))
+    onTestFinished(() => rmSync(root, { force: true, recursive: true }))
     mkdirSync(join(root, "dist"), { recursive: true })
     writeFileSync(join(root, "dist", "stale.js"), "stale")
 

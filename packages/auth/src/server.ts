@@ -402,7 +402,8 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   const request = unwrapAuthRequest(input)
 
 
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })  const auth = createAuthenticationProvider(providerOptions)
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: envResolverFor(definition) })
+  const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
 }
@@ -707,7 +708,8 @@ async function runAccessAuthorize(
     const normalized = await normalizeAuthorizationResponse(resolved)
     if (normalized) return { response: normalized }
   }
-  return { response: createForbiddenResponse(context.request) }}
+  return { response: createForbiddenResponse(context.request) }
+}
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
@@ -786,7 +788,8 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true      if (seen.has(current)) return false
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
       seen.add(current)
       current = Object.getPrototypeOf(current)
     }
@@ -838,9 +841,10 @@ function isSerializableAuthorizationBody(
     // stream's reader lock, and the bridge must acquire that same stream below.
     // The locked check above rejects streams that are already owned; native
     // reader validation and the bridge preserve lazy ownership for valid ones.
-    return true  }
+    return true
+  }
   catch {
-    return
+    return false
   }
 }
 
@@ -1106,7 +1110,8 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     throw error
   }
   let released = false
-  const acquire = async () => reader  const release = () => {
+  const acquire = async () => reader
+  const release = () => {
     if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
@@ -1142,7 +1147,8 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   catch (error) {
     release()
     throw error
-  }}
+  }
+}
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
@@ -1319,18 +1325,19 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         }
         prototype = Object.getPrototypeOf(prototype)
       }
-      if (currentBodyUsed !== false) return    }
+      if (currentBodyUsed !== false) return
+    }
     catch {
       return
     }
 
 
-    const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
-    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.    const normalizedHeaders = new Headers()
+    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
+    const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(trustedForEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
@@ -1361,7 +1368,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         ? Response.error()
         : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
-    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)    try {
+    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
+    try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
     catch (error) {
@@ -1519,17 +1527,24 @@ export function createAuthAccessHandler(
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
     // Request URLs keep the application base path, so match each route below it.
-    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
+    path: (() => {
+      const recursive = route.route.endsWith("/**")
+      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
+    })(),
     recursive: route.route.endsWith("/**"),
   }))
 
   return async (input) => {
-    const request = unwrapAuthRequest(input)
-    const pathname = new URL(request.url).pathname
-    const method = request.method.toUpperCase()
-    const matched = rules.filter(rule => (!rule.method || rule.method === method)
-      && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
-    if (matched.length === 0) return
+    const request = unwrapAuthRequest(input);
+    const pathname = new URL(request.url).pathname;
+    const method = request.method.toUpperCase();
+    const matched = rules.filter(
+      (rule) =>
+        (!rule.method || rule.method === method) &&
+        (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))),
+    );
+    if (matched.length === 0) return;
 
     const { response } = await checkAuthRequest(
       input,

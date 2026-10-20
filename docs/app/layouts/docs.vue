@@ -1,76 +1,75 @@
 <script setup lang="ts">
-import { docsManifest, getDocsPageByPath, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+import { getDocsSectionForPath, isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
-// The support matrix brings its own navigation panel and needs the full width for its table.
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
-// The catalog and every product Overview are landing pages: no sidebar, one centered column.
+// The catalog and every product Overview are landing pages: one full-width column without a table of contents.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-const hasCodePanel = computed(() => getDocsPageByPath(normalizeDocsPath(route.path))?.codePanel === true);
-
-// On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
-const docsShellUi = {
-  root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
-  left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
-  center: "lg:!flex-1 lg:!min-w-0",
-};
+// The rail is on every docs page. The page panel opens next to it inside a section, including its Overview.
+// The support matrix keeps the full width for its table.
+const hasPanel = computed(
+  () => !isSupportMatrix.value && Boolean(getDocsSectionForPath(docsManifest.sections, route.path)),
+);
 </script>
 
 <template>
-  <UMain class="vh-docs-shell" :class="{ 'has-header': isSupportMatrix }">
-    <UContainer v-if="isSupportMatrix">
-      <AnnouncementBanner />
-      <slot />
-    </UContainer>
+  <UMain class="vh-docs-shell">
+    <DocsSidebars class="vh-docs-desktop-nav" :panel="hasPanel" />
 
-    <div v-else-if="isLanding" class="vh-docs-landing">
-      <AnnouncementBanner />
-      <slot />
-      <AppFooter class="vh-docs-footer" />
-    </div>
+    <div class="vh-docs-content">
+      <div v-if="isSupportMatrix" class="vh-docs-support-matrix">
+        <UContainer class="vh-docs-support-matrix-content">
+          <AnnouncementBanner />
+          <slot />
+        </UContainer>
+      </div>
 
-    <UPage v-else :ui="docsShellUi">
-      <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:block">
-          <DocsSidebars class="vh-docs-aside-sidebars" panel />
-        </UPageAside>
-      </template>
+      <slot v-else-if="isLanding" />
 
-      <div :class="hasCodePanel ? 'vh-docs-split' : 'vh-docs-main'">
+      <template v-else>
         <AnnouncementBanner />
         <slot />
-        <AppFooter class="vh-docs-footer" />
-      </div>
-    </UPage>
-
+      </template>
+    </div>
   </UMain>
 </template>
 
 <style scoped>
 /* The header menu holds the navigation on narrow screens. The child selector outranks the DocsSidebars root rule. */
-.vh-docs-shell {
-  --ui-header-height: 0px;
+.vh-docs-shell > .vh-docs-desktop-nav {
+  display: none;
 }
 
-.vh-docs-main {
-  margin: 0 auto;
-  max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
+/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets. */
+.vh-docs-content {
+  min-width: 0;
+  max-width: none;
 }
 
-.vh-docs-landing {
-  --vh-landing-width: 84rem;
-  max-width: var(--vh-landing-width);
-  margin-inline: auto;
+.vh-docs-support-matrix {
+  width: 100%;
+  max-width: none;
 }
 
-.vh-docs-split {
-  margin: 0 auto;
-  max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
+.vh-docs-support-matrix-content {
+  width: 100%;
+  max-width: none !important;
 }
 
+/* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
 @media (min-width: 64rem) {
-  .vh-docs-aside {
+  .vh-docs-shell {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav {
+    display: flex;
+    flex: none;
+  }
+
+  .vh-docs-sidebars {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
@@ -80,11 +79,6 @@ const docsShellUi = {
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
-  }
-
-  .vh-docs-aside-sidebars {
-    min-height: 0;
-    flex: 1 1 0;
   }
 }
 

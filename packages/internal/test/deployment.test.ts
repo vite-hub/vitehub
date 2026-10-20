@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it } from "vitest"
 
 import { finalizeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
 import {
@@ -11,6 +11,19 @@ import {
   resolveDeploymentPlan,
 } from "../src/deployment.ts"
 import { getHostingProvider } from "../src/hosting.ts"
+
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+async function temporaryDirectory(prefix: string) {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
+
 describe("built-in deployment plans", () => {
   it.each([
     ["cloudflare", "cloudflare-module", "cloudflare", "workerd"],
@@ -53,7 +66,7 @@ describe("built-in deployment plans", () => {
   })
   it("validates and records the whole output contract", async () => {
     for (const preset of ["cloudflare", "netlify", "vercel", "deno", "node"] as const) {
-      const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-output-"))
+      const rootDir = await temporaryDirectory("vitehub-plan-output-")
       const plan = resolveDeploymentPlan(preset)
       const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
       await mkdir(dirname(entry), { recursive: true })
@@ -71,7 +84,7 @@ describe("built-in deployment plans", () => {
     }
   })
   it("validates and records a resolved custom output directory", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-custom-output-"))
+    const rootDir = await temporaryDirectory("vitehub-plan-custom-output-")
     const outputDir = resolve(rootDir, "custom-output")
     const plan = resolveDeploymentPlan("node")
     const entry = resolve(outputDir, plan.output.entry!)
@@ -84,7 +97,7 @@ describe("built-in deployment plans", () => {
     expect(manifest.output).toEqual({ ...plan.output, directory: "custom-output" })
   })
   it("records caller-resolved identity and service metadata", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-services-"))
+    const rootDir = await temporaryDirectory("vitehub-plan-services-")
     const plan = resolveDeploymentPlan("node")
     const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
     const identity = { name: "example-app", source: "package.json" }
@@ -99,7 +112,7 @@ describe("built-in deployment plans", () => {
     expect(manifest.services).toEqual(services)
   })
   it("uses Netlify's deployment root above its Nitro output directory", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-plan-netlify-output-"))
+    const rootDir = await temporaryDirectory("vitehub-plan-netlify-output-")
     const outputDir = resolve(rootDir, "custom-netlify", "functions-internal")
     const plan = resolveDeploymentPlan("netlify")
     const entry = resolve(rootDir, "custom-netlify", plan.output.entry!)
