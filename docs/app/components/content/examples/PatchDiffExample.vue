@@ -12,5 +12,5 @@ index 0f62a11..12b7409 100644
 </script>
 
 <template>
-  <AgentPatchDiff :patch="patch" />
+  <PatchDiff :patch="patch" />
 </template>

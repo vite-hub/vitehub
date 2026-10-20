@@ -427,6 +427,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_B0005",
   "AGENT_B0006",
   "AGENT_B0016",
+  "AGENT_B0024",
   "AGENT_B0017",
   "AGENT_R0878",
   "AGENT_R0879",
@@ -1361,6 +1362,7 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_B0018: dynamicError,
     AGENT_B0022: dynamicError,
     AGENT_B0023: dynamicError,
+    AGENT_B0024: dynamicError,
     AGENT_R0872: dynamicError,
     AGENT_R0873: dynamicError,
     AGENT_R0874: dynamicError,
@@ -1516,7 +1518,7 @@ export const agentDiagnostics = defineDiagnostics({
       fix: "Move triggers, workspaceSources, and chat access to a static capabilities array.",
     },
     AGENT_C0011: {
-      why: "[vitehub] codeHost() requires valid host, repositories, output limit and operations for its mode.",
+      why: "[vitehub] forge() requires valid forge, repositories, output limit and operations for its mode.",
       fix: "Use mode write for write operations and policy. Use repository names or owner/* patterns.",
     },
     AGENT_R0003: {
