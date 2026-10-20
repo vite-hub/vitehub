@@ -227,7 +227,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
   }
 }
@@ -235,8 +235,43 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
 function readString(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
   if (!record) return
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "string") && value) return value
+  }
+}
+
+/** Read own data and accessor properties while ignoring ambient prototype data. */
+function readableRecordValue<T extends object, K extends keyof T>(record: T, key: K): T[K] | undefined
+function readableRecordValue(record: unknown, key: string): unknown
+function readableRecordValue(record: unknown, key: string): unknown {
+  if (!isRecord(record)) return
+  const visited = new WeakSet<object>()
+  let source: object | null = record
+  for (let hops = 0; source && source !== Object.prototype && hops < 100; hops++) {
+    if (visited.has(source)) return
+    visited.add(source)
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(source, key)
+    }
+    catch {
+      return
+    }
+    if (descriptor) {
+      if (source !== record && !("get" in descriptor)) return
+      try {
+        return Reflect.get(record, key)
+      }
+      catch {
+        return
+      }
+    }
+    try {
+      source = Object.getPrototypeOf(source)
+    }
+    catch {
+      return
+    }
   }
 }
 
@@ -327,10 +362,14 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
-function usageMetadataValue(result: Record<string, unknown>, key: string): unknown {
-  if (!hasTraceableStreamResult(result)) return result[key]
+function usageMetadataValue(result: unknown, key: string): unknown {
+  if (!isRecord(result)) return
+  if (!hasTraceableStreamResult(result)) return readableRecordValue(result, key)
   // Stream result getters can create rejecting promise projections while the provider is still running.
   const descriptor = resultPropertyDescriptor(result, key)
+  // Inherited data properties are ambient prototype metadata, not provider output.
+  // Keep own data properties eligible while retaining the deferred-getter guard.
+  if (descriptor && !(Object.prototype.hasOwnProperty.call(result, key) || "get" in descriptor)) return
   return descriptor && "value" in descriptor ? descriptor.value : undefined
 }
 
@@ -382,7 +421,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   const responseValue = usageMetadataValue(result, "response")
   const response = isRecord(responseValue) ? responseValue : undefined
   const id = readString(response, "id")
-  const timestamp = response?.timestamp
+  const timestamp = response ? readableRecordValue(response, "timestamp") : undefined
   const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
   const output: NonNullable<AgentUsageRecord["response"]> = {}
@@ -394,7 +433,8 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
   if (!isRecord(result)) return
-  const source = isRecord(result.latency) ? result.latency : result
+  const latencyValue = usageMetadataValue(result, "latency")
+  const source = isRecord(latencyValue) ? latencyValue : result
   const durationMs = readNumber(source, "durationMs", "duration_ms")
   const timeToFirstTokenMs = readNumber(source, "timeToFirstTokenMs", "ttftMs", "time_to_first_token_ms")
   const tokensPerSecond = readNumber(source, "tokensPerSecond", "tokens_per_second")
@@ -411,7 +451,8 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
   const providerMetadata = usageMetadataValue(result, "providerMetadata")
   if (!isRecord(providerMetadata)) return
   for (const metadata of Object.values(providerMetadata)) {
-    const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
+    const usage = isRecord(metadata) ? readableRecordValue(metadata, "usage") : undefined
+    const cost = isRecord(usage) ? readableRecordValue(usage, "cost") : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
@@ -443,8 +484,14 @@ function usageRecordFromUsage(
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
   const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
     ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
-  const inputTokenDetails = readDetails(rawUsage.inputTokenDetails || rawUsage.input_token_details || rawUsage.promptTokenDetails || rawUsage.prompt_token_details)
-  const outputTokenDetails = readDetails(rawUsage.outputTokenDetails || rawUsage.output_token_details || rawUsage.completionTokenDetails || rawUsage.completion_token_details)
+  const inputTokenDetails = readDetails(readableRecordValue(rawUsage, "inputTokenDetails")
+    ?? readableRecordValue(rawUsage, "input_token_details")
+    ?? readableRecordValue(rawUsage, "promptTokenDetails")
+    ?? readableRecordValue(rawUsage, "prompt_token_details"))
+  const outputTokenDetails = readDetails(readableRecordValue(rawUsage, "outputTokenDetails")
+    ?? readableRecordValue(rawUsage, "output_token_details")
+    ?? readableRecordValue(rawUsage, "completionTokenDetails")
+    ?? readableRecordValue(rawUsage, "completion_token_details"))
   const usage: AgentUsage = {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -475,64 +522,89 @@ function withFallbackUsageMetadata(
   fallbackMetadataSource: unknown,
   run?: Partial<AgentRunMetadata>,
 ): AgentUsageRecord {
-  const compound = Boolean(record.calls?.length)
+  const compound = Boolean(readableRecordValue(record, "calls")?.length)
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
-  const model = record.model ?? (compound ? undefined : modelMetadata?.model)
-  const transport = record.transport ?? (compound ? undefined : modelMetadata?.transport)
+  const model = readableRecordValue(record, "model") ?? (compound ? undefined : modelMetadata?.model)
+  const transport = readableRecordValue(record, "transport") ?? (compound ? undefined : modelMetadata?.transport)
   let cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   try {
-    if (record.cost) cost = materializeAgentUsageCost(record.cost)
+    const recordCost = readableRecordValue(record, "cost")
+    if (recordCost) cost = materializeAgentUsageCost(recordCost)
   }
   catch {
     cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   }
-  const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
-  const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
-  const credentialSource = record.credentialSource
-  const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
-  const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  const usage = readableProperty(record, "usage")
-  if (!(model || provider || transport || cost || response || latency || credentialSource || runMetadata || usage)) return record
-  const output = { ...record }
-  if (cost) output.cost = cost
-  if (credentialSource) output.credentialSource = credentialSource
-  if (latency) output.latency = latency
-  if (model) output.model = model
-  if (provider) output.provider = provider
-  if (response) output.response = response
-  if (runMetadata) output.run = runMetadata
-  if (transport) output.transport = transport
-  if (usage) output.usage = usage
-  return output
+  const response = readableRecordValue(record, "response") ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
+  const latency = readableRecordValue(record, "latency") ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
+  const credentialSource = readableRecordValue(record, "credentialSource")
+  const runMetadata = mergedRunMetadata(run, readableRecordValue(record, "run"))
+  const provider = readableRecordValue(record, "provider") ?? (compound ? undefined : modelMetadata?.provider)
+  const usage = readableRecordValue(record, "usage")
+  const calls = readableRecordValue(record, "calls")
+  const raw = readableRecordValue(record, "raw")
+  if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
+  const result = { ...record }
+  if (cost) result.cost = cost
+  if (credentialSource) result.credentialSource = credentialSource
+  if (latency) result.latency = latency
+  if (model) result.model = model
+  if (provider) result.provider = provider
+  if (response) result.response = response
+  if (runMetadata) result.run = runMetadata
+  if (transport) result.transport = transport
+  if (usage) result.usage = usage
+  if (calls !== undefined) result.calls = calls
+  if (raw !== undefined) result.raw = raw
+  return result
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
-  const type = String(chunk.type || "")
-  if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
+  const type = String(readableRecordValue(chunk, "type") || "")
+  const usageRecord = readableRecordValue(chunk, "usageRecord")
+  if (type === "usage" && isUsageRecord(usageRecord)) {
     return withFallbackUsageMetadata(
-      withFallbackUsageMetadata(chunk.usageRecord, chunk, run),
+      withFallbackUsageMetadata(usageRecord, chunk, run),
       fallbackMetadataSource,
       run,
     )
   }
   return usageRecordFromUsage(type === "finish-step"
-    ? chunk.usage
+    ? readableRecordValue(chunk, "usage")
     : type === "finish"
-      ? chunk.usage ?? chunk.totalUsage
+      ? readableRecordValue(chunk, "usage") ?? readableRecordValue(chunk, "totalUsage")
       : undefined, chunk, fallbackMetadataSource, run)
 }
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
+  return usageRecordFromUsage(await resolveUsageValue(readableRecordValue(result, "usage") ?? readableRecordValue(result, "totalUsage")), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
-  return await usageFromResult(value, run) ?? await usageFromResult(value.raw, run)
+  return await usageFromResult(value, run) ?? await usageFromResult(readableRecordValue(value, "raw"), run)
+}
+
+/** Resolve usage while a provider stream is still active without evaluating deferred getters. */
+export async function resolveAgentUsageRecordDuringStream(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(value)) return
+  const usageRecord = ownValue(value, "usageRecord")
+  if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
+  const usage = usageMetadataValue(value, "usage") ?? usageMetadataValue(value, "totalUsage")
+  if (usage !== undefined) {
+    return usageRecordFromUsage(await resolveUsageValue(usage), value, undefined, run)
+  }
+  const raw = usageMetadataValue(value, "raw")
+  if (!isRecord(raw)) return
+  return usageRecordFromUsage(
+    await resolveUsageValue(usageMetadataValue(raw, "usage") ?? usageMetadataValue(raw, "totalUsage")),
+    raw,
+    undefined,
+    run,
+  )
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {

@@ -1422,17 +1422,24 @@ export function createAuthAccessHandler(
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
     // Request URLs keep the application base path, so match each route below it.
-    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
+    path: (() => {
+      const recursive = route.route.endsWith("/**")
+      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
+    })(),
     recursive: route.route.endsWith("/**"),
   }))
 
   return async (input) => {
-    const request = unwrapAuthRequest(input)
-    const pathname = new URL(request.url).pathname
-    const method = request.method.toUpperCase()
-    const matched = rules.filter(rule => (!rule.method || rule.method === method)
-      && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
-    if (matched.length === 0) return
+    const request = unwrapAuthRequest(input);
+    const pathname = new URL(request.url).pathname;
+    const method = request.method.toUpperCase();
+    const matched = rules.filter(
+      (rule) =>
+        (!rule.method || rule.method === method) &&
+        (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))),
+    );
+    if (matched.length === 0) return;
 
     const { response } = await checkAuthRequest(
       input,
