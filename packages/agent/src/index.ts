@@ -3335,6 +3335,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
     if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
     const sources = isRuntimeRecord(value.sources) ? value.sources : value
     return Object.hasOwn(sources, "__vitehubAgentInstructions")
+      || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
   }
   const explicitWorkspaceInstructions = [
     settings.workspace,
