@@ -25,7 +25,11 @@ async function createRoot() {
 
 afterEach(async () => {
   resetWorkspaceRegistry()
-  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+  await Promise.all(tempDirs.splice(0).flatMap(path => [
+    rm(path, { recursive: true, force: true }),
+    // A local Workspace store writes its metadata next to the root.
+    rm(`${path}.meta.json`, { force: true }),
+  ]))
 })
 
 describe("Workspace Source Sync", () => {

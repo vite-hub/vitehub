@@ -1,15 +1,27 @@
 import { existsSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
+
+const temporaryDirectories: string[] = []
+
+afterAll(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
+})
+
+async function temporaryDirectory(prefix: string) {
+  const directory = await mkdtemp(join(tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
   if (typeof plugin.buildEnd !== "function") throw new TypeError("Expected hubSchedule buildEnd hook")
@@ -36,7 +48,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("collects provider import aliases without a Workflow plugin", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-aliases-"))
+    const root = await temporaryDirectory("vitehub-schedule-provider-aliases-")
     const getImportAliases = vi.fn(async () => ({}))
     const plugin = hubSchedule()
 
@@ -61,7 +73,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("invalidates registries for updates under a forwarded server directory", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-hmr-"))
+    const root = await temporaryDirectory("vitehub-schedule-hmr-")
     const serverDir = join(root, "backend")
     const plugin = hubSchedule()
     await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)({
@@ -87,7 +99,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("invalidates the registry in the Nitro environment graph", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-hmr-env-"))
+    const root = await temporaryDirectory("vitehub-schedule-hmr-env-")
     const plugin = hubSchedule()
     await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)({ root }, { command: "serve", mode: "development" })
     await resolvePluginConfig(plugin, root)
@@ -116,7 +128,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("contributes discovered schedules to the in-flight Nitro config before framework plugins consume it", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-config-"))
+    const root = await temporaryDirectory("vitehub-schedule-nitro-config-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "mirror.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -169,7 +181,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("installs an explicit Process Runtime through generated Nitro wiring", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-runtime-"))
+    const root = await temporaryDirectory("vitehub-schedule-process-runtime-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -290,7 +302,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("installs an explicit Process Runtime with an empty canonical registry", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-empty-process-runtime-"))
+    const root = await temporaryDirectory("vitehub-schedule-empty-process-runtime-")
     const userConfig: Record<string, unknown> = { root }
     const plugin = hubSchedule({
       projectRoot: root,
@@ -318,7 +330,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("lets the Process Runtime own Static Schedule execution when configured", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-static-"))
+    const root = await temporaryDirectory("vitehub-schedule-process-static-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
@@ -364,7 +376,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("honors explicit Nitro Provider Wake output with the Process Runtime", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-nitro-output-"))
+    const root = await temporaryDirectory("vitehub-schedule-process-nitro-output-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -384,7 +396,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("honors explicit standalone Provider Wake output with the Process Runtime", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-standalone-output-"))
+    const root = await temporaryDirectory("vitehub-schedule-process-standalone-output-")
     await mkdir(join(root, "src"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), [
@@ -413,7 +425,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("snapshots schedules before deferred Provider Output finalization", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-snapshot-"))
+    const root = await temporaryDirectory("vitehub-schedule-provider-output-snapshot-")
     const scheduleFile = join(root, "src", "cleanup.schedule.ts")
     await mkdir(join(root, "src"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
@@ -476,7 +488,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("resets pending Provider Output when schedule preparation fails", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-provider-output-invalid-"))
+    const root = await temporaryDirectory("vitehub-schedule-provider-output-invalid-")
     const scheduleFile = join(root, "src", "cleanup.schedule.ts")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(scheduleFile, "export default defineSchedule({ cron: getCron(), handler: () => {} })\n", "utf8")
@@ -506,7 +518,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("preserves forwarded server directories in standalone Provider Output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-forwarded-standalone-output-"))
+    const root = await temporaryDirectory("vitehub-schedule-forwarded-standalone-output-")
     const serverDir = join(root, "backend")
     await mkdir(join(serverDir, "schedules"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
@@ -537,7 +549,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("emits server schedules in explicit standalone Provider Wake output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-server-standalone-output-"))
+    const root = await temporaryDirectory("vitehub-schedule-server-standalone-output-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), [
@@ -564,7 +576,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-direct-nitro-process-"))
+    const root = await temporaryDirectory("vitehub-schedule-direct-nitro-process-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -588,7 +600,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("does not infer a Process Runtime from Nitro or discovered definitions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-no-process-runtime-"))
+    const root = await temporaryDirectory("vitehub-schedule-no-process-runtime-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), "export default defineSchedule({ cron: '* * * * *', handler: () => {} })\n", "utf8")
 
@@ -604,7 +616,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("adds the Schedule dev handler to Nitro only for the Development Server", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-dev-handler-"))
+    const root = await temporaryDirectory("vitehub-schedule-dev-handler-")
     const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
     await (hubSchedule({ projectRoot: root }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       serveConfig,
@@ -630,7 +642,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("rejects invalid Process Runtime options before generating Nitro code", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-invalid-process-"))
+    const root = await temporaryDirectory("vitehub-schedule-invalid-process-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "report.ts"), "export default defineSchedule({ cron: '* * * * *', handler: () => {} })\n", "utf8")
 
@@ -649,7 +661,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("installs Schedule Provider Wake through the Nuxt module", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nuxt-"))
+    const root = await temporaryDirectory("vitehub-schedule-nuxt-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "mirror.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -702,7 +714,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("discovers project server schedules when the Vite root is nested", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nested-root-"))
+    const root = await temporaryDirectory("vitehub-schedule-nested-root-")
     const appRoot = join(root, "app")
     await mkdir(join(appRoot, "src"), { recursive: true })
     await mkdir(join(root, "server", "schedules"), { recursive: true })
@@ -749,7 +761,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("does not install Nitro plugin output for suffix-only standalone schedules by default", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-standalone-"))
+    const root = await temporaryDirectory("vitehub-schedule-standalone-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -768,7 +780,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("adds standalone schedules to Vercel's Nitro output config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-"))
+    const root = await temporaryDirectory("vitehub-schedule-vercel-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -810,7 +822,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("adds auto-selected standalone schedules to Vercel's Nitro output config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-auto-"))
+    const root = await temporaryDirectory("vitehub-schedule-vercel-auto-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
 
@@ -826,7 +838,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("does not add auto-selected Vercel crons when Process Runtime owns the schedule", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-auto-process-"))
+    const root = await temporaryDirectory("vitehub-schedule-vercel-auto-process-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
 
@@ -841,7 +853,7 @@ describe("Vite schedule integration", () => {
   })
 
   it.each(["NITRO_PRESET", "SERVER_PRESET"])("adds standalone schedules to Vercel Nitro config selected by %s", async (environmentVariable) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vercel-env-"))
+    const root = await temporaryDirectory("vitehub-schedule-vercel-env-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n", "utf8")
     vi.stubEnv(environmentVariable, "vercel")
@@ -861,7 +873,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("can force Nitro plugin output for suffix schedules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-force-nitro-"))
+    const root = await temporaryDirectory("vitehub-schedule-force-nitro-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -893,7 +905,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("preserves existing Nitro build hooks while adding schedule Provider Output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-hooks-"))
+    const root = await temporaryDirectory("vitehub-schedule-nitro-hooks-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "mirror.ts"), [
       "import { defineSchedule } from '@vite-hub/schedule'",
@@ -930,7 +942,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("skips standalone provider bundling when server schedules use Nitro provider output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-skip-"))
+    const root = await temporaryDirectory("vitehub-schedule-nitro-skip-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "sync.ts"), [
@@ -958,7 +970,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("keeps suffix standalone output when server schedules use Nitro provider output", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-mixed-output-"))
+    const root = await temporaryDirectory("vitehub-schedule-mixed-output-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await mkdir(join(root, "src"), { recursive: true })
     await mkdir(join(root, "dist", "client"), { recursive: true })
@@ -1009,7 +1021,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("keeps suffix Schedule discovery relative to a nested Vite root", async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-schedule-project-root-"))
+    const projectRoot = await temporaryDirectory("vitehub-schedule-project-root-")
     const viteRoot = join(projectRoot, "apps", "web")
     await mkdir(join(viteRoot, "src"), { recursive: true })
     await mkdir(join(projectRoot, "apps", "sibling", "src"), { recursive: true })
@@ -1027,7 +1039,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("serves a stable lazy registry for discovered schedule files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-"))
+    const root = await temporaryDirectory("vitehub-schedule-vite-")
     await mkdir(join(root, "src"), { recursive: true })
     await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default null\n", "utf8")
     await writeFile(join(root, "src", "reports.schedule.ts"), "export default defineSchedule({ cron: \"0 0 * * *\", handler: () => {} })\n", "utf8")
@@ -1043,7 +1055,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("serves server schedules from the stable lazy registry", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-registry-server-"))
+    const root = await temporaryDirectory("vitehub-schedule-registry-server-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "sync.ts"), "export default defineSchedule({ cron: \"0 4 * * *\", handler: () => {} })\n", "utf8")
 
@@ -1055,7 +1067,7 @@ describe("Vite schedule integration", () => {
   })
 
   it("serves an empty registry without special cases", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-vite-empty-"))
+    const root = await temporaryDirectory("vitehub-schedule-vite-empty-")
     const plugin = hubSchedule()
     await resolvePluginConfig(plugin, root)
 

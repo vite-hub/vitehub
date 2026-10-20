@@ -1,10 +1,12 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { executionBudgetCharged, executionBudgetHandledBy, executionBudgetOverride, isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { defineGrant, type Grant } from "@vite-hub/runtime/internal/grant"
 
 import type {
@@ -16,6 +18,7 @@ import type {
 } from "./types.ts"
 
 const approvalPreservingExecutorOwners = new WeakMap<Function, AgentToolPolicyOwner | null>()
+const budgetWrappedExecutors = new WeakMap<object, (...args: unknown[]) => unknown>()
 
 function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
   const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
@@ -47,6 +50,8 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
     ...descriptors,
     ...Object.getOwnPropertyDescriptors(overrides),
   })
+  const handledBudget = executionBudgetHandledBy(tool)
+  if (handledBudget) markExecutionBudgetHandled(copied, handledBudget)
   const policyOwner = agentToolPolicyOwners.get(tool)
   const overrideExecute = Object.getOwnPropertyDescriptor(overrides, "execute")?.value
   if (policyOwner && (!Object.hasOwn(overrides, "execute") || (hasRuntimeType(overrideExecute, "function") && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
@@ -92,6 +97,8 @@ const agentToolPolicyOwners = new WeakMap<object, AgentToolPolicyOwner>()
 const toolApprovalGrantContextKey: unique symbol = Symbol("vitehub.agent.tool-approval-grant")
 
 type AgentToolApprovalExecutionContext = AgentToolExecutionContext & { [toolApprovalGrantContextKey]?: AgentToolApprovalGrant }
+const toolExecutionBudgetKey: unique symbol = Symbol("vitehub.agent.tool-execution-budget")
+type BudgetedToolExecutionContext = AgentToolExecutionContext & { [toolExecutionBudgetKey]?: ExecutionBudget }
 
 /**
  * Create a single-use grant for an approval request that a tool policy issued.
@@ -118,7 +125,8 @@ export async function executeApprovedAgentTool(
     })
   }
   const approvedContext: AgentToolApprovalExecutionContext = { ...context, [toolApprovalGrantContextKey]: grant }
-  return await tool.execute(binding.input, approvedContext)
+  const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+  return await execute.call(tool, binding.input, approvedContext)
 }
 
 function consumeToolApprovalGrant(policy: AgentToolPolicyOwner, toolName: string, input: unknown, context: AgentToolApprovalExecutionContext | undefined): boolean {
@@ -161,7 +169,12 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const approvalExecute = async (input: unknown, context?: AgentToolExecutionContext) => {
       if (consumeToolApprovalGrant(policyOwner, tool.name, input, context)) {
         context?.abortSignal?.throwIfAborted()
-        return await execute.call(tool, input, context)
+        const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
+        if (budget) budget.recordToolCall()
+        const chargedContext = executionBudgetHandledBy(tool) && budget
+          ? { ...context, [executionBudgetCharged]: true }
+          : context
+        return await execute.call(tool, input, chargedContext)
       }
       const decision = typeof policy === "function"
         ? await policy({
@@ -195,7 +208,12 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       }
 
       context?.abortSignal?.throwIfAborted()
-      return await execute.call(tool, input, context)
+      const budget = (context as BudgetedToolExecutionContext | undefined)?.[toolExecutionBudgetKey]
+      if (budget) budget.recordToolCall()
+      const chargedContext = executionBudgetHandledBy(tool) && budget
+        ? { ...context, [executionBudgetCharged]: true }
+        : context
+      return await execute.call(tool, input, chargedContext)
     }
   approvalPreservingExecutorOwners.set(approvalExecute, policyOwner)
   const wrapped = copyToolWithOverrides(tool, { execute: approvalExecute })
@@ -229,6 +247,53 @@ export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools
     const wrappedExecute = async (input: unknown, ...args: unknown[]) => toJsonCompatibleValue(await execute.call(tool, input, ...args))
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
+  })) as TTools
+}
+
+/**
+ * Spend the enclosing Invocation's tool-call budget at the final execution seam.
+ *
+ * Capability tools can be contributed by arbitrary packages, so they cannot all
+ * be expected to remember to call the budget themselves. Workspace tools mark
+ * their own implementation by object identity so a copied metadata field cannot
+ * opt a tool out of the enclosing Invocation budget.
+ */
+export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools: TTools, budget?: ExecutionBudget): TTools {
+  if (!budget || !tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
+      return [name, tool]
+    }
+    if (isExecutionBudgetHandled(tool, budget)) {
+      return [name, tool]
+    }
+
+    // Reuse the underlying executor when a tool was prepared under another
+    // budget. The active Invocation owns accounting for this execution.
+    const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+    const ownedBudget = executionBudgetHandledBy(tool)
+    const policyOwner = agentToolPolicyOwners.get(tool)
+    const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
+      // Approval requests are probes. Charge the call when the policy-protected
+      // execution actually succeeds, including the later approved execution.
+      if (policyOwner) {
+        const budgetContext = { ...executionContext, [toolExecutionBudgetKey]: budget, ...(ownedBudget && ownedBudget !== budget ? { [executionBudgetOverride]: budget } : {}) }
+        return await execute.call(tool, input, budgetContext)
+      }
+      if (ownedBudget && ownedBudget !== budget) {
+        return await execute.call(tool, input, { ...executionContext, [executionBudgetOverride]: budget })
+      }
+      budget.recordToolCall()
+      return await execute.call(tool, input, executionContext)
+    }
+    approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
+    const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })
+    // Keep the budget-aware seam for approved executions as well. Policy
+    // wrappers charge only after a grant is consumed, so this avoids both
+    // bypassing accounting and charging the approval probe twice.
+    budgetWrappedExecutors.set(wrappedTool, wrappedExecute)
+    return [name, wrappedTool]
   })) as TTools
 }
 
