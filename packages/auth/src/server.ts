@@ -785,7 +785,6 @@ function bridgeAuthorizationBody(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (!(value instanceof Response)) return
   try {
     const candidate = Object(value)
     const responseImplementationConstructor = await hasResponsePrototype(candidate)

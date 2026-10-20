@@ -40,10 +40,10 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
-import { approveAgentToolRequest, executeApprovedAgentTool } from "./tool-runtime.ts"
+import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
 
 import type {
@@ -65,6 +65,7 @@ import type {
   AgentProviderCredentialContext,
   AgentProviderStatus,
   AgentProviderCredentialResolver,
+  AgentProviderReadinessCheck,
   AgentDriverGateway,
   AgentProviderEnvironment,
   AgentProviderEnvironmentResolver,
@@ -1109,10 +1110,21 @@ async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: num
   }
 }
 
-async function scavengeCodexCredentialHomes(): Promise<void> {
+/** Records this process as the owner of a temporary root, so a later process can remove the root after a crash. */
+async function writeTemporaryRootOwner(root: string): Promise<void> {
+  const startedAt = await codexCredentialProcessIdentity
+  const processNamespace = await codexCredentialProcessNamespace
+  await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
+}
+
+/**
+ * Removes `prefix` roots in the temporary directory whose owner process stopped.
+ * A root with a missing or unreadable owner record, or an owner that can still run, stays.
+ */
+async function scavengeOwnedTemporaryRoots(prefix: string, remove: (root: string) => Promise<void>): Promise<void> {
   const entries = await readdir(tmpdir(), { withFileTypes: true }).catch(() => [])
   await Promise.all(entries
-    .filter(entry => entry.isDirectory() && entry.name.startsWith(codexCredentialTemporaryPrefix))
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(prefix))
     .map(async (entry) => {
       const root = join(tmpdir(), entry.name)
       const rootEntry = await lstat(root).catch(() => undefined)
@@ -1133,8 +1145,12 @@ async function scavengeCodexCredentialHomes(): Promise<void> {
         || !hasRuntimeType(owner.startedAt, "string")
         || !owner.startedAt
         || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, processNamespace: owner.processNamespace, startedAt: owner.startedAt })) return
-      await rm(root, { force: true, recursive: true }).catch(() => undefined)
+      await remove(root).catch(() => undefined)
     }))
+}
+
+async function scavengeCodexCredentialHomes(): Promise<void> {
+  await scavengeOwnedTemporaryRoots(codexCredentialTemporaryPrefix, root => rm(root, { force: true, recursive: true }))
 }
 
 async function runCodexCredentialHomeScavenger(): Promise<void> {
@@ -1143,14 +1159,40 @@ async function runCodexCredentialHomeScavenger(): Promise<void> {
   await scavenging
 }
 
+const providerTemporaryPrefix = "vitehub-provider-tmp-"
+let providerTemporaryScavenging = Promise.resolve()
+
+/** Removes provider temporary roots left by a process that stopped before its invocation cleanup ran. */
+function runProviderTemporaryRootScavenger(): Promise<void> {
+  const scavenging = providerTemporaryScavenging.then(() => scavengeOwnedTemporaryRoots(providerTemporaryPrefix, removeProviderRoot))
+  providerTemporaryScavenging = scavenging.catch(() => undefined)
+  return scavenging
+}
+
+/**
+ * Creates the `$TMPDIR` of one local provider invocation. The owner record stays
+ * in the root, outside the directory that provider commands write to.
+ */
+async function createProviderTemporaryRoot(): Promise<{ root: string, path: string }> {
+  const root = await mkdtemp(join(tmpdir(), providerTemporaryPrefix))
+  try {
+    await writeTemporaryRootOwner(root)
+    const path = join(root, "tmp")
+    await mkdir(path, { mode: 0o700 })
+    return { root, path }
+  }
+  catch (error) {
+    await rm(root, { force: true, recursive: true }).catch(() => undefined)
+    throw error
+  }
+}
+
 async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
   const root = await mkdtemp(join(tmpdir(), codexCredentialTemporaryPrefix))
   const homePath = join(root, "home")
   try {
     await chmod(root, 0o700)
-    const startedAt = await codexCredentialProcessIdentity
-    const processNamespace = await codexCredentialProcessNamespace
-    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
+    await writeTemporaryRootOwner(root)
     await mkdir(homePath, { mode: 0o700 })
     await configureCodexCredentialHome(homePath)
     await writeCodexCredentials(homePath, credentials)
@@ -1383,6 +1425,42 @@ const providerStatusCacheMs = 30_000
 const providerStatusStderrMaxLength = 1_500
 const recentProviderQuotaFailures = new Map<string, { message: string, expiresAt: number }>()
 
+type ProviderReadinessSnapshot = {
+  modelCompatibility?: unknown
+  workspaceCapacity?: unknown
+  models?: unknown
+}
+
+function providerReadinessCheck(value: unknown): AgentProviderReadinessCheck | undefined {
+  if (!isRuntimeRecord(value) || !hasRuntimeType(value.status, "string")) return undefined
+  const status = value.status
+  if (status !== "ready" && status !== "unavailable" && status !== "unknown" && status !== "unsupported") return undefined
+  return {
+    status,
+    ...(hasRuntimeType(value.reason, "string") && value.reason ? { reason: value.reason } : {}),
+  }
+}
+
+function providerModelCompatibility(snapshot: unknown, configuredModel: string | undefined, allowCatalog = true): AgentProviderReadinessCheck | undefined {
+  if (!configuredModel) return undefined
+  // SAFETY: provider-runtime snapshots are structurally extended with optional readiness evidence.
+  const value = snapshot as ProviderReadinessSnapshot
+  const explicit = providerReadinessCheck(value.modelCompatibility)
+  if (explicit) return explicit
+  // Gateway endpoints may accept models that are absent from the runtime's
+  // built-in catalogue. Only explicit provider evidence can reject them.
+  if (!allowCatalog) return { status: "unknown", reason: "Provider does not report configured model compatibility." }
+  if (!Array.isArray(value.models)) return { status: "unknown", reason: "Provider does not report configured model compatibility." }
+  const model = value.models.find(model => {
+    if (!isRuntimeRecord(model) || !hasRuntimeType(model.slug, "string")) return false
+    if (model.slug === configuredModel) return true
+    return Array.isArray(model.aliases) && model.aliases.some(alias => alias === configuredModel)
+  })
+  return model
+    ? { status: "ready" }
+    : { status: "unavailable", reason: `Provider does not support configured model ${configuredModel}.` }
+}
+
 /** Uses the invocation credential and launcher paths, without opening a provider session. */
 /** A gateway replaces Codex sign-in, so its adapter never prepares a credential home. */
 function withoutReplacedCredentials<TOptions extends ProviderAgentAdapterOptions<never, never>>(options: TOptions): TOptions {
@@ -1471,7 +1549,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     signal?.throwIfAborted()
     const snapshot = await inspectProvider({
       provider: options.provider, environment, signal,
-      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}) },
+      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}), ...(options.model ? { model: options.model } : {}) },
     })
     // A custom launcher records the child's stderr. Without it, a failed probe reports only the exit code.
     const launchFailure = snapshot.status === "error"
@@ -1486,19 +1564,32 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const requirementsUnknown = requirements.length > 0 && missingCommands === undefined
     const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
-    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted || Boolean(missingCommands?.length)
-    const readiness = unavailable ? "unavailable" : !requirementsUnknown && authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
+    const modelCompatibility = providerModelCompatibility(snapshot, options.model, options.gateway === undefined)
+    // SAFETY: provider-runtime snapshots may expose the optional workspace-capacity evidence.
+    const workspaceCapacity = providerReadinessCheck((snapshot as ProviderReadinessSnapshot).workspaceCapacity)
+    const signalUnavailable = modelCompatibility?.status === "unavailable" || workspaceCapacity?.status === "unavailable"
+    const signalUnknown = modelCompatibility?.status === "unknown" || modelCompatibility?.status === "unsupported"
+      || workspaceCapacity?.status === "unknown" || workspaceCapacity?.status === "unsupported"
+    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted || Boolean(missingCommands?.length) || signalUnavailable
+    const readiness = unavailable ? "unavailable" : signalUnknown ? "unknown" : !requirementsUnknown && authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
+    const signalReason = modelCompatibility?.status === "unavailable"
+      ? modelCompatibility.reason || "Configured model is unavailable."
+      : workspaceCapacity?.status === "unavailable"
+        ? workspaceCapacity.reason || "Workspace capacity is unavailable."
+        : undefined
     const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
       ...(home?.scope ? { account: { id: home.scope, kind: "credential" as const } } : {}),
       checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
       ...(requirements.length && missingCommands !== undefined ? { missingCommands } : {}),
-      reason: missingCommands?.length ? `Driver commands are missing: ${missingCommands.join(", ")}.` : exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : unavailable ? `Provider status check failed${failureMessage ? `: ${failureMessage}` : "."}` : requirementsUnknown ? "Driver requirements could not be verified." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.",
+      reason: missingCommands?.length ? `Driver commands are missing: ${missingCommands.join(", ")}.` : signalReason || (exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : unavailable ? `Provider status check failed${failureMessage ? `: ${failureMessage}` : "."}` : requirementsUnknown ? "Driver requirements could not be verified." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe."),
       ...(snapshot.usageLimits ? { usageLimits: {
         checkedAt: snapshot.usageLimits.checkedAt,
         windows: snapshot.usageLimits.windows,
         ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
       } } : {}),
+      ...(modelCompatibility ? { modelCompatibility } : {}),
+      ...(workspaceCapacity ? { workspaceCapacity } : {}),
     }
     if (statusKey !== undefined) {
       const cache = providerStatusCache.get(options) ?? new Map<string, AgentProviderStatus>()
@@ -2221,10 +2312,10 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
     throw agentDiagnostics.AGENT_R0703({ message: "[vitehub] Provider attachment URLs require application-owned fetchData() resolution." })
   }
   if (data === undefined) throw agentDiagnostics.AGENT_R0704({ message: `[vitehub] Provider ${part.type} attachment requires data or fetchData().` })
-  const declaredSize = isBlobValue(data) ? blobSize(data) : isArrayBufferValue(data) || ArrayBuffer.isView(data) ? data.byteLength : undefined
+  const declaredSize = isAttachmentBlob(data) ? blobSize(data) : isArrayBufferValue(data) || isUint8ArrayValue(data) ? data.byteLength : undefined
   if (declaredSize !== undefined && declaredSize > maxBytes) throw agentDiagnostics.AGENT_R0705({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
   if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw agentDiagnostics.AGENT_R0706({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
-  const bytes = isBlobValue(data)
+  const bytes = isAttachmentBlob(data)
     ? new Uint8Array(await blobArrayBuffer(data))
     : isArrayBufferValue(data) ? new Uint8Array(data) : isUint8ArrayValue(data) ? new Uint8Array(data) : attachmentStringBytes(data, part.mediaType)
   if (bytes.byteLength > maxBytes) throw agentDiagnostics.AGENT_R0707({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
@@ -2835,6 +2926,7 @@ async function* runProvider<
     : undefined
   let root: string
   let launchRoot: string | undefined
+  let temporaryRoot: { root: string, path: string } | undefined
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
@@ -2858,9 +2950,16 @@ async function* runProvider<
     }
     try {
       launchRoot = options.launch === undefined && !options.sandbox ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
+      // The provider and its commands run on this host, so they get a temporary
+      // directory that the invocation removes. A Sandbox has its own filesystem.
+      if (!options.sandbox) {
+        void runProviderTemporaryRootScavenger().catch(() => undefined)
+        temporaryRoot = await createProviderTemporaryRoot()
+      }
     }
     catch (error) {
       if (ownsRoot) await removeProviderRoot(providerRoot).catch(() => undefined)
+      if (launchRoot) await rm(launchRoot, { force: true, recursive: true }).catch(() => undefined)
       throw error
     }
     root = providerRoot
@@ -2890,6 +2989,10 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
+    browserRuntimeEnvironment(context.context),
+    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
+  )
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
@@ -2935,12 +3038,14 @@ async function* runProvider<
     ])
   }
   const removeOwnedRoot = () => ownsRoot ? removeProviderRoot(root) : Promise.resolve()
-  const removeRoots = () => launchRoot
-    ? Promise.all([
-        removeOwnedRoot(),
-        rm(launchRoot, { force: true, recursive: true }),
-      ]).then(() => undefined)
-    : removeOwnedRoot()
+  // A command can leave a file that the invocation cannot remove. That must not fail
+  // the invocation. A later invocation removes the root after this process stops.
+  const removeTemporaryRoot = () => temporaryRoot ? removeProviderRoot(temporaryRoot.root).catch(() => undefined) : Promise.resolve()
+  const removeRoots = () => Promise.all([
+    removeOwnedRoot(),
+    removeTemporaryRoot(),
+    launchRoot ? rm(launchRoot, { force: true, recursive: true }) : undefined,
+  ]).then(() => undefined)
   const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(removeRoots, async (error: unknown) => {
     await removeRoots().catch(() => undefined)
     throw error
@@ -3046,7 +3151,7 @@ async function* runProvider<
         },
       })
       clearActiveWorkspaceCommands = setActiveAgentWorkspaceCommands(context.context, (command, args, execOptions) => {
-        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = workspaceSession!.exec(command, args, {
           ...execOptions,
           ...(execOptions?.cwd === undefined && workspaceCommandCwd !== "/workspace" ? { cwd: workspaceCommandCwd } : {}),
@@ -3066,7 +3171,7 @@ async function* runProvider<
         const cwd = resolve(root, suffix)
         if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
         const { abortSignal, ...hostOptions } = execOptions || {}
-        const environment = workspaceBrowserEnvironment(browserRuntimeEnvironment(context.context), execOptions?.env)
+        const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
           ...hostOptions,
           ...(environment ? { env: environment } : {}),
@@ -3192,6 +3297,8 @@ async function* runProvider<
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
+      // Test fixtures, tool caches, and Node's compile cache go to $TMPDIR. driver.env can replace it.
+      ...(temporaryRoot ? { TEMP: temporaryRoot.path, TMP: temporaryRoot.path, TMPDIR: temporaryRoot.path } : {}),
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
       VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
@@ -3204,9 +3311,10 @@ async function* runProvider<
         : {}),
     })
     const nativeUnattendedTools = options.provider === "codex" && options.permissions === "allow-edits-unattended" && Object.keys(context.tools || {}).length > 0
+    const providerAgentTools = context.tools ? withAgentToolExecutionBudget(context.tools, context.executionBudget) : context.tools
     if (nativeUnattendedTools) {
       toolServer = await waitForProviderOperation(
-        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        startToolServer(providerAgentTools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
         effectiveSignal,
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
@@ -3511,7 +3619,7 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     if (!toolServer && Object.keys(context.tools || {}).length) {
       toolServer = await waitForProviderOperation(
-        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
+        startToolServer(providerAgentTools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
         effectiveSignal,
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,

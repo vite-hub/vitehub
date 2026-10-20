@@ -20,7 +20,9 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) =>
+    !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) &&
+    !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) =>
@@ -127,28 +129,31 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-
-  it("renders product pages through the docs layout", () => {
+  it("gives component pages the shared article layout and page outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
-    expect(page).toContain('layout: "docs"');
-    expect(page).toContain("<DocsArticle");
-    expect(page).toContain("<DocsProductLanding");
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain("UContentToc");
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
+    const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(resolve(examplesRoot, "InvocationInspectorExample.vue"), "utf8");
 
-    expect(inspector).toContain('<div class="mx-auto h-[28rem]');
+    expect(invocation).toContain('<div class="h-[34rem]');
+    expect(invocation).toContain('class="h-full"');
+    expect(inspector).toContain('<div class="mx-auto h-[36rem]');
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("keeps the docs search control in the sidebar", () => {
+  it("uses a static context link instead of a product disclosure control", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("UContentSearchButton");
     expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain("<NuxtLink");
+    expect(sidebarTop).toContain('<NuxtLink');
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -166,11 +171,10 @@ describe("UI documentation", () => {
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
-
-    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
+    expect(page).toContain("navigation.title: Why Vue?");
+    expect(page).toContain("The server packages work independently of Vue.");
   });
 });

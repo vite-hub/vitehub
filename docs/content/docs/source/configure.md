@@ -14,8 +14,7 @@ Configure the built-in loaders, or define a custom loader with `defineSource()`.
 | --- | --- | --- |
 | `file(input)` | A path string, `{ path, workspacePath?, mediaType? }`, or inline `{ workspacePath, content, mediaType? }`. | Reads one file from the Source Context root. `workspacePath` sets the Source key. |
 | `markdown(options)` | `{ path, workspacePath?, mediaType? }` or inline `{ workspacePath, content, mediaType? }`. | Uses the `file()` contract with `text/markdown` as the default media type. Unlike `file()`, it requires an options object. |
-| `glob(pattern)`, `glob(options)` | A pattern such as `'content/docs/**/*.md'`, or `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Expands project files with `tinyglobby`. Keys are relative to `cwd`; in a pattern, `cwd` is the folders before the first wildcard. `prefix` prepends a path to each item. `keyCache: false` disables the cached key snapshot. Symbolic links are off by default. A build bundles the files, see [Hosts without a file system](#hosts-without-a-file-system). |
-| `files(entries, options?)` | A record of path to content, `base`, and `prefix`. | Serves files the server already holds. `base` is removed from the start of each path. A build turns `glob()` into this; call it yourself for files you hold another way. Needs no file system. |
+| `glob(options)` | `include`, `cwd`, `ignore`, `dot`, `followSymlinks`, `keyCache`, `prefix`. | Expands local files with `tinyglobby`. Keys are relative to `cwd`. `prefix` prepends a path to each item. `keyCache: false` disables the cached key snapshot. Symbolic links are off by default. |
 | `github(options)` | `repo`, `ref`, `root`, `auth`, `include`, `ignore`, `cache`. | Retrieves repository content through [`forges`](https://forges.link). `ref` defaults to the repository default branch. `auth` can be a token string or a trusted callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. `auth: false` reads without a token. |
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, a client config with an `http` or `sse` transport, or a resolver. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines custom retrieval behavior with inferred item types. |
@@ -24,37 +23,11 @@ Configure the built-in loaders, or define a custom loader with `defineSource()`.
 
 Use `sourceIgnores` for reusable ignore patterns. Workspace GitHub Sources apply `sourceIgnores.defaults` automatically. Pass `ignore: false` to opt out, or pass more patterns to extend the defaults.
 
-`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
-including before wildcards: the JavaScript string `"docs\\*.md"` means
-`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
-characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
-for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
-The same normalized patterns are used for discovery and final filtering.
-
 `glob()` caches its key listing per Source Reader. Opening a new reader gets a
 fresh listing without replacing an existing reader's keys. File content and
 metadata still come from the current file system. With `keyCache: false`, each
 listing refreshes the keys; item and metadata reads reuse the latest listing and
 refresh it when the requested key is missing.
-
-### Hosts without a file system
-
-Point `glob()` at the project's files and deploy anywhere:
-
-```ts [server/content.ts]
-import { defineContent } from 'vite-hub/content'
-import { glob } from 'vite-hub/source/glob'
-
-export const content = defineContent({
-  sources: {
-    docs: glob('content/docs/**/*.md'),
-  },
-})
-```
-
-Under `vite dev`, `glob()` reads the files from disk, so a new or edited file shows up at once. A server build bundles them: it lists the files as `glob()` would, with the same `ignore`, `dot`, and symbolic link rules, and swaps the call for [`files()`](#source-loader-options) holding their bytes. Cloudflare Workers, Netlify, Vercel, Deno Deploy, and Node all serve the same keys and content. A file added after the build is served after the next build.
-
-The build bundles a call whose options are literals: a string, or an object of strings, booleans, and arrays of strings. With any other value, such as a variable, it cannot know the files. That call keeps reading from disk at runtime, and the build warns, because hosts without a file system will not find them.
 
 ### Cache options
 
