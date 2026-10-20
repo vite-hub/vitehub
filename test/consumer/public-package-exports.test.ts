@@ -274,10 +274,19 @@ async function importPackagesWithoutRootFallback(
     const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
       !manifest.peerDependenciesMeta?.[name]?.optional,
     )
+    // Keep the package's published runtime closure available while root
+    // dependencies are hidden. Isolated package links resolve dependencies
+    // through the consumer root, so removing these entries makes pnpm fetch
+    // first-party packages from the registry instead of the packed tarballs.
+    const runtimeDependencies = [
+      ...Object.keys(manifest.dependencies || {}),
+      ...Object.keys(manifest.optionalDependencies || {}),
+    ]
     const declaredTypeDependencies = packageTypeDependencies(manifest)
     await withoutRootDependencies(appDir, new Set([
       info.packageName,
       ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+      ...runtimeDependencies,
       ...declaredTypeDependencies,
       ...requiredPeers,
       ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
