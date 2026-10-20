@@ -73,7 +73,8 @@ function sameGitHubHost(left: string | undefined, right: string | undefined): bo
   const root = (value: string | undefined) => {
     if (!value) return "https://github.com"
     const url = new URL(value)
-    return `${url.protocol}//${url.host}${url.pathname.replace(/\/api\/v3\/?$/, "").replace(/\/+$/, "")}`
+    const host = url.hostname === "api.github.com" ? "github.com" : url.host
+    return `${url.protocol}//${host}${url.pathname.replace(/\/api\/v3\/?$/, "").replace(/\/+$/, "")}`
   }
   return root(left) === root(right)
 }
@@ -162,14 +163,21 @@ export async function forgeGitEnvironment(
     if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
   }
   const env: Record<string, string> = {
-    GH_TOKEN: token,
-    GITHUB_TOKEN: token,
+    GH_HOST: baseUrl ? new URL(baseUrl).hostname : "github.com",
     // Ignore ambient system and global Git configuration. The scoped entries
     // above are the only credentials a run is allowed to use.
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_COUNT: String(entries.length),
     GIT_TERMINAL_PROMPT: "0",
+  }
+  if (env.GH_HOST === "github.com") {
+    env.GH_TOKEN = token
+    env.GITHUB_TOKEN = token
+  }
+  else {
+    env.GH_ENTERPRISE_TOKEN = token
+    env.GITHUB_ENTERPRISE_TOKEN = token
   }
   for (const [index, entry] of entries.entries()) {
     env[`GIT_CONFIG_KEY_${index}`] = entry.key
