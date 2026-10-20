@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { browserSkillContent } from "../src/internal/browser-skill.ts"
 
@@ -1022,6 +1022,7 @@ describe("agent capability runtime", () => {
     }
     finally {
       await rm(root, { recursive: true, force: true })
+      await rm(`${root}.meta.json`, { force: true })
     }
   })
 
@@ -1039,6 +1040,10 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `retained-browser-${crypto.randomUUID()}`
     const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-retained-browser-"))
+    onTestFinished(() => Promise.all([
+      rm(workspaceRoot, { force: true, recursive: true }),
+      rm(`${workspaceRoot}.meta.json`, { force: true }),
+    ]).then(() => undefined))
     registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
@@ -1091,7 +1096,6 @@ describe("agent capability runtime", () => {
       workspaceDefinition: { name: workspaceName, sources: {} },
     })).rejects.toThrow("conflicts with an existing Workspace path")
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
-    await rm(workspaceRoot, { force: true, recursive: true })
   })
 
   it("keeps the Browser Skill invocation-local when the Store lacks conditional writes", async () => {
@@ -1144,6 +1148,7 @@ describe("agent capability runtime", () => {
     finally {
       spy.mockRestore()
       await rm(workspaceRoot, { force: true, recursive: true })
+      await rm(`${workspaceRoot}.meta.json`, { force: true })
     }
   })
 

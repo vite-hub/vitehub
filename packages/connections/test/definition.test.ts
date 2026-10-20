@@ -19,3 +19,36 @@ it("accepts a provider mcp endpoint only when it can carry a credential", async 
     expect(() => defineConnection({ provider: { ...testProvider(), mcp }, scopes: [] })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
   }
 })
+
+it("rejects unsafe API catalog roots in login definitions", () => {
+  expect(() => defineConnection({
+    provider: {
+      account: () => undefined,
+      apis: { mail: { methods: {}, rootUrl: "https://user:password@example.com/" } },
+      id: "login",
+      kind: "oauth-login",
+      login: async () => "http://127.0.0.1/callback",
+      mcp: "https://mcp.example.com/mcp",
+      origins: [],
+      redirectUri: "http://127.0.0.1/callback",
+    },
+  })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
+})
+
+it("does not validate an overlapping login provider as OAuth", () => {
+  expect(() => defineConnection({
+    provider: {
+      account: () => undefined,
+      apis: { mail: { methods: {}, rootUrl: "https://user:password@example.com/" } },
+      authorizationEndpoint: "https://auth.example.com/authorize",
+      clientId: "client-id",
+      id: "login",
+      kind: "oauth-login",
+      login: async () => "http://127.0.0.1/callback",
+      mcp: "https://mcp.example.com/mcp",
+      origins: [],
+      redirectUri: "http://127.0.0.1/callback",
+      tokenEndpoint: "https://auth.example.com/token",
+    },
+  })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
+})

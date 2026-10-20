@@ -7,6 +7,8 @@ const providerErrorEnvelopeSchema = v.object({
 })
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R1005",
+  "AGENT_R1006",
   "AGENT_R0981",
   "AGENT_R0982",
   "AGENT_R0983",
@@ -1189,6 +1191,7 @@ export const agentDiagnostics = defineDiagnostics({
       fix: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
         if (/requires a newer version of Codex/i.test(reason)) return "Upgrade the Codex CLI in the Agent runner and redeploy it, then start a new run.";
+        if (/configured model|model .*support/i.test(reason)) return "Choose a configured model supported by the installed provider, or update the provider runtime, then start a new run.";
         if (/spend.?cap|spend(ing)? limit|budget.*exceed/i.test(reason)) return "Raise the provider workspace spending limit or wait for its billing reset, then start a new run.";
         if (/rate.?limit|too many requests|quota.*exhaust/i.test(reason)) return "Wait for the provider quota to reset, then retry. Reduce concurrent runs if this keeps happening.";
         if (/unauthori[sz]ed|authentication|signed out|invalid.api.key/i.test(reason)) return "Sign in again or update the provider credential, then retry.";
@@ -1498,10 +1501,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R1002: dynamicError,
     AGENT_R1003: dynamicError,
     AGENT_R1004: dynamicError,
-    AGENT_R1005: {
-      why: ({ trigger }: { trigger: string }) => `[vitehub] Channel trigger "${trigger}" declares durableState: true, but it ran without the Channel's State.`,
-      fix: "Run the trigger through the Channel's webhook route, its webhook queue or context.dispatch(), and give the Agent a durable state provider.",
-    },
+    AGENT_R1005: dynamicError,
+    AGENT_R1006: dynamicError,
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",

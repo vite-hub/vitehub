@@ -63,13 +63,13 @@ it('coalesces polling, times out, and waits for ignored cancellation before retr
   expect(diagnostics).toHaveBeenCalledTimes(2)
 })
 
-it('reports GitHub budget waits without exposing credentials or treating them as failures', async () => {
+it('reports Forge rate limits without exposing credentials or treating them as failures', async () => {
   const access = vi.fn(async () => ({ token: 'private-token', env: { GH_TOKEN: 'private-token' } }))
-  const github = { access, budget: () => ({ limited: true as const, remaining: 80, resetAt: Date.now() + 60_000 }) }
+  const github = { access, rateLimit: () => ({ resource: 'graphql', limit: 5_000, remaining: 0, resetAt: Date.now() + 60_000, checkedAt: Date.now() }) }
   const health = createAgentHealth({ name: 'Support', agent: () => agent, process: processHealth, github, maxAgeMs: 0 })
   const report = await health()
   expect(report.status).toBe('healthy')
-  expect(report.diagnostics).toContainEqual(expect.objectContaining({ label: 'GitHub budget', status: 'warning', value: 'Work queued' }))
+  expect(report.diagnostics).toContainEqual(expect.objectContaining({ label: 'Forge', status: 'warning', value: 'Rate limited' }))
   expect(JSON.stringify(report)).not.toContain('private-token')
   access.mockRejectedValueOnce(new Error('private-token'))
   expect((await health()).status).toBe('degraded')

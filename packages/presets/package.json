@@ -66,10 +66,11 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/presets#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/presets#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
