@@ -6,6 +6,7 @@ import { AwsClient } from "aws4fetch"
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { assertValidPathname } from "../internal/pathname.ts"
 
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
@@ -92,8 +93,9 @@ async function readArrayBuffer(object: R2ObjectLike): Promise<ArrayBuffer> {
   return new ArrayBuffer(0)
 }
 
+// `new URL()` resolves `.` and `..` segments before signing, which can change the bucket or the operation.
 function encodePathname(pathname: string): string {
-  return pathname.split("/").map(encodeURIComponent).join("/")
+  return assertValidPathname(pathname).split("/").map(encodeURIComponent).join("/")
 }
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
