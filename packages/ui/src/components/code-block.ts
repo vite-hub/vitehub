@@ -86,7 +86,7 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  return node.type === Text && String(node.children ?? "") === "";
+  return (node.type === Text && String(node.children ?? "") === "") || (typeof node.type === "string" && String(node.children ?? "") === "");
 }
 
 function textOf(nodes: VNode[]): string | undefined {

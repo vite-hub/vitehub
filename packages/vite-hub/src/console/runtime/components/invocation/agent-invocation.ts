@@ -1,7 +1,7 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,

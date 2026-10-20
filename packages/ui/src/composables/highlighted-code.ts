@@ -60,7 +60,10 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       return;
     }
     const instance = await loadHighlighter();
-    if (lang !== "ansi" && !instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage((await languages[lang]!()).default);
+    if (!instance.getLoadedLanguages().includes(lang)) {
+      if (lang === "ansi") await instance.loadLanguage({ name: "ansi", scopeName: "source.ansi", patterns: [] });
+      else await instance.loadLanguage((await languages[lang]!()).default);
+    }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
     const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
       defaultColor: false,

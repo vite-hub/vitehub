@@ -47,7 +47,7 @@ function attributesText(attributes: Record<string, unknown>): string {
 
 function description(status: Status, duration: number | undefined): string {
   // An unknown status from a newer runtime shows as its own text.
-  return [statusLabels[status] ?? String(status), formatDuration(duration)].filter(Boolean).join(" · ");
+  return [Object.hasOwn(statusLabels, status) ? statusLabels[status] : String(status), formatDuration(duration)].filter(Boolean).join(" · ");
 }
 
 // One runtime trace run from deriveTraceRuns(), as a Trace line that expands into its timed steps.
@@ -59,7 +59,7 @@ export const TraceRun = defineComponent({
   },
   setup(props, { slots }) {
     const UIcon = resolveComponent("UIcon");
-    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: statusIcons[status] ?? "i-ph-circle-light" }));
+    const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.hasOwn(statusIcons, status) ? statusIcons[status] : "i-ph-circle-light" }));
 
     const step = (value: TraceStepView) => {
       const custom = slots.step?.({ step: value });

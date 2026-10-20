@@ -178,29 +178,129 @@
     "./source/server": "./dist/source/server.js",
     "./source/vite": "./dist/source/vite.js",
     "./ui": "./dist/ui.js",
-    "./ui/attachment": "./dist/ui/attachment.js",
-    "./ui/bubble": "./dist/ui/bubble.js",
-    "./ui/chat": "./dist/ui/chat.js",
-    "./ui/chat-message": "./dist/ui/chat-message.js",
-    "./ui/chat-session": "./dist/ui/chat-session.js",
+    "./ui/attachment": {
+      "types": "./dist/ui/attachment.d.ts",
+      "import": "./dist/ui/attachment.js",
+      "require": "./dist/ui/attachment.js",
+      "default": "./dist/ui/attachment.js"
+    },
+    "./ui/bubble": {
+      "types": "./dist/ui/bubble.d.ts",
+      "import": "./dist/ui/bubble.js",
+      "require": "./dist/ui/bubble.js",
+      "default": "./dist/ui/bubble.js"
+    },
+    "./ui/chat": {
+      "types": "./dist/ui/chat.d.ts",
+      "import": "./dist/ui/chat.js",
+      "require": "./dist/ui/chat.js",
+      "default": "./dist/ui/chat.js"
+    },
+    "./ui/chat-message": {
+      "types": "./dist/ui/chat-message.d.ts",
+      "import": "./dist/ui/chat-message.js",
+      "require": "./dist/ui/chat-message.js",
+      "default": "./dist/ui/chat-message.js"
+    },
+    "./ui/chat-session": {
+      "types": "./dist/ui/chat-session.d.ts",
+      "import": "./dist/ui/chat-session.js",
+      "require": "./dist/ui/chat-session.js",
+      "default": "./dist/ui/chat-session.js"
+    },
     "./ui/code-block": "./dist/ui/code-block.js",
-    "./ui/code-view": "./dist/ui/code-view.js",
-    "./ui/file-diff": "./dist/ui/file-diff.js",
-    "./ui/file-tree": "./dist/ui/file-tree.js",
-    "./ui/file-view": "./dist/ui/file-view.js",
+    "./ui/code-view": {
+      "types": "./dist/ui/code-view.d.ts",
+      "import": "./dist/ui/code-view.js",
+      "require": "./dist/ui/code-view.js",
+      "default": "./dist/ui/code-view.js"
+    },
+    "./ui/file-diff": {
+      "types": "./dist/ui/file-diff.d.ts",
+      "import": "./dist/ui/file-diff.js",
+      "require": "./dist/ui/file-diff.js",
+      "default": "./dist/ui/file-diff.js"
+    },
+    "./ui/file-tree": {
+      "types": "./dist/ui/file-tree.d.ts",
+      "import": "./dist/ui/file-tree.js",
+      "require": "./dist/ui/file-tree.js",
+      "default": "./dist/ui/file-tree.js"
+    },
+    "./ui/file-view": {
+      "types": "./dist/ui/file-view.d.ts",
+      "import": "./dist/ui/file-view.js",
+      "require": "./dist/ui/file-view.js",
+      "default": "./dist/ui/file-view.js"
+    },
     "./ui/headless": "./dist/ui/headless.js",
-    "./ui/markdown": "./dist/ui/markdown.js",
-    "./ui/marker": "./dist/ui/marker.js",
-    "./ui/message": "./dist/ui/message.js",
-    "./ui/message-parts": "./dist/ui/message-parts.js",
-    "./ui/multi-file-diff": "./dist/ui/multi-file-diff.js",
+    "./ui/markdown": {
+      "types": "./dist/ui/markdown.d.ts",
+      "import": "./dist/ui/markdown.js",
+      "require": "./dist/ui/markdown.js",
+      "default": "./dist/ui/markdown.js"
+    },
+    "./ui/marker": {
+      "types": "./dist/ui/marker.d.ts",
+      "import": "./dist/ui/marker.js",
+      "require": "./dist/ui/marker.js",
+      "default": "./dist/ui/marker.js"
+    },
+    "./ui/message": {
+      "types": "./dist/ui/message.d.ts",
+      "import": "./dist/ui/message.js",
+      "require": "./dist/ui/message.js",
+      "default": "./dist/ui/message.js"
+    },
+    "./ui/message-parts": {
+      "types": "./dist/ui/message-parts.d.ts",
+      "import": "./dist/ui/message-parts.js",
+      "require": "./dist/ui/message-parts.js",
+      "default": "./dist/ui/message-parts.js"
+    },
+    "./ui/multi-file-diff": {
+      "types": "./dist/ui/multi-file-diff.d.ts",
+      "import": "./dist/ui/multi-file-diff.js",
+      "require": "./dist/ui/multi-file-diff.js",
+      "default": "./dist/ui/multi-file-diff.js"
+    },
     "./ui/nuxt": "./dist/ui/nuxt.js",
-    "./ui/patch-diff": "./dist/ui/patch-diff.js",
-    "./ui/prompt-input": "./dist/ui/prompt-input.js",
-    "./ui/tool-list": "./dist/ui/tool-list.js",
-    "./ui/trace": "./dist/ui/trace.js",
-    "./ui/trace-run": "./dist/ui/trace-run.js",
-    "./ui/unresolved-file": "./dist/ui/unresolved-file.js",
+    "./ui/patch-diff": {
+      "types": "./dist/ui/patch-diff.d.ts",
+      "import": "./dist/ui/patch-diff.js",
+      "require": "./dist/ui/patch-diff.js",
+      "default": "./dist/ui/patch-diff.js"
+    },
+    "./ui/prompt-input": {
+      "types": "./dist/ui/prompt-input.d.ts",
+      "import": "./dist/ui/prompt-input.js",
+      "require": "./dist/ui/prompt-input.js",
+      "default": "./dist/ui/prompt-input.js"
+    },
+    "./ui/tool-list": {
+      "types": "./dist/ui/tool-list.d.ts",
+      "import": "./dist/ui/tool-list.js",
+      "require": "./dist/ui/tool-list.js",
+      "default": "./dist/ui/tool-list.js"
+    },
+    "./ui/trace": {
+      "types": "./dist/ui/trace.d.ts",
+      "import": "./dist/ui/trace.js",
+      "require": "./dist/ui/trace.js",
+      "default": "./dist/ui/trace.js"
+    },
+    "./ui/trace-run": {
+      "types": "./dist/ui/trace-run.d.ts",
+      "import": "./dist/ui/trace-run.js",
+      "require": "./dist/ui/trace-run.js",
+      "default": "./dist/ui/trace-run.js"
+    },
+    "./ui/unresolved-file": {
+      "types": "./dist/ui/unresolved-file.d.ts",
+      "import": "./dist/ui/unresolved-file.js",
+      "require": "./dist/ui/unresolved-file.js",
+      "default": "./dist/ui/unresolved-file.js"
+    },
     "./ui/vite": "./dist/ui/vite.js",
     "./workflow": "./dist/workflow.js",
     "./workspace": "./dist/workspace.js",
@@ -269,126 +369,12 @@
     },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
-    "./ui/attachment": {
-      "types": "./dist/ui/attachment.d.ts",
-      "import": "./dist/ui/attachment.js",
-      "require": "./dist/ui/attachment.js",
-      "default": "./dist/ui/attachment.js"
-    },
-    "./ui/bubble": {
-      "types": "./dist/ui/bubble.d.ts",
-      "import": "./dist/ui/bubble.js",
-      "require": "./dist/ui/bubble.js",
-      "default": "./dist/ui/bubble.js"
-    },
-    "./ui/chat": {
-      "types": "./dist/ui/chat.d.ts",
-      "import": "./dist/ui/chat.js",
-      "require": "./dist/ui/chat.js",
-      "default": "./dist/ui/chat.js"
-    },
-    "./ui/chat-message": {
-      "types": "./dist/ui/chat-message.d.ts",
-      "import": "./dist/ui/chat-message.js",
-      "require": "./dist/ui/chat-message.js",
-      "default": "./dist/ui/chat-message.js"
-    },
-    "./ui/chat-session": {
-      "types": "./dist/ui/chat-session.d.ts",
-      "import": "./dist/ui/chat-session.js",
-      "require": "./dist/ui/chat-session.js",
-      "default": "./dist/ui/chat-session.js"
-    },
-    "./ui/code-view": {
-      "types": "./dist/ui/code-view.d.ts",
-      "import": "./dist/ui/code-view.js",
-      "require": "./dist/ui/code-view.js",
-      "default": "./dist/ui/code-view.js"
-    },
-    "./ui/file-diff": {
-      "types": "./dist/ui/file-diff.d.ts",
-      "import": "./dist/ui/file-diff.js",
-      "require": "./dist/ui/file-diff.js",
-      "default": "./dist/ui/file-diff.js"
-    },
-    "./ui/file-tree": {
-      "types": "./dist/ui/file-tree.d.ts",
-      "import": "./dist/ui/file-tree.js",
-      "require": "./dist/ui/file-tree.js",
-      "default": "./dist/ui/file-tree.js"
-    },
-    "./ui/file-view": {
-      "types": "./dist/ui/file-view.d.ts",
-      "import": "./dist/ui/file-view.js",
-      "require": "./dist/ui/file-view.js",
-      "default": "./dist/ui/file-view.js"
-    },
-    "./ui/multi-file-diff": {
-      "types": "./dist/ui/multi-file-diff.d.ts",
-      "import": "./dist/ui/multi-file-diff.js",
-      "require": "./dist/ui/multi-file-diff.js",
-      "default": "./dist/ui/multi-file-diff.js"
-    },
-    "./ui/markdown": {
-      "types": "./dist/ui/markdown.d.ts",
-      "import": "./dist/ui/markdown.js",
-      "require": "./dist/ui/markdown.js",
-      "default": "./dist/ui/markdown.js"
-    },
-    "./ui/message": {
-      "types": "./dist/ui/message.d.ts",
-      "import": "./dist/ui/message.js",
-      "require": "./dist/ui/message.js",
-      "default": "./dist/ui/message.js"
-    },
-    "./ui/message-parts": {
-      "types": "./dist/ui/message-parts.d.ts",
-      "import": "./dist/ui/message-parts.js",
-      "require": "./dist/ui/message-parts.js",
-      "default": "./dist/ui/message-parts.js"
-    },
-    "./ui/patch-diff": {
-      "types": "./dist/ui/patch-diff.d.ts",
-      "import": "./dist/ui/patch-diff.js",
-      "require": "./dist/ui/patch-diff.js",
-      "default": "./dist/ui/patch-diff.js"
-    },
-    "./ui/prompt-input": {
-      "types": "./dist/ui/prompt-input.d.ts",
-      "import": "./dist/ui/prompt-input.js",
-      "require": "./dist/ui/prompt-input.js",
-      "default": "./dist/ui/prompt-input.js"
-    },
-    "./ui/unresolved-file": {
-      "types": "./dist/ui/unresolved-file.d.ts",
-      "import": "./dist/ui/unresolved-file.js",
-      "require": "./dist/ui/unresolved-file.js",
-      "default": "./dist/ui/unresolved-file.js"
-    },
-    "./ui/tool-list": {
-      "types": "./dist/ui/tool-list.d.ts",
-      "import": "./dist/ui/tool-list.js",
-      "require": "./dist/ui/tool-list.js",
-      "default": "./dist/ui/tool-list.js"
-    },
-    "./ui/trace": {
-      "types": "./dist/ui/trace.d.ts",
-      "import": "./dist/ui/trace.js",
-      "require": "./dist/ui/trace.js",
-      "default": "./dist/ui/trace.js"
-    },
-    "./ui/trace-run": {
-      "types": "./dist/ui/trace-run.d.ts",
-      "import": "./dist/ui/trace-run.js",
-      "require": "./dist/ui/trace-run.js",
-      "default": "./dist/ui/trace-run.js"
-    },
-    "./ui/marker": {
-      "types": "./dist/ui/marker.d.ts",
-      "import": "./dist/ui/marker.js",
-      "require": "./dist/ui/marker.js",
-      "default": "./dist/ui/marker.js"
-    }
+    "./agent/process-host": "./dist/agent/process-host.js",
+    "./console/ui": "./dist/console/ui.js",
+    "./presets/babysitter": "./dist/presets/babysitter.js",
+    "./sandbox-task": "./dist/sandbox-task.js",
+    "./sandbox/ssh": "./dist/sandbox/ssh.js",
+    "./source/files": "./dist/source/files.js"
   },
   "vitehub": {
     "agent": {

@@ -97,4 +97,3 @@ export const Markdown = defineComponent({
     };
   },
 });
-export { Markdown } from "./markdown.ts";

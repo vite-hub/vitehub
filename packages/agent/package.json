@@ -129,6 +129,12 @@
       "require": "./dist/mcp/stdio.js",
       "default": "./dist/mcp/stdio.js"
     },
+    "./process-host": {
+      "types": "./dist/process-host.d.ts",
+      "import": "./dist/process-host.js",
+      "require": "./dist/process-host.js",
+      "default": "./dist/process-host.js"
+    },
     "./messages": {
       "types": "./dist/messages.d.ts",
       "import": "./dist/messages.js",

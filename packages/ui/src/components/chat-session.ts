@@ -41,4 +41,3 @@ export const ChatSession = defineComponent({
     };
   },
 });
-export { ChatSession } from "./chat-session.ts";
