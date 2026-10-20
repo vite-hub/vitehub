@@ -1181,6 +1181,8 @@ export interface AgentRunContext<
   adapter?: AgentAdapter<CALL_OPTIONS>
   actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
@@ -2501,6 +2503,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
    * then start one handler with every message received in that window. Unset keeps the default behavior.
    */
   debounceMs?: number
+  /**
+   * With inline `concurrency: "steer"`, a message from another human in the same thread steers the active
+   * Agent Invocation. The Invocation keeps the invoker of the first message. Defaults to false.
+   */
+  steerFromParticipants?: boolean
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
@@ -3130,6 +3137,8 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   /** Shared limits owned by the enclosing Agent Invocation. */
   executionBudget?: ExecutionBudget
+  /** Whether the enclosing Invocation requested execution-budget constraints. */
+  executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean

@@ -8,7 +8,7 @@ export default defineConfig({
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
     },
-    entry: ["src/drain.ts", "src/h3.ts", "src/index.ts", "src/node.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts"],
+    entry: ["src/drain.ts", "src/h3.ts", "src/index.ts", "src/node.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts", "src/internal/execution-budget.ts"],
     exports: {
       bin: {
         "vitehub-drain": "src/drain.ts",

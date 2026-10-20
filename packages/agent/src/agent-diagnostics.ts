@@ -1516,7 +1516,7 @@ export const agentDiagnostics = defineDiagnostics({
       fix: "Move triggers, workspaceSources, and chat access to a static capabilities array.",
     },
     AGENT_C0011: {
-      why: "[vitehub] codeHost() requires valid host, repositories, output limit and operations for its mode.",
+      why: "[vitehub] forge() requires valid forge, repositories, output limit and operations for its mode.",
       fix: "Use mode write for write operations and policy. Use repository names or owner/* patterns.",
     },
     AGENT_R0003: {

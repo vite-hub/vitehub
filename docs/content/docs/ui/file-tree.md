@@ -6,7 +6,7 @@ navigation.group: Agent work
 icon: i-ph-tree-structure-light
 ---
 
-`AgentFileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files that an Agent changed.
+`FileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files that an Agent changed.
 
 ::component-preview{name="FileTreeExample"}
 ::
@@ -14,7 +14,7 @@ icon: i-ph-tree-structure-light
 ## Usage
 
 ```vue
-<AgentFileTree
+<FileTree
   :paths="['src/index.ts', 'src/chat/Message.vue', 'README.md']"
   :options="{ initialExpansion: 'open', search: true }"
 />
@@ -26,24 +26,24 @@ When you pass `paths`, the component owns the Pierre model and cleans it up when
 
 ### Controlled model
 
-Use `useAgentFileTree()` when application code needs selection, search, rename, drag and drop, or mutation methods. `useAgentFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
+Use `useFileTree()` when application code needs selection, search, rename, drag and drop, or mutation methods. `useFileTreeSelection()` returns a reactive copy of the selected paths. Pass `gitStatus` to mark added and modified files.
 
 ::component-preview{name="FileTreeControlledExample" reset}
 ::
 
 ```vue
 <script setup lang="ts">
-const tree = useAgentFileTree({
+const tree = useFileTree({
   paths,
   initialExpansion: "open",
   initialSelectedPaths: ["src/index.ts"],
 });
 
-const selectedPaths = useAgentFileTreeSelection(tree);
+const selectedPaths = useFileTreeSelection(tree);
 </script>
 
 <template>
-  <AgentFileTree :model="tree" aria-label="Repository files" />
+  <FileTree :model="tree" aria-label="Repository files" />
 </template>
 ```
 
@@ -51,7 +51,7 @@ When `model` is set, it is the source of truth. Do not also use `paths` or `opti
 
 ## API reference
 
-### AgentFileTree
+### FileTree
 
 #### Props
 
@@ -63,22 +63,22 @@ When `model` is set, it is the source of truth. Do not also use `paths` or `opti
 
 Other attributes go to the tree element. The component exposes `getModel()` through a template ref.
 
-### useAgentFileTree
+### useFileTree
 
 ```ts
-function useAgentFileTree(options: AgentFileTreeOptions): FileTree;
+function useFileTree(options: FileTreeOptions): FileTree;
 
-interface AgentFileTreeOptions extends Omit<FileTreeOptions, "paths"> {
+interface FileTreeOptions extends Omit<FileTreeOptions, "paths"> {
   paths: readonly string[];
 }
 ```
 
 Creates a Pierre `FileTree` model. Common options are `initialExpansion`, `initialSelectedPaths`, `search`, `gitStatus`, and `onSelectionChange`. The model is cleaned up when the current Vue scope is disposed.
 
-### useAgentFileTreeSelection
+### useFileTreeSelection
 
 ```ts
-function useAgentFileTreeSelection(model: FileTree): ShallowRef<readonly string[]>;
+function useFileTreeSelection(model: FileTree): ShallowRef<readonly string[]>;
 ```
 
 Returns the selected paths. The ref updates only when the selection changes.

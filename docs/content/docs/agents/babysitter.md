@@ -168,6 +168,10 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
+Workers can use `readRepairState` to inspect the assigned head and base, verified publication, installation status, and claim validity without querying GitHub. `pushRepair` returns the verified published `head` alongside `pushed: true`.
+
+`readFeedback` reads a comment, review, or inline review comment from the assigned PR's durable snapshot. Pass `kind` as `comment`, `review`, or `review-comment`, plus its `id`. Bodies arrive in pages of at most 16,000 JavaScript string characters. Continue with the returned `next.offset` and `next.version` until `complete` is true. Edits invalidate the version, and stale claims cannot read another head. Full feedback remains in the initial context in this release.
+
 The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
 
 Host installation accepts HTTPS downloads from `registry.npmjs.org`, `registry.yarnpkg.com`, `pkg.pr.new`, `github.com`, and `codeload.github.com`. Local dependencies and workspace patterns must stay inside the checkout. Other registries, network protocols, and custom ports are rejected before the package manager runs. Use `install: false` with dependencies prepared in an isolated workspace when a repository needs other sources.
@@ -203,7 +207,13 @@ The host installs dependencies in each pass workspace before the model starts. T
 
 On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier pass with the same repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches and Node version. The host copies trees with independent writable inodes (using copy-on-write when supported), and verifies them with a frozen offline install; a failed check gets a clean install. Passes that need the same trees wait for the first install. It defaults to `BABYSITTER_INSTALL_CACHE` or `vitehub-install-cache` in the temporary directory, and keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8 entries. Set `install: { cache: false }` to disable it.
 
-When the process temporary directory is inside the service's working directory, the host removes pass workspaces left by an earlier process at startup.
+When the process temporary directory is inside the service's working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
+
+### Health and prerequisites
+
+The process host checks Git and, for automatic dependency installs, Corepack before model admission. Missing tools appear in health with a `host-prerequisite` reason and an installation action. Checks are cached for five minutes on success and retried after thirty seconds on failure. Webhook intake and host reconciliation remain available. Installation capacity waits have the durable reason code `install-capacity` and do not consume a model repair attempt.
+
+Health separates runnable `queue.ready` work from `queue.scheduled` retries and reports `queue.oldestReadyAgeMs`, suppressed open PRs, and blocker counts. Blocker counts can overlap, for example a timed wait can also await installer capacity. The application `release` and `framework.buildRevision` identify different code: the latter is a content fingerprint of the installed Agent build. `admission.accepting` is current; `admission.history.lastSkip` and the compatibility field `admission.lastSkip` describe a historical skip.
 
 ### Token admission estimates
 

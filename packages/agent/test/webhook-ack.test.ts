@@ -165,6 +165,7 @@ describe("webhook acknowledgement after store", () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { create, inbox, invokes, routeOptions, state, setStatus } = await setup({ ackTimeoutMs: 1_000 })
     setStatus(503)
+    await state.connect()
     await state.appendToList(`${scope}inbox`, {
       attempts: 2,
       id: "delivery-index-only",

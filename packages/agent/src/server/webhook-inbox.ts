@@ -308,18 +308,27 @@ export async function replayWebhookInbox(
   const states = new Map<string, StateAdapter>()
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
   for (const [keyPrefix, state] of states) {
-    const seen = new Set<string>()
+    const indexedEntries = new Map<string, { entry?: StoredWebhookInboxEntry, attempts: number }>()
     for (const indexed of await state.getList(webhookInboxIndexKey(keyPrefix))) {
-      if (!isRecord(indexed) || !isRuntimeString(indexed.id) || seen.has(indexed.id)) continue
-      seen.add(indexed.id)
-      const key = webhookInboxKey(keyPrefix, indexed.id)
+      if (!isRecord(indexed) || !isRuntimeString(indexed.id)) continue
       const indexedEntry = isStoredWebhookInboxEntry(indexed) ? indexed : undefined
-      const stored = await state.get(key) || indexedEntry
+      const previous = indexedEntries.get(indexed.id)
+      indexedEntries.set(indexed.id, {
+        entry: previous?.entry || indexedEntry,
+        attempts: Math.max(previous?.attempts || 0, indexedEntry?.attempts || 0),
+      })
+    }
+    for (const [id, indexed] of indexedEntries) {
+      const key = webhookInboxKey(keyPrefix, id)
+      const row = await state.get(key)
+      const storedRow = isStoredWebhookInboxEntry(row) ? row : undefined
+      const stored = storedRow || indexed.entry
       if (!isStoredWebhookInboxEntry(stored) || !(Date.parse(stored.receivedAt) < before)) continue
-      const fields = { attempts: stored.attempts, deliveryScope: keyPrefix, inboxId: stored.id }
+      const attempts = Math.max(stored.attempts, indexed.attempts)
+      const fields = { attempts, deliveryScope: keyPrefix, inboxId: stored.id }
       const owner = await state.get(`${key}:owner`)
       if (isRecord(owner) && owner.settled === true) continue
-      if (stored.attempts >= webhookInboxMaxAttempts) {
+      if (attempts >= webhookInboxMaxAttempts) {
         logWebhookInbox("inbox.dropped", fields)
         await state.delete(key)
         continue
@@ -331,7 +340,7 @@ export async function replayWebhookInbox(
           headers: stored.request.headers,
           method: stored.request.method,
         })
-        let response = await route(makeRequest(), stored.webhookId, stored.attempts)
+        let response = await route(makeRequest(), stored.webhookId, attempts)
         // A lock left by a crashed process is indistinguishable from a duplicate request
         // at the route boundary. If this process does not own it, take over once and retry.
         const currentOwner = await state.get(`${key}:owner`)
@@ -349,7 +358,7 @@ export async function replayWebhookInbox(
               : isRecord(currentOwner) && isRecord(takeoverOwner) && currentOwner.token === takeoverOwner.token
             if (sameOwner && !(isRecord(takeoverOwner) && takeoverOwner.settled === true)) {
               await forceReleaseLock(`${key}:admission`).catch(() => undefined)
-              response = await route(makeRequest(), stored.webhookId, stored.attempts)
+              response = await route(makeRequest(), stored.webhookId, attempts)
             }
           }
         }

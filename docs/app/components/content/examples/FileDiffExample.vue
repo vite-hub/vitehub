@@ -24,7 +24,7 @@ const fileDiffs = parsePatchFiles(patch).flatMap((parsed) => parsed.files);
 
 <template>
   <div class="min-w-0 space-y-3">
-    <AgentFileDiff
+    <FileDiff
       v-for="fileDiff in fileDiffs"
       :key="fileDiff.name"
       :file-diff="fileDiff"

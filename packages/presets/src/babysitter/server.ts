@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
-import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
+import { resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
@@ -36,6 +36,8 @@ import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } fro
 import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
 import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
+import { activeProviderSandbox } from "@vite-hub/agent/server/internal";
+import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "@vite-hub/agent/server/github";
@@ -150,7 +152,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
-    revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
+    revision: baseAgent.version ?? (typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__),
     publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
       channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
     }) : undefined,
@@ -218,13 +220,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return async (query, variables) => {
       const { provider } = await forge(repository, signal);
       const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1];
-      return (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data;
+      // Keep the GraphQL envelope intact. Snapshot readers validate `errors`
+      // before consuming `data`, and partial responses must not become state.
+      return await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal }).then(response => response.data);
     };
   }
 
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
     const { provider } = await forge(repository, signal);
-    return readForgePullRequestThreads(provider, repository, number, signal);
+    return readForgePullRequestThreads(provider, repository, number);
   }
 
   function isAbortError(error: unknown): boolean {
@@ -869,7 +873,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               (path, projection) => readRest(path, projection, passSignal),
               (repository, number) => readThreads(repository, number, passSignal),
               activityAuthors,
-              passSignal,
             ))
           ) {
             await pullRequestInbox.release(inboxClaim);
@@ -1287,6 +1290,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
+                readFeedback: async input => readBabysitterFeedback(await assertLease(), input),
+                readState: async () => {
+                  let current = await assertLease();
+                  const directory = providerDirectory ?? checkout;
+                  const record = await readFile(join(directory, ".git", "vitehub-install.json"), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return undefined; throw error; });
+                  const dependencies: unknown = record === undefined ? undefined : JSON.parse(record);
+                  current = await assertLease();
+                  return {
+                    repository, number, assignedHead: pullRequest.headRefOid, observedHead: current.pr?.head?.sha,
+                    assignedBase: pullRequest.baseRefOid, publishedHead: pushedHead,
+                    claim: { current: true, generation: current.generation, revision: current.revision ?? 0 },
+                    dependencies: isRuntimeRecord(dependencies) ? { status: dependencies.status ?? (dependencies.ok ? "installed" : "failed"), fingerprint: dependencies.fingerprint, command: dependencies.command, reason: dependencies.reason } : { status: installOption === false ? "disabled" : "not-recorded" },
+                  };
+                },
                 beforeRepair: async (context, paths) => {
                   if (!workerSettings.box) return;
                   await assertLease();
@@ -1333,9 +1350,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 baseWorkspace = { ...await resolveRegisteredWorkspaceDefinition(configuredWorkspace) };
               }
               else if (isRuntimeRecord(configuredWorkspace)) {
-                const workspaceName = Object.hasOwn(configuredWorkspace, "name") && hasRuntimeType(configuredWorkspace.name, "string")
-                  ? configuredWorkspace.name
-                  : undefined;
+                const workspaceName = hasRuntimeType(configuredWorkspace.name, "string") ? configuredWorkspace.name : undefined;
                 const registeredWorkspace = workspaceName
                   ? await resolveRegisteredWorkspaceDefinition(workspaceName)
                   : undefined;

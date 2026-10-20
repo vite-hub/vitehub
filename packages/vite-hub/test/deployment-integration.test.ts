@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createBuilder, resolveConfig } from "vite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { env, hubEnv } from "@vite-hub/env/vite"
@@ -48,6 +48,7 @@ describe("built-in deployment preset integration", () => {
 
   it.each(["cloudflare", "netlify", "vercel", "deno", "node"] as const)("resolves the minimal %s preset with real owner plugins", async (preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-config-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
     const config = await resolveConfig({
       root,
       plugins: [vitehub({
