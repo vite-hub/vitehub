@@ -1,22 +1,31 @@
+<script setup lang="ts">
+import type { CodeBlockLineVariant } from "@vite-hub/ui";
+
+const patch = ` <template>
+-  <p>Hello, {{ name }}</p>
++  <p class="text-sm text-muted">
++    Hello, {{ name }}!
++  </p>
+ </template>`;
+
+function getVariant(line: string): CodeBlockLineVariant {
+  if (line.startsWith("+")) return "added";
+  if (line.startsWith("-")) return "removed";
+  return "default";
+}
+</script>
+
 <template>
-  <div class="flex w-full max-w-lg flex-col gap-4">
-    <CodeBlock size="sm">
+  <div class="flex w-full max-w-md flex-col gap-4">
+    <CodeBlock>
       <CodeBlockHeader>
-        <CodeBlockTitle>package.json</CodeBlockTitle>
+        <CodeBlockTitle>app/components/Greeting.vue</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton :value="patch" />
+        </CodeBlockActions>
       </CodeBlockHeader>
       <CodeBlockContent>
-        <CodeBlockLine>"scripts": {</CodeBlockLine>
-        <CodeBlockLine variant="removed">  "test": "vitest run"</CodeBlockLine>
-        <CodeBlockLine variant="added">  "test": "vp test"</CodeBlockLine>
-        <CodeBlockLine>}</CodeBlockLine>
-      </CodeBlockContent>
-    </CodeBlock>
-    <CodeBlock size="sm" variant="destructive">
-      <CodeBlockHeader>
-        <CodeBlockTitle>pnpm install --frozen-lockfile</CodeBlockTitle>
-      </CodeBlockHeader>
-      <CodeBlockContent wrap>
-        ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with packages/ui/package.json
+        <CodeBlockLine v-for="(line, index) in patch.split('\n')" :key="index" :variant="getVariant(line)">{{ line.slice(1) }}</CodeBlockLine>
       </CodeBlockContent>
     </CodeBlock>
   </div>

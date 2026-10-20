@@ -135,11 +135,14 @@ export async function readMcpSkills(client: object, signal?: AbortSignal): Promi
   return skills
 }
 
-/** Workspace paths that the Agent's own Sources occupy, as the Capability runtime compares them. */
-async function occupiedPaths(definition: WorkspaceDefinition | undefined): Promise<string[]> {
+/**
+ * Workspace paths that the Agent's own Sources occupy, as the Capability runtime compares them.
+ * A Provider Driver writes the Agent's bundled Skills without Workspace Sources, so they come from the invocation context.
+ */
+async function occupiedPaths(definition: WorkspaceDefinition | undefined, bundledSkills: Record<string, WorkspaceSourceInput> | undefined): Promise<string[]> {
   const { normalizeWorkspaceSourceMetadata } = await import("@vite-hub/workspace/runtime")
   const paths: string[] = []
-  for (const [key, source] of Object.entries(definition?.sources ?? {})) {
+  for (const [key, source] of [...Object.entries(definition?.sources ?? {}), ...Object.entries(bundledSkills ?? {})]) {
     let metadata: ReturnType<typeof normalizeWorkspaceSourceMetadata>
     try {
       metadata = normalizeWorkspaceSourceMetadata(key, source)
@@ -169,11 +172,12 @@ export async function mcpSkillsWorkspaceContribution(
   servers: ReadonlyArray<{ server: string, skills: readonly McpSkill[] }>,
   definition: WorkspaceDefinition | undefined,
   materializationPaths: readonly string[] = [],
+  bundledSkills?: Record<string, WorkspaceSourceInput>,
 ): Promise<AgentCapabilityWorkspaceContribution | undefined> {
   // The MCP capability reserves this root for its own transient contribution.
   // It must not hide MCP Skills from itself; only other capabilities' materialization
   // paths represent Agent-owned content that takes precedence.
-  const occupied = [...await occupiedPaths(definition), ...materializationPaths.filter(path => path !== mcpSkillsRoot)]
+  const occupied = [...await occupiedPaths(definition, bundledSkills), ...materializationPaths.filter(path => path !== mcpSkillsRoot)]
   const taken = new Set<string>()
   const sources: Record<string, WorkspaceSourceInput> = {}
   for (const { server, skills } of servers) {

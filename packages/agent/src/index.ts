@@ -379,6 +379,7 @@ export type {
   AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatWrapUpOptions,
   AgentChatPlatformAdapter,
   AgentChatPlatformResolver,
   AgentChatPlatformsResolver,
@@ -3326,12 +3327,31 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
   if (driver.kind === "run" || driver.kind === "ask") return agent
+  // An explicitly declared Workspace instruction Source remains authoritative for
+  // Provider Drivers, even when a colocated instructions.md is present.
+  const workspaceOptions = (agent as AgentDefinition & {
+    __vitehubWorkspaceAgentOptions?: { workspace?: unknown }
+  }).__vitehubWorkspaceAgentOptions
+  const hasExplicitWorkspaceInstructions = (value: unknown): boolean => {
+    if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
+    const sources = isRuntimeRecord(value.sources) ? value.sources : value
+    return Object.hasOwn(sources, "__vitehubAgentInstructions")
+      || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
+  }
+  const explicitWorkspaceInstructions = [
+    settings.workspace,
+    workspaceOptions?.workspace,
+    (agent as AgentDefinition & { sources?: unknown }).sources,
+  ].some(hasExplicitWorkspaceInstructions)
+  if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
   const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
     && "template" in configured && !("mode" in configured)
     ? configured
     : undefined
-  if (template ? template.content !== undefined : configured !== undefined || settings.workspace) return agent
+  // A model Driver with a Workspace reads the document from AGENTS.md in the Workspace.
+  // A Provider Driver gets it as Driver instructions, so the Workspace stores no copy.
+  if (template ? template.content !== undefined : configured !== undefined || (settings.workspace && driver.kind !== "provider")) return agent
   const resolvedInstructions = template ? { ...template, content: instructions } : instructions
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
@@ -3345,6 +3365,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
+  // It also owns its Sources: a Provider Driver with instructions needs no AGENTS.md Source.
+  if (decorations.__vitehubWorkspaceAgent) delete decorations.sources
   const originalRun: unknown = decorations.run?.value
   if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
   // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.

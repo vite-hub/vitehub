@@ -1,9 +1,7 @@
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
-import { h, onMounted, shallowRef, type ShallowRef, toValue, type MaybeRefOrGetter, type VNode, watch } from "vue";
+import { h, onServerPrefetch, shallowRef, type ShallowRef, toValue, type MaybeRefOrGetter, type VNode, watch } from "vue";
 
 type LanguageModule = { default: LanguageRegistration[] };
-
-const ansiLanguage: LanguageRegistration = { name: "ansi", scopeName: "source.ansi", patterns: [] };
 
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
@@ -39,22 +37,17 @@ function loadHighlighter(): Promise<HighlighterCore> {
   return highlighter;
 }
 
-// Strip CSI and OSC terminal control sequences from plain ANSI fallback text.
-// eslint-disable-next-line no-control-regex
-const ansiEscapes = /(?:\u001B\]|\u009D)(?:[^\u0007\u001B\u009C]|\u001B(?!\\))*?(?:\u0007|\u001B\\|\u009C)|(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]|\u0090[^\u009C\u001B]*(?:\u001B\\|\u009C)/g;
-
-function plainLines(code: string, language: string): VNode[] {
-  const text = language.toLowerCase() === "ansi" ? code.replace(ansiEscapes, "") : code;
-  return text.replace(/\n$/, "").split("\n").map((line) => h("span", line));
+function plainLines(code: string): VNode[] {
+  return code.replace(/\n$/, "").split("\n").map((line) => h("span", line));
 }
 
 /**
  * Highlights `code` with Shiki and returns one node per line for `CodeBlockLine`.
- * The server and the first browser render show plain text, so hydration matches. Colors follow after mount.
+ * The first render shows plain text; server rendering waits for the highlighted lines.
  * Use `"ansi"` for terminal output with color escape codes.
  */
 export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: MaybeRefOrGetter<string>): ShallowRef<VNode[]> {
-  const lines = shallowRef(plainLines(toValue(code), toValue(language)));
+  const lines = shallowRef(plainLines(toValue(code)));
   let requestId = 0;
 
   async function highlight() {
@@ -63,11 +56,14 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
     const requested = toValue(language).toLowerCase();
     const lang = aliases[requested] ?? requested;
     if (lang !== "ansi" && !languages[lang]) {
-      lines.value = plainLines(source, lang);
+      lines.value = plainLines(source);
       return;
     }
     const instance = await loadHighlighter();
-    if (!instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
+    if (!instance.getLoadedLanguages().includes(lang)) {
+      if (lang === "ansi") await instance.loadLanguage({ name: "ansi", scopeName: "source.ansi", patterns: [] });
+      else await instance.loadLanguage((await languages[lang]!()).default);
+    }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
     const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
       defaultColor: false,
@@ -78,9 +74,7 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 
-  // Highlighting on the server would render colored lines that the first browser render cannot reproduce.
-  onMounted(() => {
-    watch([() => toValue(code), () => toValue(language)], () => void highlight().catch(() => {}), { immediate: true });
-  });
+  watch([() => toValue(code), () => toValue(language)], () => void highlight().catch(() => {}), { immediate: typeof window !== "undefined" });
+  onServerPrefetch(() => highlight().catch(() => {}));
   return lines;
 }

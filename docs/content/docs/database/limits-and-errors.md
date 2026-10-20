@@ -63,7 +63,7 @@ Code imported `@vite-hub/database/drizzle`, but the runtime has no Database conf
 
 ### DATABASE_MISSING_CONNECTION
 
-The database has no connection at runtime. `error.why` lists what it needs: a Cloudflare D1 binding, a Hyperdrive binding, D1 HTTP configuration, or a `connection.url`. On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url`.
+The database has no connection at runtime. `error.why` lists what it needs: a Cloudflare D1 binding, a Hyperdrive binding, D1 HTTP configuration, a `connection.url`, or for Postgres outside Cloudflare, PG* environment variables such as `PGHOST`. On Cloudflare, add the binding to the Worker configuration. On other hosts, set `connection.url`. A Postgres database can use the PG* environment variables instead.
 
 ### DATABASE_MISSING_D1_HTTP_CONFIG
 

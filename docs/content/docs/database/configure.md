@@ -244,6 +244,6 @@ export default defineDatabase({
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive configuration id. When it resolves at build time, ViteHub adds the binding to the generated Wrangler config. |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |
 
-A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_MISSING_CONNECTION` when neither is available.
+A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. Outside a Cloudflare request, when the URL is empty, postgres.js reads the `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD` environment variables. A query fails with `DATABASE_MISSING_CONNECTION` when none is available.
 
 `defineDatabase()` returns the Definition for a Postgres database. Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.
