@@ -90,5 +90,17 @@ if (error) throw error
 | `recipient` | A Teams thread ID that the bot received a message in, or `user:<id>` for a direct message. |
 | `thread` | Optional. Every send with the same `key` replies under one root message in a Teams channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
+| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
+
+Use `update` to keep one message current, such as a status card that changes as work progresses:
+
+```ts
+const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
+  recipient: teamsChannelThreadId,
+  idempotencyKey: `build:${buildId}:status`,
+  update: true,
+})
+if (error) throw error
+```
 
 ViteHub stores roots and receipts in KV under `teams:` and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.

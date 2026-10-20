@@ -712,6 +712,11 @@ export interface TeamsSendOptions {
   thread?: { key: string, root?: string }
   /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
   idempotencyKey?: string
+  /**
+   * With `idempotencyKey`, edits the message stored for the key to this text and returns its receipt.
+   * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
+   */
+  update?: boolean
 }
 
 export interface TeamsConnector {
@@ -2813,22 +2818,26 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
     return adapter
   }
   return {
-    async send(text, { recipient, thread, idempotencyKey }) {
+    async send(text, { recipient, thread, idempotencyKey, update }) {
       if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
       if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
       const teams = await useAdapter()
       if (!thread) {
-        const post = async () => {
-          if (!recipient.startsWith("user:")) return { id: (await teams.postMessage(recipient, { markdown: text })).id }
+        const target = async () => {
+          if (!recipient.startsWith("user:")) return recipient
           if (!teams.openDM) throw new TypeError("[vitehub] The Teams adapter cannot open direct messages.")
-          return { id: (await teams.postMessage(await teams.openDM(recipient.slice(5)), { markdown: text })).id }
+          return await teams.openDM(recipient.slice(5))
         }
+        const post = async () => ({ id: (await teams.postMessage(await target(), { markdown: text })).id })
         if (!idempotencyKey) return await post()
         const kv = await teamsKV()
         const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
         return await withTeamsLock(receiptKey, async () => {
           const stored = await teamsKVGet(kv, receiptKey)
-          if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
+          if (hasRuntimeType(stored?.id, "string")) {
+            if (update) await teams.editMessage(await target(), stored.id, { markdown: text })
+            return { id: stored.id }
+          }
           const receipt = await post()
           await teamsKVSet(kv, receiptKey, receipt)
           return receipt
@@ -2844,9 +2853,13 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
       const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
       return await withTeamsLock(key, async () => {
         const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
-        if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
         const savedRoot = await teamsKVGet(kv, `${key}:root`)
         let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (hasRuntimeType(stored?.id, "string")) {
+          // Inside a channel thread, Teams edits a message through the root thread ID, also when the message is the root.
+          if (update && threadId) await teams.editMessage(threadId, stored.id, { markdown: text })
+          return { id: stored.id }
+        }
         if (!threadId) {
           const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
           if (!root.id) throw new Error("[vitehub] Teams did not return a root message ID.")
