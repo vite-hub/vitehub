@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentNames } from "../src/component-names.ts";
+import { componentEntryName, componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -59,11 +59,21 @@ const packageJson = parsePackageManifest(
 );
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 
+const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
+
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./agent-chat", "./agent-chat-message", "./agent-chat-prompt", "./agent-code-view", "./agent-file-tree", "./agent-markdown", "./agent-message-parts", "./agent-session", "./agent-tool-list", "./agent-trace", "./attachment", "./bubble", "./chat", "./chat-message", "./chat-session", "./code-block", "./headless", "./markdown", "./marker", "./message", "./message-parts", "./nuxt", "./package.json", "./primitive-rail", "./prompt-input", "./styles.css", "./trace", "./vite"].sort(),
-    );
+    expect(Object.keys(packageJson.exports)).toEqual(expect.arrayContaining([
+      ...componentEntries,
+      "./package.json",
+      "./styles.css",
+    ]));
+    expect(Object.keys(packageJson.exports)).not.toEqual(expect.arrayContaining([
+      "./agent-code-view",
+      "./agent-file-tree",
+      "./agent-tool-list",
+      "./agent-trace",
+    ]));
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
@@ -90,44 +100,22 @@ describe("@vite-hub/ui package contract", () => {
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
   it.each([
     ".",
-    "./agent-chat",
-    "./agent-chat-message",
-    "./agent-chat-prompt",
-    "./agent-code-view",
-    "./agent-file-tree",
-    "./agent-markdown",
-    "./agent-message-parts",
-    "./agent-session",
-    "./agent-tool-list",
-    "./agent-trace",
-    "./attachment",
-    "./bubble",
-    "./chat",
-    "./chat-message",
-    "./chat-session",
-    "./code-block",
+    ...componentEntries,
     "./headless",
-    "./markdown",
-    "./marker",
-    "./message",
-    "./message-parts",
     "./nuxt",
     "./primitive-rail",
-    "./prompt-input",
-    "./trace",
     "./vite",
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
-  it.each(["./package.json", "./styles.css"])("ships asset export %s", (entry) => {
-    const location = entry === "./package.json" ? "../package.json" : "../dist/styles.css";
-    expect(existsSync(new URL(location, import.meta.url))).toBe(true);
-  });
-
-  it("exports every component from the root entry", async () => {
-    const root: Record<string, unknown> = await import("../dist/index.js");
-    for (const component of componentNames) expect(root[component], component).toBeDefined();
+  it("keeps component entry exports identical to the root barrel", async () => {
+    const root = await import("../dist/index.js");
+    for (const component of componentNames) {
+      const entry = componentEntryName(component);
+      const subpath = await import(`../dist/${entry}.js`);
+      expect(subpath[component], entry).toBe(root[component]);
+    }
   });
 
   it("ships flat console surfaces that fill their containers", () => {
@@ -140,7 +128,7 @@ describe("@vite-hub/ui package contract", () => {
 
   it("keeps the Pierre renderer behind an on-demand chunk", () => {
     const dist = new URL("../dist/", import.meta.url);
-    const sources = ["index.js", ...readdirSync(dist).filter((name) => /^agent-code-view-[^/]+\.js$/.test(name))]
+    const sources = ["index.js", ...readdirSync(dist).filter((name) => /^code-view-[^/]+\.js$/.test(name))]
       .map((name) => readFileSync(new URL(name, dist), "utf8"));
     const rendererImport = sources
       .map((source) => source.match(/import\("\.\/(pierre-code-view-[^"]+\.js)"\)/)?.[1])

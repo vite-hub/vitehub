@@ -6,14 +6,14 @@ navigation.group: Console
 icon: i-ph-git-diff-light
 ---
 
-This block combines [`AgentFileTree`](/docs/ui/file-tree), [`AgentPatchDiff`](/docs/ui/diff), and [`AgentTrace`](/docs/ui/trace). Select a changed file in the tree to see its diff. The trace under the diff shows the verification run. The patches and the run are synthetic.
+This block combines [`FileTree`](/docs/ui/file-tree), [`PatchDiff`](/docs/ui/diff), and [`TraceRun`](/docs/ui/trace). Select a changed file in the tree to see its diff. The trace under the diff shows the verification run. The patches and the run are synthetic.
 
 ::component-preview{name="CodeReviewBlock" flush reset}
 ::
 
 ## Wire the panes
 
-- Create the tree model with `useAgentFileTree()` and read the selection with `useAgentFileTreeSelection()`.
+- Create the tree model with `useFileTree()` and read the selection with `useFileTreeSelection()`.
 - Mark changed files with the `gitStatus` option.
 - Key the diff by the selected path, so Pierre renders a new view for each file.
 
