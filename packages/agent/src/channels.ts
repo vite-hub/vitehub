@@ -511,10 +511,13 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   reconcile?: boolean | {
     /** Maximum concurrent reconciled webhook deliveries for one pull request. Defaults to 1. */
     concurrencyLimit?: number
+    /** Wait this long before running a reconciled delivery; a later delivery for the same pull request replaces a queued one. */
+    debounceMs?: number
     /** Trigger on every human PR comment when no configured mention is present. */
     comments?: boolean | {
       events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
       filter?: GitHubPullRequestFilter
+      noFindingsReviews?: readonly string[]
       prompt?: string
       reviewStates?: readonly string[]
       when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
@@ -535,6 +538,8 @@ export interface GitHubPullRequestTrigger {
   events: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
   filter?: GitHubPullRequestFilter
   mentions?: readonly string[]
+  /** Body prefixes of `commented` reviews that report no findings, such as `"> ✅ No new issues found."`. Those reviews do not match. */
+  noFindingsReviews?: readonly string[]
   prompt?: string
   reviewStates?: readonly string[]
 }
@@ -1002,6 +1007,20 @@ function githubPullRequestReconcileConcurrencyLimit(
   return reconcile.concurrencyLimit ?? 1
 }
 
+function githubPullRequestReconcileDebounce(
+  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
+  key: string,
+): { debounce: { delayMs: number, key: string } } | undefined {
+  if (!reconcile || reconcile === true || reconcile.debounceMs === undefined) return undefined
+  return { debounce: { delayMs: reconcile.debounceMs, key } }
+}
+
+function githubPullRequestReviewWithoutFindings(payload: GitHubIssueCommentPayload, prefixes: readonly string[] | undefined): boolean {
+  if (!prefixes?.length || githubPullRequestReviewState(payload) !== "commented") return false
+  const body = maybeString(payload.review?.body)?.trimStart() || ""
+  return prefixes.some(prefix => prefix && body.startsWith(prefix))
+}
+
 function githubPullRequestReviewBody(payload: GitHubIssueCommentPayload): string | undefined {
   return maybeString(payload.comment?.body) || maybeString(payload.review?.body)
 }
@@ -1098,6 +1117,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
       const events = Array.isArray(candidate.events) ? candidate.events : []
       if (!events.includes(event || "issue_comment")) continue
       if (event === "pull_request_review" && Array.isArray(candidate.reviewStates) && !candidate.reviewStates.includes(githubPullRequestReviewState(payload) || "")) continue
+      if (event === "pull_request_review" && githubPullRequestReviewWithoutFindings(payload, candidate.noFindingsReviews)) continue
       if (!await githubPullRequestMatchesFilter(candidate, payload, app, context, services)) continue
       if (Array.isArray(candidate.mentions) && maybeString(payload.comment?.user?.type)?.toLowerCase() === "bot") continue
       if (Array.isArray(candidate.mentions) && !(body && githubMentionCommand(body, candidate.mentions))) continue
@@ -3009,6 +3029,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           concurrencyGroup: `${command.repository}#${command.issueNumber}`,
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
           deliveryId: command.deliveryId,
+          ...githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`),
         } : undefined
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequestContext = githubPullRequestRunContext(command, {

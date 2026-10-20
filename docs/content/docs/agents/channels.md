@@ -527,6 +527,8 @@ Persisted inline webhook executions have a 15-minute default deadline. Set `mess
 
 Queued GitHub reconciliation reloads the PR head, comments, and files before the Driver starts, so each Invocation uses the current PR state. Eligibility is decided when the delivery is accepted and is preserved while queued. Use the default `concurrencyLimit: 1` for tasks that write to the same PR branch.
 
+Review bots often post a review on every push, even when they find nothing. List the body prefixes of those reviews in a trigger's `noFindingsReviews`, such as `['> ✅ No new issues found.']`, and a `commented` review that starts with one does not match the trigger. Set `pullRequest.reconcile.debounceMs` to wait before a reconciled delivery runs; a later delivery for the same pull request replaces a queued one, so a burst of reviews starts one Invocation. A delivery that already runs is not stopped.
+
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.

@@ -1785,6 +1785,59 @@ describe("agent channels", () => {
     })
   })
 
+  it("skips no-findings bot reviews and debounces reconciled deliveries per PR", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      pullRequest: {
+        reconcile: {
+          debounceMs: 60_000,
+          triggers: [{ events: ["pull_request_review"], noFindingsReviews: ["> ✅ No new issues found."], reviewStates: ["commented"] }],
+        },
+        reply: false,
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const context = {
+      capabilities: [],
+      channel,
+      trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
+    }
+    const review = (id: number, body: string) => ({
+      github: { deliveryId: `review-${id}`, event: "pull_request_review" },
+      payload: {
+        action: "submitted",
+        installation: { id: 123 },
+        number: 42,
+        pull_request: {
+          author_association: "CONTRIBUTOR",
+          html_url: "https://github.test/acme/app/pull/42",
+          number: 42,
+          title: "Improve app",
+          url: "https://api.github.test/repos/acme/app/pulls/42",
+        },
+        repository: { full_name: "acme/app" },
+        review: {
+          body,
+          html_url: `https://github.test/acme/app/pull/42#pullrequestreview-${id}`,
+          id,
+          state: "commented",
+          user: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+        },
+        sender: { id: 3, login: "pullfrog[bot]", type: "Bot" },
+      },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const clean = await trigger.invoke(context as never, review(57, "> ✅ No new issues found.\n\n**Reviewed changes**"))
+    expect(clean).toBeInstanceOf(Response)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+    const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
+    if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
+    expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42" }, deliveryId: "review-58" })
+  })
+
   it.each([1, 4])("limits reconciled queue deliveries per PR to %i", async (limit) => {
     const { github } = await import("../src/channels.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
