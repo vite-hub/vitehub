@@ -99,7 +99,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/workflow#build && tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {

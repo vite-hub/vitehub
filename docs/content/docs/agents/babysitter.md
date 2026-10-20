@@ -207,7 +207,7 @@ The host installs dependencies in each pass workspace before the model starts. T
 
 On Linux, a detected pnpm install reuses the `node_modules` trees of an earlier pass with the same repository identity, lockfile, workspace file, package manifests, `.npmrc` files, patches and Node version. The host copies trees with independent writable inodes (using copy-on-write when supported), and verifies them with a frozen offline install; a failed check gets a clean install. Passes that need the same trees wait for the first install. It defaults to `BABYSITTER_INSTALL_CACHE` or `vitehub-install-cache` in the temporary directory, and keeps `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8 entries. Set `install: { cache: false }` to disable it.
 
-When the process temporary directory is inside the service's working directory, the host removes pass workspaces left by an earlier process at startup.
+When the process temporary directory is inside the service's working directory, the host removes pass workspaces and pass temporary directories left by an earlier process at startup.
 
 ### Health and prerequisites
 
