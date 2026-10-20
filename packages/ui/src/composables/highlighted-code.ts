@@ -43,8 +43,12 @@ function loadHighlighter(): Promise<HighlighterCore> {
 // eslint-disable-next-line no-control-regex
 const ansiEscapes = /(?:\u001B\]|\u009D)(?:[^\u0007\u001B\u009C]|\u001B(?!\\))*?(?:\u0007|\u001B\\|\u009C)|(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]|\u0090[^\u009C\u001B]*(?:\u001B\\|\u009C)/g;
 
+function stripAnsi(code: string): string {
+  return code.replace(ansiEscapes, "");
+}
+
 function plainLines(code: string, language: string): VNode[] {
-  const text = language.toLowerCase() === "ansi" ? code.replace(ansiEscapes, "") : code;
+  const text = language.toLowerCase() === "ansi" ? stripAnsi(code) : code;
   return text.replace(/\n$/, "").split("\n").map((line) => h("span", line));
 }
 
@@ -69,7 +73,8 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
     const instance = await loadHighlighter();
     if (!instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
-    const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
+    const highlightSource = lang === "ansi" ? stripAnsi(source) : source;
+    const { tokens } = instance.codeToTokens(highlightSource.replace(/\n$/, ""), {
       defaultColor: false,
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
