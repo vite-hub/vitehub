@@ -622,6 +622,8 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   message?: unknown
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
+  /** Key of a task selected by the trigger. */
+  task?: string
   webhook?: AgentWebhookInvocationOwnership<CALL_OPTIONS>
 }
 
@@ -920,6 +922,32 @@ export interface AgentChannelTriggerContext<
   }
 }
 
+/** Channel trigger context whose durable state binding is always present. */
+export interface AgentDurableChannelTriggerContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChannelTriggerContext<TRuntimeConfig> {
+  channelState: AgentChannelState
+}
+
+export type AgentChannelTriggerDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TInput = unknown,
+  CALL_OPTIONS = unknown,
+> =
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
+  | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
+
+/** The accepted input and run metadata passed to preparation and task callbacks. */
+export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
+
+export type AgentTriggerPrepareResult<CALL_OPTIONS = unknown> = AgentRunInput<CALL_OPTIONS> | Response | void
+
+/** A task selected by a trigger invocation. */
+export interface AgentTriggerTask<TContext = unknown, CALL_OPTIONS = unknown> {
+  agent?: AgentInput
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
+  prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
+  run?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
+}
+
 export interface AgentTriggerDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -938,7 +966,17 @@ export interface AgentTriggerDefinition<
   input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
+  prepare?: (context: TContext, invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
+  tasks?: Record<string, AgentTriggerTask<TContext, CALL_OPTIONS>>
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
+}
+
+/** A trigger task with its context bound. */
+export interface ResolvedAgentTriggerTask<CALL_OPTIONS = unknown> {
+  agent?: AgentInput
+  failed?: (event: AgentTriggerFailedEvent<CALL_OPTIONS>) => MaybePromise<void>
+  prepare?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
+  run?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<unknown>
 }
 
 /** One Agent Invocation, as the Console shows it. */
@@ -975,7 +1013,9 @@ export interface ResolvedAgentTriggerDefinition<
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
+  prepare?: (invocation: AgentTriggerAcceptedInvocation<CALL_OPTIONS>) => MaybePromise<AgentTriggerPrepareResult<CALL_OPTIONS>>
   source: "capability" | "channel"
+  tasks?: Record<string, ResolvedAgentTriggerTask<CALL_OPTIONS>>
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
