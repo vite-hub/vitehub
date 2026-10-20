@@ -179,17 +179,18 @@ describe("Babysitter workspace sweep", () => {
     const service = await directory("service");
     const root = join(service, "tmp");
     await mkdir(root);
-    const stale = ["vitehub-provider-Ab12Cd", "vitehub-provider-launch-Ab12Cd", "vitehub-baseline-Xy34Zw", "vitehub-acme-app-pr-12-Qw56Er", "t3-provider-runtime-Rt78Yu"];
+    const stale = ["vitehub-provider-Ab12Cd", "vitehub-provider-launch-Ab12Cd", "vitehub-provider-tmp-Ab12Cd", "vitehub-provider-inspection-Ab12Cd", "vitehub-baseline-Xy34Zw", "vitehub-acme-app-pr-12-Qw56Er", "vitehub-acme-app-pr-12-Lw8tRS.cleanup-3579482-1791255698992", "t3-provider-runtime-Rt78Yu"];
     const kept = ["vitehub-provider-output-Ab12Cd", "vitehub-browser-Ab12Cd", "notes"];
     for (const name of [...stale, ...kept]) await mkdir(join(root, name));
     await writeFile(join(root, "vitehub-acme-app-pr-12-Qw56Er.meta.json"), "{}");
     const old = new Date(Date.now() - 60_000);
     for (const name of await readdir(root)) await utimes(join(root, name), old, old);
     await mkdir(join(root, "vitehub-provider-New123"));
+    await mkdir(join(root, "vitehub-provider-tmp-New123"));
     const startedAt = Date.now() - 1000;
 
     expect(await sweepBabysitterWorkspaces(root, startedAt, await directory("elsewhere"))).toBe(0);
     expect(await sweepBabysitterWorkspaces(root, startedAt, service)).toBe(stale.length + 1);
-    expect((await readdir(root)).sort()).toEqual([...kept, "vitehub-provider-New123"].sort());
+    expect((await readdir(root)).sort()).toEqual([...kept, "vitehub-provider-New123", "vitehub-provider-tmp-New123"].sort());
   });
 });

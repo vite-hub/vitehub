@@ -265,6 +265,10 @@ export default defineAgent({
 
 The directory is the working copy. ViteHub still materializes Workspace Sources, but it does not start a Workspace session. It does not copy Workspace files into the directory, create a Git baseline, compute a diff, write changes back, or remove the directory. Generated instruction and Skill files are restored after the provider stops. When the directory is a Git repository root, Git ignores the generated files while the provider runs, so provider commits do not include them. Title and progress summary runs ignore `cwd` and use a temporary directory. The application owns the directory's contents, cleanup, and isolation between concurrent invocations. Agent inspection reports whether `cwd` is static or dynamic without resolving it.
 
+### Temporary files
+
+Each invocation that runs on this host gets its own temporary directory. ViteHub sets `TMPDIR`, `TMP`, and `TEMP` to it for the provider, every command that the provider starts, and a `launch` wrapper. Test fixtures, tool caches, and the Node.js compile cache go there instead of the shared host temporary directory. ViteHub removes the directory when the invocation ends, also after a failure, abort, or timeout. If the process stops before that cleanup, a later invocation on the same host removes the directory after it confirms that the owner process stopped. Set `TMPDIR` in `env` to use a different directory; ViteHub does not remove a directory that `env` supplies. A Sandbox invocation uses the temporary directory of the Sandbox.
+
 ### Provision the project toolchain
 
 Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`sandbox.toolchain`](/docs/agents/sandboxes#provision-nodejs-and-the-package-manager):
@@ -295,7 +299,7 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. Requires an explicit `model`. |
 | `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"` override. Requires an explicit `model`. |
 | `model` | Optional provider model id. |
-| `env` | Explicit environment values or an invocation-time resolver. ViteHub resolves it once and otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
+| `env` | Explicit environment values or an invocation-time resolver. ViteHub resolves it once and otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. `TMPDIR`, `TMP`, and `TEMP` point to a [temporary directory for the invocation](#temporary-files) unless `env` sets them. |
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `launch` | Provider command wrapper or invocation-time resolver. Receives the provider executable, working directory, selected environment, and abort signal. |
