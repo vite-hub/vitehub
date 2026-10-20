@@ -34,7 +34,11 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type {
+  CollectedDatabaseContribution,
+  CollectedDatabaseContributions,
+  CollectedDatabaseDefinitionContribution,
+} from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
