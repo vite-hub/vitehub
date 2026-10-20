@@ -100,6 +100,26 @@
       "types": "./dist/multi-file-diff.d.ts",
       "import": "./dist/multi-file-diff.js"
     },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js"
+    },
+    "./marker": {
+      "types": "./dist/marker.d.ts",
+      "import": "./dist/marker.js"
+    },
+    "./message": {
+      "types": "./dist/message.d.ts",
+      "import": "./dist/message.js"
+    },
+    "./message-parts": {
+      "types": "./dist/message-parts.d.ts",
+      "import": "./dist/message-parts.js"
+    },
+    "./multi-file-diff": {
+      "types": "./dist/multi-file-diff.d.ts",
+      "import": "./dist/multi-file-diff.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -110,11 +130,35 @@
       "types": "./dist/patch-diff.d.ts",
       "import": "./dist/patch-diff.js"
     },
+    "./patch-diff": {
+      "types": "./dist/patch-diff.d.ts",
+      "import": "./dist/patch-diff.js"
+    },
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
       "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
+    },
+    "./prompt-input": {
+      "types": "./dist/prompt-input.d.ts",
+      "import": "./dist/prompt-input.js"
+    },
+    "./tool-list": {
+      "types": "./dist/tool-list.d.ts",
+      "import": "./dist/tool-list.js"
+    },
+    "./trace": {
+      "types": "./dist/trace.d.ts",
+      "import": "./dist/trace.js"
+    },
+    "./trace-run": {
+      "types": "./dist/trace-run.d.ts",
+      "import": "./dist/trace-run.js"
+    },
+    "./unresolved-file": {
+      "types": "./dist/unresolved-file.d.ts",
+      "import": "./dist/unresolved-file.js"
     },
     "./prompt-input": {
       "types": "./dist/prompt-input.d.ts",

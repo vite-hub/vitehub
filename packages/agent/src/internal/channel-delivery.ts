@@ -64,6 +64,8 @@ export interface AgentChannelDeliveryTracker {
   delivery: AgentChannelDelivery
   duplicate: boolean
   event(input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent>
+  getMarker?(name: string): Promise<string | null>
+  setMarker?(name: string, value: string): Promise<void>
 }
 
 type AgentChannelDeliveryWorkflowResolver = (
@@ -349,11 +351,14 @@ async function appendEvent(
 
 function tracker(state: StateAdapter, stored: StoredAgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
   const delivery = publicDelivery(stored)
+  const markerKey = (name: string) => `deliveries:${delivery.id}:marker:${name}`
   const value: AgentChannelDeliveryTracker = {
     claimed: false,
     delivery,
     duplicate,
     event: async (input) => await appendEvent(state, stored, input),
+    getMarker: async (name) => await state.get<string>(markerKey(name)),
+    setMarker: async (name, markerValue) => await state.set(markerKey(name), markerValue, retentionMs),
   }
   // A duplicate may already be terminal and is still usable through its request
   // context. Keeping it process-global would retain its State Adapter forever.
