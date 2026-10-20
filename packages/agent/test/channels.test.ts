@@ -1785,13 +1785,15 @@ describe("agent channels", () => {
     })
   })
 
-  it("skips no-findings bot reviews and debounces reconciled deliveries per PR", async () => {
+  it("skips no-findings bot reviews and debounces a trigger's deliveries per PR", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({
       pullRequest: {
         reconcile: {
-          debounceMs: 60_000,
-          triggers: [{ events: ["pull_request_review"], noFindingsReviews: ["> ✅ No new issues found."], reviewStates: ["commented"] }],
+          triggers: [
+            { events: ["issue_comment"], mentions: ["@agent"] },
+            { debounceMs: 60_000, events: ["pull_request_review"], noFindingsReviews: ["> ✅ No new issues found."], reviewStates: ["commented"] },
+          ],
         },
         reply: false,
       },
@@ -1835,7 +1837,7 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
     if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
-    expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42" }, deliveryId: "review-58" })
+    expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42:1" }, deliveryId: "review-58" })
   })
 
   it.each([1, 4])("limits reconciled queue deliveries per PR to %i", async (limit) => {

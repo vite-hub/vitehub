@@ -511,8 +511,6 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   reconcile?: boolean | {
     /** Maximum concurrent reconciled webhook deliveries for one pull request. Defaults to 1. */
     concurrencyLimit?: number
-    /** Wait this long before running a reconciled delivery; a later delivery for the same pull request replaces a queued one. */
-    debounceMs?: number
     /** Trigger on every human PR comment when no configured mention is present. */
     comments?: boolean | {
       events?: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
@@ -537,6 +535,8 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
 export interface GitHubPullRequestTrigger {
   events: readonly ("issue_comment" | "pull_request_review_comment" | "pull_request_review" | (string & {}))[]
   filter?: GitHubPullRequestFilter
+  /** Wait this long before running a matching delivery; a later delivery from this trigger for the same pull request replaces a queued one. */
+  debounceMs?: number
   mentions?: readonly string[]
   /** Body prefixes of `commented` reviews that report no findings, such as `"> ✅ No new issues found."`. Those reviews do not match. */
   noFindingsReviews?: readonly string[]
@@ -970,6 +970,8 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
 
 interface GitHubPullRequestReconcileInput {
   command: GitHubPullRequestCommand
+  /** Debounce of the matched trigger; `trigger` is its index, so triggers keep separate keys. */
+  debounce?: { delayMs: number, trigger: number }
   payload: GitHubIssueCommentPayload
 }
 
@@ -1005,14 +1007,6 @@ function githubPullRequestReconcileConcurrencyLimit(
 ): number {
   if (!reconcile || reconcile === true) return 1
   return reconcile.concurrencyLimit ?? 1
-}
-
-function githubPullRequestReconcileDebounce(
-  reconcile: GitHubPullRequestCommentEventOptions["reconcile"],
-  key: string,
-): { debounce: { delayMs: number, key: string } } | undefined {
-  if (!reconcile || reconcile === true || reconcile.debounceMs === undefined) return undefined
-  return { debounce: { delayMs: reconcile.debounceMs, key } }
 }
 
 function githubPullRequestReviewWithoutFindings(payload: GitHubIssueCommentPayload, prefixes: readonly string[] | undefined): boolean {
@@ -1162,6 +1156,7 @@ async function githubPullRequestReconcileFromInput<TRuntimeConfig extends AgentR
         repo,
         repository,
       },
+      ...(trigger?.debounceMs === undefined ? {} : { debounce: { delayMs: trigger.debounceMs, trigger: triggerOptions.indexOf(trigger) } }),
       payload,
     }
   }
@@ -3029,7 +3024,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           concurrencyGroup: `${command.repository}#${command.issueNumber}`,
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
           deliveryId: command.deliveryId,
-          ...githubPullRequestReconcileDebounce(options.reconcile, `${command.repository}#${command.issueNumber}`),
+          ...(reconciled.debounce ? { debounce: { delayMs: reconciled.debounce.delayMs, key: `${command.repository}#${command.issueNumber}:${reconciled.debounce.trigger}` } } : {}),
         } : undefined
         const metadata = await githubPullRequestMetadata(app, context, command, options, payload, services)
         const pullRequestContext = githubPullRequestRunContext(command, {
