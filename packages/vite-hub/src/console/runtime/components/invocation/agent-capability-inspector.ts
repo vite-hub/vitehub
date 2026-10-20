@@ -1,6 +1,6 @@
 import { Renderer, JSONUIProvider, type ComponentRegistry, type ComponentRenderProps } from "@json-render/vue";
 import type { Spec } from "@json-render/core";
-import { computed, defineComponent, h, ref, watch, type PropType, type VNodeChild } from "vue";
+import { computed, defineComponent, h, ref, watch, type DefineComponent, type PropType, type VNodeChild } from "vue";
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
@@ -90,7 +90,7 @@ function catalogComponent(render: (props: Record<string, unknown>, children: VNo
   });
 }
 
-export const AgentCapabilityInspector = defineComponent({
+export const AgentCapabilityInspector: DefineComponent = defineComponent({
   name: "AgentCapabilityInspector",
   emits: {
     /** Emitted with the first recorded call of a tool the viewer selects. */

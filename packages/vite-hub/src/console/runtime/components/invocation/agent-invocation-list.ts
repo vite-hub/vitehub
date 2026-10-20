@@ -1,5 +1,5 @@
 import { channelIcon } from "./internal/channel-icon.ts";
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, type DefineComponent, type ComponentOptionsMixin, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type DefineComponent, type PropType, type Slot, type ComponentOptionsMixin, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -135,7 +135,7 @@ function renderItem(
   ]);
 }
 
-export const AgentInvocationList = defineComponent({
+export const AgentInvocationList: DefineComponent = defineComponent({
   name: "AgentInvocationList",
   props: {
     ariaLabel: { default: "Agent sessions", type: String },

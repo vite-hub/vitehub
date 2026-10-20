@@ -1,7 +1,7 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type DefineComponent, type PropType, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,
@@ -1436,7 +1436,7 @@ function renderInvocationActivities(
   ].filter(item => item !== null);
 }
 
-export const AgentInvocation = defineComponent({
+export const AgentInvocation: DefineComponent = defineComponent({
   name: "AgentInvocation",
   emits: {
     inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
@@ -1610,7 +1610,7 @@ export const AgentInvocation = defineComponent({
   },
 });
 
-export const AgentInvocationInspector = defineComponent({
+export const AgentInvocationInspector: DefineComponent = defineComponent({
   name: "AgentInvocationInspector",
   emits: {
     selectActivity: (id: string) => Boolean(id),
