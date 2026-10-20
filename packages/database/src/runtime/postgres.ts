@@ -26,7 +26,32 @@ interface PostgresConnection {
 }
 
 /** The environment variables that postgres.js reads when it gets no connection URL. */
-const postgresEnvNames = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSERNAME", "PGUSER", "PGPASSWORD"] as const
+// Keep this list in sync with postgres.js' `parseOptions`: every PG* value it
+// reads must participate in the cache key so environment changes replace the
+// shared client instead of reusing options from the old environment.
+const postgresEnvNames = [
+  "PGHOST",
+  "PGPORT",
+  "PGDATABASE",
+  "PGUSERNAME",
+  "PGUSER",
+  "PGPASSWORD",
+  "PGMAX",
+  "PGSSL",
+  "PGSSLNEGOTIATION",
+  "PGIDLE_TIMEOUT",
+  "PGCONNECT_TIMEOUT",
+  "PGMAX_LIFETIME",
+  "PGMAX_PIPELINE",
+  "PGBACKOFF",
+  "PGKEEP_ALIVE",
+  "PGPREPARE",
+  "PGDEBUG",
+  "PGFETCH_TYPES",
+  "PGPUBLICATIONS",
+  "PGAPPNAME",
+  "PGTARGETSESSIONATTRS",
+] as const
 
 function readPostgresEnvKey() {
   const env = globalThis.process?.env

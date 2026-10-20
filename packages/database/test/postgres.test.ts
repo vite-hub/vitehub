@@ -381,7 +381,29 @@ describe("Postgres runtime", () => {
   })
 
   describe("PG* environment variables", () => {
-    const names = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSERNAME", "PGUSER", "PGPASSWORD"]
+    const names = [
+      "PGHOST",
+      "PGPORT",
+      "PGDATABASE",
+      "PGUSERNAME",
+      "PGUSER",
+      "PGPASSWORD",
+      "PGMAX",
+      "PGSSL",
+      "PGSSLNEGOTIATION",
+      "PGIDLE_TIMEOUT",
+      "PGCONNECT_TIMEOUT",
+      "PGMAX_LIFETIME",
+      "PGMAX_PIPELINE",
+      "PGBACKOFF",
+      "PGKEEP_ALIVE",
+      "PGPREPARE",
+      "PGDEBUG",
+      "PGFETCH_TYPES",
+      "PGPUBLICATIONS",
+      "PGAPPNAME",
+      "PGTARGETSESSIONATTRS",
+    ]
 
     beforeEach(() => {
       for (const name of names) vi.stubEnv(name, "")
@@ -408,6 +430,18 @@ describe("Postgres runtime", () => {
       const first = clientOf(db)
 
       vi.stubEnv("PGHOST", "second.internal")
+      expect(clientOf(db)).not.toBe(first)
+      expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
+    })
+
+    it("replaces the pool when a non-connection PG* setting changes", async () => {
+      const { createPostgresDatabase } = await loadPostgresRuntime()
+      vi.stubEnv("PGHOST", "same.internal")
+      vi.stubEnv("PGAPPNAME", "first")
+      const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+      const first = clientOf(db)
+
+      vi.stubEnv("PGAPPNAME", "second")
       expect(clientOf(db)).not.toBe(first)
       expect(driver.clients[0]!.end).toHaveBeenCalledOnce()
     })
