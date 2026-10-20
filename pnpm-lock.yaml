@@ -1509,7 +1509,7 @@ importers:
   packages/env:
     dependencies:
       '@vite-hub/agent':
-        specifier: workspace:*
+        specifier: ^0.0.4
         version: link:../agent
       '@vite-hub/runtime':
         specifier: workspace:*
