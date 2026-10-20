@@ -40,6 +40,7 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubBlob } from "@vite-hub/blob/vite"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -47,13 +48,13 @@ export default defineConfig({
     driver: "fs",
     base: ".vitehub/data/blob",
   },
-  plugins: [hubBlob()],
+  plugins: [hubBlob(), nitro()],
 })
 ```
 
 ## Vite Integration
 
-Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code.
+Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime helper to server code. Nitro is the only host output. `hubBlob()` adds its runtime plugin to the Nitro config, and Nitro bundles it into the server output for each preset. On a Cloudflare preset, it also adds the R2 bucket bindings to Nitro's `wrangler.json`.
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
@@ -120,6 +121,23 @@ Browser clients:
 
 - `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built only on `fetch`.
 - `@vite-hub/blob/vue`: `useUpload()` and `useMultipartUpload()`, which add a progress ref. `vue` is an optional peer dependency.
+
+## Blob reference schemas
+
+`image()` and `file()` return [Standard Schema](https://standardschema.dev) validators for a stored pointer to one object: `{ pathname, contentType?, size? }`. They accept a `BlobObject` from `put()` or `handleUpload()` and drop its other fields. They reject unsafe pathnames, such as absolute paths and `..` segments, and they check `accept` against `contentType` and `maxSize` against the recorded `size`. They don't read the store.
+
+```ts
+import { file, image } from "@vite-hub/blob"
+
+const cover = image({ store: "media", maxSize: "8MB" }) // accepts image/* by default
+const attachment = file({ accept: ["application/pdf"] })
+
+const result = cover["~standard"].validate(uploadedObject)
+const jsonSchema = cover["~standard"].jsonSchema.input({ target: "draft-2020-12" })
+// jsonSchema["x-vitehub-blob"] -> { kind: "image", store: "media", accept: ["image/*"], maxSize: "8MB" }
+```
+
+The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Zod 4 and Valibot object schemas accept only their own schema types, so these validators can't be fields inside `z.object()` or `v.object()`. Use them where a Standard Schema is read directly.
 
 ## Signed requests
 

@@ -14,7 +14,7 @@ const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes Queue error types for the shared ViteHubError contract", async () => {
+it("publishes the Queue result and error code types", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-types-"))
 
   try {

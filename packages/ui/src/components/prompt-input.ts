@@ -30,6 +30,7 @@ export const PromptInput = defineComponent({
   inheritAttrs: false,
   props: {
     accept: { type: String },
+    attachments: { default: true, type: Boolean },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
     modelValue: { default: "", type: String },
@@ -82,7 +83,8 @@ export const PromptInput = defineComponent({
     };
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;
-      if (!clipboard) return;
+      // A text-only prompt lets the browser paste normally and never converts files.
+      if (!props.attachments || !clipboard) return;
       const hasText = clipboard.getData("text/plain").length > 0;
       const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/") || !hasText);
       if (files.length === 0) return;
@@ -126,7 +128,7 @@ export const PromptInput = defineComponent({
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
             // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
             onKeydown: (event: KeyboardEvent) => {
-              if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+              if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
               event.preventDefault();
               if (props.status === "ready") form.value?.requestSubmit();
             },
@@ -136,7 +138,7 @@ export const PromptInput = defineComponent({
             value: props.modelValue,
           }),
           h("div", { "data-slot": "prompt-input-toolbar" }, [
-            h("input", {
+            props.attachments && h("input", {
               accept: props.accept,
               "aria-label": "Add attachment",
               class: "vh-visually-hidden",
@@ -151,8 +153,9 @@ export const PromptInput = defineComponent({
               tabindex: -1,
               type: "file",
             }),
+            slots["footer-leading"]?.(),
             slots.actions?.() ??
-              h(UButton, {
+              (props.attachments && h(UButton, {
                 "aria-label": "Add attachment",
                 class: "rounded-full",
                 color: "neutral",
@@ -162,8 +165,7 @@ export const PromptInput = defineComponent({
                 square: true,
                 type: "button",
                 variant: "outline",
-              }),
-            slots["footer-leading"]?.(),
+              })),
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
               h(UButton, {

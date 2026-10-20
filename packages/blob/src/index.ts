@@ -1,5 +1,18 @@
 export { ensureBlob } from "./ensure.ts"
 export { blob } from "./runtime/storage.ts"
+export { file, image } from "./reference.ts"
+export type {
+  BlobReference,
+  BlobReferenceHint,
+  BlobReferenceInput,
+  BlobReferenceIssue,
+  BlobReferenceJsonSchemaOptions,
+  BlobReferenceJsonSchemaTarget,
+  BlobReferenceKind,
+  BlobReferenceOptions,
+  BlobReferenceResult,
+  BlobReferenceSchema,
+} from "./reference.ts"
 export type {
   BlobDriver,
   BlobErrorCode,

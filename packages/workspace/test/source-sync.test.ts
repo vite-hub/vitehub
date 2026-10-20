@@ -25,7 +25,11 @@ async function createRoot() {
 
 afterEach(async () => {
   resetWorkspaceRegistry()
-  await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
+  await Promise.all(tempDirs.splice(0).flatMap(path => [
+    rm(path, { recursive: true, force: true }),
+    // A local Workspace store writes its metadata next to the root.
+    rm(`${path}.meta.json`, { force: true }),
+  ]))
 })
 
 describe("Workspace Source Sync", () => {
@@ -157,7 +161,6 @@ describe("Workspace Source Sync", () => {
     const result = await workspace.sync({ sources: ["docs"] })
 
     expect(result).toMatchObject({
-      published: false,
       status: "ready",
       sources: [{
         counts: {
@@ -569,13 +572,8 @@ describe("Workspace Source Sync", () => {
     })
   })
 
-  it("can snapshot and publish after successful source sync", async () => {
-    const publish = vi.fn()
-    registerWorkspace("publish-sync", defineWorkspace({
-      publish: [{
-        name: "test-publisher",
-        publish,
-      }],
+  it("can snapshot after successful source sync", async () => {
+    registerWorkspace("snapshot-sync", defineWorkspace({
       store: { provider: "memory" },
       sources: {
         docs: {
@@ -590,27 +588,17 @@ describe("Workspace Source Sync", () => {
       },
     }))
 
-    const workspace = await useRegisteredWorkspace("publish-sync")
+    const workspace = await useRegisteredWorkspace("snapshot-sync")
     const result = await workspace.sync({
-      publish: true,
       snapshot: { message: "sync docs" },
       sources: ["docs"],
     })
 
-    expect(result.published).toBe(true)
     expect(result.snapshot).toMatchObject({ name: "sync docs" })
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
-      snapshot: expect.objectContaining({ name: "sync docs" }),
-    }))
   })
 
-  it("can apply successful source plans and publish partial sync results when requested", async () => {
-    const publish = vi.fn()
+  it("can apply successful source plans and snapshot partial sync results when requested", async () => {
     registerWorkspace("partial-sync", defineWorkspace({
-      publish: [{
-        name: "test-publisher",
-        publish,
-      }],
       store: { provider: "memory" },
       sources: {
         docs: {
@@ -636,20 +624,18 @@ describe("Workspace Source Sync", () => {
 
     const workspace = await useRegisteredWorkspace("partial-sync")
     const result = await workspace.sync({
-      publish: true,
       publishPartial: true,
       snapshot: { message: "partial sync" },
       sources: "all",
     })
 
     expect(result.status).toBe("partial")
-    expect(result.published).toBe(true)
+    expect(result.snapshot).toMatchObject({ name: "partial sync" })
     expect(result.sources).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: "docs", status: "ready" }),
       expect.objectContaining({ source: "broken", status: "error" }),
     ]))
     await expect(workspace.readFile("docs/README.md")).resolves.toBe("# Ready\n")
-    expect(publish).toHaveBeenCalled()
   })
 
   it("infers plain object source helpers and defaults sync bindings to no build or lazy materialization", async () => {

@@ -1,14 +1,19 @@
 import { defineDatabase } from "@vite-hub/database"
 import { agentDb, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
 import { hubDb } from "@vite-hub/database/nuxt"
+import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { Database, DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { Database, DatabaseNuxtIntegrationOptions, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "@vite-hub/database"
 
 const analyticsSchema = {
   events: sqliteTable("events", { name: text("name").notNull() }),
+}
+
+const reportsSchema = {
+  reports: pgTable("reports", { title: pgText("title").notNull() }),
 }
 
 declare module "@vite-hub/database/drizzle" {
@@ -16,6 +21,10 @@ declare module "@vite-hub/database/drizzle" {
     analytics: {
       config: import("@vite-hub/database").ResolvedDrizzleDatabaseConfig
       schema: typeof analyticsSchema
+    }
+    reports: {
+      dialect: "postgresql"
+      schema: typeof reportsSchema
     }
   }
 }
@@ -45,6 +54,21 @@ describe("published package types", () => {
     expectTypeOf(database.batch).toBeFunction()
     expectTypeOf(db.batch).toBeFunction()
     expectTypeOf(useDatabase("analytics").db.batch).toBeFunction()
+  })
+
+  it("types Postgres Definitions and their generated database", () => {
+    const definition = defineDatabase({
+      cloudflare: { hyperdriveId: "hyperdrive-id" },
+      connection: { url: "postgres://localhost/app" },
+      dialect: "postgresql",
+      schema: reportsSchema,
+    })
+
+    expectTypeOf(definition).toEqualTypeOf<PostgresDatabaseDefinition<typeof reportsSchema>>()
+    expectTypeOf(useDatabase("reports").db).toEqualTypeOf<RuntimePostgresDatabase<typeof reportsSchema>>()
+    expectTypeOf(useDatabase("reports").db.select().from(reportsSchema.reports)).resolves.toEqualTypeOf<Array<{ title: string }>>()
+    // @ts-expect-error Postgres Definitions do not accept D1 HTTP access.
+    defineDatabase({ cloudflare: { http: true }, dialect: "postgresql", schema: reportsSchema })
   })
 
   it("resolves the Nuxt bridge subpath", () => {

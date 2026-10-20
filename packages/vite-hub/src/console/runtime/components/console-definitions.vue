@@ -10,6 +10,7 @@ import { parseConsoleSectionContent } from "../definitions";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -68,13 +69,6 @@ const selectedRun = computed(() =>
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
 
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error
-    ? value.message
-    : value
-      ? "The Console could not load these definitions."
-      : undefined;
-}
 
 async function runSelectedSchedule(): Promise<void> {
   const name = selectedRecord.value?.cells.schedule || selectedName.value;
@@ -105,7 +99,6 @@ function recordSummary(row: ConsoleRecord): string {
 
 function queryValue(): string | undefined {
   const value = route.query[selectionQuery.value];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -181,7 +174,6 @@ watch(
     if (name === undefined) {
       selectedName.value = entries.value[0]?.id;
     } else if (
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue Router query values require string narrowing before selection.
       typeof name === "string" &&
       entries.value.some((entry) => entry.id === name)
     ) {
@@ -232,17 +224,8 @@ onBeforeUnmount(() => request?.abort());
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed && errorMessage(error)" class="px-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load definitions"
-            :description="errorMessage(error)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadDefinitions },
-            ]"
-          />
+        <div v-if="!collapsed && error" class="px-3">
+          <ConsoleState compact :error="error" title="Could not load definitions" :retry="loadDefinitions" />
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -286,12 +269,12 @@ onBeforeUnmount(() => request?.abort());
             </span>
           </UButton>
         </nav>
-        <UEmpty
+        <ConsoleState
           v-else-if="!loading && !error && !collapsed"
-          class="min-h-0 flex-1 px-4"
+          :section="section"
           :icon="sectionDetails.icon"
-          :title="`No ${itemsTitle}`"
-          :description="catalogView ? `Add a discovered ${sectionDetails.label.slice(0, -1)} Definition to this project.` : 'The owner package returned no records.'"
+          :title="catalogView ? 'No definitions yet' : 'No records yet'"
+          :description="catalogView ? `Add a definition to this project. ${sectionDetails.label} lists it after the next build.` : 'Records appear here after the application creates them.'"
         />
       </template>
 

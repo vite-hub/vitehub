@@ -33,15 +33,21 @@ export const CodeBlockCopyButton = defineComponent({
     const copied = ref(false);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
-    const copy = () =>
-      navigator.clipboard
-        .writeText(props.value)
-        .then(() => {
-          copied.value = true;
-          clearTimeout(timeout);
-          timeout = setTimeout(() => (copied.value = false), 2_000);
-        })
-        .catch(() => {});
+    const copy = () => {
+      try {
+        const clipboard = navigator.clipboard;
+        if (!clipboard || typeof clipboard.writeText !== "function") return;
+        void clipboard.writeText(props.value)
+          .then(() => {
+            copied.value = true;
+            clearTimeout(timeout);
+            timeout = setTimeout(() => (copied.value = false), 2_000);
+          })
+          .catch(() => {});
+      } catch {
+        return;
+      }
+    };
     return () => [
       h(UButton, {
         "aria-label": copied.value ? "Copied" : "Copy",
@@ -54,7 +60,12 @@ export const CodeBlockCopyButton = defineComponent({
         "data-copied": copied.value ? "" : undefined,
         "data-slot": "code-block-copy-button",
         onClick: (event: MouseEvent) => {
-          (attrs.onClick as ((event: MouseEvent) => void) | undefined)?.(event);
+          const listener = attrs.onClick;
+          if (Array.isArray(listener)) {
+            for (const handler of listener) if (typeof handler === "function") handler(event);
+          } else if (typeof listener === "function") {
+            listener(event);
+          }
           void copy();
         },
       }),
@@ -81,7 +92,9 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  return node.type === Text && String(node.children ?? "") === "";
+  if (node.type === Text) return String(node.children ?? "") === "";
+  if (Array.isArray(node.children)) return (node.children as VNode[]).every(isEmptyText);
+  return node.children === undefined || node.children === null || node.children === "";
 }
 
 function textOf(nodes: VNode[]): string | undefined {

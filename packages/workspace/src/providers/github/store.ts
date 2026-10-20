@@ -4,6 +4,7 @@ import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../
 import { createWorkspaceGlobMatcher } from "../../core/glob.ts";
 import {
   contentStreamToBytes,
+  contentToBytes,
   isExcludedWorkspacePath,
   normalizeSafeWorkspacePath,
   normalizeSafeWorkspacePattern,
@@ -14,20 +15,24 @@ import { workspaceStoreTarget } from "../../storage/target.ts";
 import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
   commitGitHubChanges,
-  createGitHubBlob,
-  createGitHubFileUpdate,
+  connectGitHubRepository,
+  githubBranchMovedConflict,
   gitBlobSha,
+  gitFileMode,
   joinGitPath,
   readGitHubArchive,
-  readGitHubRawFile,
   readGitHubBranchState,
+  readGitHubFile,
   requireGitHubOption,
   resolveGitHubBranchOption,
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
   resolveGitHubTokenOption,
+  type GitFileMode,
+  type GitHubRepository,
   type GitHubTreeEntry,
 } from "./shared.ts";
+import { createGitHubWorkspaceHistory } from "./history.ts";
 
 import type {
   DiffOptions,
@@ -45,6 +50,7 @@ import type {
   WorkspaceStat,
   WorkspaceStreamFile,
   WorkspaceStore,
+  WorkspaceStoreHistory,
 } from "../../core/types.ts";
 
 interface GitHubWorkspaceStoreFile {
@@ -55,14 +61,13 @@ interface GitHubWorkspaceStoreFile {
   metadata?: Record<string, unknown>;
   path: string;
   size?: number;
-  uploaded?: boolean;
 }
 
 function sameGitHubTreeEntry(
   left: GitHubTreeEntry | undefined,
   right: GitHubTreeEntry | undefined,
 ): boolean {
-  return left?.sha === right?.sha && (left?.mode || "100644") === (right?.mode || "100644");
+  return left?.sha === right?.sha && left?.mode === right?.mode;
 }
 
 function matchesGitHubRemote(
@@ -70,7 +75,7 @@ function matchesGitHubRemote(
   remote: GitHubTreeEntry | undefined,
 ): boolean {
   return (
-    file?.gitSha === remote?.sha && gitHubFileMode(file?.metadata) === (remote?.mode || "100644")
+    file?.gitSha === remote?.sha && (file ? gitHubFileMode(file.metadata) : undefined) === remote?.mode
   );
 }
 
@@ -88,25 +93,17 @@ function isReservedWorkspacePath(path: string): boolean {
   return root === ".git" || root === ".vitehub";
 }
 
-function contentLength(content: string | Uint8Array): number {
-  return ArrayBuffer.isView(content)
-    ? content.byteLength
-    : new TextEncoder().encode(content).byteLength;
-}
-
 function readStringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return Object.prototype.toString.call(value) === "[object String]" ? String(value) : undefined;
 }
 
 function gitHubFileMetadata(entry: GitHubTreeEntry): Record<string, unknown> | undefined {
-  return entry.mode === "120000" || entry.mode === "100755" ? { gitMode: entry.mode } : undefined;
+  return entry.mode === "100644" ? undefined : { gitMode: entry.mode };
 }
 
-function gitHubFileMode(metadata: Record<string, unknown> | undefined): string {
-  return metadata?.gitMode === "120000" || metadata?.gitMode === "100755"
-    ? metadata.gitMode
-    : "100644";
+function gitHubFileMode(metadata: Record<string, unknown> | undefined): GitFileMode {
+  return gitFileMode(metadata?.gitMode);
 }
 
 function inheritedGitHubFileMetadata(
@@ -153,7 +150,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #archive: { bytes: Uint8Array; revision: string } | undefined;
   #archiveReads = new Map<string, Promise<Uint8Array>>();
   #baselineRefSha: string | undefined;
-  #baselineTreeSha: string | undefined;
   #branch: string;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
@@ -161,21 +157,31 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
   #repository: string;
+  #client: GitHubRepository;
   #root: string;
-  #token: string;
+  #history: WorkspaceStoreHistory | undefined;
 
   constructor(
     options: GitHubWorkspaceStoreOptions,
     private workspaceName: string,
   ) {
     this.#repository = requireGitHubOption(
-      "store",
       "a repository",
       resolveGitHubRepositoryOption(options),
     );
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
-    this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
+    const token = requireGitHubOption("a token", resolveGitHubTokenOption(options));
+    this.#client = connectGitHubRepository(this.#repository, token);
+  }
+
+  get history(): WorkspaceStoreHistory {
+    return this.#history ||= createGitHubWorkspaceHistory({
+      branch: this.#branch,
+      client: this.#client,
+      repository: this.#repository,
+      root: this.#root,
+    });
   }
 
   [workspaceStoreTarget]() {
@@ -203,11 +209,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       if (!this.#dirty && paths === undefined && this.#archive?.revision !== revision) {
         let read = this.#archiveReads.get(revision);
         if (!read) {
-          read = readGitHubArchive({
-            ref: revision,
-            repository: this.#repository,
-            token: this.#token,
-          });
+          read = readGitHubArchive(this.#client, revision);
           this.#archiveReads.set(revision, read);
           void read.finally(() => {
             if (this.#archiveReads.get(revision) === read) this.#archiveReads.delete(revision);
@@ -258,31 +260,26 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const content = gitHubFileMode(metadata) === "120000" && symlinkTarget !== undefined
       ? symlinkTarget
       : file.content;
-    const update = await createGitHubFileUpdate(normalized, this.#root, content);
-    if (current?.gitSha === update.gitSha) {
+    const bytes = contentToBytes(content);
+    const gitSha = await gitBlobSha(bytes);
+    if (current?.gitSha === gitSha) {
       if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata)) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
+        bytes,
         mediaType: file.mediaType,
         metadata,
-        size: contentLength(content),
+        size: bytes.byteLength,
       });
       return;
     }
-    await createGitHubBlob({
-      bytes: update.bytes,
-      kind: "store",
-      repository: this.#repository,
-      token: this.#token,
-    });
     this.#files.set(normalized, {
-      bytes: update.bytes,
-      gitSha: update.gitSha,
+      bytes,
+      gitSha,
       mediaType: file.mediaType,
       metadata,
       path: normalized,
-      size: contentLength(content),
-      uploaded: true,
+      size: bytes.byteLength,
     });
     this.#dirty = true;
   }
@@ -378,10 +375,8 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       await this.#ensure({ refresh: false });
       const remote = await readGitHubBranchState({
         branch: this.#branch,
-        kind: "store",
-        repository: this.#repository,
+        repository: this.#client,
         root: this.#root,
-        token: this.#token,
       });
       const takeRemote = options.takeRemote || [];
       const shouldTakeRemote = (path: string) => takeRemote.some(
@@ -422,7 +417,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       }
 
       this.#baselineRefSha = remote.refSha;
-      this.#baselineTreeSha = remote.treeSha;
       this.#remoteFiles = remote.files;
       this.#files = new Map(
         [...remote.files].map(([path, entry]) => [path, githubRemoteFile(path, entry)]),
@@ -458,25 +452,22 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
-      repository: this.#repository,
+      repository: this.#client,
       root: this.#root,
-      token: this.#token,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
-      throw workspaceConflict(
-        `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
-      );
+      throw githubBranchMovedConflict({
+        actualHead: remote.refSha,
+        branch: this.#branch,
+        expectedHead: this.#baselineRefSha,
+        repository: this.#repository,
+      });
     }
     this.#remoteFiles = remote.files;
     this.#baselineRefSha = remote.refSha;
-    this.#baselineTreeSha = remote.treeSha;
 
     const changedFiles = [...this.#files.values()].filter(
-      (file) => {
-        const remote = this.#remoteFiles.get(file.path);
-        return remote?.sha !== file.gitSha || (remote.mode || "100644") !== gitHubFileMode(file.metadata);
-      },
+      (file) => !matchesGitHubRemote(file, this.#remoteFiles.get(file.path)),
     );
     const deletePaths = [...this.#remoteFiles]
       .filter(([path]) => !this.#files.has(path))
@@ -488,31 +479,26 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       return snapshot;
     }
 
-    const files = changedFiles.map((file) => {
-      return {
-        bytes: file.uploaded ? undefined : file.bytes,
-        fullPath: joinGitPath(this.#root, file.path),
-        gitSha: file.gitSha,
-        mode: gitHubFileMode(file.metadata),
-      };
-    });
-    const commit = await commitGitHubChanges({
-      baseTreeSha: this.#baselineTreeSha,
+    const files = await Promise.all(changedFiles.map(async file => ({
+      bytes: await this.#readFileBytes(file),
+      fullPath: joinGitPath(this.#root, file.path),
+      mode: gitHubFileMode(file.metadata),
+    })));
+    const commitSha = await commitGitHubChanges({
       branch: this.#branch,
       branchExists: remote.branchExists,
       deletePaths,
       files,
       message: options.name || "chore: update workspace snapshot",
       parentSha: this.#baselineRefSha,
-      repository: this.#repository,
-      token: this.#token,
+      remoteModes: new Map([...this.#remoteFiles.values()].map(entry => [entry.path, entry.mode])),
+      repository: this.#client,
     });
 
     this.#dirty = false;
-    this.#baselineRefSha = commit.commitSha;
-    this.#baselineTreeSha = commit.treeSha;
+    this.#baselineRefSha = commitSha;
     this.#remoteFiles = this.#toRemoteFiles();
-    this.#baseline = { ...snapshot, id: commit.commitSha };
+    this.#baseline = { ...snapshot, id: commitSha };
     return this.#baseline;
   }
 
@@ -570,20 +556,17 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
-      repository: this.#repository,
+      repository: this.#client,
       root: this.#root,
-      token: this.#token,
     });
     this.#baselineRefSha = remote.refSha;
-    this.#baselineTreeSha = remote.treeSha;
     this.#remoteFiles = remote.files;
     if (!this.#dirty) {
       this.#files = new Map(
         [...remote.files].map(([path, entry]) => {
           const previous = previousFiles.get(path);
           return [path, {
-            ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === (entry.mode || "100644")
+            ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === entry.mode
               ? { bytes: previous.bytes }
               : {}),
             gitSha: entry.sha,
@@ -633,12 +616,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async #readFileBytes(file: GitHubWorkspaceStoreFile): Promise<Uint8Array> {
     if (!file.bytes) {
-      file.bytes = await readGitHubRawFile({
+      file.bytes = await readGitHubFile(this.#client, {
+        mode: gitHubFileMode(file.metadata),
         path: joinGitPath(this.#root, file.path),
-        ref: this.#baselineRefSha!,
-        repository: this.#repository,
-        token: this.#token,
-      });
+        sha: file.gitSha,
+      }, this.#baselineRefSha!);
       file.size = file.bytes.byteLength;
     }
     return file.bytes;
@@ -707,11 +689,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       [...this.#files.values()].map((file) => [
         file.path,
         {
+          mode: gitHubFileMode(file.metadata),
           path: joinGitPath(this.#root, file.path),
           sha: file.gitSha,
           size: file.size,
-          type: "blob",
-          mode: gitHubFileMode(file.metadata),
         },
       ]),
     );

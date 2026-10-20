@@ -14,7 +14,7 @@ const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
 interface PackageManifest {
-  readonly exports: Record<string, string>
+  readonly exports: Record<string, string | { readonly types?: string }>
   readonly types: string
 }
 
@@ -23,8 +23,8 @@ async function expectPublicDeclarationsToExcludeEffect(): Promise<void> {
   const declarations = new Set([
     manifest.types,
     ...Object.values(manifest.exports)
-      .filter(path => path.endsWith(".js"))
-      .map(path => path.replace(/\.js$/, ".d.ts")),
+      .map(target => typeof target === "string" ? target.replace(/\.js$/, ".d.ts") : target.types)
+      .filter((path): path is string => path?.endsWith(".d.ts") === true),
   ])
 
   for (const declaration of declarations) {

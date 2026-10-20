@@ -15,7 +15,7 @@ packages add Nitro handlers or plugins only where a host needs them.
 
 | Framework | Nitro integration | ViteHub sets |
 | --- | --- | --- |
-| Vite | `nitro()` from `nitro/vite`, next to `vitehub()` | The Nitro preset that matches the ViteHub preset |
+| Vite | Included in `vitehub()`. If the app also adds `nitro()`, ViteHub uses that one. | The Nitro preset that matches the ViteHub preset |
 | Nuxt | Nuxt's own Nitro build | The Nitro preset, through the `vite-hub/nuxt` module |
 
 Do not select a different Nitro preset. A conflicting `nitro.preset`,

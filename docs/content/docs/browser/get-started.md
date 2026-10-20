@@ -3,7 +3,7 @@
 title: Run your first Browser Definition
 description: Read a page with Cloudflare Browser Run and return its rendered HTML.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
@@ -25,14 +25,13 @@ pnpm add -D vite wrangler
 Enable Browser on the Cloudflare deployment preset.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default {
   plugins: [vitehub({
     preset: 'cloudflare',
     browser: { remote: true },
-  }), nitro() as never],
+  })],
 }
 ```
 

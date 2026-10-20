@@ -53,7 +53,7 @@ it("disposes abandoned filesystem listings through storage disposal", async () =
 
     expect(vi.getTimerCount()).toBe(0)
     await expect(filesystem.opened[0]!.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
-    await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+    await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
   }
   finally {
     await driver.dispose?.()
@@ -73,7 +73,7 @@ it("disposes retained Upstash overflow and the underlying driver", async () => {
 
   expect(vi.getTimerCount()).toBe(0)
   expect(provider.dispose).toHaveBeenCalledOnce()
-  await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+  await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
 })
 
 function deferred<T>() {
@@ -96,7 +96,7 @@ it("releases a filesystem iterator that finishes opening after disposal", async 
     await createStorage({ driver }).dispose()
     opening.resolve()
 
-    await expect(pending).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+    await expect(pending).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
     expect(vi.getTimerCount()).toBe(0)
     await expect(filesystem.opened[0]!.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
   }
@@ -116,7 +116,7 @@ it("does not retain an Upstash scan that finishes after disposal", async () => {
   await createStorage({ driver }).dispose()
   scan.resolve(["0", ["one", "two"]])
 
-  await expect(pending).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+  await expect(pending).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
   expect(vi.getTimerCount()).toBe(0)
 })
 
@@ -128,7 +128,7 @@ it("expires abandoned filesystem cursors and closes their directories", async ()
     vi.useFakeTimers()
     const page = await driver.listKeys({ limit: 1 })
     await vi.advanceTimersByTimeAsync(15 * 60_000)
-    await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+    await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
     // Disposal also waits for asynchronous cleanup initiated by expiry.
     await driver.dispose?.()
     await expect(filesystem.opened[0]!.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
@@ -146,7 +146,7 @@ it("evicts Upstash overflow when its aggregate byte budget is exceeded", async (
   const first = await driver.listKeys({ limit: 1 })
   const second = await driver.listKeys({ limit: 1 })
 
-  await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_CURSOR_EXPIRED" })
+  await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
   await expect(driver.listKeys({ cursor: second.cursor, limit: 1 })).resolves.toEqual({ keys: ["x".repeat(600_000)] })
   await driver.dispose?.()
   expect(vi.getTimerCount()).toBe(0)

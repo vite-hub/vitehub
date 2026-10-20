@@ -1,5 +1,6 @@
 import { memoryRateLimitDriver } from "../drivers/memory.ts"
 import { createRateLimiter } from "../limiter.ts"
+import { normalizeRateLimitPolicy } from "../policy.ts"
 
 import type { RateLimiter, RateLimitPolicy, RateLimitRuntimeConfig } from "../types.ts"
 
@@ -15,9 +16,13 @@ export function getRateLimitRuntimeConfig(): RateLimitRuntimeConfig {
   return runtimeConfig
 }
 
+function normalizeRateLimitWindowKey(policy: RateLimitPolicy): number {
+  return normalizeRateLimitPolicy(policy).windowMs
+}
+
 export function getMemoryRateLimiter(name: string, policy: RateLimitPolicy): RateLimiter {
   let policies = memoryLimiters.get(name)
-  const policyKey = JSON.stringify([policy.enforcement, policy.failure, policy.limit, policy.window])
+  const policyKey = JSON.stringify([policy.enforcement, policy.failure, policy.limit, normalizeRateLimitWindowKey(policy)])
   const existing = policies?.get(policyKey)
   if (existing) return existing
 

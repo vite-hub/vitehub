@@ -34,18 +34,15 @@ output for the selected host.
 pnpm add vite-hub nitro
 ```
 
-Register `vitehub()` and Nitro's Vite plugin.
+Register `vitehub()`. It includes Nitro's Vite plugin, so you do not add `nitro()`.
 
 ```ts [vite.config.ts]
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
     vitehub({ preset: "node" }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
   ],
 })
 ```
@@ -82,7 +79,7 @@ void defineWorkspace
 
 ## Install in Nuxt
 
-In Nuxt, register the framework module instead of `vitehub()` and `nitro()`.
+In Nuxt, register the framework module instead of `vitehub()`.
 Nuxt provides its own Nitro integration, so do not install `nitro` separately.
 
 ```ts [nuxt.config.ts]

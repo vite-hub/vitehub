@@ -35,6 +35,10 @@ describe("root test layers", () => {
   })
 
   it("keeps named root tasks on their owned configs", () => {
+    expect(rootTestTasks["package:metadata"]).toMatchObject({
+      command: "node test/package-metadata.mjs",
+      dependsOn: ["build"],
+    })
     expect(rootTestTasks["test:contracts"]).toMatchObject({
       command: "vp test --config vitest.config.ts",
       dependsOn: ["build"],

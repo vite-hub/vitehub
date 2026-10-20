@@ -11,7 +11,7 @@ import { createKVContinuations } from "./continuations.ts"
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
-  const expired = () => Object.assign(kvErrorDiagnostics.KV_R0003({ message: "Invalid or expired fs-lite KV cursor." }), { code: "KV_CURSOR_EXPIRED" })
+  const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
   const continuations = createKVContinuations<AsyncGenerator<string | undefined>>({
     expired,
     release: iterator => iterator.return(undefined),

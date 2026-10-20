@@ -5,14 +5,10 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadNuxt } from "nuxt";
 
-import { componentEntryName, componentNames } from "../src/component-entries.ts";
+import { componentNames } from "../src/component-names.ts";
 import { viteHubUIIcons } from "../src/icons.ts";
 
 const roots: string[] = [];
-
-function componentEntry(name: string): RegExp {
-  return new RegExp(`/dist/${componentEntryName(name)}\\.js$`);
-}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -53,7 +49,7 @@ describe("ViteHub UI Nuxt module", () => {
       expect(components).toEqual(
         expect.arrayContaining(
           componentNames.map((name) =>
-            expect.objectContaining({ export: name, filePath: expect.stringMatching(componentEntry(name)) }),
+            expect.objectContaining({ export: name, filePath: expect.stringMatching(/\/dist\/index\.js$/) }),
           ),
         ),
       );

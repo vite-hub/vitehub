@@ -3,6 +3,10 @@ import { h, onServerPrefetch, shallowRef, type ShallowRef, toValue, type MaybeRe
 
 type LanguageModule = { default: LanguageRegistration[] };
 
+// ANSI output uses Shiki's built-in tokenizer, but still needs a language
+// registration when the core highlighter starts without bundled languages.
+const ansiLanguage: LanguageRegistration = { name: "ansi", scopeName: "source.ansi", patterns: [] };
+
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
   bash: () => import("shiki/langs/bash.mjs"),
@@ -48,8 +52,10 @@ function plainLines(code: string): VNode[] {
  */
 export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: MaybeRefOrGetter<string>): ShallowRef<VNode[]> {
   const lines = shallowRef(plainLines(toValue(code)));
+  let requestId = 0;
 
   async function highlight() {
+    const currentRequest = ++requestId;
     const source = toValue(code);
     const requested = toValue(language).toLowerCase();
     const lang = aliases[requested] ?? requested;
@@ -58,14 +64,17 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       return;
     }
     const instance = await loadHighlighter();
-    if (lang !== "ansi" && !instance.getLoadedLanguages().includes(lang)) await instance.loadLanguage((await languages[lang]!()).default);
+    if (!instance.getLoadedLanguages().includes(lang)) {
+      await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
+    }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
     const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
       defaultColor: false,
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
     });
-    if (source !== toValue(code)) return;
+    const latestRequested = toValue(language).toLowerCase();
+    if (currentRequest !== requestId || source !== toValue(code) || requested !== latestRequested) return;
     lines.value = tokens.map((line) => h("span", line.map((token) => h("span", { style: token.htmlStyle }, token.content))));
   }
 

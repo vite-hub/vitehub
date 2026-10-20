@@ -1,0 +1,303 @@
+import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { sleep } from '../internal/shared/utils'
+import { sandboxTaskError } from '../sandbox-task/errors'
+import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
+import { readSandboxTaskErrorMetadata } from './error-normalization'
+import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
+
+import type { TaskSandbox } from './task-sandbox'
+
+const MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 20_000
+const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
+const MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 120_000
+const EXEC_OUTPUT_RECOVERY_POLL_MS = 1_000
+const EXEC_OUTPUT_PREVIEW_LENGTH = 500
+const HANDLER_DIAGNOSTIC_LENGTH = 16_384
+
+type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error)
+    return error.message
+
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown, stderr?: unknown, stdout?: unknown }
+
+    if (typeof candidate.message === 'string' && candidate.message)
+      return candidate.message
+    if (typeof candidate.stderr === 'string' && candidate.stderr)
+      return candidate.stderr
+    if (typeof candidate.stdout === 'string' && candidate.stdout)
+      return candidate.stdout
+  }
+
+  if (error === undefined)
+    return undefined
+
+  return String(error)
+}
+
+function isRecoverableCloudflareExecError(error: unknown) {
+  const metadata = readSandboxTaskErrorMetadata(error)
+
+  if (metadata?.provider && metadata.provider !== 'cloudflare')
+    return false
+
+  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT' || metadata?.code === 'SANDBOX_TASK_TRANSPORT_ERROR')
+    return true
+
+  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
+}
+
+export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
+  const publicDetails: Record<string, string | number | boolean | null> = {}
+  for (const [key, value] of Object.entries(details || {})) {
+    if (typeof value === 'string') publicDetails[key] = value.slice(0, HANDLER_DIAGNOSTIC_LENGTH)
+    else if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) publicDetails[key] = value
+  }
+  return sandboxTaskError(message.slice(0, HANDLER_DIAGNOSTIC_LENGTH) || 'Sandbox handler failed.', {
+    code: 'SANDBOX_TASK_HANDLER_ERROR',
+    provider,
+    details: Object.keys(publicDetails).length ? publicDetails : undefined,
+  })
+}
+
+export function createTimeoutError(provider: string, timeout: number) {
+  return sandboxTaskError(`Sandbox Task Definition timed out after ${timeout}ms.`, {
+    code: 'SANDBOX_TASK_TIMEOUT',
+    provider,
+    details: { timeout },
+  })
+}
+
+export function tryParseSandboxTaskOutput<TResult>(outputRaw: string) {
+  if (!outputRaw.trim())
+    return null
+
+  try {
+    const output: unknown = JSON.parse(outputRaw)
+    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output) || !hasRuntimeType(Reflect.get(output, 'ok'), 'boolean'))
+      return null
+    // SAFETY: The runtime checks above establish an object with a boolean `ok` field before this generic result cast.
+    return output as {
+      ok?: boolean
+      result?: TResult
+      error?: { code?: string, message?: string, name?: string, stack?: string, cause?: string }
+    }
+  }
+  catch {
+    return null
+  }
+}
+
+function isCompleteSandboxTaskOutput(outputRaw: string) {
+  if (!outputRaw.trim())
+    return false
+
+  try {
+    JSON.parse(outputRaw)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+export function extractSandboxTaskOutputFromExecution(execution?: { stdout?: string, stderr?: string }) {
+  const streams = [execution?.stdout, execution?.stderr].filter(Boolean) as string[]
+
+  for (const stream of streams) {
+    const markerOffset = stream.lastIndexOf(EXEC_STDIO_OUTPUT_MARKER)
+    if (markerOffset < 0)
+      continue
+
+    const lineStart = stream.lastIndexOf('\n', markerOffset) + 1
+    const lineEnd = stream.indexOf('\n', markerOffset)
+    // Keep the first marker in the final matching line, matching the former
+    // reverse-line scan without allocating an array for the whole stream.
+    const markerIndex = stream.indexOf(EXEC_STDIO_OUTPUT_MARKER, lineStart)
+    return stream.slice(markerIndex + EXEC_STDIO_OUTPUT_MARKER.length, lineEnd < 0 ? stream.length : lineEnd)
+  }
+
+  return null
+}
+
+function previewExecutionStream(stream?: string) {
+  if (!stream)
+    return undefined
+
+  return stream.slice(0, EXEC_OUTPUT_PREVIEW_LENGTH)
+}
+
+function getExecutionDiagnostics(execution?: ExecutionMeta) {
+  return {
+    args: Array.isArray(execution?.meta?.args) ? execution?.meta?.args : undefined,
+    command: typeof execution?.meta?.command === 'string' ? execution.meta.command : undefined,
+    cwd: typeof execution?.meta?.cwd === 'string' ? execution.meta.cwd : undefined,
+    exitCode: typeof execution?.code === 'undefined' ? undefined : execution.code,
+    stderrPreview: previewExecutionStream(execution?.stderr),
+    stdoutPreview: previewExecutionStream(execution?.stdout),
+  }
+}
+
+function getErrorDiagnostics(error: unknown) {
+  if (!error || typeof error !== 'object' || !('details' in error))
+    return {}
+
+  const details = (error as { details?: Record<string, unknown> }).details
+  if (!details || typeof details !== 'object')
+    return {}
+
+  return {
+    args: Array.isArray(details.args) ? details.args : undefined,
+    command: typeof details.command === 'string' ? details.command : undefined,
+    cwd: typeof details.cwd === 'string' ? details.cwd : undefined,
+    exitCode: typeof details.exitCode === 'number' || details.exitCode === null ? details.exitCode : undefined,
+    spawnErrorCode: typeof details.spawnErrorCode === 'string' ? details.spawnErrorCode : undefined,
+    spawnErrorMessage: typeof details.spawnErrorMessage === 'string' ? details.spawnErrorMessage : undefined,
+    stderrPreview: typeof details.stderrPreview === 'string' ? details.stderrPreview : undefined,
+    stdoutPreview: typeof details.stdoutPreview === 'string' ? details.stdoutPreview : undefined,
+  }
+}
+
+function resolveExecOutputRecoveryTimeout(timeout?: number) {
+  if (!timeout || timeout <= 0)
+    return DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS
+
+  return Math.min(
+    MAX_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS,
+    Math.max(MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS, Math.floor(timeout * 0.1)),
+  )
+}
+
+function createExecOutputFailure(
+  sandbox: TaskSandbox,
+  outputPath: string,
+  error: unknown,
+  recoveryTimeout: number,
+  execution?: ExecutionMeta,
+  details?: Record<string, unknown>,
+) {
+  return createHandlerError('Sandbox Task Definition execution failed before producing an output file.', sandbox.provider, {
+    outputPath,
+    cause: getErrorMessage(error),
+    recoveryTimeout,
+    ...details,
+    ...getErrorDiagnostics(error),
+    ...getExecutionDiagnostics(execution),
+  })
+}
+
+async function waitForExecOutput(
+  sandbox: TaskSandbox,
+  outputPath: string,
+  error: unknown,
+  timeout: number | undefined,
+  execution: ExecutionMeta | undefined,
+  shouldAccept: (output: string) => boolean,
+  signal?: AbortSignal,
+) {
+  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
+  const deadline = Date.now() + recoveryTimeout
+  let lastError: unknown = error
+  let lastOutput = ''
+
+  while (Date.now() < deadline) {
+    signal?.throwIfAborted()
+    try {
+      const output = await sandbox.readFile(outputPath, { signal })
+      lastOutput = output
+      if (shouldAccept(output))
+        return output
+    }
+    catch (readError) {
+      lastError = readError
+    }
+
+    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS, signal)
+  }
+
+  throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution, {
+    lastReadError: getErrorMessage(lastError),
+    outputPreview: lastOutput.slice(0, EXEC_OUTPUT_PREVIEW_LENGTH) || undefined,
+  })
+}
+
+async function recoverExecOutput(
+  sandbox: TaskSandbox,
+  outputPath: string,
+  error: unknown,
+  timeout?: number,
+  execution?: ExecutionMeta,
+  signal?: AbortSignal,
+) {
+  if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
+    return null
+
+  return await waitForExecOutput(
+    sandbox,
+    outputPath,
+    error,
+    timeout,
+    execution,
+    output => isCompleteSandboxTaskOutput(output),
+    signal,
+  )
+}
+
+async function waitForCloudflareOutput(
+  sandbox: TaskSandbox,
+  outputPath: string,
+  error: unknown,
+  timeout?: number,
+  execution?: ExecutionMeta,
+  signal?: AbortSignal,
+) {
+  const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
+
+  if (sandbox.provider !== 'cloudflare')
+    throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution)
+
+  return await waitForExecOutput(
+    sandbox,
+    outputPath,
+    error,
+    timeout,
+    execution,
+    output => isCompleteSandboxTaskOutput(output),
+    signal,
+  )
+}
+
+export async function readExecOutputWithRecovery(
+  sandbox: TaskSandbox,
+  outputPath: string,
+  error: unknown,
+  timeout?: number,
+  execution?: ExecutionMeta,
+  signal?: AbortSignal,
+) {
+  const executionOutput = extractSandboxTaskOutputFromExecution(execution)
+    || extractSandboxTaskOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
+  if (executionOutput)
+    return executionOutput
+
+  try {
+    const output = await sandbox.readFile(outputPath, { signal })
+    if (tryParseSandboxTaskOutput(output))
+      return output
+    // A complete output file belongs to this execution. Preserve malformed
+    // envelopes so the caller can report the invalid contract instead of
+    // replacing the useful diagnostic with recovery failure.
+    if (isCompleteSandboxTaskOutput(output))
+      return output
+  }
+  catch {
+    signal?.throwIfAborted()
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+  }
+
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+}
+
+export { recoverExecOutput }

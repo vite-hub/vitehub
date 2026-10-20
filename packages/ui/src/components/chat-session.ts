@@ -1,3 +1,4 @@
+<<<<<<<< HEAD:packages/ui/src/components/chat-session.ts
 import type { ChatStatus, UIMessage } from "ai";
 import { defineComponent, h, type PropType } from "vue";
 import type { ViteHubUISession } from "../types.ts";
@@ -41,3 +42,6 @@ export const ChatSession = defineComponent({
     };
   },
 });
+========
+export { ChatSession } from "./chat-session.ts";
+>>>>>>>> 38ccfb65cfaa5d2e263ec5fdc96c90ae9166b3f9:packages/ui/src/components/agent-session.ts

@@ -468,7 +468,10 @@ onBeforeUnmount(() => request++);
 
 .vitehub-console__overview-name {
   color: var(--ui-text-highlighted);
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 500;
 }
 

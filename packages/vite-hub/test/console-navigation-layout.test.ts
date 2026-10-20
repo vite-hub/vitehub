@@ -35,11 +35,13 @@ describe("shared Console navigation layout", () => {
     expect(rail).toContain("<UDashboardSearchButton")
   })
 
-  it("shows the appearance menu between search and sign-out only in the standalone Console", () => {
+  it("shows appearance and sign-out inside one avatar menu", () => {
     const rail = component("console-rail")
     expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
-    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu\s+v-if="appearance"[\s\S]*?<UTooltip v-if="signedIn"/)
+    expect(rail).toMatch(/<UDashboardSearchButton[\s\S]*?<UDropdownMenu[\s\S]*?v-if="appearance \|\| signedIn"[\s\S]*?<UAvatar/)
     expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
+    expect(rail).toContain('label: signOutFailed.value ? "Retry sign out" : "Sign out"')
+    expect(rail).toContain("userIdentity.value")
     expect(component("console-search")).toContain("inject(consoleAppearanceKey, undefined)")
     const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
     // The stored appearance applies before mount, so the first render uses the chosen scheme.

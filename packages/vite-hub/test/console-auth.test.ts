@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { hubEnv } from "@vite-hub/env/vite"
+import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
 import { resolveConfig } from "vite"
@@ -264,15 +266,16 @@ describe("independent Console Auth", () => {
       const handlers = await writeConsoleAuthHandlers(root, { server })
       const middleware = await readFile(handlers.middleware, "utf8")
       const route = await readFile(handlers.route, "utf8")
-      expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start')")
-      expect(middleware).toContain("const request = toAuthRequest(event)")
+      expect(middleware).toContain("redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start')")
       expect(middleware).toContain('from "#vitehub/auth/server"')
       expect(middleware).toContain('requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })')
       expect(middleware).toContain("await prepare(event)")
       expect(middleware).toContain("'/api/_vitehub/console/auth/'")
       expect(middleware).toContain("path === '/_vitehub/sign-in'")
-      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, toAuthRequest(event)")
-      expect(route).toContain("handleAuthRequest(definition, event, undefined, event)")
+      // Only the schedule run route, and only with a dispatch signature, reaches its own verification without a session.
+      expect(middleware).toContain("if (path === '/_vitehub/schedules/run' && event.req.headers.has('x-vitehub-dispatch-signature')) return")
+      expect(await readFile(handlers.signIn, "utf8")).toContain("consoleAuthSignInPage(signInProvider, event.req")
+      expect(route).toContain("handleAuthRequest(definition, event.req")
       expect(route).toContain('from "#vitehub/auth/server"')
     }
     finally {
@@ -300,6 +303,44 @@ describe("independent Console Auth", () => {
     }
     finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("retains each project's inline secret when Env runs after Console", async () => {
+    vi.stubEnv("VITEHUB_SECRET", undefined)
+    vi.stubEnv("NUXT_APP_SECRET", undefined)
+    const roots = await Promise.all(["first", "second"].map(name => mkdtemp(join(tmpdir(), `vitehub-console-secret-${name}-`))))
+    try {
+      const secrets = []
+      for (const root of roots) {
+        const envPlugin = hubEnv()
+        const hook = envPlugin.config
+        if (!hook) throw new TypeError("Expected Env config hook.")
+        envPlugin.config = { order: "post", handler: "handler" in hook ? hook.handler : hook }
+        await resolveConfig({
+          root,
+          configFile: false,
+          plugins: [
+            envPlugin,
+            consoleVitePlugin({ console: { access: "auth", auth: {
+              provider: "github",
+              allowedEmails: ["maintainer@example.com"],
+              databasePath: join(root, "console.sqlite"),
+            } }, preset: "node" }),
+          ],
+        }, "serve")
+        secrets.push(await readFile(join(root, ".vitehub/env/secret"), "utf8"))
+      }
+      expect(secrets[0]).not.toBe(secrets[1])
+      for (const [index, root] of roots.entries()) {
+        const definition = await readFile(join(root, ".vitehub/nitro/console/auth-definition.mjs"), "utf8")
+        expect(definition).toContain('"developmentSecretEnvKey":"VITEHUB_SECRET_')
+        expect(definition).not.toContain(secrets[1 - index]!)
+      }
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await Promise.all(roots.map(root => rm(root, { recursive: true, force: true })))
     }
   })
 
@@ -404,7 +445,7 @@ describe("independent Console Auth", () => {
             plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
-                ? 'export function toAuthRequest(event) { return event.req ?? { url: event.url.href } }; export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }'
+                ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }'
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }",
               loader: "js",
             }))
@@ -521,6 +562,31 @@ describe("independent Console Auth", () => {
       database?.close()
       vi.unstubAllEnvs()
       vi.unstubAllGlobals()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("derives the Console Auth secret from VITEHUB_SECRET when BETTER_AUTH_SECRET is unset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-derived-"))
+    vi.stubEnv("GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("BETTER_AUTH_SECRET", "")
+    vi.stubEnv("VITEHUB_SECRET", "root-secret-at-least-32-characters-long")
+    let database: DatabaseSync | undefined
+    try {
+      const input = createInlineConsoleAuth({ provider: "github", allowedEmails: ["user@example.com"], databasePath: join(root, "auth.sqlite") })
+      const definition = createConsoleAuthDefinition(input, "/")
+      const resolveOptions = definition.options
+      if (typeof resolveOptions !== "function") throw new TypeError("Expected resolved Console Auth options.")
+      const options = resolveOptions({ env: {}, requestOrigin: "https://example.com" })
+      if (options.database instanceof DatabaseSync) database = options.database
+      expect(options.secret).toBe(await deriveViteHubSecret("root-secret-at-least-32-characters-long", "vitehub:console-auth"))
+      vi.stubEnv("VITEHUB_SECRET", "")
+      expect(() => resolveOptions({ env: {}, requestOrigin: "https://example.com" })).toThrow("Console Auth requires VITEHUB_SECRET or BETTER_AUTH_SECRET")
+    }
+    finally {
+      database?.close()
+      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
     }
   })
