@@ -2052,7 +2052,7 @@ async function generateAgentDeploymentCatalog(
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -2173,6 +2173,7 @@ async function generateAgentWebhookRouteHandler(
       : []),
     "",
     `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, "") || "/", target])))};`,
+    `const configuredWebhookAliasPaths = new Set(${JSON.stringify((options.explicitWebhookAliasPaths || []).map(path => normalizeNitroRoute(path).replace(/\/+$/, "") || "/"))});`,
     "export const declaredWebhookHandler = defineEventHandler(async (event) => {",
     "  const pathname = getRequestURL(event).pathname.replace(/\\/+$/, '') || '/'",
     "  const cloudflare = cloudflareFromEvent(event)",
@@ -2181,10 +2182,11 @@ async function generateAgentWebhookRouteHandler(
     "  if (alias) {",
     "    const request = new Request(getRequestURL(event), { headers: getRequestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
     "    const conflictingAgents: string[] = []",
+    "    const configuredAlias = configuredWebhookAliasPaths.has(pathname)",
     "    for (const [agent, handler] of Object.entries(webhookHandlers)) {",
     "      if (agent !== alias.agent && await handler.matchesPath(request, optionsForAgent(agent))) conflictingAgents.push(agent)",
     "    }",
-    "    if (conflictingAgents.length) throw createError({ statusCode: 409, statusMessage: 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.' })",
+    "    if (!configuredAlias && conflictingAgents.length) throw createError({ statusCode: 409, statusMessage: 'Several Agents declare this webhook path. Configure agent.routes.aliases to select its owner.' })",
     "    const handler = webhookHandlers[alias.agent]",
     "    if (!handler) throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "    return await handler(await toRequest(event), alias.webhook, optionsForAgent(alias.agent))",
@@ -2340,7 +2342,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2351,7 +2353,7 @@ async function writeAgentWebhookRouteHandler(
   const standaloneChannels = discoverStandaloneChannels(serverDirs)
   const owner = standaloneChannels.find(channel => definitions.some(definition => definition.name === channel.agent))
   if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
-  options = { ...options, standaloneChannels, webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
+  options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
   await writeFile(join(root, generatedAgentDeclaredWebhookRouteHandler), 'export { declaredWebhookHandler as default } from "./chat-webhook-route"\n', "utf8")
