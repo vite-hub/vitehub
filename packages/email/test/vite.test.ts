@@ -214,6 +214,47 @@ describe("hubEmail", () => {
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })
 
+  it("keeps one EMAIL binding when the project's Wrangler file also declares it", async () => {
+    const root = await createTempProject()
+    const serverDir = join(root, ".output", "server")
+    const configFile = join(serverDir, "wrangler.json")
+    await mkdir(serverDir, { recursive: true })
+    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const compiled: Array<() => Promise<void>> = []
+    plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
+    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+    const runCompiled = async () => {
+      for (const callback of compiled) await callback()
+      return JSON.parse(await readFile(configFile, "utf8")).send_email
+    }
+
+    // Nitro lists the module config entries before the project's Wrangler file entries.
+    await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }] }))
+    await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }])
+
+    await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL" }] }))
+    await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL" }])
+
+    await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }] }))
+    await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL" }])
+  })
+
+  it("leaves EMAIL bindings that the project declares in Nitro config", async () => {
+    const root = await createTempProject()
+    const serverDir = join(root, ".output", "server")
+    const configFile = join(serverDir, "wrangler.json")
+    await mkdir(serverDir, { recursive: true })
+    const plugin = hubEmail({ driver: "cloudflare-email" })
+    const compiled: Array<() => Promise<void>> = []
+    plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
+    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
+
+    const source = JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL" }] })
+    await writeFile(configFile, source)
+    for (const callback of compiled) await callback()
+    expect(await readFile(configFile, "utf8")).toBe(source)
+  })
+
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
     const plugin = hubEmail({ driver: "cloudflare-email" })
     const config = functionHook(plugin.config, "config")
