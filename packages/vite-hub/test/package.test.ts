@@ -160,7 +160,7 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   const lines = source
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => line && !line.startsWith("//"));
   if (!lines.length) return;
 
   const targets: string[] = [];
@@ -282,6 +282,7 @@ describe("framework package contract", () => {
       "./console/kv",
       "./console/sections",
       "./console/server",
+      "./console/ui",
       "./doctor",
       "./nuxt",
       "./source/vite",
