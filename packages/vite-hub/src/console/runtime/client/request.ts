@@ -92,11 +92,13 @@ export async function consoleResponseError(response: Response, overrides: { code
   catch {
     payload = undefined
   }
+  const nested = record(payload?.error)
+  const diagnostic = nested ?? payload
   const fields: { code?: string; docs?: string; fix?: string; message?: string } = { ...overrides }
-  if (typeof payload?.code === "string") fields.code = payload.code
-  if (typeof payload?.docs === "string") fields.docs = payload.docs
-  if (typeof payload?.fix === "string") fields.fix = payload.fix
-  if (typeof payload?.message === "string") fields.message = payload.message
+  if (typeof diagnostic?.code === "string") fields.code = diagnostic.code
+  if (typeof diagnostic?.docs === "string") fields.docs = diagnostic.docs
+  if (typeof diagnostic?.fix === "string") fields.fix = diagnostic.fix
+  if (typeof diagnostic?.message === "string") fields.message = diagnostic.message
   return new ConsoleRequestError(response.status, fields)
 }
 
