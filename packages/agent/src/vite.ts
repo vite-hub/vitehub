@@ -233,6 +233,14 @@ function contentDefinitionPath(plugin: Plugin, projectRoot: string | undefined):
   return hasRuntimeType(handler, "string") && handler ? handler.replace(/\\/g, "/") : undefined
 }
 
+async function prepareSourceDefinitions(config: ResolvedConfig, projectRoot: string, serverDirs: string[] | undefined): Promise<void> {
+  const sourcePlugin = (config.plugins ?? []).flat(Infinity).find(plugin => plugin.name === "@vite-hub/source/vite")
+  const api: unknown = Reflect.get(Object(sourcePlugin), "api")
+  const prepareSources: unknown = Reflect.get(Object(api), "prepareSources")
+  if (!(prepareSources instanceof Function)) return
+  await prepareSources({ projectRoot, serverDirs })
+}
+
 const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilityDefinition[] = [
   { importName: "agentAuth", name: "auth", packageName: "@vite-hub/auth/agent", pluginName: "@vite-hub/auth/vite" },
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
@@ -3496,6 +3504,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const build = { agent, config, providerOutput, serverDirs, runtimeCapabilities: new Array<GeneratedAgentRuntimeCapability>() }
       buildConfigs.set(config, build)
       const generatedRoot = resolveViteHubGeneratedRoot(config)
+      await prepareSourceDefinitions(config, viteHubProjectRoot(config), serverDirs)
       runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
