@@ -32,7 +32,8 @@ describe("ExecutionBudget", () => {
       usage: { inputBytes: 4, outputBytes: 5, retries: 1, toolCalls: 1 },
     })
     expect(() => budget.recordRetry()).toThrow(ExecutionBudgetExceededError)
-    expect(() => budget.recordToolCall(7)).toThrow("inputBytes")
+    expect(budget.snapshot().cancelled).toBe(true)
+    expect(() => budget.recordToolCall(7)).toThrow("retries")
   })
 
   it("derives a stricter child while sharing parent usage and cancellation", () => {
