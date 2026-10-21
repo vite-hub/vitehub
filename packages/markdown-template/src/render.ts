@@ -172,10 +172,17 @@ function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | u
 function labelStart(text: string): number | undefined {
   let depth = 0
   for (let index = text.length - 1; index >= 0; index--) {
+    if (text[index] !== "[" && text[index] !== "]" || isEscaped(text, index)) continue
     if (text[index] === "]") depth++
-    else if (text[index] === "[" && --depth === 0) return index
+    else if (--depth === 0) return index
   }
   return undefined
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let slashes = 0
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor--) slashes++
+  return slashes % 2 === 1
 }
 
 function rejectBoundEventHandlers(source: Record<string, unknown>): void {

@@ -173,6 +173,7 @@ describe("renderMarkdownTemplate", () => {
       "[Open recap]({{ data.url }} \"Monthly \\\"recap\\\"\")",
       "[Open recap]({{ data.url }} 'Monthly \\'recap\\'')",
       "[Open recap]({{ data.url }} (Monthly \\(recap\\)))",
+      "[Open \\] recap]({{ data.url }})",
       `[Open recap]({{ data.url }} "Monthly
 recap")`,
       `[Open recap]({{ data.url }} 'Monthly
