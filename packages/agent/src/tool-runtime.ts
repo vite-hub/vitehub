@@ -271,7 +271,8 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
 
     // Reuse the underlying executor when a tool was prepared under another
     // budget. The active Invocation owns accounting for this execution.
-    const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+    // SAFETY: The wrapper forwards the caller's arguments as they are, as the other tool wrappers do.
+    const execute = budgetWrappedExecutors.get(tool) ?? (tool as { execute: (...args: unknown[]) => unknown }).execute
     const ownedBudget = executionBudgetHandledBy(tool)
     const policyOwner = agentToolPolicyOwners.get(tool)
     const wrappedExecute = async (input: unknown, ...args: unknown[]) => {
