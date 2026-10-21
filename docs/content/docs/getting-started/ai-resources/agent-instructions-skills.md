@@ -79,7 +79,7 @@ The skill selects one primary product lane, reads only the matching references a
 It reports the proof for each requested behavior.
 When the documentation and the installed version differ, the installed contract controls the implementation and the agent reports the difference.
 
-The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, and public project patterns.
+The bundled references teach composition, not a copy of the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Sandboxes and hosts, proof and recovery, and public project patterns.
 
 ## Add live docs lookups
 
@@ -100,4 +100,4 @@ Keep them separate, so that repository guidance does not leak into runtime Agent
 | Agent-local `skills/` | Provider-backed Agent Invocations | Installs Skills that a folder Agent Definition owns. |
 | [`skills()` Capability](/docs/agents/capabilities/skills) | ViteHub Agent Invocations | Makes Workspace-backed or external Source Skills available to the Agent. |
 
-Agent-local Skills require a folder Definition. Put them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. ViteHub materializes them in the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree. Move it to `server/agents/review/agent.ts` when it needs colocated Skills.
+Agent-local Skills require a folder Definition. Put them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. A model Driver reads them from the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A Provider Driver gets them in its working directory at the same path, or in the Sandbox Home. ViteHub does not store them in the Workspace for a Provider Driver. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree. Move it to `server/agents/review/agent.ts` when it needs colocated Skills.

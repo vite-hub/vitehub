@@ -87,7 +87,6 @@ async function loadMountedExtension(
   container[scope] = namespace
   try {
     const extension = (await loadExtension()).default
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Extension modules are external input and the factory contract must be checked before invocation.
     if (typeof extension !== "function") {
       throw agentDiagnostics.AGENT_R0413({ message: `[vitehub] Eve extension ${JSON.stringify(packageName)} must have a default factory export.` })
     }
@@ -198,7 +197,6 @@ function toViteHubTool(
               toolInput: input,
               toolName: name,
             } satisfies EveApprovalRequestContext)
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve approval callbacks may return a decision object or a legacy scalar.
             const decision = typeof status === "object" && status && "type" in status
               ? status.type
               : status === true
@@ -219,13 +217,11 @@ function toViteHubTool(
 }
 
 function isEveTool(value: unknown): value is EveToolDefinition {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve tool exports cross a package boundary and require runtime shape validation.
   // SAFETY: The record assertion only reads the execute discriminator used to establish EveToolDefinition.
   return typeof value === "object" && value !== null && typeof (value as EveToolDefinition).execute === "function"
 }
 
 function isEveDynamicTool(value: unknown): value is EveDynamicToolDefinition {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve dynamic exports cross a package boundary and require runtime shape validation.
   // SAFETY: The record assertion only reads the kind discriminator used to establish EveDynamicToolDefinition.
   return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "eve:dynamic"
 }
@@ -254,7 +250,6 @@ async function resolveEveTools(
   for (const [exportName, exported] of Object.entries(module)) {
     if (isEveDynamicTool(exported)) {
       const events = Object.entries(exported.events)
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Eve event handlers are external extension exports and must be callable.
         .filter(([, handler]) => typeof handler === "function")
       const unsupportedEvents = events
         .map(([event]) => event)
@@ -283,7 +278,6 @@ async function resolveEveTools(
         addEveTool(tools, namespace, exportName, resolved, context)
         continue
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic extension output must be validated before enumerating its tools.
       if (typeof resolved !== "object") {
         throw agentDiagnostics.AGENT_R0420({ message: `[vitehub] Eve extension dynamic tool ${JSON.stringify(exportName)} returned an unsupported value.` })
       }

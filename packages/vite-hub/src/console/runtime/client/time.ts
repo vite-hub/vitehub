@@ -21,7 +21,14 @@ export function recentTimestamp(value: string, now: number, options: { seconds?:
 
 /** The calendar day of a timestamp in `timeZone`, as `YYYY-MM-DD`. */
 function dayKey(time: number, timeZone?: string): string {
-  return new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "2-digit", timeZone, year: "numeric" }).format(time)
+  const parts = new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "2-digit", timeZone, year: "numeric" }).formatToParts(time)
+  const values = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function previousDayKey(time: number, timeZone?: string): string {
+  const [year, month, day] = dayKey(time, timeZone).split("-").map(Number)
+  return dayKey(Date.UTC(year, month - 1, day - 1), "UTC")
 }
 
 /**
@@ -33,7 +40,7 @@ export function dayLabel(value: string, now: number, timeZone?: string): string 
   if (!Number.isFinite(time)) return undefined
   const day = dayKey(time, timeZone)
   if (day === dayKey(now, timeZone)) return "Today"
-  if (day === dayKey(now - 86_400_000, timeZone)) return "Yesterday"
+  if (day === previousDayKey(now, timeZone)) return "Yesterday"
   const sameYear = day.slice(0, 4) === dayKey(now, timeZone).slice(0, 4)
   return new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone, ...(sameYear ? {} : { year: "numeric" }) }).format(time)
 }

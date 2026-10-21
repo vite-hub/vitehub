@@ -29,6 +29,8 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
+  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
 }
@@ -39,6 +41,7 @@ interface PressurePolicy {
 }
 
 interface ProcessResourceSample {
+  cgroupAvailable: boolean
   hostAvailableMemory: number
   availableMemory: number
   cpuPressure: number
@@ -110,7 +113,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         lastMemoryHighEvents !== undefined &&
         resources.memoryHighEvents > lastMemoryHighEvents &&
         resources.memoryReclaimable < memory.perInvocationBytes
-      lastMemoryHighEvents = resources.memoryHighEvents
+      if (resources.cgroupAvailable) lastMemoryHighEvents = resources.memoryHighEvents
 
       if (pressurePaused) {
         pressurePaused =
@@ -136,7 +139,15 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         resources.hostAvailableMemory - memory.reserveBytes,
         Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
       )
-      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
+      const remoteActive = options.remoteActive?.()
+      // Runtime configuration is untyped at this boundary. Invalid remote
+      // counts must not poison admission arithmetic or trigger adaptive
+      // fallback; treat them as no remote work.
+      const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
+        ? remoteActive
+        : 0
+      const localActive = Math.max(0, context.active - validRemoteActive)
+      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
@@ -162,7 +173,11 @@ function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): vo
 
 async function readProcessResources(signal: AbortSignal): Promise<ProcessResourceSample> {
   const [cgroup, meminfo, cpu, memory] = await Promise.all([
-    readCgroupResources(signal),
+    readCgroupResources(signal).catch((error) => {
+      if (signal.aborted) throw error
+      if (error instanceof Error && error.message.startsWith("Invalid cgroup ")) return undefined
+      throw error
+    }),
     readOptionalCgroupFile("/proc/meminfo", signal),
     readOptionalCgroupFile("/proc/pressure/cpu", signal),
     readOptionalCgroupFile("/proc/pressure/memory", signal),
@@ -171,6 +186,7 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
   // libuv subtracts the process cgroup's memory.current, page cache included.
   const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0)
   return {
+    cgroupAvailable: cgroup !== undefined,
     availableMemory: nodeAvailable,
     hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
     cpuPressure: Math.max(cgroup?.cpuPressure ?? 0, parsePressure(cpu ?? "")),
@@ -209,10 +225,10 @@ async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessRe
     ])
     return {
       cpuPressure: parsePressure(cpuPressure ?? ""),
-      memoryCurrent: current === undefined ? 0 : Number(current.trim()),
-      memoryHigh: high === undefined ? Infinity : parseLimit(high),
+      memoryCurrent: current === undefined ? 0 : parseCgroupNumber(current, "memory.current"),
+      memoryHigh: high === undefined ? Infinity : parseLimit(high, "memory.high"),
       memoryHighEvents: parseEvent(events ?? "", "high"),
-      memoryMax: max === undefined ? Infinity : parseLimit(max),
+      memoryMax: max === undefined ? Infinity : parseLimit(max, "memory.max"),
       memoryPressure: parsePressure(memoryPressure ?? ""),
       memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0,
     }
@@ -256,12 +272,20 @@ async function readOptionalCgroupFile(path: string, signal: AbortSignal): Promis
 
 function parseEvent(value: string, name: string): number {
   const line = value.split(/\r?\n/).find((entry) => entry.startsWith(`${name} `))
-  return line ? Number(line.slice(name.length + 1)) : 0
+  return line ? parseCgroupNumber(line.slice(name.length + 1), `memory.events.${name}`) : 0
 }
 
-function parseLimit(value: string): number {
+function parseLimit(value: string, name: string): number {
   const parsed = value.trim()
-  return parsed === "max" ? Number.POSITIVE_INFINITY : Number(parsed)
+  return parsed === "max" ? Number.POSITIVE_INFINITY : parseCgroupNumber(parsed, name)
+}
+
+function parseCgroupNumber(value: string, name: string): number {
+  const parsed = value.trim()
+  if (!/^\d+$/.test(parsed)) throw new Error(`Invalid cgroup ${name} value.`)
+  const number = Number(parsed)
+  if (!Number.isFinite(number)) throw new Error(`Invalid cgroup ${name} value.`)
+  return number
 }
 
 function parsePressure(value: string): number {
@@ -294,7 +318,7 @@ export { createProcessAgentHost } from './process-host.ts'
 export type { ProcessAgentHost, ProcessAgentHostOptions } from './process-host.ts'
 
 /**
- * Starts the process hosts that discovered Agents contribute, for example through the Babysitter
+ * Starts the process hosts that discovered Agents contribute, for example through a process host
  * preset. The generated Nitro plugin owns one instance per server process.
  */
 export function createAgentProcessHosts(options: {
@@ -313,7 +337,7 @@ export function createAgentProcessHosts(options: {
   status(): "starting" | "accepting" | "draining" | "drained" | "failed"
   health(): Promise<{ status: "healthy" | "degraded", agents: Record<string, unknown> }>
 } {
-  const hosts = new Map<string, import("../agent-process-host.ts").AgentProcessHostInstance>()
+  const hosts = new Map<string, import("../process-host.ts").AgentProcessHostInstance>()
   const failures = new Map<string, string>()
   let starting: Promise<void> | undefined
   let closed = false
@@ -325,7 +349,7 @@ export function createAgentProcessHosts(options: {
     retries.delete(agentName)
     if (closed) return
     const { getAgentFromRegistry } = await import("../index.ts")
-    const { getAgentProcessHostContribution } = await import("../agent-process-host.ts")
+    const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
       const agent = await getAgentFromRegistry(agentName, options.registry)

@@ -10,6 +10,7 @@ import {
 import { ConsoleRequestError } from "../client/request";
 import ConsoleEnvActivity from "./console-env-activity.vue";
 import ConsoleEnvAccess from "./console-env-access.vue";
+import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const readonly = ref(false);
 const permissionsSchema = v.object({
@@ -21,17 +22,19 @@ const inspection = ref<v.InferOutput<typeof envInspectionSchema>>();
 const preview = ref<string>();
 const value = ref("");
 const busy = ref(false);
-const error = ref("");
+const error = ref<unknown>();
+const warning = ref("");
 const notice = ref("");
 const tab = ref("credential");
 async function run(action: () => Promise<void>) {
   busy.value = true;
-  error.value = "";
+  error.value = undefined;
+  warning.value = "";
   notice.value = "";
   try {
     await action();
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Could not complete the request.";
+    error.value = cause;
   } finally {
     busy.value = false;
   }
@@ -103,7 +106,7 @@ function replace() {
     try {
       await inspect();
     } catch {
-      error.value =
+      warning.value =
         "Saved, but credential details could not be refreshed. Reload before replacing it again.";
     }
   });
@@ -131,7 +134,8 @@ onMounted(load);
         @click="tab = item.value"
       />
     </div>
-    <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
+    <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
+    <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
     <template v-if="tab === 'credential'">
       <div class="flex items-center justify-between gap-3">

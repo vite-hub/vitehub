@@ -1,6 +1,7 @@
-import { isResponse } from "./internal/response.ts"
+import { findTrustedResponseConstructor, isResponse } from "./internal/response.ts"
+
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
@@ -12,6 +13,18 @@ import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage,
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
+// Capture the host Fetch brand operation once. Consumers may replace the
+// global Response constructor after a response is created (for example when
+// crossing a VM or worker boundary), so classification must not resolve it
+// from the mutable global on each call.
+const trustedResponseStatusGetter = typeof Response === "function"
+  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  : undefined
+
+const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
+const validatedResponseBodies = new WeakMap<object, object | null>()
+const maxResponsePrototypeHops = 100
+
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
   if (isAsyncIterable(result)) return "stream"
@@ -19,12 +32,28 @@ export function agentResultKind(result: unknown): string {
   return runtimeType(result)
 }
 
+function resultPropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  if (!isRuntimeObject(value)) return
+  const seen = new Set<object>()
+  const maxPrototypeHops = 100
+  let owner: object | null = value
+  try {
+    for (let hop = 0; owner && hop < maxPrototypeHops && !seen.has(owner); hop++) {
+      seen.add(owner)
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+      if (descriptor) return descriptor
+      owner = Object.getPrototypeOf(owner)
+    }
+  }
+  catch {
+    // Provider result proxies may reject descriptor or prototype inspection.
+  }
+}
+
 export function hasTraceableStreamResult(value: unknown): boolean {
   if (!isRecord(value)) return false
   return ["fullStream", "stream", "textStream"].some((property) => {
-    let descriptor: PropertyDescriptor | undefined
-    for (let owner: object | null = value; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-      descriptor = Object.getOwnPropertyDescriptor(owner, property)
+    const descriptor = resultPropertyDescriptor(value, property)
     return descriptor !== undefined
       && ("get" in descriptor || isAsyncIterable(descriptor.value))
   })
@@ -211,7 +240,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
   }
 }
@@ -219,8 +248,43 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
 function readString(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
   if (!record) return
   for (const key of keys) {
-    const value = record[key]
+    const value = readableRecordValue(record, key)
     if (hasRuntimeType(value, "string") && value) return value
+  }
+}
+
+/** Read own data and accessor properties while ignoring ambient prototype data. */
+function readableRecordValue<T extends object, K extends keyof T>(record: T, key: K): T[K] | undefined
+function readableRecordValue(record: unknown, key: string): unknown
+function readableRecordValue(record: unknown, key: string): unknown {
+  if (!isRecord(record)) return
+  const visited = new WeakSet<object>()
+  let source: object | null = record
+  for (let hops = 0; source && source !== Object.prototype && hops < 100; hops++) {
+    if (visited.has(source)) return
+    visited.add(source)
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(source, key)
+    }
+    catch {
+      return
+    }
+    if (descriptor) {
+      if (source !== record && !("get" in descriptor)) return
+      try {
+        return Reflect.get(record, key)
+      }
+      catch {
+        return
+      }
+    }
+    try {
+      source = Object.getPrototypeOf(source)
+    }
+    catch {
+      return
+    }
   }
 }
 
@@ -311,9 +375,21 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
+function usageMetadataValue(result: unknown, key: string): unknown {
+  if (!isRecord(result)) return
+  if (!hasTraceableStreamResult(result)) return readableRecordValue(result, key)
+  // Stream result getters can create rejecting promise projections while the provider is still running.
+  const descriptor = resultPropertyDescriptor(result, key)
+  // Inherited data properties are ambient prototype metadata, not provider output.
+  // Keep own data properties eligible while retaining the deferred-getter guard.
+  if (descriptor && !(Object.prototype.hasOwnProperty.call(result, key) || "get" in descriptor)) return
+  return descriptor && "value" in descriptor ? descriptor.value : undefined
+}
+
 function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "provider" | "transport"> | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = usageMetadataValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (rawModel === undefined && provider !== "gateway") return
@@ -355,21 +431,23 @@ function isDateValue(value: unknown): value is Date {
 
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = usageMetadataValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const id = readString(response, "id")
-  const timestamp = response?.timestamp
-  const finishReason = result.finishReason
+  const timestamp = response ? readableRecordValue(response, "timestamp") : undefined
+  const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
-  return {
-    ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(id !== undefined ? { id } : {}),
-    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
-  }
+  const output: NonNullable<AgentUsageRecord["response"]> = {}
+  if (finishReason !== undefined) output.finishReason = finishReason
+  if (id !== undefined) output.id = id
+  if (isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) output.timestamp = timestamp
+  return output
 }
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
   if (!isRecord(result)) return
-  const source = isRecord(result.latency) ? result.latency : result
+  const latencyValue = usageMetadataValue(result, "latency")
+  const source = isRecord(latencyValue) ? latencyValue : result
   const durationMs = readNumber(source, "durationMs", "duration_ms")
   const timeToFirstTokenMs = readNumber(source, "timeToFirstTokenMs", "ttftMs", "time_to_first_token_ms")
   const tokensPerSecond = readNumber(source, "tokensPerSecond", "tokens_per_second")
@@ -382,9 +460,12 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 }
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
-  if (!isRecord(result) || !isRecord(result.providerMetadata)) return
-  for (const metadata of Object.values(result.providerMetadata)) {
-    const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
+  if (!isRecord(result)) return
+  const providerMetadata = usageMetadataValue(result, "providerMetadata")
+  if (!isRecord(providerMetadata)) return
+  for (const metadata of Object.values(providerMetadata)) {
+    const usage = isRecord(metadata) ? readableRecordValue(metadata, "usage") : undefined
+    const cost = isRecord(usage) ? readableRecordValue(usage, "cost") : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
         estimated: false,
@@ -416,8 +497,14 @@ function usageRecordFromUsage(
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
   const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
     ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
-  const inputTokenDetails = readDetails(rawUsage.inputTokenDetails || rawUsage.input_token_details || rawUsage.promptTokenDetails || rawUsage.prompt_token_details)
-  const outputTokenDetails = readDetails(rawUsage.outputTokenDetails || rawUsage.output_token_details || rawUsage.completionTokenDetails || rawUsage.completion_token_details)
+  const inputTokenDetails = readDetails(readableRecordValue(rawUsage, "inputTokenDetails")
+    ?? readableRecordValue(rawUsage, "input_token_details")
+    ?? readableRecordValue(rawUsage, "promptTokenDetails")
+    ?? readableRecordValue(rawUsage, "prompt_token_details"))
+  const outputTokenDetails = readDetails(readableRecordValue(rawUsage, "outputTokenDetails")
+    ?? readableRecordValue(rawUsage, "output_token_details")
+    ?? readableRecordValue(rawUsage, "completionTokenDetails")
+    ?? readableRecordValue(rawUsage, "completion_token_details"))
   const usage: AgentUsage = {
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -448,66 +535,89 @@ function withFallbackUsageMetadata(
   fallbackMetadataSource: unknown,
   run?: Partial<AgentRunMetadata>,
 ): AgentUsageRecord {
-  const compound = Boolean(record.calls?.length)
+  const compound = Boolean(readableRecordValue(record, "calls")?.length)
   const modelMetadata = modelMetadataFromResult(fallbackMetadataSource)
-  const model = record.model ?? (compound ? undefined : modelMetadata?.model)
-  const transport = record.transport ?? (compound ? undefined : modelMetadata?.transport)
+  const model = readableRecordValue(record, "model") ?? (compound ? undefined : modelMetadata?.model)
+  const transport = readableRecordValue(record, "transport") ?? (compound ? undefined : modelMetadata?.transport)
   let cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   try {
-    if (record.cost) cost = materializeAgentUsageCost(record.cost)
+    const recordCost = readableRecordValue(record, "cost")
+    if (recordCost) cost = materializeAgentUsageCost(recordCost)
   }
   catch {
     cost = compound ? undefined : providerCostFromResult(fallbackMetadataSource)
   }
-  const response = record.response ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
-  const latency = record.latency ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
-  const credentialSource = record.credentialSource
-  const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
-  const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
-  const usage = readableProperty(record, "usage")
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata || usage
-    ? {
-        ...record,
-        ...(cost ? { cost } : {}),
-        ...(credentialSource ? { credentialSource } : {}),
-        ...(latency ? { latency } : {}),
-        ...(model ? { model } : {}),
-        ...(provider ? { provider } : {}),
-        ...(response ? { response } : {}),
-        ...(runMetadata ? { run: runMetadata } : {}),
-        ...(transport ? { transport } : {}),
-        ...(usage ? { usage } : {}),
-      }
-    : record
+  const response = readableRecordValue(record, "response") ?? (compound ? undefined : responseFromResult(fallbackMetadataSource))
+  const latency = readableRecordValue(record, "latency") ?? (compound ? undefined : latencyFromResult(fallbackMetadataSource))
+  const credentialSource = readableRecordValue(record, "credentialSource")
+  const runMetadata = mergedRunMetadata(run, readableRecordValue(record, "run"))
+  const provider = readableRecordValue(record, "provider") ?? (compound ? undefined : modelMetadata?.provider)
+  const usage = readableRecordValue(record, "usage")
+  const calls = readableRecordValue(record, "calls")
+  const raw = readableRecordValue(record, "raw")
+  if (!model && !provider && !transport && !cost && !response && !latency && !credentialSource && !runMetadata && !usage) return record
+  const result = { ...record }
+  if (cost) result.cost = cost
+  if (credentialSource) result.credentialSource = credentialSource
+  if (latency) result.latency = latency
+  if (model) result.model = model
+  if (provider) result.provider = provider
+  if (response) result.response = response
+  if (runMetadata) result.run = runMetadata
+  if (transport) result.transport = transport
+  if (usage) result.usage = usage
+  if (calls !== undefined) result.calls = calls
+  if (raw !== undefined) result.raw = raw
+  return result
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
-  const type = String(chunk.type || "")
-  if (type === "usage" && isUsageRecord(chunk.usageRecord)) {
+  const type = String(readableRecordValue(chunk, "type") || "")
+  const usageRecord = readableRecordValue(chunk, "usageRecord")
+  if (type === "usage" && isUsageRecord(usageRecord)) {
     return withFallbackUsageMetadata(
-      withFallbackUsageMetadata(chunk.usageRecord, chunk, run),
+      withFallbackUsageMetadata(usageRecord, chunk, run),
       fallbackMetadataSource,
       run,
     )
   }
   return usageRecordFromUsage(type === "finish-step"
-    ? chunk.usage
+    ? readableRecordValue(chunk, "usage")
     : type === "finish"
-      ? chunk.usage ?? chunk.totalUsage
+      ? readableRecordValue(chunk, "usage") ?? readableRecordValue(chunk, "totalUsage")
       : undefined, chunk, fallbackMetadataSource, run)
 }
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result, undefined, run)
+  return usageRecordFromUsage(await resolveUsageValue(readableRecordValue(result, "usage") ?? readableRecordValue(result, "totalUsage")), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(value)) return
   const usageRecord = ownValue(value, "usageRecord")
   if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
-  return await usageFromResult(value, run) ?? await usageFromResult(value.raw, run)
+  return await usageFromResult(value, run) ?? await usageFromResult(readableRecordValue(value, "raw"), run)
+}
+
+/** Resolve usage while a provider stream is still active without evaluating deferred getters. */
+export async function resolveAgentUsageRecordDuringStream(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(value)) return
+  const usageRecord = ownValue(value, "usageRecord")
+  if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
+  const usage = usageMetadataValue(value, "usage") ?? usageMetadataValue(value, "totalUsage")
+  if (usage !== undefined) {
+    return usageRecordFromUsage(await resolveUsageValue(usage), value, undefined, run)
+  }
+  const raw = usageMetadataValue(value, "raw")
+  if (!isRecord(raw)) return
+  return usageRecordFromUsage(
+    await resolveUsageValue(usageMetadataValue(raw, "usage") ?? usageMetadataValue(raw, "totalUsage")),
+    raw,
+    undefined,
+    run,
+  )
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -679,8 +789,13 @@ export function toAgentStreamEvent(
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
-    if (value.error instanceof Error) Object.defineProperty(event, agentStreamErrorSymbol, { value: value.error })
+    const error = value.error
+    const crossRealmError = crossRealmStreamError(error)
+    const errorMessage = crossRealmError
+      ? crossRealmError.message
+      : safeStreamErrorString(error)
+    const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    if (crossRealmError) Object.defineProperty(event, agentStreamErrorSymbol, { value: crossRealmError.value })
     return event
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
@@ -693,7 +808,100 @@ export function toAgentStreamEvent(
   return undefined
 }
 
+function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
+  if (error === null || typeof error !== "object") return
+  try {
+    const currentIsError: unknown = Reflect.get(Error, "isError")
+    // Node exposes the same intrinsic brand check through util.types. Use it
+    // when Error.isError is unavailable so custom Symbol.toStringTag values
+    // remain valid while prototype-only forgeries are rejected.
+    const processValue: unknown = Reflect.get(globalThis, "process")
+    const getBuiltinModule = processValue && typeof processValue === "object"
+      ? Reflect.get(processValue, "getBuiltinModule")
+      : undefined
+    const nativeIsError = hasRuntimeType(getBuiltinModule, "function")
+      ? Reflect.get(Reflect.apply(getBuiltinModule, processValue, ["util"]), "types")
+      : undefined
+    const intrinsicIsError = isRecord(nativeIsError)
+      ? Reflect.get(nativeIsError, "isNativeError")
+      : undefined
+    const hasToStringTag = Symbol.toStringTag in error
+    // A proxy can hide the tag from the `in` check while returning a forged
+    // value from property access. Reject that inconsistent shape before the
+    // structural fallback can mistake it for an Error.
+    if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
+    const nativeBranded = hasRuntimeType(currentIsError, "function")
+      ? currentIsError(error) === true
+      : hasRuntimeType(intrinsicIsError, "function")
+        ? intrinsicIsError(error) === true
+        : undefined
+    if (nativeBranded === false) return
+    // Avoid traversing arbitrary provider objects with structuredClone when
+    // no native brand helper is available. Genuine Errors either expose the
+    // intrinsic Error tag, inherit from Error in this realm, or carry a
+    // custom toStringTag that still needs clone validation.
+    if (nativeBranded === undefined && !hasToStringTag
+      && Object.prototype.toString.call(error) !== "[object Error]"
+      && !(error instanceof Error)) return
+    // A custom tag alone is not evidence of an Error. Avoid cloning arbitrary
+    // provider payloads unless they expose one of the standard Error fields;
+    // genuine cross-realm Errors provide these even when their tag is custom.
+    if (nativeBranded === undefined && hasToStringTag && !(error instanceof Error)
+      && !Reflect.has(error, "message") && !Reflect.has(error, "stack") && !Reflect.has(error, "cause")) return
+    // structuredClone preserves the intrinsic Error brand but does not copy
+    // user-defined symbol tags or an Error prototype chain onto plain objects.
+    // Prefer it when available so configurable stack descriptors cannot forge
+    // the fallback brand.
+    const structuredClone = Reflect.get(globalThis, "structuredClone")
+    let cloneBranded = false
+    if (hasRuntimeType(structuredClone, "function")) {
+      try {
+        const clone = Reflect.apply(structuredClone, globalThis, [error])
+        if (Object.prototype.toString.call(clone) !== "[object Error]" && nativeBranded !== true) return
+        // A successful clone carries the engine's intrinsic Error brand. Keep
+        // this result so Firefox-style configurable data `stack` properties
+        // do not need to resemble V8's accessor descriptor.
+        cloneBranded = true
+      }
+      catch {
+        // No portable brand signal remains when cloning fails.
+      }
+    }
+    // A failed clone provides no portable brand signal. Prototype chains and
+    // stack descriptors are forgeable (including by copying native accessors),
+    // so fail closed rather than preserving an attacker-controlled object.
+    const branded = cloneBranded || nativeBranded === true
+    if (!branded) return
+    const message = Reflect.get(error, "message")
+    return { message: message === undefined ? "" : String(message), value: error }
+  }
+  catch {
+    return
+  }
+}
+
+function safeStreamErrorString(error: unknown): string {
+  try {
+    const value = error || "Unknown error"
+    const text = String(value)
+    if (text === "Error" && hasRuntimeType(value, "object") && value !== null
+      && Reflect.getPrototypeOf(value) === Error.prototype) {
+      return "[object Object]"
+    }
+    return text
+  }
+  catch {
+    return "Unknown error"
+  }
+}
+
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
+
+function isBudgetExhaustionEvent(event: StreamEvent): boolean {
+  // SAFETY: Stream events carry this private marker only when the runtime attached an ExecutionBudgetExceededError.
+  return event.type === "error"
+    && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+}
 
 async function* streamChunksToEvents(
   chunks: AsyncIterable<unknown>,
@@ -732,6 +940,7 @@ async function* streamChunksToEvents(
         usageRecord = undefined
       }
       yield event
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
   }
   catch (error) {
@@ -768,6 +977,7 @@ async function* streamChunksToEventsWithTextFallback(
         }
       }
       yield event
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
     if (!hasText && !observation.explicitTextPhaseSeen) {
       textIterator ??= getTextIterator()
@@ -807,7 +1017,9 @@ async function* streamChunksToEventsWithTextFallback(
 function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   if (!isRuntimeObject(value)) return false
   let current: object | null = value
-  while (current) {
+  const visited = new Set<object>()
+  for (let hop = 0; current && hop < maxResponsePrototypeHops && !visited.has(current); hop++) {
+    visited.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor) return hasRuntimeType(descriptor.get, "function")
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -816,18 +1028,268 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
+function getPrototypeMethod(value: object, key: PropertyKey, startPrototype?: object): ((...args: unknown[]) => unknown) | undefined {
+  let prototype: object | null = startPrototype ?? Object.getPrototypeOf(value) as object | null
+  const visited = new Set<object>()
+  for (let hop = 0; prototype && hop < maxResponsePrototypeHops && !visited.has(prototype); hop++) {
+    visited.add(prototype)
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  // Proxy-backed foreign streams may expose supported operations through the
+  // instance trap even when the proxy target's prototype has no descriptor.
+  // Only use that facade after the intrinsic prototype walk, so an own
+  // property cannot replace a validated stream operation.
+  const directMethod = (value as Record<PropertyKey, unknown>)[key]
+  if (hasRuntimeType(directMethod, "function")) {
+    return directMethod as (...args: unknown[]) => unknown
+  }
+  return undefined
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (!isRuntimeObject(value)) return false
+  try {
+    // Require the platform tag to be a data property on the prototype. A
+    // caller-controlled Symbol.toStringTag getter can otherwise spoof the
+    // intrinsic tag while exposing a response-shaped object.
+    let tagDescriptor: PropertyDescriptor | undefined
+    let tagOwner: object | null = null
+    let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    const visitedTagPrototypes = new Set<object>()
+    for (let hop = 0; tagPrototype && !tagDescriptor && hop < maxResponsePrototypeHops && !visitedTagPrototypes.has(tagPrototype); hop++) {
+      visitedTagPrototypes.add(tagPrototype)
+      tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
+      if (tagDescriptor) tagOwner = tagPrototype
+      tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
+    }
+    let ownResponseTag = false
+    if (!tagDescriptor) {
+      const ownTag = Object.getOwnPropertyDescriptor(value, Symbol.toStringTag)
+      if (ownTag) {
+        tagDescriptor = ownTag
+        tagOwner = Object.getPrototypeOf(value) as object | null
+        ownResponseTag = true
+      }
+    }
+    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set || !tagOwner) return false
+    // A caller can copy the data tag onto an arbitrary prototype. Platform
+    // Response implementations own a constructor on the same prototype that
+    // carries the tag; requiring that link rejects Object.create spoof shapes
+    // without relying on the current realm's Response constructor.
+    const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
+    if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
+    const responseConstructor = constructorDescriptor.value as unknown as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
+    // Fetch constructors expose their prototype as a fixed, non-configurable
+    // function property. A caller-created self-linked constructor has to
+    // assign its prototype, leaving this descriptor writable/configurable.
+    const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
+    if (!constructorPrototypeDescriptor
+      || constructorPrototypeDescriptor.value !== tagOwner
+      || (!ownResponseTag && constructorPrototypeDescriptor.configurable)
+      ) return false
+    // A self-linked constructor is easy to manufacture on a caller-owned
+    // prototype. Real Fetch implementations expose the Response constructor
+    // under this stable name; reject arbitrary constructor names before the
+    // remaining structural checks can route a generic result here.
+    // Fetch Response constructors expose the standard static factories. A
+    // caller-created self-linked function can copy the name and prototype
+    // link, but it must not be accepted as a platform Response constructor
+    // without this constructor surface.
+    if (!hasRuntimeType(responseConstructor.error, "function")
+      || !hasRuntimeType(responseConstructor.json, "function")
+      || !hasRuntimeType(responseConstructor.redirect, "function")) return false
+    // The static factories are intrinsic constructors, rather than marker
+    // methods. A copied surface with no working factory must not establish
+    // Response provenance.
+    const errorResponse = responseConstructor.error.call(responseConstructor)
+    if (!isRuntimeObject(errorResponse) || Object.getPrototypeOf(errorResponse) !== tagOwner) return false
+    // A copied tag, constructor link, and the three static factories are still
+    // insufficient to identify a Fetch Response. Require the rest of the
+    // standard prototype surface before accepting a caller-created shape.
+    const responsePrototypeAccessors = ["type", "url", "redirected", "ok", "bodyUsed"]
+    for (const key of responsePrototypeAccessors) {
+      if (ownResponseTag) break
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.get, "function") || descriptor.set) return false
+    }
+    const responsePrototypeMethods = ["clone", "blob", "arrayBuffer", "text", "formData", "json"]
+    for (const key of responsePrototypeMethods) {
+      if (ownResponseTag) break
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.value, "function")) return false
+    }
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // The foreign implementation owns its getters. Require the full Response
+    // accessor contract before accepting an output as a byte stream.
+    const read = (key: string): unknown => {
+      let prototype: object | null = value
+      const visited = new Set<object>()
+      for (let hop = 0; prototype && hop < 100 && !visited.has(prototype); hop++) {
+        visited.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
+        prototype = Object.getPrototypeOf(prototype) as object | null
+      }
+    }
+    // A genuine Response exposes body through its prototype accessor. Requiring
+    // that surface keeps objects with caller-controlled own body fields out of
+    // the Response branch even when the field happens to contain a real stream.
+    let bodyAccessor = false
+    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    const visitedBodyPrototypes = new Set<object>()
+    for (let hop = 0; bodyPrototype && hop < maxResponsePrototypeHops && !visitedBodyPrototypes.has(bodyPrototype); hop++) {
+      visitedBodyPrototypes.add(bodyPrototype)
+      const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
+      if (descriptor) {
+        // The body must be exposed through the implementation's accessor.
+        // Accepting an own data property here lets a caller-created object
+        // manufacture the complete own-tag shape without any Response body
+        // implementation behind it.
+        bodyAccessor = hasRuntimeType(descriptor.get, "function")
+        break
+      }
+      bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
+    }
+    if (!bodyAccessor) return false
+    // Use the host Fetch brand when available. This rejects caller-created
+    // classes that copy the complete Response surface while still allowing a
+    // structurally compatible implementation from another realm below.
+    let trustedResponse = false
+    for (const statusGetter of [trustedResponseStatusGetter]) {
+      if (!hasRuntimeType(statusGetter, "function")) continue
+      try {
+        statusGetter.call(value)
+        trustedResponse = true
+        break
+      }
+      catch {
+        // The other supported Fetch implementation may own this response.
+      }
+    }
+    // The supported independent ponyfill stores its body machinery on each
+    // instance. Require that implementation surface for unbranded own-tag
+    // responses instead of trusting caller-controlled constructor metadata.
+    // Subclasses inherit the registered implementation's brand. Resolve the
+    // constructor chain just as trigger response classification does.
+    const registeredResponse = !!findTrustedResponseConstructor(constructorDescriptor.value)
+    if (ownResponseTag && !trustedResponse) {
+      // Foreign Fetch implementations must opt in at their adapter boundary.
+      // Public fields such as `_bodyFactory` are copyable and do not establish provenance.
+      if (!registeredResponse) return false
+    }
+    if (!trustedResponse && !registeredResponse && !ownResponseTag) return false
+    const status = read("status")
+    const statusText = read("statusText")
+    const headers = read("headers")
+    const body = read("body")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 0 || status > 599) return false
+    if (!hasRuntimeType(statusText, "string")) return false
+    if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
+    if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
+    // A bodyless response is valid for the registered implementation too:
+    // its constructor registration establishes provenance even when the
+    // host-realm brand accessor cannot run against the foreign instance.
+    if (body === null) {
+      if (trustedResponse || registeredResponse) validatedResponseBodies.set(value, null)
+      return trustedResponse || registeredResponse
+    }
+    if (!isRuntimeObject(body)) return false
+    // A stream may already be locked by its caller. In that state acquiring a
+    // reader throws even though the value is a genuine Web Stream. Use the
+    // intrinsic tag as the non-destructive brand signal, and only probe the
+    // trusted reader operation when it succeeds. Consumption below still
+    // surfaces a locked-body error rather than silently taking the generic path.
+    if (Object.prototype.toString.call(body) !== "[object ReadableStream]") return false
+    // A spoofed Symbol.toStringTag is not enough to establish stream
+    // provenance. Genuine streams expose the platform `locked` accessor on
+    // their prototype chain; require that non-callable surface before
+    // accepting a failed reader probe as the already-locked case.
+    let lockedAccessor: (() => unknown) | undefined
+    let streamReader: ((...args: unknown[]) => unknown) | undefined
+    let validatedStreamPrototype: object | undefined
+    let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
+    const visitedStreamPrototypes = new Set<object>()
+    for (let hop = 0; streamPrototype && hop < maxResponsePrototypeHops && !visitedStreamPrototypes.has(streamPrototype); hop++) {
+      visitedStreamPrototypes.add(streamPrototype)
+      const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
+      if (lockedDescriptor) {
+        if (hasRuntimeType(lockedDescriptor.get, "function")) {
+          lockedAccessor = () => lockedDescriptor.get!.call(body)
+        }
+        const readerDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+        if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
+          streamReader = readerDescriptor.value as (...args: unknown[]) => unknown
+        }
+        validatedStreamPrototype = streamPrototype
+        break
+      }
+      streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
+    }
+    // Some independent Fetch implementations expose a Web Stream facade
+    // through a proxy. Its methods work when read from the instance, even
+    // though the proxy target's prototype has no corresponding descriptors.
+    if (!lockedAccessor || !streamReader) {
+      // Registered foreign responses may expose a proxy-backed reader, but an
+      // own or accessor-backed reader operation is caller-controlled and must
+      // not run merely because the response constructor was registered.
+      if (!registeredResponse) return false
+      // The instance fallback is an adapter boundary for implementations such
+      // as node-fetch whose stream facade is exposed by a proxy. Reconfirm the
+      // response's intrinsic implementation brand before touching that facade;
+      // a response-shaped generic result must stay on the generic path.
+      if (!isResponse(value)) return false
+      const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
+      const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+      if (ownLocked || ownReader) return false
+      const directLocked = (body as { locked?: unknown }).locked
+      const directReader = (body as { getReader?: unknown }).getReader
+      if (!hasRuntimeType(directReader, "function")) return false
+      lockedAccessor = () => (body as { locked?: unknown }).locked
+      streamReader = directReader as (...args: unknown[]) => unknown
+      if (directLocked !== undefined && !hasRuntimeType(directLocked, "boolean")) return false
+    }
+    try {
+      // Use the stream's own prototype operation so foreign-realm brands are
+      // accepted; the host realm's intrinsic rejects those streams.
+      const reader = streamReader.call(body)
+      if (!isRuntimeObject(reader)) return false
+      let releaseLock: unknown
+      let readerPrototype: object | null = reader
+      const visitedReaderPrototypes = new Set<object>()
+      for (let hop = 0; readerPrototype && hop < maxResponsePrototypeHops && !visitedReaderPrototypes.has(readerPrototype); hop++) {
+        visitedReaderPrototypes.add(readerPrototype)
+        const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+        if (descriptor) {
+          releaseLock = descriptor.value
+          break
+        }
+        readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
+      }
+      if (!hasRuntimeType(releaseLock, "function")) return false
+      ;(releaseLock as (this: object) => void).call(reader)
+    }
+    catch {
+      // A locked genuine stream remains a Response. Confirm the lock state
+      // through the stream's own accessor so a failed probe on an incompatible
+      // object cannot establish the Response classification.
+      if (lockedAccessor() !== true) return false
+    }
+    const pipeThrough = getPrototypeMethod(body, "pipeThrough", validatedStreamPrototype)
+    if (!pipeThrough) return false
+    validatedResponseBodies.set(value, body)
+    validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (hasRuntimeType(value, "string")) {
     if (value) yield { text: value, type: "text-delta" }
-    yield { type: "finish" }
-    return
-  }
-  if (isResponse(value)) {
-    if (value.body) {
-      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
     yield { type: "finish" }
     return
   }
@@ -847,6 +1309,21 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   let textIterator: AsyncIterator<unknown> | undefined
   const getTextIterator = () => (textIterator ??= getTextStream()?.[Symbol.asyncIterator]())
+  // Genuine Responses take precedence over incidental generic fields such as
+  // `textStream`; spoofed response-shaped values fail the brand check below
+  // and retain the generic handling path.
+  if (isResponseLike(value)) {
+    const body = validatedResponseBodies.get(value)
+    if (body) {
+      const pipeThrough = validatedResponsePipeThrough.get(body)
+      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
+      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
+    yield { type: "finish" }
+    return
+  }
   if (isAsyncIterable(result?.stream)) {
     const initialTextIterator = textStreamIsLazy ? undefined : getTextIterator()
     yield* streamChunksToEventsWithTextFallback(result.stream, result, getTextIterator, initialTextIterator)
@@ -875,6 +1352,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
+  // Explicit Agent streams take precedence over response-shaped output fields.
   const text = hasRuntimeType(value, "object") && value !== null
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
@@ -891,5 +1369,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }
+    return
   }
 }

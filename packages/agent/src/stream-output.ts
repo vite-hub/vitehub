@@ -1,7 +1,7 @@
-import { isResponse } from "./internal/response.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
+import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -32,13 +32,294 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
   return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
+// `type` is an additional intrinsic-slot accessor. Requiring it keeps the
+// compatibility boundary from accepting a class that merely copies the
+// stream-facing getters while retaining support for genuine foreign realms.
+const responseSnapshotProperties = ["status", "statusText", "headers", "body", "type"] as const
+const responsePrototypeLimit = 32
+const intrinsicResponse = Response
+const intrinsicHeaders = Headers
+const intrinsicReadableStream = ReadableStream
+type ResponsePrototype = Record<PropertyKey, unknown>
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) throw new Error("Cyclic Response prototype")
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) return descriptor
+    current = Object.getPrototypeOf(current)
+  }
+  if (current) throw new Error("Response prototype chain is too deep")
+}
+
+function responsePrototype(value: unknown): ResponsePrototype | undefined {
+  let prototype: object | null = Object.getPrototypeOf(Object(value))
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const hasAccessors = responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
+    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+    if (constructor?.name === "Response" && hasAccessors && hasRuntimeType(clone, "function")) {
+      // SAFETY: every accepted property is inspected on this prototype before narrowing it.
+      return prototype as ResponsePrototype
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
+function hasResponsePrototype(value: unknown): boolean {
+  const branded = responsePrototype(value)
+  if (!branded) return false
+  // Own accessors are allowed: a genuine Response can expose a changing
+  // snapshot through own properties. Reject replacement accessors on any
+  // prototype between the candidate and its branded Response prototype.
+  let current: object | null = Object.getPrototypeOf(Object(value))
+  const seen = new Set<object>()
+  while (current && current !== branded) {
+    if (seen.has(current)) return false
+    seen.add(current)
+    for (const key of responseSnapshotProperties) {
+      if (Object.prototype.hasOwnProperty.call(current, key)) return false
+    }
+    current = Object.getPrototypeOf(current)
+  }
+  return current === branded
+}
+
+function hasResponseBrand(value: unknown, branded: ResponsePrototype): boolean {
+  // The selected realm's intrinsic getter performs the internal-slot check.
+  // This rejects carriers inheriting from a genuine Response prototype while
+  // preserving genuine Responses from other realms.
+  const statusGetter = Object.getOwnPropertyDescriptor(branded, "status")?.get
+  if (!statusGetter) return false
+  Reflect.apply(statusGetter, value, [])
+  return true
+}
+
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
-  return isResponse(value)
-    && value.body !== null
-    && value.headers.get("x-vercel-ai-ui-message-stream") === "v1"
+  try {
+    // Response accessors perform an internal-slot brand check, so the host
+    // realm's getters reject an otherwise genuine Response from another realm.
+    // Select the accessors from the candidate's branded Response prototype.
+    const registered = isResponse(value)
+    if (!registered && !hasResponsePrototype(value)) return false
+    const branded = responsePrototype(value)
+    if (!registered && (!branded || !hasResponseBrand(value, branded))) return false
+    const bodyDescriptor = responsePropertyDescriptor(value, "body")
+    const responseHeadersDescriptor = responsePropertyDescriptor(value, "headers")
+    const body = bodyDescriptor?.get ? Reflect.apply(bodyDescriptor.get, value, []) : bodyDescriptor && "value" in bodyDescriptor ? bodyDescriptor.value : undefined
+    const headers = responseHeadersDescriptor?.get ? Reflect.apply(responseHeadersDescriptor.get, value, []) : responseHeadersDescriptor && "value" in responseHeadersDescriptor ? responseHeadersDescriptor.value : undefined
+    const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
+    // A host Headers instance has an intrinsic brand-checked method. Do not
+    // honor an own `get` replacement on it merely because its Response was
+    // recognized through the registered-constructor path. Foreign adapters
+    // retain their explicitly supported header operation surface.
+    const intrinsicGet = Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "get")?.value
+    const get = headers instanceof intrinsicHeaders && hasRuntimeType(intrinsicGet, "function")
+      ? intrinsicGet
+      : registered ? Reflect.get(headers as object, "get") : headers && headersDescriptor(headers, "get")?.value
+    if (!body || !headers || (!registered && !lockedGetter) || !hasRuntimeType(get, "function")) return false
+    if (!registered) Reflect.apply(lockedGetter, body, [])
+    return Reflect.apply(get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
+  }
+  catch {
+    return false
+  }
+}
+
+function isPortableUIMessageBody(body: unknown): body is ReadableStream<Uint8Array> {
+  if (!isRuntimeRecord(body)) return false
+  const lockedGetter = readableStreamDescriptor(body, "locked")?.get
+  const getReader = readableStreamDescriptor(body, "getReader")?.value
+  if (!lockedGetter || !hasRuntimeType(getReader, "function")) return false
+  if (Reflect.apply(lockedGetter, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === getReader
+}
+
+function isPortableRegisteredUIMessageBody(body: unknown): body is ReadableStream<Uint8Array> {
+  if (!isRuntimeRecord(body)) return false
+  const locked = Reflect.get(body, "locked")
+  const getReader = Reflect.get(body, "getReader")
+  return typeof locked === "boolean" && locked === false && hasRuntimeType(getReader, "function")
+}
+
+function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (constructor?.name !== "ReadableStream") return
+      return descriptor
+    }
+    current = Object.getPrototypeOf(current)
+  }
+}
+
+function headersDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  let current: object | null = Object(value)
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < responsePrototypeLimit; depth++) {
+    if (seen.has(current)) return
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor) {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (constructor?.name !== "Headers") return
+      return descriptor
+    }
+    current = Object.getPrototypeOf(current)
+  }
+}
+
+function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = false) {
+  // Use the source realm's native operations, never caller-supplied methods.
+  // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
+  const ownGetReader = registered ? Object.getOwnPropertyDescriptor(body, "getReader") : undefined
+  if (ownGetReader) {
+    throw new TypeError("Foreign stream getReader override is not supported")
+  }
+  let getReader: unknown = readableStreamDescriptor(body, "getReader")?.value
+  if (!hasRuntimeType(getReader, "function") && registered) getReader = Reflect.get(body, "getReader")
+  if (!hasRuntimeType(getReader, "function")) throw new TypeError("Foreign stream getReader is unavailable")
+  const readerOperation = getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>
+  const reader = Reflect.apply(readerOperation, body, [])
+  // Some foreign implementations expose reader operations as own properties
+  // (the node-fetch reader is one example). Start at the reader itself so
+  // those operations are discovered, then continue through its prototypes.
+  let readerPrototype: object | null = reader as unknown as object
+  let read: ReadableStreamDefaultReader<Uint8Array>["read"] | undefined
+  let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"] | undefined
+  let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"] | undefined
+  const seenReaderPrototypes = new Set<object>()
+  for (let depth = 0; readerPrototype && depth < responsePrototypeLimit; depth++) {
+    if (seenReaderPrototypes.has(readerPrototype)) break
+    seenReaderPrototypes.add(readerPrototype)
+    const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
+    const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
+    const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+    if (!read && hasRuntimeType(readDescriptor?.value, "function")) read = readDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["read"]
+    if (!cancel && hasRuntimeType(cancelDescriptor?.value, "function")) cancel = cancelDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    if (!releaseLock && hasRuntimeType(releaseDescriptor?.value, "function")) releaseLock = releaseDescriptor.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+    readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
+  }
+  if (!read || !cancel || !releaseLock) throw new TypeError("Foreign stream reader is incomplete")
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+export function normalizeUIMessageStreamResponse(value: unknown): (Response & { body: ReadableStream<Uint8Array> }) | undefined {
+  if (!isRuntimeRecord(value)) return
+  try {
+    // This shape only selects compatibility candidates. It does not prove origin.
+    const registered = isResponse(value)
+    if (!registered && !hasResponsePrototype(value)) return
+    const branded = responsePrototype(value)
+    if (!registered && (!branded || !hasResponseBrand(value, branded))) return
+    const status: unknown = Reflect.get(value, "status")
+    const statusText: unknown = Reflect.get(value, "statusText")
+    const headers: unknown = Reflect.get(value, "headers")
+    const body: unknown = Reflect.get(value, "body")
+    if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 200 || status > 599) return
+    if (!hasRuntimeType(statusText, "string") || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
+    const type: unknown = Reflect.get(value, "type")
+    if (!hasRuntimeType(type, "string")) return
+    const snapshot = { status, statusText, headers, body, type }
+    const markerGetter = registered ? Reflect.get(headers, "get") : headersDescriptor(headers, "get")?.value
+    if (!registered && !branded) return
+    if (!hasRuntimeType(markerGetter, "function")
+      || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
+    const nativeProperties = value instanceof intrinsicResponse && snapshot.type === type && hasResponsePrototype(value)
+    const nativeHeaders = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headers, "getSetCookie")
+    const nativeCookies = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "getSetCookie")?.value)
+    const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === intrinsicReadableStream.prototype.getReader
+    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value as Response & { body: ReadableStream<Uint8Array> }
+    // Registered implementations have already passed their intrinsic brand
+    // and surface checks. Preserve their identity so callers can continue to
+    // consume the original foreign response.
+    if (registered) {
+      if (!isPortableRegisteredUIMessageBody(body)) return
+      return value as Response & { body: ReadableStream<Uint8Array> }
+    }
+    if (!(registered ? isPortableRegisteredUIMessageBody(body) : isPortableUIMessageBody(body))) return
+    const forEach = Reflect.get(headers, "forEach")
+    if (!hasRuntimeType(forEach, "function")) return
+    const getSetCookie = Reflect.get(headers, "getSetCookie")
+    const cookies: unknown = hasRuntimeType(getSetCookie, "function") ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    const normalizedHeaders = new Headers()
+    Reflect.apply(forEach, headers, [(headerValue: string, key: string) => {
+      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, headerValue)
+    }])
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+    if (normalizedHeaders.get("x-vercel-ai-ui-message-stream") !== "v1") return
+    // Consumption uses a stable local snapshot and the branded stream, never
+    // methods supplied by a Response-shaped carrier.
+    const bridgedBody = bridgeUIMessageBody(body as unknown as ReadableStream<Uint8Array>, registered)
+    try {
+      const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      return isUIMessageStreamResponse(response) ? response : undefined
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
+  }
+  catch {
+    return
+  }
 }
 
 export function uiMessageStreamFromResponse(response: Response & { body: ReadableStream<Uint8Array> }): ReadableStream<unknown> {
+  const normalized = normalizeUIMessageStreamResponse(response)
+  if (!normalized) throw new TypeError("Expected a readable UI message stream Response")
+  const body = normalized.body
+  // Registered foreign streams may expose `pipeThrough` through an instance
+  // proxy (or an overridden own property). Bridge through the validated reader
+  // operations instead of invoking that caller-controlled method directly.
+  const bridged = isResponse(response) ? bridgeUIMessageBody(body, true) : undefined
+  const streamBody = bridged?.stream ?? body
   const decoder = new TextDecoder()
   let buffer = ""
   const enqueueFrames = (controller: TransformStreamDefaultController<unknown>, flush = false) => {
@@ -53,7 +334,10 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
       controller.enqueue(JSON.parse(data))
     }
   }
-  return response.body.pipeThrough(new TransformStream<Uint8Array, unknown>({
+  // SAFETY: The local native stream is piped through a TransformStream whose output type is unknown.
+  const pipeThrough = ReadableStream.prototype.pipeThrough
+  if (!hasRuntimeType(pipeThrough, "function")) throw new TypeError("Expected a readable UI message stream Response")
+  return Reflect.apply(pipeThrough, streamBody, [new TransformStream<Uint8Array, unknown>({
     flush(controller) {
       buffer += decoder.decode()
       if (buffer.trim()) buffer += "\n\n"
@@ -63,10 +347,10 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
       buffer += decoder.decode(chunk, { stream: true })
       enqueueFrames(controller)
     },
-  }))
+  })]) as ReadableStream<unknown>
 }
 
-export function createAgentUIMessageStream(options: {
+function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
   return new ReadableStream<unknown>({
@@ -106,7 +390,7 @@ export function createAgentUIMessageStreamResponse(options: {
   status?: number
   statusText?: string
   stream: ReadableStream<unknown>
-}): Response {
+}): Response & { body: ReadableStream<Uint8Array> } {
   const headers = new Headers(options.headers)
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
@@ -120,11 +404,12 @@ export function createAgentUIMessageStreamResponse(options: {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
     },
   }))
+  // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
   return new Response(stream, {
     headers,
     status: options.status,
     statusText: options.statusText,
-  })
+  }) as Response & { body: ReadableStream<Uint8Array> }
 }
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {

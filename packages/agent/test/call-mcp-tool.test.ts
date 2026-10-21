@@ -2,8 +2,18 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { apiKey } from "../../connections/src/api-key.ts"
+import { defineConnection } from "../../connections/src/definition.ts"
+import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
+import { createStore } from "../../connections/test/helpers.ts"
 import { callMcpTool } from "../src/mcp.ts"
+import type { ConnectionsRuntime } from "../../connections/src/runtime.ts"
 import type { MCPTransport } from "../src/mcp.ts"
+
+const connectionsServer = vi.hoisted(() => ({ runtime: undefined as ConnectionsRuntime | undefined }))
+vi.mock("@vite-hub/connections/server", () => ({
+  getConnectionsRuntime: () => connectionsServer.runtime,
+}))
 
 type ToolCallResult = Record<string, unknown>
 
@@ -246,5 +256,65 @@ describe("callMcpTool", () => {
 
     const [missing] = await callMcpTool(client, "missing")
     expect(missing).toMatchObject({ code: "MCP_TOOL_NOT_FOUND" })
+  })
+
+  it("calls a tool through a Connection mcp endpoint as the server actor", async () => {
+    const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] })
+    const definition = defineConnection({ access: { server: { read: true, write: ["fetch"] } }, provider: apiKey({ id: "crm", mcp: url, origins: ["https://api.example.com"] }) })
+    const runtime = createConnectionsRuntime({ definitions: { crm: definition }, store: createStore() })
+    await runtime.setKey({ key: "crm-key", name: "crm" })
+    connectionsServer.runtime = runtime
+
+    await expect(callMcpTool({ connection: "crm" }, "threads_get", { id: "thread-1" })).resolves.toEqual([null, "ok"])
+    expect(calls).toEqual([{ arguments: { id: "thread-1" }, authorization: "Bearer crm-key", name: "threads_get" }])
+    const activity = await runtime.activity({ name: "crm" })
+    expect(activity.filter(entry => entry.action === "use").map(entry => entry.actor)).toContainEqual({ id: "server", kind: "service" })
+  })
+
+  it("rejects a tool outside the server tools allowlist", async () => {
+    const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] })
+    const [error, value] = await callMcpTool({ tools: ["other"], transport: { type: "http", url } }, "threads_get")
+    expect(value).toBeNull()
+    expect(error).toMatchObject({ code: "MCP_TOOL_NOT_FOUND" })
+    expect(calls).toEqual([])
+    await expect(callMcpTool({ tools: ["threads_get"], transport: { type: "http", url } }, "threads_get")).resolves.toEqual([null, "ok"])
+  })
+
+  it("repeats a failed call with backoff and stops on abort", async () => {
+    vi.useFakeTimers()
+    try {
+      let attempts = 0
+      const client = {
+        close: vi.fn(async () => undefined),
+        tools: async () => ({ lookup: { execute: async () => {
+          attempts++
+          if (attempts < 3) throw new Error(`failure ${attempts}`)
+          return { content: [{ text: "done", type: "text" }] }
+        } } }),
+      }
+      const call = callMcpTool(client, "lookup", {}, { retries: 2 })
+      await vi.advanceTimersByTimeAsync(99)
+      expect(attempts).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(attempts).toBe(2)
+      await vi.advanceTimersByTimeAsync(200)
+      await expect(call).resolves.toEqual([null, "done"])
+      expect(attempts).toBe(3)
+
+      const controller = new AbortController()
+      const failing = { close: vi.fn(async () => undefined), tools: async () => ({ lookup: { execute: async () => {
+        controller.abort(new Error("stop"))
+        throw new Error("failed")
+      } } }) }
+      const [error] = await callMcpTool(failing, "lookup", {}, { retries: 5, signal: controller.signal })
+      expect(error).toBeInstanceOf(Error)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([-1, 1.5, Number.NaN])("rejects invalid retries (%s)", async (retries) => {
+    await expect(callMcpTool({ close: async () => undefined, tools: async () => ({}) }, "lookup", {}, { retries })).rejects.toThrow(TypeError)
   })
 })

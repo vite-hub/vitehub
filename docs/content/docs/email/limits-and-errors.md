@@ -8,54 +8,117 @@ icon: i-lucide-circle-alert
 
 ## Handle delivery errors
 
-Use the `EMAIL_*` code for control flow and `details.driver` to identify the failing adapter. ViteHub keeps the original provider error in `cause` while exposing a safe public message.
+`email.send()` returns `[error, sent]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong and names the driver, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
 
 ```ts [server/send.ts]
-import { getViteHubErrorShape } from 'vite-hub/runtime'
 import { type EmailMessage } from 'vite-hub/email'
 import { email } from 'vite-hub/email/server'
 
 export async function send(message: EmailMessage) {
-  try {
-    return await email.send(message)
-  }
-  catch (error) {
-    const shape = getViteHubErrorShape(error)
-    if (shape?.code.startsWith('EMAIL_')) {
-      console.error('Email delivery failed', {
-        code: shape.code,
-        driver: shape.details?.driver,
-      })
-    }
+  const [error, sent] = await email.send(message)
+  if (error) {
+    console.error('Email delivery failed', { code: error.code, why: error.why })
     throw error
   }
+  return sent
 }
 ```
 
-Inspect `cause` only in protected server-side diagnostics because provider errors can contain addresses, credentials, response text, or infrastructure details.
+The type of `error.code` is `EmailErrorCode`, the union of the codes in the first table.
 
-| Code | Produced by | Meaning | Retry guidance |
-| --- | --- | --- | --- |
-| `EMAIL_NOT_CONFIGURED` | Runtime configuration or driver `INVALID_OPTIONS` | The provider or required driver options are missing. | Fix configuration; do not retry unchanged. |
-| `EMAIL_AUTHENTICATION` | Driver `AUTH` | Delivery credentials were rejected. | Fix credentials before retrying. |
-| `EMAIL_RATE_LIMITED` | Driver `RATE_LIMIT` | The provider reported throttling. | Apply an application-owned retry policy. |
-| `EMAIL_TIMEOUT` | Driver `TIMEOUT` | Delivery did not complete before the transport timeout. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_NETWORK` | Driver `NETWORK` | The driver could not reach its provider. | Treat the outcome as uncertain before retrying. |
-| `EMAIL_PROVIDER_FAILED` | Driver `PROVIDER`, `UNSUPPORTED`, or `CANCELLED`; invalid success results | Delivery failed outside a more specific category. | Inspect protected diagnostics and provider delivery logs. |
+Log `cause` only on the server, because provider errors can contain addresses, credentials, response text, or infrastructure details. `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`, so you can return the error from a route or an Agent tool.
 
-Provider-specific classification and retry metadata come from the active driver. ViteHub maps its stable generic codes and validates that a successful result includes a non-empty message ID.
+| Code | Driver code | Retry guidance |
+| --- | --- | --- |
+| `EMAIL_INVALID_MESSAGE` | `INVALID_OPTIONS` | Correct the message. Do not retry it unchanged. |
+| `EMAIL_AUTHENTICATION` | `AUTH` | Fix the credentials before you retry. |
+| `EMAIL_RATE_LIMITED` | `RATE_LIMIT` | Retry later with backoff. |
+| `EMAIL_TIMEOUT` | `TIMEOUT` | The outcome is not certain. Check the provider logs before you retry. |
+| `EMAIL_NETWORK` | `NETWORK` | The outcome is not certain. Check the provider logs before you retry. |
+| `EMAIL_PROVIDER_FAILED` | `PROVIDER`, `UNSUPPORTED`, `CANCELLED`, an invalid message id, or any other failure | Read `cause` and the provider logs. |
 
-The package does not retry automatically. A timeout or disconnected response can occur after a provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the provider adapter that has enough information to make that decision.
+Configuration errors throw instead, because the configuration must change before a send can work:
+
+| Code | When |
+| --- | --- |
+| `EMAIL_NOT_CONFIGURED` | No provider is configured, or the driver reports `NOT_CONFIGURED`, for example a missing API key. |
+| `EMAIL_INVALID_DRIVER` | `createEmail()` receives a value that is not a driver. |
+
+The package does not retry automatically. A timeout or a lost response can occur after the provider accepted the message, so a blind retry can send a duplicate. Put retry and idempotency policy in Queue, Workflow, or the driver that has enough information to make that decision.
+
+## Runtime errors
+
+### EMAIL_INVALID_MESSAGE
+
+The driver rejected the message, for example an empty address, a missing `from`, or an unsubscribe URL that is not HTTPS. `cause` names the field.
+
+### EMAIL_AUTHENTICATION
+
+The provider rejected the credentials, or it does not authorize the sender. Check the API key or binding, and the sender domain.
+
+### EMAIL_RATE_LIMITED
+
+The provider rate limited the request. Retry later with backoff, for example from a Queue.
+
+### EMAIL_TIMEOUT
+
+Delivery did not complete before the transport timeout. The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.
+
+### EMAIL_NETWORK
+
+The driver could not reach its provider. Check DNS and outbound network access from the server.
+
+### EMAIL_PROVIDER_FAILED
+
+Delivery failed outside a more specific category. Read `cause` in server logs and the delivery logs of the provider.
+
+## Configuration errors
+
+### EMAIL_NOT_CONFIGURED
+
+Configure `vitehub({ email: { driver, options } })`. Applications that use the owner integration directly configure `hubEmail({ driver, options })`. When a driver reports invalid options, `cause` names the option. Restart the development server, then call `email.send()` again.
+
+### EMAIL_INVALID_DRIVER
+
+Pass a driver from `@vite-hub/email/drivers/*`, or an object with a `name` and a `send()` function.
+
+## Build errors
+
+The Vite plugin throws these errors while it reads the config or the templates.
+
+### EMAIL_UNKNOWN_DRIVER
+
+Set `driver` to `"resend"` or `"cloudflare-email"`.
+
+### EMAIL_HOST_UNSUPPORTED
+
+The `cloudflare-email` driver needs a Cloudflare host. Deploy to Cloudflare, or use `resend`.
+
+### EMAIL_SECRET_DEFAULT
+
+A secret Email option has a default. Defaults are included in build output, so remove the default and set the secret in the host environment.
+
+### EMAIL_SYNC_OPTION_REQUIRED
+
+An Email option uses `env.provider()`. Email resolves its options synchronously, so read the value with `env.source()`.
+
+### EMAIL_INVALID_OUTBOX
+
+Set `email.outbox` to `false`, or to `{ deliver, limit }` with a boolean `deliver` and an integer `limit` from 1 to 1000.
+
+### EMAIL_INVALID_TEMPLATE
+
+Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`.
+
+### EMAIL_DUPLICATE_TEMPLATE
+
+Two Markdown files under the `server/emails` roots have the same name. Rename or remove one of them.
+
+### EMAIL_CLI_USAGE
+
+`vitehub email` received an option or a value that it cannot use. Run `vitehub email --help`.
 
 ## Troubleshoot common failures
-
-### `No Email provider is configured`
-
-Configure `vitehub({ email: { driver, options } })`. Applications using the owner integration directly configure `hubEmail({ driver, options })`. Restart the development server, then call `email.send()` again.
-
-### `Email delivery failed through <driver>.`
-
-Read the `EMAIL_*` code first. For `EMAIL_AUTHENTICATION`, verify the provider credentials and sender authorization. For `EMAIL_NETWORK` or `EMAIL_TIMEOUT`, verify DNS and outbound connectivity from the deployed server. Inspect `cause` and provider logs only on the server.
 
 ### The development outbox is empty
 

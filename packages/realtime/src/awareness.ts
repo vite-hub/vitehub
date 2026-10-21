@@ -1,4 +1,6 @@
 import { isPlainObject } from "@vite-hub/internal/object"
+import * as decoding from "lib0/decoding"
+import * as encoding from "lib0/encoding"
 import { Diagnostic } from "nostics"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -19,7 +21,7 @@ export function claimAwarenessClientIds<Peer extends object>(owners: Map<number,
   )
   for (const client of clients) ownedClients.add(client)
   if (ownedClients.size > maxAwarenessClients) {
-    throw realtimeErrorDiagnostics.REALTIME_R0003({ message: "Peer owns too many awareness clients." })
+    throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS()
   }
   const claimed = clients.filter(client => !owners.has(client))
   for (const client of clients) owners.set(client, peer)
@@ -28,7 +30,8 @@ export function claimAwarenessClientIds<Peer extends object>(owners: Map<number,
 
 export class AwarenessOwnershipConflict extends Diagnostic {
   constructor() {
-    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
+    const { code, docs, fix, why } = realtimeErrorDiagnostics.REALTIME_AWARENESS_OWNERSHIP_CONFLICT()
+    super({ code, docs, fix, why }, AwarenessOwnershipConflict)
     this.name = "AwarenessOwnershipConflict"
   }
 }
@@ -36,7 +39,7 @@ export class AwarenessOwnershipConflict extends Diagnostic {
 export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIdentity): Uint8Array {
   return awarenessProtocol.modifyAwarenessUpdate(update, (state: unknown) => {
     if (state === null) return null
-    if (!isPlainObject(state)) throw realtimeErrorDiagnostics.REALTIME_R0004({ message: "Invalid awareness state." })
+    if (!isPlainObject(state)) throw realtimeErrorDiagnostics.REALTIME_INVALID_AWARENESS()
     return { ...state, user: identity }
   })
 }
@@ -66,7 +69,7 @@ export function applyRealtimeAwarenessUpdate(
     candidate.destroy()
     candidateDocument.destroy()
   }
-  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0006({ message: "Realtime awareness exceeds its 8 MiB room quota." })
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_AWARENESS_TOO_LARGE()
   awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 
@@ -80,13 +83,42 @@ export function compactRealtimeAwareness(awareness: awarenessProtocol.Awareness)
   return compacted
 }
 
+/**
+ * Drops the entries of an awareness update that describe clients another peer owns. Stock y-websocket clients send
+ * every awareness change they see, other people's too, so an echo is normal and must not close the connection.
+ */
+function dropForeignAwareness<Peer extends object>(update: Uint8Array, owners: ReadonlyMap<number, Peer>, peer: Peer): Uint8Array {
+  readAwarenessClientIds(update)
+  const decoder = decoding.createDecoder(update)
+  const length = decoding.readVarUint(decoder)
+  const kept: Array<[number, number, string]> = []
+  for (let index = 0; index < length; index++) {
+    const client = decoding.readVarUint(decoder)
+    const clock = decoding.readVarUint(decoder)
+    const state = decoding.readVarString(decoder)
+    const owner = owners.get(client)
+    if (!owner || owner === peer) kept.push([client, clock, state])
+  }
+  if (kept.length === length) return update
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, kept.length)
+  for (const [client, clock, state] of kept) {
+    encoding.writeVarUint(encoder, client)
+    encoding.writeVarUint(encoder, clock)
+    encoding.writeVarString(encoder, state)
+  }
+  return encoding.toUint8Array(encoder)
+}
+
 /** Owns peer claims and commits them only after identity binding and quota checks succeed. */
 export function createRealtimeAwarenessOwners<Peer extends object>(options: { maxStateBytes?: number } = {}) {
   const owners = new Map<number, Peer>()
   const peerClients = new WeakMap<Peer, Set<number>>()
   return {
-    apply(awareness: awarenessProtocol.Awareness, peer: Peer, update: Uint8Array, identity?: RealtimeIdentity): number[] {
+    apply(awareness: awarenessProtocol.Awareness, peer: Peer, input: Uint8Array, identity?: RealtimeIdentity): number[] {
+      const update = dropForeignAwareness(input, owners, peer)
       const clients = readAwarenessClientIds(update)
+      if (!clients.length) return []
       const claimed = claimAwarenessClientIds(owners, peer, clients)
       try {
         const secured = identity ? bindAwarenessIdentity(update, identity) : update

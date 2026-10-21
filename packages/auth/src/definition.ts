@@ -39,9 +39,9 @@ function validateAuthDatabase(value: AuthDatabaseConfiguration | undefined): voi
     throw authErrorDiagnostics.AUTH_C0022({ message: `\`defineAuth()\` database does not support the "${unknownKey}" option.` })
   }
 
-  validateNamedString(value.name, "database.name")
+  validateNamedString(Object.hasOwn(value, "name") ? value.name : undefined, "database.name")
 
-  if (typeof value.dedicated !== "undefined" && typeof value.dedicated !== "boolean") {
+  if (Object.hasOwn(value, "dedicated") && typeof value.dedicated !== "undefined" && typeof value.dedicated !== "boolean") {
     throw authErrorDiagnostics.AUTH_C0023({ message: "`defineAuth()` database.dedicated must be a boolean." })
   }
 }
@@ -57,7 +57,7 @@ function validateAuthSecondaryStorage(value: AuthSecondaryStorageConfiguration |
     throw authErrorDiagnostics.AUTH_C0025({ message: `\`defineAuth()\` secondaryStorage does not support the "${unknownKey}" option.` })
   }
 
-  validateNamedString(value.store, "secondaryStorage.store")
+  validateNamedString(Object.hasOwn(value, "store") ? value.store : undefined, "secondaryStorage.store")
 }
 
 function validateStringValue(value: unknown, label: string): void {

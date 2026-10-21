@@ -14,12 +14,12 @@ vi.mock("@libsql/client", async importOriginal => {
 
 import { createLibsqlAgentState, createSqliteAgentState, type LibsqlAgentStateClient, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
 
-import type { QueueEntry, StateAdapter } from "chat"
+import type { QueueEntry } from "chat"
 import type { AgentWebhookQueueDelivery } from "../src/internal/webhook-queue.ts"
 
 const tempDirs: string[] = []
 
-async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: StateAdapter; url: string }> {
+async function createState(tablePrefix = "test_agent_state_"): Promise<{ state: ViteHubSqliteAgentStateAdapter; url: string }> {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-"))
   tempDirs.push(dir)
   const url = `file:${join(dir, "state.db")}`
@@ -45,13 +45,14 @@ function queueEntry(text = "hello"): QueueEntry {
   }
 }
 
-function webhookDelivery(deliveryId: string, concurrencyKey?: string): AgentWebhookQueueDelivery {
+function webhookDelivery(deliveryId: string, concurrencyKey?: string, debounceKey?: string): AgentWebhookQueueDelivery {
   return {
     concurrencyGroup: "review",
     ...(concurrencyKey ? { concurrencyKey } : {}),
     concurrencyLimit: 2,
     deliveryId,
     enqueuedAt: Date.now(),
+    ...(debounceKey ? { debounceKey } : {}),
     leaseTtlMs: 1_000,
     request: {
       body: JSON.stringify({ action: "labeled" }),
@@ -414,6 +415,34 @@ describe("SQLite Agent State Provider", () => {
     await queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)
     await queue.completeWebhookDelivery(third!.scope, third!.deliveryId, third!.leaseToken)
     await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "delivery-4" })
+    await state.disconnect()
+  })
+
+  it("does not claim superseded debounced deliveries with concurrent capacity", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-1", undefined, "pr-1"))
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-2", undefined, "pr-1"))
+
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "debounced-2" })
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
+    await state.disconnect()
+  })
+
+  it("preserves an active debounced delivery when a newer one is admitted", async () => {
+    const { state } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-1", undefined, "pr-2"))
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("debounced-running-1")
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-running-2", undefined, "pr-2"))
+    await expect(queue.completeWebhookDelivery(first!.scope, first!.deliveryId, first!.leaseToken)).resolves.toBe(true)
+    const second = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(second?.deliveryId).toBe("debounced-running-2")
+    await expect(queue.completeWebhookDelivery(second!.scope, second!.deliveryId, second!.leaseToken)).resolves.toBe(true)
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toBeNull()
     await state.disconnect()
   })
 
@@ -982,6 +1011,37 @@ describe("SQLite Agent State Provider", () => {
 
     await expect(state.get("thread")).resolves.toBeNull()
     await expect(state.getList("thread")).resolves.toEqual([])
+    await state.disconnect()
+  })
+
+  it("keeps a list until its newest entry expires and writes one row per append", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))
+    const { state, url } = await createState()
+    await state.connect()
+
+    await state.appendToList("history", "one", { ttlMs: 100 })
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.080Z"))
+    await state.appendToList("history", "two", { ttlMs: 100 })
+    const inspection = createClient({ url })
+    const expiry = (await inspection.execute("SELECT expires_at FROM test_agent_state_lists ORDER BY id")).rows.map(row => Number(row.expires_at))
+    inspection.close()
+    // The first row keeps the expiry of its own append. The newest row carries the list expiry.
+    expect(expiry).toEqual([Date.parse("2026-06-02T10:00:00.100Z"), Date.parse("2026-06-02T10:00:00.180Z")])
+
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.150Z"))
+    await state.cleanupExpiredState()
+    await expect(state.getList("history")).resolves.toEqual(["one", "two"])
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.180Z"))
+    await expect(state.getList("history")).resolves.toEqual([])
+    await state.disconnect()
+  })
+
+  it("trims a list to its newest entries", async () => {
+    const { state } = await createState()
+    await state.connect()
+    for (const value of ["one", "two", "three", "four"]) await state.appendToList("history", value, { maxLength: 2 })
+    await expect(state.getList("history")).resolves.toEqual(["three", "four"])
     await state.disconnect()
   })
 

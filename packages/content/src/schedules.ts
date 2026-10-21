@@ -101,6 +101,14 @@ export interface ContentPublishDueResult {
   failed: ContentSchedule[]
 }
 
+/** Internal control flow used when an expired schedule is cancelled in flight. */
+export class ContentScheduleCancelled extends Error {
+  constructor() {
+    super("Content schedule was cancelled while publishing.")
+    this.name = "ContentScheduleCancelled"
+  }
+}
+
 /** The schedule `status()` reports for a document: its pending or overdue one, or else a failed one. */
 export interface ContentDocumentSchedule {
   id: string
@@ -132,7 +140,7 @@ export interface ContentSchedulesHost {
   /** A `WORKSPACE_CONFLICT` naming each document whose draft no longer matches. */
   mismatch(method: string, mismatches: Array<{ collection: string, id: string, expected: string | null, actual: string | null }>): Error
   /** `publish({ expect })` that records the schedule on the publish revision. */
-  publish(schedule: StoredSchedule): Promise<ContentPublishResult>
+  publish(schedule: StoredSchedule, beforeCommit: () => Promise<boolean>): Promise<ContentPublishResult>
   /** Merge caller metadata with the reserved `content` key. */
   metadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown>
 }
@@ -240,6 +248,11 @@ function failureOf(error: unknown, at: string): ContentScheduleFailure | undefin
  * `publishDue()` runs due schedules; a Schedule Definition calls it on every host.
  */
 export function createContentSchedules(host: ContentSchedulesHost): ContentSchedulesRuntime {
+  // Claims currently being published by this runtime cannot be abandoned merely
+  // because their durable lease elapsed. A crashed runtime has no entry here,
+  // so its expired claim remains cancellable through the tombstone path.
+  const activeClaims = new Set<string>()
+
   async function read(): Promise<{ head: WorkspaceRevision | null, entries: Map<string, { path: string, digest: string, stored: StoredSchedule }> }> {
     const retained = await host.history()
     const head = await retained.head({ ref: contentSchedulesRef })
@@ -307,7 +320,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     await commit(({ entries }) => {
       // One pending schedule per document, so `status()` and the Console show one time.
       for (const { stored: other } of entries.values()) {
-        if (other.stored.cancelled) continue
+        if (other.cancelled) continue
         const taken = other.expect.find(entry => expect.some(candidate => candidate.collection === entry.collection && candidate.id === entry.id))
         if (taken) {
           throw invalid(`${contentScheduleKey(taken.collection, taken.id)} is already scheduled for ${other.at} by schedule ${JSON.stringify(other.id)}. Call unschedule(${JSON.stringify(other.id)}) first.`)
@@ -332,8 +345,9 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     }
     const now = Date.now()
     return [...(await read()).entries.values()]
-      .map(({ stored }) => withStatus(stored, now))
-      .filter(entry => !entry.cancelled)
+      .map(({ stored }) => stored)
+      .filter(stored => !stored.cancelled)
+      .map(stored => withStatus(stored, now))
       .filter(entry => (options.status === undefined || entry.status === options.status)
         && entry.expect.some(document => (options.collection === undefined || document.collection === options.collection)
           && (options.id === undefined || document.id === options.id)))
@@ -347,7 +361,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     await commit(({ entries }) => {
       const entry = entries.get(id)
       if (!entry) return
-      if (entry.stored.running && claimIsActive(entry.stored, Date.now())) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
+      if (entry.stored.running && (claimIsActive(entry.stored, Date.now()) || activeClaims.has(entry.stored.running))) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
       found = true
       if (entry.stored.running) {
         // Keep a durable tombstone so a publisher that outlived its lease
@@ -381,45 +395,77 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     const result: ContentPublishDueResult = { published: [], failed: [] }
     const errors: unknown[] = []
     for (const { path, digest, stored } of due) {
-      const claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
+      let claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
       const claimed = await commit(({ entries }) => {
         const entry = entries.get(stored.id)
         if (!entry || entry.digest !== digest || entry.stored.cancelled || claimIsActive(entry.stored, Date.now()) || entry.stored.failure) return
         return { put: { [path]: render({ ...entry.stored, running: claim }) }, message: `Claim schedule ${stored.id}`, metadata: { content: { action: "schedule-claimed", schedule: stored.id } } }
       })
       if (!claimed) continue
+      activeClaims.add(claim)
+      // Keep a durable claim alive while publication is in flight. This lets
+      // another runtime distinguish a live publisher from an abandoned claim
+      // when the initial lease elapses.
+      let publishing = true
+      const heartbeat = setInterval(() => {
+        if (!publishing) return
+        const previous = claim
+        const renewed = `${Date.now()}:${previous.slice(previous.indexOf(":") + 1)}`
+        void commit(({ entries }) => {
+          const current = entries.get(stored.id)
+          if (!current || current.digest !== digest || current.stored.running !== previous) return
+          return { put: { [path]: render({ ...current.stored, running: renewed }) }, message: `Renew schedule ${stored.id}`, metadata: { content: { action: "schedule-heartbeat", schedule: stored.id } } }
+        }).then((ok) => {
+          if (ok && publishing) {
+            activeClaims.delete(previous)
+            activeClaims.add(renewed)
+            claim = renewed
+          }
+        }).catch(() => {})
+      }, Math.max(1_000, Math.floor(contentScheduleClaimLeaseMs / 3)))
       let published: ContentPublishResult | undefined
       let failure: ContentScheduleFailure | undefined
       try {
-        published = await host.publish(stored)
-      }
-      catch (error) {
-        failure = failureOf(error, new Date().toISOString())
-        // Anything else, such as an unavailable store, leaves the schedule pending for the next run.
-        if (!failure) {
-          errors.push(error)
-          await commit(({ entries }) => {
-            const current = entries.get(stored.id)
-            if (!current || current.digest !== digest || current.stored.running !== claim) return
-            const { running: _running, ...unclaimed } = current.stored
-            return { put: { [path]: render(unclaimed) }, message: `Release schedule ${stored.id}`, metadata: { content: { action: "schedule-released", schedule: stored.id } } }
+        try {
+          published = await host.publish(stored, async () => {
+            const current = (await read()).entries.get(stored.id)?.stored
+            return current?.running === claim && !current.cancelled
           })
-          continue
         }
+        catch (error) {
+          if (error instanceof ContentScheduleCancelled) continue
+          failure = failureOf(error, new Date().toISOString())
+          // Anything else, such as an unavailable store, leaves the schedule pending for the next run.
+          if (!failure) {
+            errors.push(error)
+            await commit(({ entries }) => {
+              const current = entries.get(stored.id)
+              if (!current || current.digest !== digest || current.stored.running !== claim) return
+              const { running: _running, ...unclaimed } = current.stored
+              return { put: { [path]: render(unclaimed) }, message: `Release schedule ${stored.id}`, metadata: { content: { action: "schedule-released", schedule: stored.id } } }
+            })
+            continue
+          }
+        }
+        const failed: StoredSchedule | undefined = failure ? (({ running: _running, ...publicSchedule }) => ({ ...publicSchedule, failure }))(stored) : undefined
+        // Finish only the schedule this run read: a concurrent run or an unschedule() already settled any other version.
+        const settled = await commit(({ entries }) => {
+          const current = entries.get(stored.id)
+          if (!current || current.digest !== digest || current.stored.running !== claim) return
+          const documents = stored.expect.map(({ collection, id }) => ({ collection, id }))
+          return failed
+            ? { put: { [path]: render(failed) }, message: `Schedule ${stored.id} failed: ${failed.failure!.code}`, metadata: { content: { action: "schedule-failed", schedule: stored.id, documents } } }
+            : { delete: [path], message: `Ran schedule ${stored.id}`, metadata: { content: { action: "schedule-published", schedule: stored.id, revision: published!.revision?.id ?? null, documents } } }
+        })
+        if (!settled) continue
+        if (failed) result.failed.push(withStatus(failed, now))
+        else result.published.push({ schedule: stored.id, revision: published!.revision?.id ?? null, documents: published!.documents })
       }
-      const failed: StoredSchedule | undefined = failure ? (({ running: _running, ...publicSchedule }) => ({ ...publicSchedule, failure }))(stored) : undefined
-      // Finish only the schedule this run read: a concurrent run or an unschedule() already settled any other version.
-      const settled = await commit(({ entries }) => {
-        const current = entries.get(stored.id)
-        if (!current || current.digest !== digest || current.stored.running !== claim) return
-        const documents = stored.expect.map(({ collection, id }) => ({ collection, id }))
-        return failed
-          ? { put: { [path]: render(failed) }, message: `Schedule ${stored.id} failed: ${failed.failure!.code}`, metadata: { content: { action: "schedule-failed", schedule: stored.id, documents } } }
-          : { delete: [path], message: `Ran schedule ${stored.id}`, metadata: { content: { action: "schedule-published", schedule: stored.id, revision: published!.revision?.id ?? null, documents } } }
-      })
-      if (!settled) continue
-      if (failed) result.failed.push(withStatus(failed, now))
-      else result.published.push({ schedule: stored.id, revision: published!.revision?.id ?? null, documents: published!.documents })
+      finally {
+        publishing = false
+        clearInterval(heartbeat)
+        activeClaims.delete(claim)
+      }
     }
     if (errors.length === 1) throw errors[0]
     if (errors.length) throw new AggregateError(errors, `[vitehub] ${errors.length} Content schedules could not run. They stay pending for the next run.`)

@@ -4,8 +4,8 @@ import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { Adapter, FileInfo, Files } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -20,8 +20,14 @@ function isNotFound(error: unknown): boolean {
   return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
 }
 
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join("")
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
 function encodeFoldedCursor(value: FoldedCursor) {
-  return Buffer.from(JSON.stringify(value)).toString("base64url")
+  return encodeBase64Url(JSON.stringify(value))
 }
 
 function isNumber(value: unknown): value is number {
@@ -35,9 +41,23 @@ function isString(value: unknown): value is string {
 function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   if (!cursor) return { index: 0 }
   if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
-  const decoded = Buffer.from(cursor, "base64url")
-  if (decoded.toString("base64url") !== cursor) throw new TypeError("Invalid Blob cursor.")
-  const parsed: unknown = JSON.parse(decoded.toString("utf8"))
+  let decoded: string
+  try {
+    const normalized = cursor.replaceAll("-", "+").replaceAll("_", "/")
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
+    decoded = new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
+  if (encodeBase64Url(decoded) !== cursor) throw new TypeError("Invalid Blob cursor.")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decoded)
+  }
+  catch {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
   const { index, providerCursor, providerCursorHistory } = parsed
   if (
@@ -56,19 +76,19 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   }
 }
 
-function mapStoredFile(file: StoredFile): BlobObject {
+function mapFileInfo(file: FileInfo): BlobObject {
   return {
-    contentType: file.type,
+    contentType: file.contentType,
     customMetadata: file.metadata || {},
     httpEtag: file.etag,
-    httpMetadata: file.type ? { contentType: file.type } : {},
+    httpMetadata: file.contentType ? { contentType: file.contentType } : {},
     pathname: file.key,
     size: file.size,
     uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
   }
 }
 
-function mapUploadResult(result: UploadResult, fallback: BlobPutOptions): BlobObject {
+function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject {
   const contentType = result.contentType || fallback.contentType
   return {
     contentType,
@@ -79,6 +99,26 @@ function mapUploadResult(result: UploadResult, fallback: BlobPutOptions): BlobOb
     size: result.size,
     uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
   }
+}
+
+function unsupportedSign(driver: string, reason: string) {
+  return blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver}" cannot sign this request: ${reason}.` })
+}
+
+// files-sdk reports per instance whether `url()` and `signedUploadUrl()` mint expiring links,
+// so one implementation serves every files-sdk driver without a permanent-link fallback.
+async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  const { signedUpload, signedUrl } = client.capabilities
+  if (signOptions.method === "GET") {
+    if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")
+    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn }) }
+  }
+  if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
+  if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
+  const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
+  if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")
+  return { headers: upload.headers ?? {}, method: "PUT", url: upload.url }
 }
 
 async function getUploadUrl(client: FilesInstance, pathname: string): Promise<string | undefined> {
@@ -145,7 +185,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     },
     async head(pathname) {
       try {
-        return mapStoredFile(await (await files()).head(pathname))
+        return mapFileInfo(await (await files()).head(pathname))
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -195,7 +235,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
               folders.add(item.key.slice(0, prefix.length + firstSlash + 1))
               continue
             }
-            blobs.push(mapStoredFile(item))
+            blobs.push(mapFileInfo(item))
             if (blobs.length >= limit) break
           }
 
@@ -245,7 +285,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       }
 
       return {
-        blobs: result.items.map(mapStoredFile),
+        blobs: result.items.map(mapFileInfo),
         cursor: result.cursor,
         hasMore: Boolean(result.cursor),
       }
@@ -265,6 +305,9 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
         url: await getUploadUrl(client, result.key),
       }
+    },
+    async sign(pathname, signOptions) {
+      return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
 }

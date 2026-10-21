@@ -37,8 +37,9 @@ function isMultipartAction(value: string | undefined): value is MultipartAction 
 }
 
 // Browsers send the bare file name; drop any directory part so the client cannot pick a folder.
+// put() decodes pathnames once, so encode the name to store it as written.
 function uploadedFileName(file: File): string {
-  return file.name.split(/[\\/]/).pop() || "file"
+  return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
 }
 
 async function readForm(event: BlobUploadEvent): Promise<FormData> {
@@ -67,7 +68,6 @@ async function readJson(event: BlobUploadEvent): Promise<Record<string, unknown>
 function readParts(value: unknown): BlobMultipartPart[] {
   if (!Array.isArray(value) || !value.length) throw badRequest("`parts` must be a non-empty array.")
   return value.map((part: unknown) => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parts come from the request body and are validated before use.
     if (!isPlainObject(part) || typeof part.etag !== "string" || !Number.isInteger(part.partNumber)) {
       throw badRequest("Each part needs a string `etag` and an integer `partNumber`.")
     }
@@ -125,7 +125,6 @@ export async function handleBlobMultipartUpload(
 
   if (action === "create") {
     const body = await readJson(event)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The content type comes from the request body.
     const contentType = typeof body.contentType === "string" ? body.contentType : undefined
     const [error, upload] = await storage.createMultipartUpload(pathname, {
       ...options.create,

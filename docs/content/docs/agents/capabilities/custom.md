@@ -78,6 +78,10 @@ export default defineAgent({
 })
 ```
 
+## Extend an inherited Capability
+
+When an Agent [`extends`](/docs/agents/agent-definitions#extend-an-agent) another, a child Capability with the same `id` replaces the parent's Capability. Add `extend(inherited)` to combine them instead. It receives the parent's Capability and returns the Capability that the child uses, with the same `id`. [`mcp()`](/docs/agents/capabilities/mcp#extend-the-parents-servers) uses this hook to merge servers by name.
+
 ## Add requirements
 
 Requirements fail before the Capability exposes behavior.
@@ -317,6 +321,8 @@ Inspection state and view specs follow the Invocation journal's configuration re
 MCP and Title provide custom views. Other official Capabilities use the default view.
 
 ### Transform MCP tools
+
+`context.tools.transform()` changes the tools that the Driver gets in every Agent run, including Capability CLI tools. `vitehub agent dev --cli` runs a Capability CLI command directly and does not apply transforms.
 
 Each transform receives a copy of each tool definition that preserves its prototype, property flags, and accessor behavior. Accessors and executors use bound functions to retain their contributed instance as receiver, including when they use private fields. Their function identities can change. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
 

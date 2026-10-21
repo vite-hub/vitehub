@@ -144,7 +144,7 @@ function skipBlockComment(source: string, index: number) {
 }
 
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\p{ID_Continue}$]/u.test(char)
+  return !!char && /[\p{ID_Continue}$\u200C\u200D]/u.test(char)
 }
 
 function isIdentifierStart(char: string | undefined) {
@@ -757,79 +757,47 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
   }
 }
 
-interface TypeMemberContext {
-  masked: string
-  enclosingBraces: Int32Array
-  boundaries: Int32Array
-  closeParens: Int32Array
-  parents: Map<number, number>
-  heads: Map<number, string>
-}
-
-function createTypeMemberContext(source: string, controlFlowRegexes: ControlFlowRegexCache): TypeMemberContext {
-  const masked = maskSourceLiteralsWithContext(source, controlFlowRegexes)
-  const enclosingBraces = new Int32Array(masked.length)
-  const boundaries = new Int32Array(masked.length)
-  const closeParens = new Int32Array(masked.length)
-  const parents = new Map<number, number>()
-  const heads = new Map<number, string>()
-  const stack: number[] = []
-  let boundary = -1
-  let closeParen = -1
-  for (let index = 0; index < masked.length; index++) {
-    const parent = stack.at(-1) ?? -1
-    enclosingBraces[index] = parent
-    boundaries[index] = boundary
-    closeParens[index] = closeParen
-    const char = masked[index]
-    if (char === "{") {
-      parents.set(index, parent)
-      heads.set(index, masked.slice(boundary + 1, index))
-      stack.push(index)
-    }
-    else if (char === "}") stack.pop()
-    if (char === "{" || char === "}" || char === ";") boundary = index
-    if (char === ")") closeParen = index
-  }
-  return { masked, enclosingBraces, boundaries, closeParens, parents, heads }
-}
-
-function isTypeMemberDeclaration(context: TypeMemberContext, index: number) {
-  const { masked, enclosingBraces, boundaries, closeParens, parents, heads } = context
-  const openBrace = enclosingBraces[index] ?? -1
-  if (openBrace < 0) return false
-  const isTypeBrace = (brace: number, nested: boolean): boolean => {
-    const head = heads.get(brace) ?? ""
-    const declarationPrefix = masked.slice(0, brace)
-    const isInterfaceHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*$/s.test(head)
-      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
-    if (isInterfaceHead) return true
-    const isClassHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*$/s.test(head)
-      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
-    if (isClassHead) {
-      // Only the suffix after the last member delimiter can introduce a signature.
-      const prefixStart = Math.max(brace + 1, (boundaries[index] ?? -1) + 1, closeParens[index] ?? -1)
-      return /(?:^|\)(?:[^\S\r\n\u2028\u2029]*:[^;{}=\r\n\u2028\u2029]*)?[^\S\r\n\u2028\u2029]*[\r\n\u2028\u2029])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(prefixStart, index))
-    }
-    if (/^\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(head) || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(declarationPrefix)) return true
-    if (/^\s*(?:export\s+)?declare\s+(?:namespace|module)\b[^{}]*$/s.test(head)) return true
-    if (!head.trimEnd().endsWith(":")) return false
-    if (nested) return true
-    return /\b(?:const|let|var)\s+[^;{}:]+:\s*$/s.test(head) || /\)\s*:\s*$/s.test(head)
-  }
-  const enclosingBrace = parents.get(openBrace) ?? -1
-  return isTypeBrace(openBrace, enclosingBrace >= 0 && isTypeBrace(enclosingBrace, false))
-}
-
-function isMethodDeclarationName(source: string, index: number, closeParen: number, context: TypeMemberContext) {
+function isMethodDeclarationName(source: string, index: number, closeParen: number, controlFlowRegexes: ControlFlowRegexCache) {
   const previous = previousNonWhitespace(source, index)
-  if (previous === "(" || previous === "=" || previous === "," || previous === ":") return false
-  const next = source[skipWhitespaceAndComments(source, closeParen + 1)]
-  if (next === "{") return true
-  return isTypeMemberDeclaration(context, index)
+  const afterClose = skipWhitespaceAndComments(source, closeParen + 1)
+  if (source[afterClose] === "{") return previous !== "(" && previous !== "=" && previous !== "," && previous !== ":"
+  // TypeScript interface/type-literal members use a return-type annotation
+  // instead of a method body: `defineThing(value: Value): Result`.
+  if (source[afterClose] !== ":") return false
+  // A switch case expression can also be followed by a colon. It is an
+  // executable call, rather than a type-member return annotation.
+  const prefix = maskSourceLiteralsWithContext(source.slice(0, index), controlFlowRegexes)
+  // Conditional expressions inside a case clause may contain colons before
+  // the call (`case ready ? fallback : defineThing():`). Use statement/block
+  // boundaries here so those expression colons do not hide the `case` token.
+  const boundary = Math.max(prefix.lastIndexOf(";"), prefix.lastIndexOf("{"), prefix.lastIndexOf("}"))
+  if (/\bcase\b[\s\S]*$/u.test(prefix.slice(boundary + 1))) return false
+  let cursor = afterClose + 1
+  const depths = { "{": 0, "[": 0, "<": 0 }
+  for (; cursor < source.length; cursor++) {
+    const char = source[cursor]
+    if (char === "{") depths["{"]++
+    else if (char === "}") {
+      if (depths["{"] > 0) depths["{"]--
+      else break
+    } else if (char === "[") depths["["]++
+    else if (char === "]") depths["["] = Math.max(0, depths["["] - 1)
+    else if (char === "<") depths["<"]++
+    else if (char === ">") depths["<"] = Math.max(0, depths["<"] - 1)
+    else if (!depths["{"] && !depths["["] && !depths["<"] && (char === ";" || char === "," || isLineTerminator(char))) break
+  }
+  const typedSignature = cursor < source.length && (source[cursor] === ";" || source[cursor] === "," || source[cursor] === "}" || isLineTerminator(source[cursor]))
+  return typedSignature
+    && previous !== "("
+    && previous !== "="
+    && previous !== ","
+    && previous !== ":"
+    && previous !== "?"
 }
+
 function isMemberAccessName(source: string, index: number) {
-  return previousNonWhitespace(source, index) === "."
+  const previous = previousNonWhitespace(source, index)
+  return previous === "." || previous === "#"
 }
 
 function findMatchingWithContext(source: string, index: number, open: string, close: string, controlFlowRegexes: ControlFlowRegexCache): number | undefined {
@@ -1117,7 +1085,6 @@ function splitTopLevelWithContext(source: string, separator: string, controlFlow
 
 function findIdentifierCallsWithContext(source: string, name: string, controlFlowRegexes: ControlFlowRegexCache): IdentifierCall[] {
   const calls: IdentifierCall[] = []
-  let typeMembers: TypeMemberContext | undefined
   let previousSignificant = ""
   for (let index = 0; index < source.length; index++) {
     const char = source[index]
@@ -1176,7 +1143,7 @@ function findIdentifierCallsWithContext(source: string, name: string, controlFlo
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
-    if (isMethodDeclarationName(source, index, closeParen, typeMembers ??= createTypeMemberContext(source, controlFlowRegexes))) {
+    if (isMethodDeclarationName(source, index, closeParen, controlFlowRegexes)) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
@@ -1398,9 +1365,15 @@ function readObjectPropertyNamesWithContext(objectSource: string, controlFlowReg
 }
 
 function readObjectPropertyWithContext(objectSource: string, propertyName: string, controlFlowRegexes: ControlFlowRegexCache): string | undefined {
+  let result: string | undefined
   for (const member of readObjectMembers(objectSource, controlFlowRegexes)) {
+    if (member.name === undefined) {
+      if (result !== undefined) return undefined
+      continue
+    }
     if (member.name !== propertyName) continue
     const colon = skipWhitespaceAndComments(member.source, member.end)
-    if (member.source[colon] === ":") return stripBoundaryCommentsWithContext(member.source.slice(colon + 1), createControlFlowRegexCache(sourceSyntaxes.get(controlFlowRegexes)))
+    if (member.source[colon] === ":") result = stripBoundaryCommentsWithContext(member.source.slice(colon + 1), createControlFlowRegexCache(sourceSyntaxes.get(controlFlowRegexes)))
   }
+  return result
 }

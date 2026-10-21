@@ -207,14 +207,27 @@ function renderProviderEntry(
   const storageExpression = !blobConfig
     ? undefined
     : runtimeStoreResolver
-      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default", { images: blobConfig.images })`
-      : "createBlobStorage(createDriver(blobConfig.store), \"default\", { images: blobConfig.images })"
+      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default", { images: blobConfig.images, url: servedBlobUrl })`
+      : "createBlobStorage(createDriver(blobConfig.store), \"default\", { images: blobConfig.images, url: servedBlobUrl })"
 
   const lines = [
     ...imports,
     "",
     `const blobConfig = ${JSON.stringify(blobConfig, null, 2)}`,
     "setBlobRuntimeConfig(blobConfig)",
+    ...(storageExpression
+      ? [
+          "function servedBlobUrl(pathname) {",
+          "  const serve = blobConfig?.serve",
+          "  if (!serve || serve.store !== \"default\") return undefined",
+          "  const base = serve.publicBaseUrl ? serve.publicBaseUrl.replace(/\\/+$/, \"\") : \"\"",
+          "  const route = (serve.route || \"\").replace(/^\\/+|\\/+$/g, \"\")",
+          "  const path = pathname.split(\"/\").map(segment => encodeURIComponent(segment)).join(\"/\")",
+          "  const joined = [base, route, path].filter(Boolean).join(\"/\")",
+          "  return base ? (joined || \"/\") : `/${joined}`",
+          "}",
+        ]
+      : []),
     storageExpression ? `setBlobRuntimeStorage(${storageExpression})` : "setBlobRuntimeStorage(undefined)",
     userAppEntry ? `const app = (await import(${JSON.stringify(createImportPath(entryFile, userAppEntry))})).default` : "const app = undefined",
     "",

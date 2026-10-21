@@ -36,6 +36,7 @@ it.each(["memory", "local"] as const)("%s revisions distinguish identical writes
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
@@ -73,5 +74,6 @@ it.each(["memory", "local"] as const)("%s retires interrupted file removal when 
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })

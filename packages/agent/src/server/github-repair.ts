@@ -87,10 +87,10 @@ function repairGit(target: string, options: { signal?: AbortSignal; identity?: R
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
-    GIT_AUTHOR_NAME: options.identity?.GIT_AUTHOR_NAME ?? "ViteHub Babysitter",
-    GIT_AUTHOR_EMAIL: options.identity?.GIT_AUTHOR_EMAIL ?? "babysitter@vitehub.dev",
-    GIT_COMMITTER_NAME: options.identity?.GIT_COMMITTER_NAME ?? "ViteHub Babysitter",
-    GIT_COMMITTER_EMAIL: options.identity?.GIT_COMMITTER_EMAIL ?? "babysitter@vitehub.dev",
+    GIT_AUTHOR_NAME: options.identity?.GIT_AUTHOR_NAME ?? "ViteHub Agent",
+    GIT_AUTHOR_EMAIL: options.identity?.GIT_AUTHOR_EMAIL ?? "agent@vitehub.dev",
+    GIT_COMMITTER_NAME: options.identity?.GIT_COMMITTER_NAME ?? "ViteHub Agent",
+    GIT_COMMITTER_EMAIL: options.identity?.GIT_COMMITTER_EMAIL ?? "agent@vitehub.dev",
   };
   return async (...args: string[]) => (await exec("git", ["--literal-pathspecs", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "commit.gpgSign=false", ...args], { cwd: target, env, signal: options.signal, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();
 
