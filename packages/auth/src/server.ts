@@ -218,7 +218,7 @@ function toRequest(request: AuthRequest): Request {
   }
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
-  init.headers = new Headers(request.headers as HeadersInit)
+  init.headers = new Headers(request.headers as ConstructorParameters<typeof Headers>[0])
   if (isAbortSignalLike(request.signal)) init.signal = request.signal
   if (request.body) {
     init.body = request.body
