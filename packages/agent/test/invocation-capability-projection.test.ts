@@ -28,7 +28,7 @@ describe("SQLite invocation Capability projection", () => {
   let client: ReturnType<typeof createClient>
   beforeEach(() => { client = createClient({ url: "file::memory:" }) })
   afterEach(() => { vi.restoreAllMocks(); client.close() })
-  const store = () => createLibsqlAgentInvocationStore({ client, maxAgeMs: false, maxRecords: false })
+  const store = () => createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
   const projection = async (id: string) => (await client.execute({
     args: [id],
     sql: "SELECT capability_ids FROM vitehub_agent_invocations WHERE id = ?",

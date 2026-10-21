@@ -10,7 +10,8 @@ The ViteHub Console inspects the primitives enabled in the same ViteHub configur
 
 ViteHub renders the Console UI and serves its static assets. The Console sends each operation as one same-origin `POST` to `/_vitehub/rpc/__call`, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console currently exposes Env, Agents, Content, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console currently exposes Env, Agents, Content, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console currently exposes Env, Agents, Content, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -252,6 +253,8 @@ export default defineConfig({
 })
 ```
 
+Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and [`VITEHUB_SECRET`](/docs/env/app-secret) in the server environment. Console Auth signs sessions with a secret derived from `VITEHUB_SECRET`; `BETTER_AUTH_SECRET` wins when it is set, and `secretEnv` names another required variable. Rotating either secret signs out every Console session. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
+
 If you previously protected the Console through Primary Auth, remove its `/_vitehub/**` and `/api/_vitehub/console/**` access routes when you switch to Console Auth. Keep `auth: true` if application routes still use Primary Auth. Otherwise, both auth guards apply and maintainers must sign in twice.
 
 Inline Console Auth uses `node:sqlite` and requires the Node deployment preset. Other presets need a file-based Console Auth Definition with a database adapter supported by the host.
@@ -479,7 +482,20 @@ VITEHUB_CONSOLE_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page reads Runtime Schedules and runs from the Schedule stores of the server runtime on each request. Memory stores lose this data when the runtime restarts. A Runtime Schedule with `console: { enabled: false }` is hidden. The Schedule page is read-only; use [`vitehub schedule`](/docs/development/cli#inspect-and-control-runtime-schedules) to run, enable, or disable a Runtime Schedule during development.
+The fallback journal keeps every terminal record by default. Set `retention` on the Console configuration to remove old terminal records by age, count, or size. All limits that are set apply together, and the oldest terminal records go first:
+
+```ts
+console: {
+  auth: 'app',
+  authorize: './server/console-authorize.ts',
+  retention: { maxAge: '14d', maxSize: '30%' },
+}
+```
+
+The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Read that store and show it with the [UI parts](/docs/ui) when the app needs a custom inspection page.
+
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions and Runtime Schedules. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs during development.
+
 
 The fallback applies only when an Agent Definition does not configure `invocations`. An explicit `defineAgent({ invocations })` store remains authoritative, and its sessions are not copied into `console.sqlite` or read by the built-in Console.
 
@@ -525,6 +541,10 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Sandboxes is absent from the Console home | Configure `sandbox: true` with a deployment preset that supports Sandbox. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
+| Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
+| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with a callback-backed policy for `/_vitehub/**`, or use `console: { exposure: 'host-managed', authorize: './server/console-authorize.ts' }`. |
+| A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
+| Console data routes return `500` with "requires console.authorize" | Set `console.authorize` for `exposure: 'host-managed'`. |
 | ViteHub rejects `console: true` (`VITE_HUB_B0003`) | Choose who can open the Console: `console: { auth: false }` for no sign-in, or `console: { auth: 'app' }` to use the app Auth. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
@@ -532,9 +552,34 @@ The Console does not calculate missing provider data. Token counts, model metada
 | The build or server warns that `auth: false` has no sign-in | Add `console.authorize`, or set `console.auth` to `'app'` or a Console Auth config. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. |
 | Agent Console startup fails on a hosted preset | Configure one durable Agent Invocations journal and attach it to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
+| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
+
+### Console error codes
+
+Each failed Console request returns JSON with a stable `code`, a `message` that says why it failed, a `fix`, and a `docs` link. Console RPC failures also keep `ok: false` and `status`. The Console shows these fields with one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can succeed.
+
+| Code | Status | Fix |
+| --- | --- | --- |
+| `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
+| `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
+| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Use `console: { access: 'auth' }` or `exposure: 'host-managed'` in production. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
+| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
+| `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
+| `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
+| `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |
+| `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Reload the Console. Deploy the Console and the server from the same build. |
+| `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
+| `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
+| `CONSOLE_UNAVAILABLE` | `408`, `429`, `502`–`504` | Wait, then try again. |
+| `CONSOLE_REQUEST_FAILED` | `500` | Try again, then read the server logs. |
+
+A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
 Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
 

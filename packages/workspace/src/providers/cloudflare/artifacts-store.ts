@@ -63,7 +63,6 @@ type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 const fileMetadataSchema = object({
   mediaType: optional(string()),
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the reserved ownership field while parsing persisted JSON at the Store boundary.
   metadata: optional(pipe(record(string(), unknown()), check(value => value.source === undefined || typeof value.source === "string", "metadata.source must be a string when provided"))),
 })
 const fileMetadataFilesSchema = record(string(), fileMetadataSchema)

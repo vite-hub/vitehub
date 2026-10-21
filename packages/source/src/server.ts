@@ -7,6 +7,9 @@ import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
+export { cachedSource } from "./cached-source.ts"
+export type { SourceReaderCacheOptions } from "./cached-source.ts"
+
 export interface CollectionHandler {
   (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
@@ -116,6 +119,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   options: CollectionHandlerOptions = {},
 ): CollectionHandler {
   assertCollection(collection)
+  if (collection.route === false) throw new TypeError("[vitehub] A server-only Collection cannot be exposed through defineCollectionHandler().")
   const { authorize } = collection
   const { withAuthorization } = options
   if (authorize && !withAuthorization) {

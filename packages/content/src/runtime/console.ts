@@ -300,10 +300,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         if (input.state && !(filter.id as string[]).length) return { items: [], nextCursor: null, total: 0, states, changes }
         if (input.state === "deleted") ref = "published"
         const options: ContentListOptions = { ref, filter, limit }
-        const search = optionalText(input.search?.trim() || undefined, "search")
+        const searchValue = optionalText(input.search, "search")
+        const search = searchValue?.trim() || undefined
         if (search) options.search = search
         if (input.cursor !== undefined) options.cursor = text(input.cursor, "cursor")
         if (input.sort) options.sort = { field: text(input.sort.field, "sort.field"), direction: input.sort.direction === "desc" ? "desc" : "asc" }
+        if (input.facets !== undefined && !Array.isArray(input.facets)) throw invalidInput("facets must be an array.")
         if (input.facets?.length) options.facets = input.facets.map(field => text(field, "facets"))
         const page = await collection.list(options)
         const titleField = titleFieldOf(collection.schema)
@@ -438,29 +440,31 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         // Saves, removes, and restores live on `draft`; publishes on `published`. Each ref is read once.
         const [draft, published] = limit
-          ? await Promise.all((["draft", "published"] as const).map(ref => content.revisions({ ref, limit })))
+          ? await Promise.all((["draft", "published"] as const).map(ref => content.revisions({ ref, limit: maximumActivity })))
           : [{ revisions: [] }, { revisions: [] }]
         const revisions = [...draft!.revisions, ...published!.revisions]
           .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-          .slice(0, limit)
         const mentioned = new Map<string, Set<string>>()
-        const activity: ViteHubConsoleDocumentActivity[] = revisions.flatMap((revision) => {
-          const content = revision.metadata?.content
-          const listed: unknown = isRecord(content) ? content.documents : undefined
-          const documents = (Array.isArray(listed) ? listed : []).flatMap((document: unknown) => {
+        const activity: ViteHubConsoleDocumentActivity[] = (await Promise.all(revisions.map(async (revision) => {
+          const metadataContent = revision.metadata?.content
+          const listed: unknown = isRecord(metadataContent) ? metadataContent.documents : undefined
+          const documents = (await Promise.all((Array.isArray(listed) ? listed : []).map(async (document: unknown) => {
             if (!isRecord(document) || String(document.collection) !== document.collection || String(document.id) !== document.id || !names.has(document.collection)) return []
+            if (!await content.can({ user: context.user, collection: document.collection, action: "read", id: document.id })) return []
             ;(mentioned.get(document.collection) ?? mentioned.set(document.collection, new Set()).get(document.collection)!).add(document.id)
             return [{ collection: document.collection, id: document.id, title: document.id }]
-          })
+          }))).flat()
           if (!documents.length) return []
           const entry: ViteHubConsoleDocumentActivity = { id: revision.id, ref: revision.ref, createdAt: revision.createdAt, action: revisionAction(revision.metadata), documents }
           const by = revisionAuthor(revision.metadata)
           if (by) entry.author = by
           return [entry]
-        })
+        }))).flat().slice(0, limit)
         const titles = new Map<string, string>()
         const overviews = await Promise.all(collections.map(async (collection): Promise<ViteHubConsoleDocumentOverviewCollection> => {
-          const statuses = await collection.status()
+          const statuses = (await Promise.all((await collection.status()).map(async status =>
+            await content.can({ user: context.user, collection: collection.name, action: "read", id: status.id }) ? status : null,
+          ))).filter((status): status is ContentDocumentStatus => status !== null)
           const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
           for (const status of statuses) states[status.state]++
           const pending = statuses.filter(status => status.state !== "published")
@@ -499,10 +503,19 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         const found = await Promise.all(collections.map(async (collection) => {
           // The draft search covers the collection's search fields and the body; ids match as text too.
-          const [statuses, page] = await Promise.all([collection.status(), collection.list({ ref: "draft", search: query, limit })])
+          const statuses = (await Promise.all((await collection.status()).map(async status =>
+            await content.can({ user: context.user, collection: collection.name, action: "read", id: status.id }) ? status : null,
+          ))).filter((status): status is ContentDocumentStatus => status !== null)
+          const items = new Map<string, ContentDocumentSummary>()
+          let cursor: string | undefined
+          do {
+            const page = await collection.list({ ref: "draft", search: query, limit: maximumListLimit, ...(cursor ? { cursor } : {}) })
+            for (const item of page.items) items.set(item.id, item)
+            cursor = page.nextCursor ?? undefined
+          } while (cursor)
           const byId = new Map(statuses.map(status => [status.id, status]))
-          const items = new Map(page.items.map(item => [item.id, item]))
-          const idMatches = statuses.filter(status => status.draft !== null && !items.has(status.id) && status.id.toLowerCase().includes(needle)).slice(0, limit)
+          for (const item of [...items.values()]) if (!byId.has(item.id)) items.delete(item.id)
+          const idMatches = statuses.filter(status => status.draft !== null && !items.has(status.id) && status.id.toLowerCase().includes(needle))
           if (idMatches.length) {
             for (const [id, item] of await summaries(collection, new Set(idMatches.map(status => status.id)), byId)) items.set(id, item)
           }

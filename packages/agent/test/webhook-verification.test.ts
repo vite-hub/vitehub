@@ -39,6 +39,14 @@ function stripeRegistration(signature: "stripe-sha256" | { preset: "stripe-sha25
   return [{ id: "productlane", provider: "productlane", secretHeader: "x-signature", secretToken: "secret-token", signature }]
 }
 
+function signedRequest(header: string, body: string) {
+  return new Request("https://example.com", { body, headers: { "x-signature": header }, method: "POST" })
+}
+
+function hmacRegistration(signature: { encoding?: "base64" | "hex", preset: "hmac-sha256", prefix?: string, secretEncoding?: "base64" | "utf8" }, secretToken = "secret-token") {
+  return [{ id: "airtable", provider: "airtable", secretHeader: "x-signature", secretToken, signature }]
+}
+
 describe("agent webhook verification", () => {
   it("allows chat webhook trigger invocation when the secret header matches", async () => {
     const invoked = vi.fn(() => "ok")
@@ -337,6 +345,34 @@ describe("agent webhook verification", () => {
     expect(invoked).not.toHaveBeenCalled()
   })
 
+  it("verifies hmac-sha256 signatures with a prefix and hex digest", async () => {
+    const body = "{\"id\":\"evt_1\"}"
+    const digest = createHmac("sha256", "secret-token").update(body).digest("hex")
+    const registration = hmacRegistration({ preset: "hmac-sha256", prefix: "v1=" })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest}`, body))).resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest.toUpperCase()}`, body))).resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(digest, body))).rejects.toMatchObject({ statusCode: 401 })
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(`v1=${digest}`, "{\"id\":\"evt_2\"}"))).rejects.toMatchObject({ statusCode: 401 })
+  })
+
+  it("verifies hmac-sha256 signatures with a base64 key and base64 digest", async () => {
+    const body = "{\"base\":{\"id\":\"app1\"}}"
+    const key = Buffer.from("airtable-mac-secret")
+    const secretToken = key.toString("base64")
+    const registration = hmacRegistration({ encoding: "base64", preset: "hmac-sha256", prefix: "hmac-sha256=", secretEncoding: "base64" }, secretToken)
+    const header = `hmac-sha256=${createHmac("sha256", key).update(body).digest("base64")}`
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(header, body))).resolves.toMatchObject({ verified: true })
+    const utf8Key = `hmac-sha256=${createHmac("sha256", secretToken).update(body).digest("base64")}`
+    await expect(verifyAgentWebhookRequest(registration, signedRequest(utf8Key, body))).rejects.toMatchObject({ statusCode: 401 })
+  })
+
+  it.each(["not base64!", "====", "abcde"])("fails closed for the malformed base64 key %j", async secretToken => {
+    const body = "{}"
+    const header = createHmac("sha256", secretToken).update(body).digest("hex")
+    await expect(verifyAgentWebhookRequest(hmacRegistration({ preset: "hmac-sha256", secretEncoding: "base64" }, secretToken), signedRequest(header, body)))
+      .rejects.toMatchObject({ statusCode: 401 })
+  })
+
   it("verifies stripe-sha256 timestamped signatures", async () => {
     const body = "{\"id\":\"evt_1\"}"
     await expect(verifyAgentWebhookRequest(stripeRegistration(), stripeRequest(stripeSignature("secret-token", body), body)))
@@ -409,6 +445,135 @@ describe("agent webhook verification", () => {
   ])("rejects stripe-sha256 headers with %s", async (_label, header) => {
     await expect(verifyAgentWebhookRequest(stripeRegistration(), stripeRequest(header)))
       .rejects.toMatchObject({ statusCode: 401 })
+  })
+})
+
+describe("bearer webhook signature", () => {
+  function bearerRequest(headers: Record<string, string> = {}) {
+    return new Request("https://example.com", { body: "{}", headers, method: "POST" })
+  }
+
+  function bearerRegistration(secretToken: unknown, secretHeader?: string) {
+    // SAFETY: Invalid and sealed secret values are part of these tests.
+    return [{ channelId: "prefect", id: "prefect", provider: "prefect", signature: "bearer", secretToken: secretToken as never, ...(secretHeader ? { secretHeader } : {}) }]
+  }
+
+  it("accepts Authorization: Bearer <secretToken> and compares the scheme case-insensitively", async () => {
+    await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "Bearer secret-token" })))
+      .resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "bearer  secret-token" })))
+      .resolves.toMatchObject({ verified: true })
+  })
+
+  it.each([
+    ["a wrong token", "Bearer wrong-token"],
+    ["the token without the scheme", "secret-token"],
+    ["another scheme", "Basic secret-token"],
+    ["an empty token", "Bearer "],
+  ])("rejects %s with 401", async (_label, authorization) => {
+    await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization })))
+      .rejects.toMatchObject({ message: "[vitehub] Webhook secret verification failed.", statusCode: 401 })
+  })
+
+  it("rejects a missing Authorization header with 401", async () => {
+    await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest(), undefined, { requireSecretHeader: true }))
+      .rejects.toMatchObject({ message: "[vitehub] Webhook secret header \"authorization\" is required.", statusCode: 401 })
+  })
+
+  it("compares the token through the constant-time digest", async () => {
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest")
+    try {
+      await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "Bearer x" })))
+        .rejects.toMatchObject({ statusCode: 401 })
+      await expect(verifyAgentWebhookRequest(bearerRegistration("secret-token"), bearerRequest({ authorization: "secret-token" })))
+        .rejects.toMatchObject({ statusCode: 401 })
+      // Each check hashes both values, also when the received token has another length or no scheme.
+      expect(digest).toHaveBeenCalledTimes(4)
+      expect(digest.mock.calls.every(([algorithm]) => algorithm === "SHA-256")).toBe(true)
+    }
+    finally {
+      digest.mockRestore()
+    }
+  })
+
+  it("reads the token from a custom secretHeader", async () => {
+    const registration = bearerRegistration("secret-token", "x-prefect-token")
+    await expect(verifyAgentWebhookRequest(registration, bearerRequest({ "x-prefect-token": "Bearer secret-token" })))
+      .resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(registration, bearerRequest({ authorization: "Bearer secret-token" }), undefined, { requireSecretHeader: true }))
+      .rejects.toMatchObject({ message: "[vitehub] Webhook secret header \"x-prefect-token\" is required.", statusCode: 401 })
+  })
+
+  it.each([
+    ["a sealed value", { unseal: () => "secret-token" }],
+    ["a callback that returns a sealed value", () => ({ unseal: () => "secret-token" })],
+    ["a resolver that returns a sealed value", { resolve: () => ({ unseal: () => "secret-token" }) }],
+  ])("unseals %s", async (_label, secretToken) => {
+    await expect(verifyAgentWebhookRequest(bearerRegistration(secretToken), bearerRequest({ authorization: "Bearer secret-token" })))
+      .resolves.toMatchObject({ verified: true })
+    await expect(verifyAgentWebhookRequest(bearerRegistration(secretToken), bearerRequest({ authorization: "Bearer wrong-token" })))
+      .rejects.toMatchObject({ statusCode: 401 })
+  })
+
+  it("unseals a sealed secret for other signatures", async () => {
+    const registration = [{ id: "telegram", provider: "telegram", secretHeader: "x-token", secretToken: { unseal: () => "secret-token" } }]
+    await expect(verifyAgentWebhookRequest(registration, bearerRequest({ "x-token": "secret-token" }))).resolves.toMatchObject({ verified: true })
+  })
+
+  it.each([
+    ["no secretToken", undefined],
+    ["a secretToken that resolves to no secret", () => undefined],
+  ])("answers 500 naming the Channel for %s", async (_label, secretToken) => {
+    const error = { message: expect.stringContaining("Channel \"prefect\" uses signature \"bearer\""), statusCode: 500 }
+    await expect(verifyAgentWebhookRequest(bearerRegistration(secretToken), bearerRequest({ authorization: "Bearer secret-token" })))
+      .rejects.toMatchObject(error)
+    await expect(verifyAgentWebhookRequest(bearerRegistration(secretToken), bearerRequest(), undefined, { requireSecretHeader: true }))
+      .rejects.toMatchObject(error)
+  })
+
+  it("skips verification when secretToken is false", async () => {
+    await expect(verifyAgentWebhookRequest(bearerRegistration(false), bearerRequest(), undefined, { requireSecretHeader: true }))
+      .resolves.toMatchObject({ verified: true })
+  })
+
+  it("verifies a Channel webhook route", async () => {
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const route = (secretToken: unknown) => {
+      const run = vi.fn(() => "ok")
+      const agent = defineAgent({
+        channels: {
+          prefect: defineChannel("prefect", {
+            messages: false,
+            triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "check" } }) }) },
+            // SAFETY: Missing secret values are part of this test.
+            webhooks: { path: "/api/prefect/webhook", secretToken: secretToken as never, signature: "bearer" },
+          }),
+        },
+        driver: { run },
+      })
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const handler = createChannelWebhookRouteHandler(agent as never)
+      const send = (headers: Record<string, string> = {}) => handler(new Request("https://example.com/api/prefect/webhook", {
+        body: "{}",
+        headers: { "content-type": "application/json", ...headers },
+        method: "POST",
+      }), "prefect", { agentName: "ops" })
+      return { run, send }
+    }
+
+    const sealed = route(() => ({ unseal: () => "secret-token" }))
+    await expect(sealed.send()).resolves.toMatchObject({ status: 401 })
+    await expect(sealed.send({ authorization: "Bearer wrong-token" })).resolves.toMatchObject({ status: 401 })
+    expect(sealed.run).not.toHaveBeenCalled()
+    const accepted = await sealed.send({ authorization: "Bearer secret-token" })
+    expect(accepted.status).toBeLessThan(300)
+    await vi.waitFor(() => expect(sealed.run).toHaveBeenCalledOnce())
+
+    const missing = route(undefined)
+    await expect(missing.send({ authorization: "Bearer secret-token" })).resolves.toMatchObject({ status: 500 })
+    await expect(missing.send()).resolves.toMatchObject({ status: 500 })
+    expect(missing.run).not.toHaveBeenCalled()
   })
 })
 

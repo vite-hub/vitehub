@@ -14,7 +14,7 @@ function isMaskedValue(value: string | undefined) {
 function assertRuntimeValue(value: string | undefined, envNames: readonly string[]) {
   if (isMaskedValue(value)) {
     const names = envNames.map(name => `\`${name}\``).join(" or ")
-    throw kvErrorDiagnostics.KV_R0012({ message: `Missing runtime environment variable ${names} for Upstash KV.` })
+    throw kvErrorDiagnostics.KV_MISSING_ENV({ names })
   }
 }
 

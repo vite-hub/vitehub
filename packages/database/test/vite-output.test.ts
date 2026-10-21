@@ -163,7 +163,6 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
       name: "primary",
       schemaSources: [{ handler, tableNames: [] }],
       source: handler,
-      tableNames: [],
     }],
     generatedDrizzleConfigFile: join(rootDir, ".vitehub", "database", "drizzle.config.ts"),
     generatedDrizzleConfigFilesByDatabase: {},

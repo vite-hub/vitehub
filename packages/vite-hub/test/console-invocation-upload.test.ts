@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest"
+import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { allowed } from "./support/console-access.ts"
 
 const handler = allowed(handlerRoute)
@@ -24,6 +25,7 @@ vi.mock("@vite-hub/runtime", () => ({
 vi.mock("../src/console/server.ts", () => ({ console: {} }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({
   getConsoleAgentDefinition: () => ({}),
+  getConsoleAgentCapabilities: () => ({ blob: { kind: "blob" } }),
   consoleAgentInvokerProfiles: () => [{ id: "default" }],
 }))
 vi.mock("../src/console/runtime/server/attachments.ts", () => ({
@@ -35,7 +37,7 @@ vi.mock("../src/console/runtime/server/attachments.ts", () => ({
 import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 
 const files = [{ url: "data:image/png;base64,YQ==", filename: "test.png" }]
-const invoke = (body: unknown) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { json: async () => body } })
+const invoke = (body: unknown, request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { method: "POST" })) => handler({ method: "POST", context: { params: { agent: "bot" } }, req: { headers: request.headers, json: async () => body, method: request.method, url: request.url } })
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.store.mockImplementation(async (_prompt, _body, consume) => consume({ role: "user", parts: [{ type: "image", id: "image-id" }] }, () => {}))
@@ -87,4 +89,23 @@ it("forwards the rollback boundary to Agent startup", async () => {
   mocks.store.mockImplementation(async (_prompt, _body, consume) => consume({ role: "user", parts: [] }, handoff))
   await invoke({ prompt: "test", files })
   expect(mocks.start.mock.calls[0]?.[3]).toEqual({ onInputHandoff: handoff })
+})
+
+it("passes configured capabilities and the Console request to Agent startup", async () => {
+  const request = new Request("https://console.test/api/_vitehub/console/agents/bot/invocations", { headers: { cookie: "session=verified" }, method: "POST" })
+  await invoke({ prompt: "test" }, request)
+  const context = mocks.start.mock.calls[0]?.[1]
+  expect(context).toMatchObject({ capabilities: { blob: { kind: "blob" }, console: {} } })
+  expect(context.request.headers.get("cookie")).toBe("session=verified")
+})
+
+it("uses the verified Console user as the Agent Actor", async () => {
+  installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user", email: "user@example.com" }) })
+  try {
+    await invoke({ prompt: "test" })
+    expect(mocks.start.mock.calls[0]?.[2]).toMatchObject({ context: { actor: { id: "console-user", kind: "authUser", meta: { authUserId: "console-user" } } } })
+  }
+  finally {
+    installConsoleAccess({ mode: "open" })
+  }
 })

@@ -21,6 +21,12 @@ describe("resolveCacheStorage", () => {
     expect(() => resolveCacheStorage({ driver: "redis" } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
       .toThrow("`cache.driver` must be")
   })
+
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])("rejects inherited driver name %s", driver => {
+    // SAFETY: The test passes an unsupported inherited property to exercise runtime validation of user config.
+    expect(() => resolveCacheStorage({ driver } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
+      .toThrow("`cache.driver` must be")
+  })
 })
 
 describe("applyCacheStorage", () => {

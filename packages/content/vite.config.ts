@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus"
+import { normalizePackageExports } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: {
@@ -8,13 +9,13 @@ export default defineConfig({
       neverBundle: ["@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", "comark-content", /^comark-content\//, "yaml"],
       onlyBundle: false,
     },
-    entry: ["src/client.ts", "src/index.ts", "src/runtime/console.ts", "src/vite.ts"],
+    entry: ["src/client.ts", "src/index.ts", "src/presets/cms.ts", "src/runtime/console.ts", "src/vite.ts"],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+        return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) return [key, value]
             return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }]
-          }))
+          })))
       },
       inlinedDependencies: false,
     },

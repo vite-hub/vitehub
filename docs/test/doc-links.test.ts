@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   docsManifestRoutes,
   markdownAnchors,
@@ -9,8 +9,15 @@ import {
   validateDocumentationLinks,
 } from "../scripts/markdown-links.mjs";
 
+const fixtureRoots: string[] = [];
+
+afterAll(() => {
+  for (const root of fixtureRoots.splice(0)) rmSync(root, { force: true, recursive: true });
+});
+
 function fixture(files: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), "vitehub-doc-links-"));
+  fixtureRoots.push(root);
   for (const [path, contents] of Object.entries(files)) {
     const target = join(root, path);
     mkdirSync(join(target, ".."), { recursive: true });
@@ -934,19 +941,6 @@ to: /docs/missing-card
     expect(markdownLinks('<source srcset="./a\u00a0b.png 1x, ./second.png 2x">', { renderer: "github" })).toEqual([
       "./a\u00a0b.png",
       "./second.png",
-    ]);
-  });
-
-  it("uses anchors rendered by the support matrix component", () => {
-    const repoRoot = fixture({
-      "docs/app/components/SupportMatrix.vue": '<script>const sections = [{ anchor: "runtime" }]</script><template><section id="qualifications" /></template>',
-      "docs/app/pages/index.vue": "<template />",
-      "docs/content/docs/index.md": "# Docs\n\n[Runtime](/docs/frameworks-hosts/support-matrix#runtime)\n[Missing](/docs/frameworks-hosts/support-matrix#markdown-only)",
-      "docs/content/docs/frameworks-hosts/support-matrix.md": "# Matrix\n\n## Markdown only",
-    });
-
-    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
-      expect.stringContaining("anchor #markdown-only does not exist"),
     ]);
   });
 

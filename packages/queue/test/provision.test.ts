@@ -84,7 +84,7 @@ describe("queue provision step", () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ success: true, result })) as unknown as typeof globalThis.fetch
 
     await expect(createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl)))
-      .rejects.toMatchObject({ code: "QUEUE_R0011" })
+      .rejects.toMatchObject({ code: "QUEUE_PROVISION_FAILED" })
   })
 
   it("rejects sparse Cloudflare queue lists before JSON serialization", async () => {
@@ -95,7 +95,7 @@ describe("queue provision step", () => {
     const fetchImpl: typeof globalThis.fetch = async () => response
 
     await expect(createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl)))
-      .rejects.toMatchObject({ code: "QUEUE_R0011" })
+      .rejects.toMatchObject({ code: "QUEUE_PROVISION_FAILED" })
     expect(json).toHaveBeenCalledOnce()
     expect(Object.hasOwn(sparseQueueList, 0)).toBe(false)
   })

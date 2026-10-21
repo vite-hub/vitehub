@@ -1,18 +1,12 @@
 import { createVercelHostedServer } from "@vite-hub/internal/runtime/vercel-hosted"
 
-import type { DBApp } from "./cloudflare-vite.ts"
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { VitehubApp } from "@vite-hub/internal/runtime/app"
 
-export type { DBApp }
-
-interface DBVercelServerOptions {
-  app?: DBApp
+export interface DatabaseVercelServerOptions {
+  app?: VitehubApp
 }
 
-export type DBVercelServer = (req: unknown, res: unknown) => unknown
-
-export function createDbVercelServer(options: DBVercelServerOptions = {}): DBVercelServer {
-  return createVercelHostedServer({
-    app: options.app,
-    label: "db",
-  })
+export function createDbVercelServer(options: DatabaseVercelServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => unknown {
+  return createVercelHostedServer({ app: options.app, label: "database" })
 }

@@ -17,7 +17,6 @@ export function kvValueType(value: unknown): string {
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
   if (isUint8Array(value)) return "bytes"
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This reports the stored value representation; it does not validate an input contract.
   return typeof value
 }
 

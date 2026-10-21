@@ -46,7 +46,7 @@ function withoutUndefined(value: unknown): unknown {
   return Object.fromEntries(entries)
 }
 
-export function renderAgentEvaliteConfig(options: ResolvedAgentEvalOptions): string {
+function renderAgentEvaliteConfig(options: ResolvedAgentEvalOptions): string {
   return [
     `import { defineConfig } from "evalite/config"`,
     "",

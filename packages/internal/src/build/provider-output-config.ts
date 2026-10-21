@@ -1,8 +1,8 @@
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type ProviderJsonPrimitive = boolean | null | number | string
-export type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
+type ProviderJsonPrimitive = boolean | null | number | string
+type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
 
 export interface ProviderJsonRecord {
   [key: string]: ProviderJsonValue
@@ -30,7 +30,6 @@ function isProviderJsonArray(value: unknown[], ancestors: Set<object>): value is
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- This JSON parser has already narrowed the value to an object and now validates every owned property.
 function isProviderJsonRecordValue(value: object, ancestors: Set<object>): value is ProviderJsonRecord {
   const prototype = Object.getPrototypeOf(value)
   if ((prototype !== Object.prototype && prototype !== null) || ancestors.has(value)) return false
@@ -38,7 +37,6 @@ function isProviderJsonRecordValue(value: object, ancestors: Set<object>): value
   ancestors.add(value)
   try {
     return Reflect.ownKeys(value).every((key) => {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reflect.ownKeys returns string and symbol keys, and JSON records reject symbols at this parsing boundary.
       if (typeof key !== "string") return false
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       return descriptor?.enumerable === true
@@ -52,18 +50,14 @@ function isProviderJsonRecordValue(value: object, ancestors: Set<object>): value
 }
 
 function isProviderJsonValue(value: unknown, ancestors: Set<object>): value is ProviderJsonValue {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Unknown JSON input must be classified by its runtime primitive representation.
   if (value === null || typeof value === "boolean" || typeof value === "string") return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Unknown JSON input must reject non-finite numbers at this parsing boundary.
   if (typeof value === "number") return Number.isFinite(value)
   if (Array.isArray(value)) return isProviderJsonArray(value, ancestors)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Unknown JSON input must establish an object representation before record validation.
   return typeof value === "object" && isProviderJsonRecordValue(value, ancestors)
 }
 
 export function isProviderJsonRecord(value: unknown): value is ProviderJsonRecord {
   try {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns unknown, so this boundary must reject primitive and array roots.
     return typeof value === "object"
       && value !== null
       && !Array.isArray(value)
@@ -111,14 +105,12 @@ function deleteOwnedFields(
 
 function getKeyedArrayEntryValue(value: unknown, key: string | undefined): ProviderJsonPrimitive | undefined {
   if (key === undefined) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider array keys are restricted to JSON primitives at this serialization boundary.
     return value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string"
       ? value
       : undefined
   }
   if (!isProviderJsonRecord(value)) return
   const entryValue = value[key]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider array keys are restricted to JSON primitives at this serialization boundary.
   return entryValue === null || typeof entryValue === "boolean" || typeof entryValue === "number" || typeof entryValue === "string"
     ? entryValue
     : undefined

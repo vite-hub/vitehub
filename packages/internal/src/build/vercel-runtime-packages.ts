@@ -226,7 +226,6 @@ async function resolvePackageTraceEntries(
 }
 
 function collectRuntimeExportTargets(exportsValue: unknown, condition?: string): Set<string> | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package export maps come from JSON, so this parser must inspect their runtime representation.
   if (typeof exportsValue === "string") {
     if (condition === "types") return new Set()
     if (exportsValue.includes("*")) return undefined
@@ -243,7 +242,6 @@ function collectRuntimeExportTargets(exportsValue: unknown, condition?: string):
     return targets
   }
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package export maps come from JSON, so this parser must reject non-object runtime values.
   if (typeof exportsValue !== "object" || exportsValue === null) return new Set()
 
   const targets = new Set<string>()
@@ -267,7 +265,6 @@ function isInsideDirectory(parent: string, child: string): boolean {
 }
 
 function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw internalErrorDiagnostics.INTERNAL_B0047({ message: `Expected ${path} to contain a JSON object.` })
   }

@@ -220,10 +220,11 @@ function renderProviderEntry(
           "function servedBlobUrl(pathname) {",
           "  const serve = blobConfig?.serve",
           "  if (!serve || serve.store !== \"default\") return undefined",
-          "  const base = (serve.publicBaseUrl || \"/\").replace(/\\/+$/, \"\")",
+          "  const base = serve.publicBaseUrl ? serve.publicBaseUrl.replace(/\\/+$/, \"\") : \"\"",
           "  const route = (serve.route || \"\").replace(/^\\/+|\\/+$/g, \"\")",
           "  const path = pathname.split(\"/\").map(segment => encodeURIComponent(segment)).join(\"/\")",
-          "  return [base, route, path].filter(Boolean).join(\"/\") || \"/\"",
+          "  const joined = [base, route, path].filter(Boolean).join(\"/\")",
+          "  return serve.publicBaseUrl ? (joined || \"/\") : `/${joined}`",
           "}",
         ]
       : []),

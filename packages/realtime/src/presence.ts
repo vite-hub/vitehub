@@ -18,7 +18,7 @@ function isString(value: unknown): value is string {
 
 export function createRealtimeIdentity(user: Record<string, unknown> & { id: string }): RealtimeIdentity {
   if (!isString(user.id) || !user.id || user.id.length > 256) {
-    throw realtimeErrorDiagnostics.REALTIME_R0001({ message: "Realtime identity requires a valid user id." })
+    throw realtimeErrorDiagnostics.REALTIME_INVALID_USER()
   }
   let hash = 0
   for (let index = 0; index < user.id.length; index++) hash = Math.imul(31, hash) + user.id.charCodeAt(index) | 0

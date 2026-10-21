@@ -39,4 +39,13 @@ describe("Agent invocation buffer boundaries", () => {
     }, { id: "report" })
     expect((await store.get("fixture"))?.observations).toHaveLength(1)
   })
+  it("preserves a SharedArrayBuffer created in another realm in observation attributes", async () => {
+    const { store, timestamp, invocations } = await createInvocation()
+    const bytes = runInNewContext("(() => { const buffer = new SharedArrayBuffer(3); new Uint8Array(buffer).set([1, 2, 3]); return buffer })()")
+    await invocations.appendObservation("fixture", {
+      name: "report", type: "capability", timestamp, attributes: { bytes },
+    }, { id: "report" })
+    expect((await store.get("fixture"))?.observations[0]?.attributes?.bytes).toEqual([1, 2, 3])
+  })
+
 })

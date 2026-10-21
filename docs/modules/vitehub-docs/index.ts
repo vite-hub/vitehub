@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { defineNuxtModule } from "nuxt/kit";
+import { addComponent, defineNuxtModule } from "nuxt/kit";
 import { writeDocsArtifacts } from "./artifacts";
 import { createCapabilityReferences, writeCapabilityReferences } from "./capability-references";
 import { createDocsRedirectRouteRules } from "./redirects";
@@ -36,8 +36,19 @@ export default defineNuxtModule({
   },
   async setup(_options, nuxt) {
     const docsRoot = nuxt.options.rootDir;
+    // The invocation examples use the Console views, which are intentionally
+    // outside @vite-hub/ui. Register them explicitly for the docs app.
+    const invocationComponents = resolve(docsRoot, "../packages/vite-hub/src/console/runtime/components/invocation");
+    for (const [name, file] of [
+      ["AgentInvocation", "agent-invocation.ts"],
+      ["AgentInvocationInspector", "agent-invocation.ts"],
+      ["AgentInvocationList", "agent-invocation-list.ts"],
+    ] as const) {
+      addComponent({ export: name, filePath: resolve(invocationComponents, file), name });
+    }
     const outputDir = resolve(docsRoot, ".generated");
     const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
+    const agentOnlyDocumentsPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/agent-only-documents.ts");
 
     const capabilityReferences = await createCapabilityReferences();
     const capabilityReferencesPath = writeCapabilityReferences(outputDir, capabilityReferences);
@@ -69,7 +80,7 @@ export default defineNuxtModule({
       config.serverAssets ||= [];
       config.serverAssets.push({ baseName: "vitehub-raw", dir: resolve(outputDir, "raw") });
       config.plugins ||= [];
-      config.plugins.push(llmsRawLinksPlugin);
+      config.plugins.push(llmsRawLinksPlugin, agentOnlyDocumentsPlugin);
     });
 
     // Remove Docus catch-all page; ViteHub owns the docs route shell.

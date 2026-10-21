@@ -85,7 +85,7 @@ function validate(): void {
 }
 
 watch(model, (value) => {
-  if (blurIssue.value && !consoleFieldValueIssue(labelled.value, value)) blurIssue.value = undefined;
+  if (blurIssue.value && !consoleFieldValueIssue(props.parentOptional ? { ...labelled.value, required: false } : labelled.value, value)) blurIssue.value = undefined;
 });
 
 function record(value: unknown): Record<string, unknown> {
