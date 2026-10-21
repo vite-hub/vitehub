@@ -168,21 +168,10 @@ function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | u
   throw diagnostics.MARKDOWN_TEMPLATE_R0033({ message: `[vitehub] Markdown template binding "{{ ${path} }}" cannot be a Markdown link destination. Use [label](){:href="${path}"}.` })
 }
 
-/** Returns the index of the `[` that opens the label which ends at the last `]` of `text`. */
+/** Returns the index of an opening `[` in the label text. */
 function labelStart(text: string): number | undefined {
-  let depth = 0
-  for (let index = text.length - 1; index >= 0; index--) {
-    if (text[index] !== "[" && text[index] !== "]" || isEscaped(text, index)) continue
-    if (text[index] === "]") depth++
-    else if (--depth === 0) return index
-  }
-  return undefined
-}
-
-function isEscaped(text: string, index: number): boolean {
-  let slashes = 0
-  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor--) slashes++
-  return slashes % 2 === 1
+  const index = text.lastIndexOf("[")
+  return index === -1 ? undefined : index
 }
 
 function rejectBoundEventHandlers(source: Record<string, unknown>): void {
