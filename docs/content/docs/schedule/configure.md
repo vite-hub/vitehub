@@ -4,7 +4,6 @@ description: Configure the Schedule Vite Integration, the Process Runtime, Sched
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Configure the Vite Integration
