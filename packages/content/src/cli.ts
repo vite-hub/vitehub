@@ -289,7 +289,13 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
     else parsed.id = value
   })
   if (parsed.ids && parsed.collection === undefined) throw usageError("--id requires --collection.")
-  if (command.options.includes("at") && parsed.at === undefined && !parsed.help && !parsed.dryRun) throw usageError("Missing --at.")
+  if (command.options.includes("at") && parsed.at === undefined && !parsed.help) throw usageError("Missing --at.")
+  if (command.options.includes("at") && parsed.at !== undefined && !parsed.help) {
+    const value = parsed.at.trim()
+    const date = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? new Date(value) : undefined
+    if (!date || Number.isNaN(date.getTime())) throw contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] schedule({ at }) must be a Date or an ISO timestamp with a time zone, such as "2026-10-20T09:00:00Z"; received ${JSON.stringify(parsed.at)}.` })
+    if (date.getTime() <= Date.now()) throw contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] schedule({ at }) must be in the future; received ${date.toISOString()}. Use publish({ expect }) to publish now.` })
+  }
   if (parsed.ifDigest !== undefined && parsed.file === undefined) throw usageError("--if-digest requires --file. An editor session pins the digest it opened.")
   return parsed
 }
@@ -611,7 +617,7 @@ async function runPublish(
   const pending = plan.result
   const verb = scheduling ? "schedule" : "publish"
   if (parsed.dryRun || !pending.documents.length) {
-    if (parsed.json) context.stdout.write(`${JSON.stringify(pending, null, 2)}\n`)
+    if (parsed.json) context.stdout.write(`${JSON.stringify(parsed.dryRun ? pending : { ...pending, dryRun: false }, null, 2)}\n`)
     else if (!pending.documents.length) context.stderr.write(`Nothing to ${verb}: every selected document is published as drafted.\n`)
     else context.stdout.write(`Would ${verb} ${plural(pending.documents.length, "document")}${scheduling && parsed.at ? ` at ${parsed.at}` : ""}:\n${changeLines(pending.documents)}\n`)
     return 0
@@ -712,7 +718,13 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
       await cleanup()
       return writeFailure(parsed, context, { message: error instanceof Error ? error.message : String(error) })
     }
-    text = await readFile(file, "utf8")
+    try {
+      text = await readFile(file, "utf8")
+    }
+    catch (error) {
+      await cleanup()
+      return writeFailure(parsed, context, { message: `Could not read edited file: ${error instanceof Error ? error.message : String(error)}` })
+    }
     if (text === shown.result.text) {
       await cleanup()
       context.stderr.write(`No changes: ${document} was not saved.\n`)
