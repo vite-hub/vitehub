@@ -116,7 +116,8 @@ const codes = {
     fix: "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
-    why: ({ origin, problem }: { origin?: string, problem?: "oauth-login" }): string => {
+    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "fallback-key" | "oauth-login" }): string => {
+      if (problem === "fallback-key") return `The fallback key of Connection "${connection}" must contain 1 to 8192 visible ASCII characters.`
       if (problem === "oauth-login") return "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path."
       if (origin) return `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
       return "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path."

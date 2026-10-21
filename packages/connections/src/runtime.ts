@@ -551,7 +551,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const key = v.is(v.string(), value) ? value.trim() : undefined
     if (!key) return undefined
     if (!API_KEY_PATTERN.test(key)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({})
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ connection: name, problem: "fallback-key" })
     }
     return key
   }
