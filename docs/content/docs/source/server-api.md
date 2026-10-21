@@ -4,6 +4,7 @@ description: Open Source readers, register and combine Sources, cache readers, a
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 Use these imports and methods to read Sources from server code and expose them to clients.

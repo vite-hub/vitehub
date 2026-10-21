@@ -46,14 +46,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isContentRuntime(value: unknown): value is ContentRuntime {
   return isRecord(value)
-    && value.collection instanceof Function
-    && value.collections instanceof Function
-    && value.can instanceof Function
-    && value.publish instanceof Function
-    && value.revisions instanceof Function
-    && value.schedule instanceof Function
-    && value.schedules instanceof Function
-    && value.unschedule instanceof Function
+    && typeof value.collection === "function"
+    && typeof value.collections === "function"
+    && typeof value.can === "function"
+    && typeof value.publish === "function"
+    && typeof value.revisions === "function"
+    && typeof value.schedule === "function"
+    && typeof value.schedules === "function"
+    && typeof value.unschedule === "function"
 }
 
 function contentRuntime(value: unknown): ContentRuntime {

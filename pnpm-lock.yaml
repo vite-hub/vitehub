@@ -1340,18 +1340,12 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@vite-hub/database':
-        specifier: workspace:*
-        version: link:../database
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../workspace
       h3:
         specifier: catalog:unjs
         version: 2.0.2(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
@@ -1374,9 +1368,15 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       comark-content:
         specifier: catalog:markdown
         version: 0.4.1(@azure/identity@4.14.0)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.39.0)(@vercel/blob@2.8.2(patch_hash=7db2e11e23fa7dc8684790de4335388d84d5926b1dc2a33f08a78ac4585e2fa3))(@vercel/functions@3.10.1(@aws-sdk/credential-provider-web-identity@3.972.81)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.5.0)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.2(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3))
@@ -2899,6 +2899,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source

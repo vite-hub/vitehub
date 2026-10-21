@@ -104,6 +104,7 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
 
 function accepts(patterns: string[], contentType: string): boolean {
   const type = contentType.split(";")[0]!.trim().toLowerCase()
+  if (!mimePattern.test(type)) return false
   const major = type.split("/")[0]
   return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }

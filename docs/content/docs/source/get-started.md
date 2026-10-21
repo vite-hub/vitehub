@@ -3,7 +3,7 @@
 title: Read your first Source
 description: Read a known Markdown file through a local glob Source.
 layout: tutorial
-navigation.title: Get started
+navigation.title: Tutorial
 navigation.order: 2
 icon: i-lucide-rocket
 ---

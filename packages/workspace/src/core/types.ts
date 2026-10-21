@@ -337,6 +337,8 @@ export interface WorkspaceHistoryChanges {
 export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   /** The expected head of `ref`. Use null for the first revision on the ref. */
   ifHead: string | null
+  /** Additional ref heads that must match atomically when this commit advances its ref. */
+  ifHeads?: Record<string, string | null>
   message?: string
   metadata?: Record<string, unknown>
 }
@@ -566,7 +568,6 @@ export interface WorkspaceSourceRequestExecutionInput {
   /** Abort a controlled request when its owning Shell invocation ends. */
   signal?: AbortSignal
   method: WorkspaceSourceRequestMethod
-  signal?: AbortSignal
   url: string
 }
 

@@ -595,7 +595,10 @@ function requestUrl(event: H3Event): URL {
 }
 
 async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
-  if (event.req instanceof Request) return await content.handler(event.req)
+  if (event.req instanceof Request) {
+    const dispatch = () => content.handler(event.req)
+    return content.preview ? await content.preview.run(event.req, dispatch) : await dispatch()
+  }
 
   if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
   // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
@@ -623,10 +626,7 @@ async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Ev
   if (nodeRequest.aborted) abort.abort()
   else nodeRequest.once("aborted", () => abort.abort())
 
-  return await content.handler(new Request(url, {
-    body,
-    headers,
-    method,
-    signal: abort.signal,
-  }))
+  const request = new Request(url, { body, headers, method, signal: abort.signal })
+  const dispatch = () => content.handler(request)
+  return content.preview ? await content.preview.run(event, dispatch) : await dispatch()
 }

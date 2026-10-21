@@ -16,22 +16,26 @@ export const content = defineContent({
 })
 ```
 
-`defineContent()` forwards Comark plugins to each content instance. Install the
-plugin you need and pass it in `plugins`; plugin options are evaluated when the
-content runtime is created and can be changed by rebuilding or recreating that
-runtime.
+`defineContent()` forwards plugins to each content instance. Comark parse
+plugins, which change how Markdown is parsed, go in `markdown.plugins`. Comark
+Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go in
+`plugins`. A parse plugin in `plugins` throws `CONTENT_R0006`. Plugin options are
+evaluated when the content runtime is created and can be changed by rebuilding
+or recreating that runtime.
 
 ```ts
 import knap from "comark-knap"
 
 export const content = defineContent({
-  plugins: [
-    knap({
-      variables: {
-        environment: process.env.NODE_ENV,
-      },
-    }),
-  ],
+  markdown: {
+    plugins: [
+      knap({
+        variables: {
+          environment: process.env.NODE_ENV,
+        },
+      }),
+    ],
+  },
   source: fs("./docs"),
 })
 ```
@@ -44,10 +48,11 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ## Document collections
 
-`collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`.
+`collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`.
 
 ```ts
-import { defineContent, documents } from "@vite-hub/content"
+import { defineContent } from "@vite-hub/content"
+import { documents } from "@vite-hub/content/collections"
 import cms from "@vite-hub/content/presets/cms"
 import { z } from "zod"
 

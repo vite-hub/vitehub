@@ -79,11 +79,11 @@ describe("collectContributions", () => {
     expect(String(error)).toContain("pkg/second#docs from plugin \"second-plugin\"")
   })
 
-  it("fails on one name from two plugins with the same entry", async () => {
+  it("deduplicates one Definition contributed by two plugins", async () => {
     const entry = { definition: { module: "/same.ts" }, name: "same" }
 
     await expect(collect([{ name: "one", vitehub: { widgets: [entry] } }, { name: "two", vitehub: { widgets: [entry] } }]))
-      .rejects.toThrow(/plugin "one"[\s\S]*plugin "two"/)
+      .resolves.toEqual([{ definition: { export: "default", module: "/same.ts" }, name: "same", plugin: "one" }])
   })
 
   it("normalizes file URLs and rejects relative modules", async () => {

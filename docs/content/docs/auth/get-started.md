@@ -1,7 +1,7 @@
 ---
 title: Create your first Auth session
 description: Create an email-and-password user and verify their session with a saved cookie.
-navigation.title: Get started
+navigation.title: Tutorial
 layout: tutorial
 navigation.order: 2
 icon: i-lucide-rocket

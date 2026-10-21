@@ -8,6 +8,8 @@ export type ShellObservationEvent =
 
 export interface ShellRuntimeExecOptions {
   budget?: ExecutionBudget
+  /** Set when the caller already charged this command against the budget. */
+  budgetCharged?: boolean
   cwd?: string
   env?: Record<string, string>
   /** Abort the command and any provider-owned work, such as a Source request. */
@@ -16,7 +18,6 @@ export interface ShellRuntimeExecOptions {
   maxOutputLength?: number
   onStderr?: (data: string) => void
   onStdout?: (data: string) => void
-  signal?: AbortSignal
   stdin?: string
   timeout?: number
   workspacePaths?: string[]
