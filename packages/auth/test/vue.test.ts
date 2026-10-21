@@ -16,7 +16,7 @@ vi.mock("better-auth/vue", () => ({
   },
 }))
 
-const { authClient, createAuthClient, loadAuthClient, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
+const { authClient, createAuthClient, loadAuthClient, setNuxtAppResolver, useAuthClient, useSession, useSignIn, useSignUp, useUserSession } = await import("../src/vue.ts")
 
 afterEach(() => {
   betterAuth.created.length = 0
@@ -80,5 +80,15 @@ describe("Vue Auth composables", () => {
     const client = createAuthClient()
     const loaded = await loadAuthClient(client)
     expect(Reflect.get(loaded, "$store")).toEqual({ name: "store" })
+  })
+
+  it("restores Nuxt context for delayed useFetch hooks without a Vue instance", async () => {
+    const runWithContext = vi.fn((run: () => unknown) => run())
+    setNuxtAppResolver(() => ({ runWithContext }))
+    const client = createAuthClient()
+    const useFetch = () => undefined
+    await client.useSession(useFetch as never)
+    expect(runWithContext).toHaveBeenCalledOnce()
+    setNuxtAppResolver(undefined)
   })
 })

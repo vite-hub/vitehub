@@ -11,6 +11,14 @@ export type { VueAuthClient } from "better-auth/vue"
 const LOAD = Symbol.for("vitehub.auth.client.load")
 
 type Callable = (...args: unknown[]) => unknown
+type NuxtApp = { runWithContext<T>(run: () => T): T }
+
+let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
+
+/** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
+export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
+  nuxtAppResolver = resolver
+}
 
 /** The state of a client hook, such as `useSession()`, before Better Auth's client has loaded. */
 const pendingState = (refetch: Callable) => ({ data: null, error: null, isPending: true, isRefetching: false, refetch })
@@ -27,7 +35,7 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
 
   function hook(name: string, args: unknown[]) {
     const scope = getCurrentScope()
-    const nuxtApp = getCurrentInstance()?.appContext.config.globalProperties.$nuxt as { runWithContext<T>(run: () => T): T } | undefined
+    const nuxtApp = nuxtAppResolver?.() || getCurrentInstance()?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
     // SAFETY: `name` is one of the client's `use*` hooks.
     const real = (client: VueAuthClient<Option>) => (Reflect.get(client, name) as Callable)(...args)
     // Better Auth's `useSession(useFetch)` for Nuxt answers with a promise, so it can wait for the load too.

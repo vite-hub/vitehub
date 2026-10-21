@@ -20,6 +20,7 @@ export interface AuthNuxtModuleOptions {
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
+    plugins?: string[]
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -48,6 +49,10 @@ const nitroRegistered = new WeakSet<object>()
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
+
+  nuxt.options.plugins ??= []
+  const vueRuntimePlugin = fileURLToPath(new URL("./runtime/vue-nuxt.js", import.meta.url))
+  if (!nuxt.options.plugins.includes(vueRuntimePlugin)) nuxt.options.plugins.push(vueRuntimePlugin)
 
   nuxt.options.vite ??= {}
   nuxt.options.vite.plugins ??= []
