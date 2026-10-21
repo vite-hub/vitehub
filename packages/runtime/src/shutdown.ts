@@ -184,14 +184,10 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       // applications or integrations and must retain their normal ordering.
       const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
         typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
-      // srvx's listener is normally named `shutdown`, but some hosts expose an anonymous
-      // callback. Identify those by the close/stop operation in their function body. Never
-      // fall back to listener order: application handlers may be registered before or after
-      // the host listener and must retain their normal signal semantics.
-      const server = candidates.find(listener => {
-        const source = Function.prototype.toString.call(listener)
-        return listener.name === "shutdown" || /(?:closeServer|server)/i.test(listener.name) || /\b(?:close|stop)\b/.test(source)
-      })
+      // srvx exposes its graceful stop callback as `shutdown`. Match that explicit host
+      // contract only; application callbacks are never classified by broad names or source
+      // text, and unmatched listeners retain their normal signal ordering.
+      const server = candidates.find(listener => listener.name === "shutdown")
       if (server) {
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
         const handler = server as (signal: ShutdownSignal) => void

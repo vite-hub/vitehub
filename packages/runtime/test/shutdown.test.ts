@@ -63,7 +63,7 @@ describe("onShutdown", () => {
       order.push("server")
       await close()
     })
-    Object.defineProperty(closeServer, "name", { value: "closeServer" })
+    Object.defineProperty(closeServer, "name", { value: "shutdown" })
     const applicationSignal = vi.fn()
     emitter.on("SIGTERM", closeServer)
     emitter.on("SIGTERM", applicationSignal)
@@ -115,16 +115,17 @@ describe("onShutdown", () => {
     expect(shutdownState(runtime).entries.size).toBe(0)
   })
 
-  it("does not use listener order to detach application handlers", async () => {
+  it("preserves application handlers that resemble server callbacks", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const { emitter, exit, runtime } = fakeRuntime()
     const { app, close } = fakeApp()
     onShutdown(app, "queue", async () => {}, runtime)
     const application = vi.fn()
+    Object.defineProperty(application, "name", { value: "stopMetrics" })
     emitter.on("SIGTERM", application)
     const httpServer = { close: vi.fn() }
     const host = vi.fn(async () => { httpServer.close(); await close() })
-    Object.defineProperty(host, "name", { value: "server" })
+    Object.defineProperty(host, "name", { value: "shutdown" })
     emitter.on("SIGTERM", host)
     await nextTimer()
 
