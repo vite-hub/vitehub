@@ -439,10 +439,20 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const names = new Set(collections.map(collection => collection.name))
       return await attempt(async () => {
         // Saves, removes, and restores live on `draft`; publishes on `published`. Each ref is read once.
+        const loadRevisions = async (ref: "draft" | "published") => {
+          const revisions: Awaited<ReturnType<ContentDocumentsRuntime["revisions"]>>["revisions"] = []
+          let cursor: string | undefined
+          do {
+            const page = await content.revisions({ ref, limit: maximumActivity, ...(cursor ? { cursor } : {}) })
+            revisions.push(...page.revisions)
+            cursor = page.cursor
+          } while (cursor)
+          return revisions
+        }
         const [draft, published] = limit
-          ? await Promise.all((["draft", "published"] as const).map(ref => content.revisions({ ref, limit: maximumActivity })))
-          : [{ revisions: [] }, { revisions: [] }]
-        const revisions = [...draft!.revisions, ...published!.revisions]
+          ? await Promise.all((["draft", "published"] as const).map(loadRevisions))
+          : [[], []]
+        const revisions = [...draft, ...published]
           .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         const mentioned = new Map<string, Set<string>>()
         const activity: ViteHubConsoleDocumentActivity[] = (await Promise.all(revisions.map(async (revision) => {
