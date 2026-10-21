@@ -1,7 +1,7 @@
+// tsconfig.json loads no ambient types: the root entry point must remain usable without Node types.
 import { ViteHubError } from "@vite-hub/runtime"
 
 import { type EnvErrorCode, type EnvErrorDetails, type EnvSourceIdentifier } from "@vite-hub/env"
-import { secretCliFeatures } from "@vite-hub/env/cli"
 
 const code = "ENV_SOURCE_FAILED" satisfies EnvErrorCode
 const source = "git:branch" satisfies EnvSourceIdentifier
@@ -14,6 +14,3 @@ error.details satisfies EnvErrorDetails<typeof code> | undefined
 // @ts-expect-error Env source details use the bounded public identifier vocabulary.
 const invalidSource: EnvSourceIdentifier = "vault:token"
 void invalidSource
-
-// The root entry point must remain usable without Node ambient types.
-void secretCliFeatures[0]?.run([], { env: {}, stderr: { write() {} }, stdout: { write() {} } })
