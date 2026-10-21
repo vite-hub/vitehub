@@ -52,12 +52,12 @@ async function storeJournal() {
   return path
 }
 
-async function run(args: string[], env: NodeJS.ProcessEnv = {}) {
+async function run(args: string[], env: NodeJS.ProcessEnv = {}, sleep: (milliseconds: number) => Promise<void> = async () => undefined) {
   const stdout = stream()
   const stderr = stream()
   const fetch = vi.fn()
   // SAFETY: The mock only proves that a journal file read sends no request.
-  const exitCode = await runAgentInvocationsCli(args, { env, stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep: async () => undefined })
+  const exitCode = await runAgentInvocationsCli(args, { env, stderr, stdout }, { fetch: fetch as unknown as typeof globalThis.fetch, sleep })
   expect(fetch).not.toHaveBeenCalled()
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
@@ -112,9 +112,17 @@ describe("vitehub agent invocations --database", () => {
     const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url: `file:${path}` })
     await store.create({ ...invocation("active", "running"), updatedAt: new Date().toISOString() })
     for (let index = 0; index < 100; index++) await store.create(invocation(`done-${index}`, "completed"))
-    const result = await run(["wait-idle", "--database", path, "--timeout", "1ms", "--json"])
+    // A read can finish within the 1 ms wait. Freeze the clock so the first read always reports the active record
+    // and the wait's sleep is what reaches the deadline.
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date"] })
+    const result = await run(["wait-idle", "--database", path, "--timeout", "1ms", "--json"], {}, async (milliseconds) => {
+      vi.setSystemTime(Date.now() + milliseconds)
+    }).finally(() => vi.useRealTimers())
     expect(result.exitCode).toBe(1)
-    expect(JSON.parse(result.stdout)).toMatchObject({ event: "invocations.timeout", active: [{ id: "active", status: "running" }] })
+    expect(result.stdout.trim().split("\n").map(line => JSON.parse(line))).toMatchObject([
+      { event: "invocations.waiting", active: [{ id: "active", status: "running" }] },
+      { event: "invocations.timeout", active: [{ id: "active", status: "running" }] },
+    ])
   })
 
   it("reads an older read-only journal without migrating it", async () => {
