@@ -171,6 +171,10 @@ describe("Database Nuxt integration", () => {
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
+          handler: ".vitehub/nitro/database/request-stats.ts",
+          middleware: true,
+        },
+        {
           handler: ".vitehub/nitro/database/middleware.ts",
           middleware: true,
         },

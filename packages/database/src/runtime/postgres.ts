@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 
 import { resolveConfigValue } from "../config-value.ts"
+import { keepOwnClient, trackPostgresClient } from "./request-stats.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { DatabaseConfigValue, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "../types.ts"
@@ -98,7 +99,7 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
     // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
     const options = requestScoped ? { max: 5 } : {}
     const client = connection.url ? postgres(connection.url, options) : postgres(options)
-    const db: RuntimePostgresDatabase<TSchema> = drizzle({ casing: definition.drizzle.casing, client, schema: definition.schema })
+    const db: RuntimePostgresDatabase<TSchema> = keepOwnClient(drizzle({ casing: definition.drizzle.casing, client: trackPostgresClient(client), schema: definition.schema }), client)
     return { client, db, key: connection.key }
   }
 

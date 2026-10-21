@@ -3,6 +3,7 @@ import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { createCloudflareD1HttpResolver } from "./d1-http.ts"
+import { keepOwnClient, trackD1Database, trackLibsqlClient } from "./request-stats.ts"
 
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -65,10 +66,10 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
         return cached
       }
 
-      const instance = drizzleD1(d1Binding, {
+      const instance = keepOwnClient(drizzleD1(trackD1Database(d1Binding), {
         casing: config.drizzle.casing,
         schema,
-      }) as RuntimeDrizzleDatabase<TSchema>
+      }), d1Binding) as RuntimeDrizzleDatabase<TSchema>
       d1Instances.set(d1Binding, instance)
       return instance
     }
@@ -92,11 +93,11 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     let instance: RuntimeDrizzleDatabase<TSchema>
     try {
       // SAFETY: The injected libSQL adapters expose the same Drizzle database contract as the runtime schema generic.
-      instance = options.libsql.drizzle({
+      instance = keepOwnClient(Object(options.libsql.drizzle({
         casing: config.drizzle.casing,
-        client,
+        client: trackLibsqlClient(client),
         schema,
-      }) as RuntimeDrizzleDatabase<TSchema>
+      })), client) as RuntimeDrizzleDatabase<TSchema>
     }
     catch (error) {
       client.close?.()

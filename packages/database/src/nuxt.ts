@@ -33,6 +33,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
+const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
@@ -308,6 +309,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
         }
+        await installNitroRequestStats(config, root)
       })
     }
 
@@ -622,6 +624,19 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "  setActiveCloudflareEnv(env)",
     "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
     "}",
+    "",
+  ].join("\n"))
+}
+
+/** Each request's database calls go on its evlog wide event (`database`), on every host and in `nuxt dev`. */
+async function installNitroRequestStats(config: Record<string, unknown>, root: string) {
+  const kit = createNitroServerKit(config)
+  kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
+  config.handlers = kit.config.handlers
+  await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
+    "import { runWithDatabaseRequestStats } from '@vite-hub/database/runtime/request-stats'",
+    "",
+    "export default (event: unknown, next?: () => unknown) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",
   ].join("\n"))
 }
