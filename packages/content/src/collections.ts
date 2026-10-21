@@ -1,3 +1,4 @@
+import { documents as defineDocuments, optional, withDocumentsRuntime } from "./documents.ts"
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -20,7 +21,7 @@ import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
 import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
-import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentsDefinition } from "./documents.ts"
+import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentsDefinition, DocumentsOptions } from "./documents.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -863,6 +864,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
+      query: published.query,
+      all: published.all,
       list,
       get,
       raw,
@@ -1108,4 +1111,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     },
     dispose: plugin,
   }
+}
+
+export { optional }
+
+export function documents<const TFields extends ContentFields>(options: DocumentsOptions<TFields>): DocumentsDefinition<TFields> {
+  return withDocumentsRuntime(defineDocuments(options), createContentCollections)
 }

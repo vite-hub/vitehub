@@ -67,7 +67,7 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     // The intrinsic accessor establishes the Blob internal-slot brand before
     // consulting the value's realm-specific stream method.
     const type = String(Reflect.apply(blobTypeGetter, value, []))
-    const body = () => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream
+    const body = () => streamBody(() => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream)
     return { type, body }
   }
   catch {

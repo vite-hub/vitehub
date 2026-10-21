@@ -1043,4 +1043,20 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
+  it("rejects promptly when caller cancellation interrupts an ignored preflight signal", async () => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+    const slowFs = createReadonlyWorkspaceFs(workspace)
+    slowFs.exists = async () => await new Promise(() => {})
+    const controller = new AbortController()
+    const promise = runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: slowFs,
+      signal: controller.signal,
+      timeout: 1_000,
+    })
+    controller.abort(new Error("cancelled"))
+    await expect(promise).rejects.toThrow("cancelled")
+  })
+
 })
