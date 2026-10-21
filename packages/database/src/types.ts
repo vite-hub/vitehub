@@ -30,6 +30,12 @@ export interface CloudflareD1BindingConfig {
   previewDatabaseId?: DatabaseConfigValue
   databaseName?: DatabaseConfigValue
   migrationsTable?: string
+  /**
+   * Read from D1 read replicas through the Sessions API. Each request gets one D1 session. A request with a method
+   * other than GET, HEAD, or OPTIONS starts on the primary and returns a bookmark cookie, so the same client reads its
+   * own writes next. Only native D1 bindings use it. D1 over HTTP and SQLite ignore it.
+   */
+  readReplication?: boolean
 }
 
 export interface DatabaseConnectionConfig {
@@ -54,6 +60,8 @@ export interface DatabaseRuntimeD1Options {
   local?: DatabaseLocalRuntimeOptions
   migrationsTable?: string
   previewDatabaseId?: DatabaseConfigValue
+  /** Read from D1 read replicas. See `CloudflareD1BindingConfig.readReplication`. */
+  readReplication?: boolean
 }
 
 export interface DatabaseIntegrationOptions {
@@ -156,6 +164,7 @@ export interface ResolvedCloudflareD1BindingConfig {
   databaseName?: DatabaseConfigValue
   migrationsDir: string
   migrationsTable?: string
+  readReplication?: boolean
 }
 
 export interface RuntimeDrizzleDatabaseConfig {

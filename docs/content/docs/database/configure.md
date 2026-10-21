@@ -36,6 +36,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
+| `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a discovered Database Definition does not enable Database. Without the `database` option, a build or `vite dev` that imports `vite-hub/database/drizzle` fails with `VITE_HUB_B0013`, and `vitehub db generate` and `vitehub db migrate` exit with an error. Add `database: true` or an options object to enable them. A directly composed `hubDb()` also provides Database.
 
@@ -228,6 +229,7 @@ The factory context also has `rootDir`, the root that Database Definitions are d
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
+| `cloudflare.readReplication` | `boolean` | No | Reads from D1 read replicas. Inherits `database.readReplication`. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.

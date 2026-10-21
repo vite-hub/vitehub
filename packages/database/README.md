@@ -117,6 +117,8 @@ export default defineDatabase({
 })
 ```
 
+Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. D1 over HTTP and SQLite ignore the option.
+
 Remote access is explicit. Local development uses SQLite when neither the Definition nor its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
 
 A Definition inherits the integration resource when it omits both `databaseId` and `databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.

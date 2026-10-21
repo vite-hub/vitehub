@@ -158,11 +158,11 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
     "  const env = event?.env ?? event?.req?.runtime?.cloudflare?.env ?? event?.context?.cloudflare?.env ?? event?.context?._platform?.cloudflare?.env ?? globalThis.__env__",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "  setActiveCloudflareEnv(env)",
     "}",
     "",
@@ -236,6 +236,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   function resolvedOptions() {
     return resolved?.database ?? options
+  }
+
+  function integrationReadReplication() {
+    const database = resolvedOptions()
+    return database && database.driver === "d1" ? database.readReplication : undefined
   }
 
   function databaseRoot() {
@@ -364,6 +369,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               implicitDefault: true,
               plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
+              readReplication: integrationReadReplication(),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
               viteRoot: resolved?.root,

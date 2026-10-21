@@ -215,6 +215,16 @@ function readStringValue(body: ObjectExpression | undefined, property: string): 
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
+function readBooleanValue(body: ObjectExpression | undefined, property: string): boolean | undefined {
+  const expression = readObjectPropertyValue(body, property)
+  return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
+}
+
+/** Whether a Database Definition's source sets `cloudflare.readReplication`. Undefined when it does not set it as a literal. */
+export function readDatabaseDefinitionReadReplication(file: string): boolean | undefined {
+  return readBooleanValue(objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare")), "readReplication")
+}
+
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
 function readDefinitionCloudflareResource(expression: Expression | undefined, file: string): DefinitionCloudflareResource {
@@ -268,6 +278,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     databaseName: readConfigValue(body, "databaseName"),
     migrationsTable: readStringValue(body, "migrationsTable"),
     previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
+    readReplication: readBooleanValue(body, "readReplication"),
   }
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
@@ -571,6 +582,7 @@ function normalizeCloudflareConfig(
     ...(typeof value.databaseName !== "undefined" ? { databaseName: value.databaseName } : {}),
     migrationsDir,
     ...(typeof value.migrationsTable === "string" && value.migrationsTable.trim() ? { migrationsTable: value.migrationsTable.trim() } : {}),
+    ...(typeof value.readReplication === "boolean" ? { readReplication: value.readReplication } : {}),
   }
 }
 
