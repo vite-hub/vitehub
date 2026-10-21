@@ -10,7 +10,7 @@ import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobStorage } from "./types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import isBlob from "./internal/is-blob.ts"
 import { assertValidPathname } from "./internal/pathname.ts"
@@ -139,6 +139,29 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
   return assertValidPathname(options.prefix
     ? joinPath(options.prefix, normalized)
     : normalized)
+}
+
+/**
+ * Reads one `Range: bytes=` spec. Returns `undefined` to send the whole body: no range, several ranges, a stale
+ * `If-Range`, or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
+ */
+function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
+  if (!["GET", "HEAD"].includes(event.req.method)) return
+  const header = event.req.headers.get("range")
+  if (!header) return
+  const ifRange = event.req.headers.get("if-range")
+  // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
+  if (ifRange !== null && (!etag || ifRange !== etag)) return
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!match || (!match[1] && !match[2])) return
+  if (!match[1]) {
+    const length = Number(match[2])
+    return length > 0 && size > 0 ? { start: Math.max(0, size - length), end: size - 1 } : "unsatisfiable"
+  }
+  const start = Number(match[1])
+  const end = match[2] ? Number(match[2]) : Infinity
+  if (end < start) return
+  return start < size ? { start, end: Math.min(end, size - 1) } : "unsatisfiable"
 }
 
 export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name): BlobStorage {
@@ -325,6 +348,20 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
             body = transformed ?? null
           }
           if (!body) return
+          if (!transform) {
+            headers.set("Accept-Ranges", "bytes")
+            const range = selectByteRange(event, etag, body.size)
+            if (range === "unsatisfiable") {
+              headers.set("Content-Range", `bytes */${body.size}`)
+              body = new Blob([])
+              event.res.status = 416
+            }
+            else if (range) {
+              headers.set("Content-Range", `bytes ${range.start}-${range.end}/${body.size}`)
+              body = body.slice(range.start, range.end + 1, body.type)
+              event.res.status = 206
+            }
+          }
           const stream = body.stream()
           headers.set("X-Content-Type-Options", "nosniff")
           headers.set("Content-Length", String(body.size))

@@ -81,7 +81,7 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -95,6 +95,8 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 ## Serve a transformed object
 
 Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It sets content headers and handles conditional GET and HEAD requests through h3. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
+
+`blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 
 The optional `transform` receives the original `Blob` and returns the response `Blob`. ViteHub caches that result in the same store with its configured access under `_vitehub/derived/`, a namespace reserved from public writes, signed PUTs, and multipart uploads along with its `_vitehub` parent pathname. On filesystem stores, legacy files at either cache directory path are preserved; serving still returns fresh transforms, but caching requires moving those files out of the way. It validates the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes separate from content metadata. If source metadata changes while reading its bytes, ViteHub retries the read before transforming it. Stable ETags determine cache writes; provider timestamps do not.
 
