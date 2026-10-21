@@ -287,7 +287,6 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const session = await starter.startSession({
-        ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),
         paths: execOptions.workspacePaths,
       })
       let observation: ShellObservation
@@ -423,12 +422,13 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], budget?: ExecutionBudget, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
+  options: { broadSearchPaths: string[], budget?: ExecutionBudget, budgetCharged?: boolean, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
   const inspectionOptions = {
     budget: options.budget,
+    budgetCharged: options.budgetCharged,
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,
     cwd: options.cwd,
@@ -443,20 +443,24 @@ async function runShellCommand(
   const starter = getWorkspaceSessionStarter(input)
   if (starter) {
     try {
-      return await runWorkspaceInspectionCommand(input, command, {
+      const result = await runWorkspaceInspectionCommand(input, command, {
         ...inspectionOptions,
         provider: createWorkspaceSessionShellProvider(starter),
       })
+      if (options.budget?.signal.aborted) throw options.budget.signal.reason
+      return result
     }
     catch (error) {
       if (!isUnavailableWorkspaceSession(error)) throw error
     }
   }
   const provider = await resolveExecutionProvider(options.executionProvider)
-  return await runWorkspaceInspectionCommand(input, command, {
+  const result = await runWorkspaceInspectionCommand(input, command, {
     ...inspectionOptions,
     ...(provider ? { provider } : {}),
   })
+  if (options.budget?.signal.aborted) throw options.budget.signal.reason
+  return result
 }
 
 function sizeOf(content: string | Uint8Array) {
@@ -499,6 +503,18 @@ async function materializeWorkspaceSourcesTool(
 }
 
 function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>, budget?: ExecutionBudget): Partial<WorkspaceWriteToolMap> {
+  const charge = (executionOptions: unknown, inputBytes = 0) => {
+    const charged = Boolean((executionOptions as { [executionBudgetCharged]?: boolean } | undefined)?.[executionBudgetCharged])
+    if (!charged) {
+      try {
+        budget?.recordToolCall(inputBytes)
+      }
+      catch (error) {
+        budget?.cancel(error)
+        throw error
+      }
+    }
+  }
   const result: Partial<WorkspaceWriteToolMap> = {}
 
   if (enabled.writeFile) {
@@ -514,8 +530,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["path", "content"],
         type: "object",
       }),
-      execute: async ({ content, mediaType, path }) => {
-        budget?.recordToolCall(sizeOf(content))
+      execute: async ({ content, mediaType, path }, executionOptions) => {
+        charge(executionOptions, sizeOf(content))
         const normalized = cleanMutationPath(path)
         await workspace.writeFile(normalized, content, { mediaType } satisfies WriteFileOptions)
         return { path: normalized }
@@ -535,8 +551,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["path", "content"],
         type: "object",
       }),
-      execute: async ({ content, path }) => {
-        budget?.recordToolCall(sizeOf(content))
+      execute: async ({ content, path }, executionOptions) => {
+        charge(executionOptions, sizeOf(content))
         const normalized = cleanMutationPath(path)
         await appendWorkspaceFile(workspace, normalized, content)
         return { path: normalized }
@@ -557,8 +573,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["path"],
         type: "object",
       }),
-      execute: async ({ force, path, recursive }) => {
-        budget?.recordToolCall()
+      execute: async ({ force, path, recursive }, executionOptions) => {
+        charge(executionOptions)
         const normalized = cleanMutationPath(path)
         await workspace.rm(normalized, { force, recursive })
         return { path: normalized }
@@ -578,8 +594,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["path"],
         type: "object",
       }),
-      execute: async ({ path, recursive }) => {
-        budget?.recordToolCall()
+      execute: async ({ path, recursive }, executionOptions) => {
+        charge(executionOptions)
         const normalized = cleanMutationPath(path)
         await workspace.mkdir(normalized, { recursive })
         return { path: normalized }
@@ -600,8 +616,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["from", "to"],
         type: "object",
       }),
-      execute: async ({ from, overwrite = false, to }) => {
-        budget?.recordToolCall()
+      execute: async ({ from, overwrite = false, to }, executionOptions) => {
+        charge(executionOptions)
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
         await copyWorkspacePath(workspace, source, target, overwrite)
@@ -623,8 +639,8 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         required: ["from", "to"],
         type: "object",
       }),
-      execute: async ({ from, overwrite = false, to }) => {
-        budget?.recordToolCall()
+      execute: async ({ from, overwrite = false, to }, executionOptions) => {
+        charge(executionOptions)
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
         await copyWorkspacePath(workspace, source, target, overwrite)
@@ -697,8 +713,17 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
           } satisfies WorkspaceShellResult
         }
         shellCalls += 1
-        if (!(executionOptions as (typeof executionOptions & { [executionBudgetCharged]?: boolean }) | undefined)?.[executionBudgetCharged]) executionBudget?.recordToolCall()
-        return await runShellCommand(input, command, { ...resolved, budget: executionBudget, signal: abortSignal })
+        const alreadyCharged = Boolean((executionOptions as (typeof executionOptions & { [executionBudgetCharged]?: boolean }) | undefined)?.[executionBudgetCharged])
+        if (!alreadyCharged) {
+          try {
+            executionBudget?.recordToolCall()
+          }
+          catch (error) {
+            executionBudget?.cancel(error)
+            throw error
+          }
+        }
+        return await runShellCommand(input, command, { ...resolved, budget: executionBudget, budgetCharged: Boolean(executionBudget), signal: abortSignal })
       },
     }))
     if (resolved.budget) markExecutionBudgetHandled(result.shell, resolved.budget)
@@ -726,8 +751,8 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         },
         type: "object",
       }),
-      execute: async ({ path, sources }) => {
-        resolved.budget?.recordToolCall()
+      execute: async ({ path, sources }, executionOptions) => {
+        if (!(executionOptions as { [executionBudgetCharged]?: boolean } | undefined)?.[executionBudgetCharged]) resolved.budget?.recordToolCall()
         return await materializeWorkspaceSourcesTool(input, { path, sources })
       },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })

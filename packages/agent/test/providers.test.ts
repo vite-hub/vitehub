@@ -681,9 +681,9 @@ describe("agent Vite plugin", () => {
       expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(registry).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
       expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
-      expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
+      expect(registry).not.toContain('@vite-hub/schedule/runtime')
       expect(registry).toContain(
-        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
+        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: registry } } }',
       )
       expect(registry).toContain('registry["agent/digest"]')
       expect(registry).toContain('vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), "Use digest instructions.\\n")')
@@ -733,7 +733,7 @@ describe("agent Vite plugin", () => {
       expect(filteredRegistry).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
       expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
       expect(filteredRegistry).toContain(
-        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
+        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: registry } } }',
       )
       expect(filteredRegistry).toContain(
         'import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"',
@@ -2006,10 +2006,9 @@ describe("agent Vite plugin", () => {
 
       for (const route of [webhookRoute, gatewayRoute]) {
         expect(route).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
-        expect(route).toContain('setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from "@vite-hub/schedule/runtime"')
-        expect(route).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+        expect(route).not.toContain('@vite-hub/schedule/runtime')
         expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
+        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubAgentScheduleRegistry } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
         expect(route).toContain('import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from "@vite-hub/agent/server/internal"')
         expect(route).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
@@ -2030,15 +2029,15 @@ describe("agent Vite plugin", () => {
       }
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
       expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
-      expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+      expect(denoServer).not.toContain("vitehubSetScheduleRuntimeRegistry")
       expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
-      expect(denoServer).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }")
+      expect(denoServer).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubAgentScheduleRegistry } }")
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
       expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: registry } }")
       expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
       expect(standaloneRegistry).not.toContain("setAgentHostCapabilities")
 

@@ -272,11 +272,11 @@ function generatedAgentRuntimeCapabilityImports(capabilities: GeneratedAgentRunt
     : [`import { ${capability.importName} as ${generatedAgentRuntimeCapabilityAlias(capability)} } from ${JSON.stringify(capability.packageName)}`])
 }
 
-function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean): string {
+function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean, scheduleRegistry = "vitehubAgentScheduleRegistry"): string {
   const entries = capabilities.map(capability =>
     `${capability.name}: ${capability.packageName === false ? "false" : generatedAgentRuntimeCapabilityAlias(capability)}`
   )
-  if (schedule) entries.push("schedule: { schedules: vitehubSchedules }")
+  if (schedule) entries.push(`schedule: { schedules: ${scheduleRegistry} }`)
   return `{ ${entries.join(", ")} }`
 }
 
@@ -438,14 +438,12 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
       ...(options.schedule
         ? [
             `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
-            `import { schedules as vitehubSchedules, setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from ${JSON.stringify(options.scheduleRuntimeImport ?? scheduleRuntimeImport)}`,
           ]
         : []),
     ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
     requestProperty: ", capabilities: vitehubAgentRouteCapabilities",
     setup: [
-      ...(options.schedule ? ["vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)"] : []),
       `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities, options.schedule === true)}`,
       "// A standalone runAgent(), such as one in a Schedule handler, gets the same capabilities as these routes.",
       "vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)",
@@ -519,7 +517,7 @@ async function transformScheduleRegistry(
       `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw vitehubAgentRuntimeError("AGENT_R0892", ${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
       `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
       `  const module = await import(${JSON.stringify(handlerImport)})`,
-      `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true)} })`,
+      `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true, "registry")} })`,
       "}",
     ]
   }))).flat()
@@ -534,7 +532,6 @@ async function transformScheduleRegistry(
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
-    `import { schedules as vitehubSchedules } from ${JSON.stringify(scheduleRuntimeSpecifier)}`,
     code,
     "function vitehubResolveScheduledAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
