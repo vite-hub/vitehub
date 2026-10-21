@@ -33,18 +33,22 @@ const codes = {
     fix: "Reconnect the Connection in the Console or with `vitehub connections connect <name>`.",
   },
   CONNECTIONS_NOT_CONNECTED: {
-    why: ({ apiKey, connection }: { apiKey?: boolean, connection: string }): string => apiKey
-      ? `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${connection}\` or in the Console.`
-      : `Connection "${connection}" is not connected. ${connect(connection)}`,
-    fix: "Connect the Connection in the Console or with the CLI command in `why`.",
+    why: ({ apiKey, connection, login }: { apiKey?: boolean, connection: string, login?: "connect" | "credentials" }): string => {
+      if (login === "connect") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no connect flow.`
+      if (login === "credentials") return `Connection "${connection}" has no login credentials.`
+      if (apiKey) return `Connection "${connection}" uses an API key. Set it with \`vitehub connections set-key ${connection}\` or in the Console.`
+      return `Connection "${connection}" is not connected. ${connect(connection)}`
+    },
+    fix: "Connect the Connection in the Console or with the CLI command in `why`. An `oauthLogin()` Connection signs in by itself once its `credentials` resolve.",
   },
   CONNECTIONS_ORIGIN_NOT_ALLOWED: {
     why: ({ connection, origin }: { connection: string, origin: string }): string => `Connection "${connection}" does not send its token to ${origin}.`,
     fix: "Add the origin to the provider `origins`, or call a URL of a configured API catalog. ViteHub did not send the credential.",
   },
   CONNECTIONS_PROVIDER_FAILED: {
-    why: ({ action, message, problem, provider, status }: { action?: string, message?: string, problem?: "invalid-json" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
+    why: ({ action, connection, message, problem, provider, status }: { action?: string, connection?: string, message?: string, problem?: "invalid-json" | "login" | "no-token" | "token-request" | "verify", provider?: string, status?: number }): string => {
       if (problem === "invalid-json") return "Provider returned invalid JSON."
+      if (problem === "login") return `The login of Connection "${connection}" failed${message ? `: ${message}` : ""}.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
       if (problem === "token-request") return `Provider "${provider}" rejected the token request${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
@@ -92,8 +96,10 @@ const codes = {
     fix: "Set `basePath` to a pathname such as `/_vitehub/connections`.",
   },
   CONNECTIONS_INVALID_DEFINITION: {
-    why: ({ problem, provider }: { problem: "client-id" | "definition" | "revocation" | "verify-result", provider?: string }): string => {
+    why: ({ connection, problem, provider }: { connection?: string, problem: "client-id" | "definition" | "instance" | "registration" | "revocation" | "verify-result", provider?: string }): string => {
       if (problem === "client-id") return `Provider "${provider}" has no client id.`
+      if (problem === "instance") return `The Connection Definition of instance "${connection}" is invalid.`
+      if (problem === "registration") return `The authorization server of Connection "${connection}" does not register clients. Set the provider \`clientId\`.`
       if (problem === "revocation") return `Provider "${provider}" does not support token revocation.`
       if (problem === "verify-result") return `The verify check of provider "${provider}" must return a boolean or { account }.`
       return "The Connection Definition is invalid."
@@ -109,9 +115,11 @@ const codes = {
     fix: "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
-    why: ({ origin }: { origin?: string }): string => origin
-      ? `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
-      : "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.",
+    why: ({ origin, problem }: { origin?: string, problem?: "oauth-login" }): string => {
+      if (problem === "oauth-login") return "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path."
+      if (origin) return `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
+      return "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path."
+    },
     fix: "List each origin that may receive the key, for example `origins: ['https://api.example.com']`.",
   },
   CONNECTIONS_INVALID_STORED_DATA: {
@@ -167,8 +175,10 @@ const codes = {
     fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
   },
   CONNECTIONS_INVALID_REQUEST: {
-    why: ({ approval, connection, problem }: { approval?: string, connection?: string, problem: "api-key-format" | "authorization-expired" | "body" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
+    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "authorization-expired" | "body" | "instances" | "login-key" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
       if (problem === "api-key-format") return "An API key must contain 1 to 8192 visible ASCII characters."
+      if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
+      if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
       if (problem === "authorization-expired") return "The authorization request is unknown or expired. Start the connection again."
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
       if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${connection}\`.`
