@@ -1,4 +1,4 @@
-import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
@@ -4177,10 +4177,11 @@ export function createProviderAgentAdapter<
   const cwdLocks = new Map<string, Promise<void>>()
   const codexHomeRetention: CodexHomeRetentionSource | undefined = options.provider === "codex" && options.retention
     ? {
-        cursors: () => resumeCursors.values(),
+        // Since #2636 the map holds resume states; retention reads the provider cursor in each.
+        cursors: () => [...resumeCursors.values()].map(state => state.cursor),
         invalidate(threadIds) {
-          for (const [key, cursor] of resumeCursors) {
-            const threadId = providerNativeThreadId(cursor)?.toLowerCase()
+          for (const [key, state] of resumeCursors) {
+            const threadId = providerNativeThreadId(state.cursor)?.toLowerCase()
             if (threadId && threadIds.has(threadId)) resumeCursors.delete(key)
           }
         },
@@ -4199,7 +4200,7 @@ export function createProviderAgentAdapter<
       ? AbortSignal.any([context.input.abortSignal, invocationTimeoutSignal])
       : context.input.abortSignal || invocationTimeoutSignal
     const retryContext = retrySignal && retrySignal !== context.input.abortSignal
-      ? { ...context, input: { ...context.input, abortSignal: retrySignal } }
+      ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
     return retryProviderLaunch(
       () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, codexHomeRetention),
