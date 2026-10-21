@@ -15,6 +15,7 @@ describe("migration data loss", () => {
     ["alter table notes drop body;", "drops column \"body\" from \"notes\""],
     ["TRUNCATE TABLE \"notes\";", "deletes every row of \"notes\""],
     ["DELETE FROM `notes`;", "deletes every row of \"notes\""],
+    ["DELETE FROM \"where\";", "deletes every row of \"where\""],
     ["DROP SCHEMA \"reports\" CASCADE;", "drops schema \"reports\""],
   ])("flags %s", (sql, reason) => {
     expect(reasons(sql)).toEqual([reason])
@@ -27,6 +28,7 @@ describe("migration data loss", () => {
     "ALTER TABLE \"notes\" ALTER COLUMN \"body\" DROP NOT NULL;",
     "ALTER TABLE \"notes\" DROP DEFAULT;",
     "DELETE FROM `notes` WHERE `id` = 1;",
+    "DELETE FROM `notes` WHERE `label` = 'WHERE';",
     "DROP INDEX `notes_title_idx`;",
     "INSERT INTO `notes` (`title`) VALUES ('DROP TABLE notes; DELETE FROM notes');",
     "-- DROP TABLE notes;\nCREATE INDEX `notes_title_idx` ON `notes` (`title`);",

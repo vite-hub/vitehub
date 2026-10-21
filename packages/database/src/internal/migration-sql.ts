@@ -145,9 +145,37 @@ function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebu
   }
   if ((match = statement.match(alterDrop))) return `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`
   if ((match = statement.match(truncate))) return `deletes every row of "${unquote(match[1]!)}"`
-  if ((match = statement.match(deleteFrom)) && !/\bWHERE\b/i.test(statement)) return `deletes every row of "${unquote(match[1]!)}"`
+  if ((match = statement.match(deleteFrom)) && !hasKeywordOutsideQuotes(statement, "WHERE")) return `deletes every row of "${unquote(match[1]!)}"`
   if ((match = statement.match(dropSchema))) return `drops schema "${unquote(match[1]!)}"`
   return undefined
+}
+
+/** Finds a SQL keyword while ignoring quoted identifiers and string literals. */
+function hasKeywordOutsideQuotes(sql: string, keyword: string): boolean {
+  let quote: "'" | '"' | "`" | "]" | undefined
+  for (let index = 0; index < sql.length; index++) {
+    const char = sql[index]!
+    const next = sql[index + 1]
+    if (quote) {
+      if (char === quote) {
+        if (next === quote) index++
+        else quote = undefined
+      }
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "[") {
+      quote = "]"
+      continue
+    }
+    if (sql.slice(index, index + keyword.length).toUpperCase() === keyword
+      && (index === 0 || !/[\w$]/.test(sql[index - 1]!))
+      && (index + keyword.length === sql.length || !/[\w$]/.test(sql[index + keyword.length]!))) return true
+  }
+  return false
 }
 
 function listQualifiedNames(list: string): string[] {

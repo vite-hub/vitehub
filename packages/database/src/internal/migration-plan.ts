@@ -111,7 +111,7 @@ async function readLastAppliedMillis(target: MigrationTarget, options: Migration
     case "d1-http":
       return await readD1LastApplied(target, options.fetch ?? fetch)
     case "postgres":
-      return await readPostgresLastApplied(target, options.projectRoot)
+      return await readPostgresLastApplied(target, options.projectRoot, options.env)
   }
 }
 
@@ -179,7 +179,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]"
 }
 
-async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string): Promise<number | undefined> {
+async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<number | undefined> {
   let connect: typeof postgres
   try {
     // The app installs the Postgres driver, so load it from the project, like Drizzle Kit does.
@@ -188,7 +188,16 @@ async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: 
   catch (error) {
     throw new Error("Cannot load the `postgres` package from the project. Install it, for example with `pnpm add postgres`.", { cause: error })
   }
-  const options = { connect_timeout: 10, max: 1, onnotice: () => {} }
+  const options = {
+    connect_timeout: 10,
+    database: env.PGDATABASE,
+    host: env.PGHOST,
+    max: 1,
+    onnotice: () => {},
+    password: env.PGPASSWORD,
+    port: env.PGPORT ? Number(env.PGPORT) : undefined,
+    user: env.PGUSERNAME ?? env.PGUSER,
+  }
   const sql = target.url ? connect(target.url, options) : connect(options)
   try {
     const [table] = await sql<Array<{ name: string | null }>>`select to_regclass('drizzle.__drizzle_migrations')::text as name`
