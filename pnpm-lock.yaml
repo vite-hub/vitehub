@@ -8175,13 +8175,13 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.1
 
   '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {integrity: sha512-qWamVmsJdHUz9sEl62S5nFkqP/w5Oc+ZzBZdgtaPNr3M1z3/bXccXkOmivp0LkF4TDHIAzFCoehstFD9S/MQ5A==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
@@ -10756,7 +10756,7 @@ packages:
     engines: {node: '>=18'}
 
   docus@https://pkg.pr.new/docus@c229a86:
-    resolution: {tarball: https://pkg.pr.new/docus@c229a86}
+    resolution: {integrity: sha512-5C5f4exQotrify/t3wrTEprTUe3yj67ALwWEttyS1IvJGkHVBN4UsNgMZMXGf+6OU61DGI/OW4ctPAhpNDzmQQ==, tarball: https://pkg.pr.new/docus@c229a86}
     version: 5.13.0
     peerDependencies:
       better-sqlite3: 12.x
@@ -11735,7 +11735,7 @@ packages:
     engines: {node: '>= 0.4'}
 
   forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
-    resolution: {tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
     version: 0.1.0
     engines: {node: '>=22.18'}
 
@@ -15387,8 +15387,7 @@ packages:
       vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0-0 || ^5.0.0-0 || ^6.0.1 || ^7.0.0-0 || ^8.0.0
 
   vite-doctor@https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1:
-    resolution: {tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
-    integrity: sha512-niOZ6/ftv7MPnMlrppb44lIiJMdk/Y22cCX8wwsK2GCTmBEEMCqcNiNHyCLkn2nbPWcwdunAT9/EaaqJuB0d1Q==
+    resolution: {integrity: sha512-niOZ6/ftv7MPnMlrppb44lIiJMdk/Y22cCX8wwsK2GCTmBEEMCqcNiNHyCLkn2nbPWcwdunAT9/EaaqJuB0d1Q==, tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
     version: 0.0.12
     engines: {node: '>=22.20.0'}
     hasBin: true
