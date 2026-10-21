@@ -97,8 +97,9 @@ function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
   const head = s.pr?.head?.sha;
   const signals = new Map<string, GitHubEvidence>();
   for (const check of Object.values(s.checks)) {
-    // Suites and workflow runs have no producing app; check runs do.
-    if (!head || check.head_sha !== head || check.deleted || !check.name || !check.app) continue;
+    // Suites and workflow runs have no head SHA. Check-run records may omit
+    // their producing app, so the head SHA is the discriminator here.
+    if (!head || check.head_sha !== head || check.deleted || !check.name) continue;
     signals.set(`check:${String(check.id)}`, check);
   }
   for (const status of Object.values(s.statuses)) {
@@ -140,7 +141,11 @@ export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
     // currently running check, so they must not defer a pass forever.
     // Check runs are different: a queued run without timestamps is still an
     // active gate, while timestamp-less commit statuses are only snapshots.
-    if (!Number.isFinite(timestamp)) return signal.app !== undefined;
+    if (!Number.isFinite(timestamp)) {
+      // Commit statuses have `sha`; check runs have `head_sha`, even when
+      // GitHub omits their app payload.
+      return signal.head_sha !== undefined;
+    }
     return timestamp >= now - stuckCheckMs;
   });
 }

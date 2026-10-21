@@ -1333,6 +1333,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const pendingInboxHeads = new Set([pullRequest.headRefOid]);
               const assertLease = async () => {
                 abortSignal.throwIfAborted();
+                // Renew the lease in the same durable store immediately before
+                // provider work. Once renewed, another worker cannot reclaim
+                // this claim between the ownership check and dispatch.
+                if (!await pullRequestInbox.renew(inboxClaim, Date.now() + 2 * 60 * 60_000)) {
+                  throw new DOMException("Pull request lease lost.", "AbortError");
+                }
                 const current = await pullRequestInbox.get(repository, number);
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
