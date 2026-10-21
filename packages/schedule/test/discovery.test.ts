@@ -109,23 +109,23 @@ describe("discoverScheduleDefinitions", () => {
     }).map(definition => definition.name)).toEqual(["daily"])
   })
 
-  it("reads runtime opt-in from object-shaped defineSchedule calls", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-opt-in-")
+  it("reads manual opt-in from object-shaped defineSchedule calls", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
-      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {}, allowRuntimeSchedules: true /* runtime target */ })\n",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {}, manual: true /* manual runs */ })\n",
       "utf8",
     )
     await writeFile(
       join(rootDir, "weekly.schedule.ts"),
-      "export default defineSchedule({ cron: '0 9 * * 1', handler: () => {}, allowRuntimeSchedules: true // runtime target\n})\n",
+      "export default defineSchedule({ cron: '0 9 * * 1', handler: () => {}, manual: true // manual runs\n})\n",
       "utf8",
     )
 
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", true],
       ["weekly", true],
     ])
@@ -135,94 +135,74 @@ describe("discoverScheduleDefinitions", () => {
     const rootDir = await createTempDir("vitehub-schedule-handler-url-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
-      "export default defineSchedule({ cron: '0 9 * * *', handler: () => fetch('https://example.com'), manual: true, allowRuntimeSchedules: true })\n",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => fetch('https://example.com'), manual: true })\n",
       "utf8",
     )
 
     expect(discoverScheduleDefinitions({ rootDir })).toMatchObject([{
-      allowRuntimeSchedules: true,
       manual: true,
       name: "daily",
       source: "vite-suffix",
     }])
   })
 
-  it("discovers defineScheduleTarget calls as runtime-only targets", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-target-")
-    await writeFile(
-      join(rootDir, "agent-turn.schedule.ts"),
-      "export default defineScheduleTarget<{ prompt: string }>({ handler: context => context.input?.prompt })\n",
-      "utf8",
-    )
-
-    expect(discoverScheduleDefinitions({
-      mode: "vite-suffix",
-      rootDir,
-    })).toMatchObject([{
-      allowRuntimeSchedules: true,
-      name: "agent-turn",
-      runtimeOnly: true,
-      source: "vite-suffix",
-    }])
-  })
-
-  it("reads runtime opt-in from generic defineSchedule calls", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-generic-opt-in-")
+  it("reads manual opt-in from generic defineSchedule calls", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-generic-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
-      "export default defineSchedule<string>({ cron: '0 9 * * *', handler: () => 'ok', allowRuntimeSchedules: true })\n",
+      "export default defineSchedule<string>({ cron: '0 9 * * *', handler: () => 'ok', manual: true })\n",
       "utf8",
     )
 
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", true],
     ])
   })
 
-  it("reads runtime opt-in from defineSchedule generics with arrow function types", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-arrow-generic-opt-in-")
+  it("reads manual opt-in from defineSchedule generics with arrow function types", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-arrow-generic-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
-      "export default defineSchedule<{ f: (x: string) => string }>({ cron: '0 9 * * *', handler: () => 'ok', allowRuntimeSchedules: true })\n",
+      "export default defineSchedule<{ f: (x: string) => string }>({ cron: '0 9 * * *', handler: () => 'ok', manual: true })\n",
       "utf8",
     )
 
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", true],
     ])
   })
 
-  it("reads runtime opt-in from parenthesized defineSchedule calls", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-parenthesized-opt-in-")
+  it("reads manual opt-in from parenthesized defineSchedule calls", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-parenthesized-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
-      "export default ((defineSchedule({ cron: '0 9 * * *', handler: () => 'ok', allowRuntimeSchedules: true })))\n",
+      "export default ((defineSchedule({ cron: '0 9 * * *', handler: () => 'ok', manual: true })))\n",
       "utf8",
     )
 
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", true],
     ])
   })
 
-  it("balances regex literals while reading runtime opt-in", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-regex-opt-in-")
+  it("balances regex literals while reading manual opt-in", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-regex-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
       [
         "export default defineSchedule({",
         "  cron: '0 9 * * *',",
         "  handler: () => /}/.test('x'),",
-        "  allowRuntimeSchedules: true,",
+        "  manual: true,",
         "})",
       ].join("\n"),
       "utf8",
@@ -231,19 +211,19 @@ describe("discoverScheduleDefinitions", () => {
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", true],
     ])
   })
 
-  it("ignores commented and quoted runtime opt-in examples", async () => {
-    const rootDir = await createTempDir("vitehub-schedule-runtime-non-code-opt-in-")
+  it("ignores commented and quoted manual opt-in examples", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-manual-non-code-opt-in-")
     await writeFile(
       join(rootDir, "daily.schedule.ts"),
       [
-        "// export default defineSchedule({ cron: '0 8 * * *', handler: () => {}, allowRuntimeSchedules: true })",
-        "const docs = \"export default defineSchedule({ cron: '0 8 * * *', handler: () => {}, allowRuntimeSchedules: true })\"",
-        "export default defineSchedule({ cron: '0 9 * * *', handler: () => {}, allowRuntimeSchedules: false })",
+        "// export default defineSchedule({ cron: '0 8 * * *', handler: () => {}, manual: true })",
+        "const docs = \"export default defineSchedule({ cron: '0 8 * * *', handler: () => {}, manual: true })\"",
+        "export default defineSchedule({ cron: '0 9 * * *', handler: () => {}, manual: false })",
       ].join("\n"),
       "utf8",
     )
@@ -251,7 +231,7 @@ describe("discoverScheduleDefinitions", () => {
     expect(discoverScheduleDefinitions({
       mode: "vite-suffix",
       rootDir,
-    }).map(definition => [definition.name, definition.allowRuntimeSchedules])).toEqual([
+    }).map(definition => [definition.name, definition.manual])).toEqual([
       ["daily", false],
     ])
   })

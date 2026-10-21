@@ -40,5 +40,5 @@ const session: ViteHubUISession<UIMessage> = {
 </script>
 
 <template>
-  <AgentSession :session="session" status="ready" class="h-[30rem]" />
+  <ChatSession :session="session" status="ready" class="h-[30rem]" />
 </template>

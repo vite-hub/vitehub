@@ -1,0 +1,55 @@
+{
+  "label": "Sandbox Task",
+  "docsPath": "sandbox",
+  "icon": "i-lucide-terminal-square",
+  "order": 3,
+  "defaultPhase": "define",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare",
+      "icon": "i-simple-icons-cloudflare",
+      "configOverride": "  sandboxTask: {\n    provider: 'cloudflare',\n  },",
+      "configOverrides": {
+        "vite": "  appType: 'custom',\n  build: {\n    ssr: true,\n    rolldownOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandboxTask: {\n    provider: 'cloudflare',\n  },"
+      }
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "icon": "i-simple-icons-vercel",
+      "darkInvert": true,
+      "configOverride": "  sandboxTask: {\n    provider: 'vercel',\n  },",
+      "configOverrides": {
+        "vite": "  appType: 'custom',\n  build: {\n    ssr: true,\n    rolldownOptions: {\n      input: new URL('src/server.ts', import.meta.url).pathname,\n    },\n  },\n  sandboxTask: {\n    provider: 'vercel',\n  },"
+      },
+      "envOverride": "VERCEL_TOKEN=<vercel-token>\nVERCEL_TEAM_ID=<vercel-team-id>\nVERCEL_PROJECT_ID=<vercel-project-id>"
+    }
+  ],
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/release-notes.sandbox-task.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "src/release-notes.sandbox-task.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "package.json"
+          ]
+        }
+      }
+    }
+  }
+}

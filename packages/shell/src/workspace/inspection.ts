@@ -7,11 +7,14 @@ import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
 
 import type { ShellExecutionProvider, ShellObservation } from "../runtime/types.ts"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
+  budget?: ExecutionBudget
+  budgetCharged?: boolean
   broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
@@ -34,16 +37,21 @@ export async function runWorkspaceInspectionCommand(
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  const chargeRejected = () => {
+    if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+  }
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
-  if (unsupportedSyntax) return unsupportedSyntax
-  const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, options.signal)
-  if (preflight) return preflight
+  if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
+  const preflight = await withInspectionTimeout(timeout, options.signal, async (signal) => {
+    const broad = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, signal)
+    if (broad) return broad
+    return await preflightMissingWorkspacePath(command, options.fs, options.cwd, signal)
+  }, command, options.cwd)
+  if (preflight) { chargeRejected(); return limitInspectionObservation(preflight, maxOutputLength) }
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
-  if (pipedBroadSearch) return pipedBroadSearch
-  const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd, options.signal)
-  if (missingPath) return missingPath
+  if (pipedBroadSearch) { chargeRejected(); return limitInspectionObservation(pipedBroadSearch, maxOutputLength) }
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
-  if (unsupported) return unsupported
+  if (unsupported) { chargeRejected(); return limitInspectionObservation(unsupported, maxOutputLength) }
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -58,20 +66,84 @@ export async function runWorkspaceInspectionCommand(
   })
   const cwd = options.cwd || workspaceMountPoint
   const result = await runtime.exec(command, {
+    budget: options.budget,
+    budgetCharged: options.budgetCharged,
     cwd,
-    signal: options.signal,
     timeout,
+    signal: options.signal,
     workspacePaths: workspaceSessionPaths(command, cwd),
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+  if (!noMatchFeedback) return result
+  const bounded = limitInspectionFeedback(noMatchFeedback, maxOutputLength)
+  return {
+    ...result,
+    stdout: bounded.stdout,
+    outputTruncated: result.outputTruncated || bounded.outputTruncated,
+    workspaceGuardrail: { kind: "no_match" },
+  }
+}
+
+function limitInspectionFeedback(feedback: string, maxLength: number | undefined) {
+  if (maxLength === undefined || feedback.length <= maxLength) return { stdout: feedback, outputTruncated: false }
+  return {
+    stdout: `${feedback.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`,
+    outputTruncated: true,
+  }
+}
+
+function limitInspectionObservation(observation: ShellObservation, maxLength: number | undefined): ShellObservation {
+  const bounded = limitInspectionFeedback(observation.stdout, maxLength)
+  const boundedError = limitInspectionFeedback(observation.stderr, maxLength)
+  if (!bounded.outputTruncated && !boundedError.outputTruncated) return observation
+  return {
+    ...observation,
+    stdout: bounded.stdout,
+    stderr: boundedError.stdout,
+    outputTruncated: true,
+  }
 }
 
 function normalizeOutputLength(value: number | undefined): number | undefined {
   if (value === undefined) return undefined
   if (value === Number.POSITIVE_INFINITY) return undefined
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+async function withInspectionTimeout(timeout: number, callerSignal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<ShellObservation | undefined>, command: string, cwd?: string) {
+  const controller = new AbortController()
+  const signal = callerSignal ? AbortSignal.any([callerSignal, controller.signal]) : controller.signal
+  if (!Number.isFinite(timeout) || timeout < 0) return await run(signal)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let removeCallerAbortListener: (() => void) | undefined
+  try {
+    const callerCancellation = callerSignal
+      ? new Promise<never>((_, reject) => {
+        const rejectOnAbort = () => reject(callerSignal.reason)
+        if (callerSignal.aborted) rejectOnAbort()
+        else {
+          callerSignal.addEventListener("abort", rejectOnAbort, { once: true })
+          removeCallerAbortListener = () => callerSignal.removeEventListener("abort", rejectOnAbort)
+        }
+      })
+      : undefined
+    return await Promise.race([
+      run(signal),
+      ...(callerCancellation ? [callerCancellation] : []),
+      new Promise<ShellObservation>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({ command, cwd, event: "command_timed_out", exitCode: null, stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`, stdout: "", timedOut: true, workspaceGuardrail: { kind: "timeout" } })
+          // Resolve before aborting so a preflight that rejects on abort cannot replace the timeout observation.
+          controller.abort(new Error("Workspace inspection preflight timed out."))
+        }, timeout)
+      }),
+    ])
+  }
+  finally {
+    if (timer) clearTimeout(timer)
+    removeCallerAbortListener?.()
+  }
 }
 
 function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {
@@ -274,7 +346,11 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
         continue
       }
       const paths = segment.paths
-      const hasBroadPath = paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))
+      const hasBroadPath = paths.some(path => {
+        const resolved = cleanWorkspaceShellPath(resolvedWorkspaceCwd(currentCwd, path))
+        return isBroadWorkspacePath(path, broadSearchPaths, currentCwd)
+          || broadSearchPaths.some(root => resolved.startsWith(`${cleanWorkspaceShellPath(root)}/`))
+      })
       if (!hasBroadPath) {
         if (segment.separatorAfter === "&&") return ""
         continue

@@ -43,19 +43,13 @@ describe("workspace lifecycle", () => {
     setWorkspaceHostedStoreLoader(undefined)
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       const url = new URL(input instanceof Request ? input.url : String(input))
-      if (url.pathname === "/repos/acme/app/git/ref/heads/main") {
-        return new Response(JSON.stringify({ object: { sha: "commit-sha" } }), {
+      if (decodeURIComponent(url.pathname) === "/repos/acme/app/commits/heads/main") {
+        return new Response(JSON.stringify({ sha: "commit-sha" }), {
           headers: { "content-type": "application/json" },
           status: 200,
         })
       }
-      if (url.pathname === "/repos/acme/app/git/commits/commit-sha") {
-        return new Response(JSON.stringify({ tree: { sha: "tree-sha" } }), {
-          headers: { "content-type": "application/json" },
-          status: 200,
-        })
-      }
-      if (url.pathname === "/repos/acme/app/git/trees/tree-sha") {
+      if (url.pathname === "/repos/acme/app/git/trees/commit-sha") {
         return new Response(JSON.stringify({ tree: [] }), {
           headers: { "content-type": "application/json" },
           status: 200,

@@ -127,7 +127,7 @@ async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
     "    database: false,",
     "    env: false,",
     "    kv: false,",
-    "    sandbox: false,",
+    "    sandboxTask: false,",
     "    schedule: false,",
     "    workflow: false,",
     "    workspace: false,",

@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import * as v from "valibot";
 import { envGrantsSchema, requestEnvManagement } from "../client/env-management";
+import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 type Grant = v.InferOutput<typeof envGrantsSchema>["grants"][number];
 const grants = ref<Grant[]>([]);
@@ -9,7 +10,8 @@ const kind = ref<Grant["actor"]["kind"]>("agent");
 const id = ref("");
 const permissions = ref<Array<Grant["permissions"][number]>>(["use"]);
 const busy = ref(false);
-const error = ref("");
+const error = ref<unknown>();
+const warning = ref("");
 const notice = ref("");
 const removing = ref<string>();
 async function load() {
@@ -19,12 +21,13 @@ async function load() {
 }
 async function run(operation: () => Promise<void>) {
   busy.value = true;
-  error.value = "";
+  error.value = undefined;
+  warning.value = "";
   notice.value = "";
   try {
     await operation();
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Could not update access.";
+    error.value = cause;
   } finally {
     busy.value = false;
   }
@@ -34,7 +37,7 @@ async function refreshAfterUpdate(action: "saved" | "revoked") {
   try {
     await load();
   } catch {
-    error.value = `Access ${action}, but the grant list could not be refreshed. Reload to confirm current access.`;
+    warning.value = `Access ${action}, but the grant list could not be refreshed. Reload to confirm current access.`;
   }
 }
 function grant() {
@@ -70,7 +73,8 @@ onMounted(() => run(load));
     <p class="text-xs text-muted">
       Grants apply only to this credential. Agent tokens may further limit access.
     </p>
-    <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
+    <ConsoleState v-if="error" compact :error="error" title="Could not update access" />
+    <p v-if="warning" role="alert" class="text-sm text-warning">{{ warning }}</p>
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
     <ul role="list" class="divide-y divide-default">
       <li

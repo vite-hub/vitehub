@@ -285,6 +285,19 @@ export function isContentCollectionDefinition(value: unknown): value is ContentC
   return value !== null && Object(value) === value && Reflect.get(Object(value), collectionDefinition) === true
 }
 
+// `@vite-hub/content/collections` attaches the Workspace-backed runtime, so the main entry never imports Workspace.
+type ContentCollectionsFactory = (...args: any[]) => any
+const documentsRuntimes = new WeakMap<DocumentsDefinition<any>, ContentCollectionsFactory>()
+
+export function withDocumentsRuntime<TDefinition extends DocumentsDefinition<any>>(definition: TDefinition, runtime: ContentCollectionsFactory): TDefinition {
+  documentsRuntimes.set(definition, runtime)
+  return definition
+}
+
+export function documentsRuntimeOf(definition: DocumentsDefinition<any>): ContentCollectionsFactory | undefined {
+  return documentsRuntimes.get(definition)
+}
+
 /**
  * Accept `undefined` for a validator that has no `.optional()`, such as a Blob `image()`.
  *

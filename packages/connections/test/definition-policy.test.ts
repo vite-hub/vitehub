@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { defineConnection } from "../src/definition.ts"
+import { connectionActions } from "../src/catalog.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
 import { createStore, testProvider } from "./helpers.ts"
 
@@ -14,6 +15,27 @@ const invalidPolicies = [
 ]
 
 describe("Connection policy validation", () => {
+  it("does not read inherited API selection keys", () => {
+    const definition = defineConnection({
+      api: {},
+      provider: {
+        account: () => undefined,
+        apis: {
+          constructor: {
+            methods: { list: ["GET", "list", false] },
+            rootUrl: "https://example.com/",
+          },
+        },
+        authorizationEndpoint: "https://auth.example.com/authorize",
+        clientId: "client",
+        id: "example",
+        tokenEndpoint: "https://auth.example.com/token",
+      },
+      scopes: [],
+    })
+    expect(connectionActions(definition)).toEqual([])
+  })
+
   it.each(invalidPolicies)("rejects malformed JavaScript definition policies: %j", policy => {
     const definition = { provider: testProvider(), scopes: ["mail.read"], ...policy }
     expect(() => Reflect.apply(defineConnection, undefined, [definition])).toThrow()
@@ -25,7 +47,7 @@ describe("Connection policy validation", () => {
       definitions: { mail: async () => ({ default: { provider: testProvider(), scopes: ["mail.read"], ...policy } }) },
       fetch, store: createStore(),
     })
-    await expect(runtime.authorize({ name: "mail", redirectUri: "http://localhost/callback" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(runtime.authorize({ name: "mail", redirectUri: "http://localhost/callback" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_FOUND" })
     expect(fetch).not.toHaveBeenCalled()
   })
 

@@ -50,12 +50,12 @@ export function workspaceFile<Name extends WorkspaceName, const TFilter extends 
     const workspace = await openWorkspace(input)
     // SAFETY: Workspace paths are typed per registered Workspace; workspaceFile() accepts any path and the store validates it.
     const stat = await workspace.fs.stat(path as never)
-    if (stat.type !== "file") throw workspaceErrorDiagnostics.WORKSPACE_R0010({ message: `[vitehub] Workspace Collection ${path} must be a file.` })
+    if (stat.type !== "file") throw workspaceErrorDiagnostics.WORKSPACE_R0010({ path })
     // SAFETY: Same path as the stat above; the store rejects paths outside the Workspace.
     const raw = await workspace.fs.readFile(path as never, { encoding: "utf8" })
     signal?.throwIfAborted()
     const items: unknown = JSON.parse(raw)
-    if (!Array.isArray(items)) throw workspaceErrorDiagnostics.WORKSPACE_R0011({ message: `[vitehub] Workspace Collection ${path} must contain a JSON array.` })
+    if (!Array.isArray(items)) throw workspaceErrorDiagnostics.WORKSPACE_R0011({ path })
     return { digest: stat.digest || undefined, items }
   }
   return schema ? array(load, { ...query, schema }) : array<unknown, TFilter>(load, query)

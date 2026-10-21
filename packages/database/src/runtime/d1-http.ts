@@ -11,7 +11,6 @@ interface D1HttpQuery {
 }
 
 type D1HttpMethod = "run" | "all" | "values" | "get"
-
 type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
 
 interface D1HttpPayload {
@@ -19,13 +18,11 @@ interface D1HttpPayload {
   result?: Array<{
     error?: string
     errors?: D1HttpErrorInfo[]
-    results?: unknown
+    results?: { rows?: unknown[][] }
     success?: boolean
   }>
   success?: boolean
 }
-
-type D1HttpResult = NonNullable<D1HttpPayload["result"]>[number]
 
 interface D1HttpErrorInfo {
   message?: string
@@ -49,7 +46,7 @@ function getD1HttpErrorDetail(...sources: Array<D1HttpErrorSource | undefined>) 
 
 function cloudflareD1HttpError(response: Response, label = "request", ...sources: Array<D1HttpErrorSource | undefined>) {
   const detail = getD1HttpErrorDetail(...sources)
-  return databaseErrorDiagnostics.DATABASE_R0007({ message: `[vitehub] Cloudflare D1 ${label} failed (${response.status})${detail ? `: ${detail}` : "."}` })
+  return databaseErrorDiagnostics.DATABASE_D1_REQUEST_FAILED({ detail: detail || undefined, label, status: response.status })
 }
 
 function validateD1HttpUrl(value: string, name: string) {
@@ -58,18 +55,14 @@ function validateD1HttpUrl(value: string, name: string) {
     if (url.protocol === "http:" || url.protocol === "https:") return value
   }
   catch {}
-  throw databaseErrorDiagnostics.DATABASE_R0008({ message: `[vitehub] Cloudflare D1 database "${name}" requires cloudflare.http.url to be an HTTP(S) URL.` })
+  throw databaseErrorDiagnostics.DATABASE_INVALID_D1_HTTP_URL({ database: name })
 }
 
 function isD1HttpPayload(value: unknown): value is D1HttpPayload {
   if (!isRecord(value)) return false
   const result = "result" in value ? value.result : undefined
   return result === undefined
-    || (Array.isArray(result) && result.every(isD1HttpResult))
-}
-
-function isD1HttpResult(value: unknown): value is D1HttpResult {
-  return isRecord(value) && (value.success === true || value.success === false)
+    || (Array.isArray(result) && result.every(item => isRecord(item)))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +81,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
     const token = process.env.CLOUDFLARE_API_TOKEN?.trim()
     if (!accountId || !token) {
-      throw databaseErrorDiagnostics.DATABASE_R0009({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.` })
+      throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables" })
     }
     return {
       token,
@@ -99,7 +92,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   const token = resolveConfigValue(http.authToken)?.trim()
   const url = resolveConfigValue(http.url)?.trim()
   if (!token || !url) {
-    throw databaseErrorDiagnostics.DATABASE_R0010({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.http.url and cloudflare.http.authToken at runtime.` })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "`cloudflare.http.url` and `cloudflare.http.authToken`" })
   }
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
@@ -120,21 +113,21 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
       method: "POST",
     })
 
-    let payload: D1HttpPayload
+    let value: unknown
     try {
-      const value: unknown = await response.json()
-      if (!isD1HttpPayload(value)) throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
-      payload = value
+      value = await response.json()
     }
     catch {
       throw cloudflareD1HttpError(response)
     }
+    if (!isD1HttpPayload(value)) throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
+    const payload = value
 
     if (!response.ok || payload.success !== true || !Array.isArray(payload.result)) {
       throw cloudflareD1HttpError(response, "request", payload)
     }
     if (payload.result.length !== queries.length) {
-      throw databaseErrorDiagnostics.DATABASE_R0012({ message: "[vitehub] Cloudflare D1 returned an unexpected query result count." })
+      throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
     }
 
     return payload.result.map((result, index) => {
@@ -143,15 +136,13 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (query.method === "run" && result.results === undefined) return []
-      if (!isRecord(result.results)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
-      }
+      if (!isRecord(result.results)) throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       if (!("rows" in result.results) || result.results.rows === undefined) {
         if (query.method === "run") return []
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (!isRowMatrix(result.results.rows)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+        throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
       }
       return result.results.rows
     })
@@ -181,7 +172,7 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
   return () => {
     const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
     if (!databaseId) {
-      throw databaseErrorDiagnostics.DATABASE_R0013({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.databaseId when cloudflare.http is configured.` })
+      throw databaseErrorDiagnostics.DATABASE_MISSING_D1_HTTP_CONFIG({ database: config.name, missing: "`cloudflare.databaseId`" })
     }
     const connection = resolveCloudflareD1HttpConnection(config, databaseId)!
     if (cached?.url === connection.url && cached.token === connection.token) return cached.database

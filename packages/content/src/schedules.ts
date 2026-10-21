@@ -386,7 +386,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     const result: ContentPublishDueResult = { published: [], failed: [] }
     const errors: unknown[] = []
     for (const { path, digest, stored } of due) {
-      const claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
+      let claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
       const claimed = await commit(({ entries }) => {
         const entry = entries.get(stored.id)
         if (!entry || entry.digest !== digest || entry.stored.cancelled || claimIsActive(entry.stored, Date.now()) || entry.stored.failure) return
@@ -394,6 +394,26 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
       })
       if (!claimed) continue
       activeClaims.add(claim)
+      // Keep a durable claim alive while publication is in flight. This lets
+      // another runtime distinguish a live publisher from an abandoned claim
+      // when the initial lease elapses.
+      let publishing = true
+      const heartbeat = setInterval(() => {
+        if (!publishing) return
+        const previous = claim
+        const renewed = `${Date.now()}:${previous.slice(previous.indexOf(":") + 1)}`
+        void commit(({ entries }) => {
+          const current = entries.get(stored.id)
+          if (!current || current.digest !== digest || current.stored.running !== previous) return
+          return { put: { [path]: render({ ...current.stored, running: renewed }) }, message: `Renew schedule ${stored.id}`, metadata: { content: { action: "schedule-heartbeat", schedule: stored.id } } }
+        }).then((ok) => {
+          if (ok && publishing) {
+            activeClaims.delete(previous)
+            activeClaims.add(renewed)
+            claim = renewed
+          }
+        }).catch(() => {})
+      }, Math.max(1_000, Math.floor(contentScheduleClaimLeaseMs / 3)))
       let published: ContentPublishResult | undefined
       let failure: ContentScheduleFailure | undefined
       try {
@@ -429,6 +449,8 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
         else result.published.push({ schedule: stored.id, revision: published!.revision?.id ?? null, documents: published!.documents })
       }
       finally {
+        publishing = false
+        clearInterval(heartbeat)
         activeClaims.delete(claim)
       }
     }

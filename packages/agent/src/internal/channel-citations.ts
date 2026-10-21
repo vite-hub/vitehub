@@ -175,6 +175,12 @@ function formatCitationCard<T extends CardNode>(node: T): T {
           description: formatOptionalCitationText(option.description),
         })),
       };
+    case "text_input":
+      return {
+        ...node,
+        label: formatChannelCitationText(node.label),
+        placeholder: formatOptionalCitationText(node.placeholder),
+      };
     case "table":
       return {
         ...node,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import {
@@ -43,6 +43,9 @@ const publishing = ref(false);
 const publishOpen = ref(false);
 // Changes published in this view leave the list at once; the next overview confirms it.
 const published = ref(new Set<string>());
+watch(() => props.overview, () => {
+  published.value = new Set();
+});
 
 const byName = computed(() => new Map(props.collections.map(collection => [collection.name, collection])));
 const totals = computed(() => {

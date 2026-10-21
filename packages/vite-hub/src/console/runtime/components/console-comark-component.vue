@@ -43,6 +43,33 @@ function update(name: string, type: string, raw: unknown): void {
     :data-component="definition.name"
   >
     <NodeViewContent as="span" />
+    <UPopover v-if="entries.length" :content="{ align: 'start' }">
+      <button
+        type="button"
+        contenteditable="false"
+        class="ms-1 inline-flex rounded-sm px-1 align-baseline font-mono text-[0.8em] text-muted hover:bg-elevated focus-visible:outline-2 disabled:pointer-events-none"
+        :disabled="!editable"
+        :aria-label="`Edit ${definition.label} props`"
+      >
+        <UIcon name="i-lucide-settings-2" class="size-3" aria-hidden="true" />
+      </button>
+      <template #content>
+        <div class="grid w-64 gap-3 p-3">
+          <p class="text-xs font-medium text-highlighted">{{ definition.label }}</p>
+          <label v-for="entry in entries" :key="entry.name" class="grid gap-1 text-xs text-muted">
+            <span class="font-mono">{{ entry.name }}</span>
+            <USwitch v-if="entry.type === 'boolean'" :model-value="entry.value === true" @update:model-value="update(entry.name, entry.type, $event)" />
+            <UInput
+              v-else
+              :model-value="entry.type === 'json' ? (entry.value === null || entry.value === undefined ? '' : JSON.stringify(entry.value)) : String(entry.value ?? '')"
+              :type="entry.type === 'number' ? 'number' : 'text'"
+              :ui="{ base: entry.type === 'json' ? 'font-mono text-xs' : '' }"
+              @update:model-value="update(entry.name, entry.type, $event)"
+            />
+          </label>
+        </div>
+      </template>
+    </UPopover>
   </NodeViewWrapper>
   <NodeViewWrapper v-else class="vitehub-comark-block my-3 rounded-lg ring-1 ring-default" :data-component="definition.name">
     <div contenteditable="false" class="flex min-h-8 select-none items-center gap-2 border-b border-default px-3 text-xs text-muted">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentMultiFileDiff } from "@vite-hub/ui";
+import { MultiFileDiff } from "@vite-hub/ui";
 import { computed } from "vue";
 
 import { consoleDocumentText } from "../client/documents";
@@ -33,7 +33,7 @@ const same = computed(() => oldFile.value.contents === newFile.value.contents);
 
 <template>
   <p v-if="same" class="rounded-md border border-default px-3 py-2 text-xs text-muted">Both versions are the same.</p>
-  <AgentMultiFileDiff
+  <MultiFileDiff
     v-else
     class="overflow-hidden rounded-md border border-default text-xs tabular-nums"
     :old-file="oldFile"

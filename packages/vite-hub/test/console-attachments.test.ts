@@ -65,6 +65,21 @@ it("retains image bytes and metadata across storage restart without embedding by
   expect(Buffer.from(await (bytes as Blob).arrayBuffer()).toString("base64")).toBe(png)
 })
 
+it("reads attachments stored under the legacy prefix", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, blob)
+  const id = crypto.randomUUID()
+  const [putError] = await blob.put(`vitehub-console-attachments/${id}`, Buffer.from(png, "base64"), { contentType: "image/png" })
+  expect(putError).toBeNull()
+  const message = await consoleInputMessage("", [{ id, name: "legacy.png" }])
+  const part = message.parts[0]
+  expect(part).toMatchObject({ type: "image", id, mediaType: "image/png", name: "legacy.png" })
+  if (part?.type !== "image") throw new Error("Expected image")
+  const bytes = await part.fetchData!()
+  expect(Buffer.from(await (bytes as Blob).arrayBuffer()).toString("base64")).toBe(png)
+})
+
 it("rejects remote URLs, unsupported files, missing images, and path traversal", async () => {
   await expect(upload("https://example.test/image.png")).rejects.toMatchObject({ statusCode: 415 })
   await expect(upload("data:text/html;base64,PHNjcmlwdD4=")).rejects.toMatchObject({ statusCode: 415 })
@@ -77,7 +92,7 @@ it("removes a rejected upload when Blob serving is not configured", async () => 
   installConsoleBlob(base, blob)
 
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ statusCode: 503 })
-  const [failure, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  const [failure, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
   expect(failure).toBeNull()
   expect(result?.blobs).toEqual([])
 })
@@ -92,8 +107,8 @@ it("surfaces a rejected upload's cleanup failure", async () => {
   })
 
   await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ errors: [expect.objectContaining({ statusCode: 503 }), cleanupError] })
-  const [, pending] = await blob.list({ prefix: "vitehub-console-attachments/" })
-  const id = pending!.blobs[0]!.pathname.split("/")[1]!
+  const [, pending] = await blob.list({ prefix: "_vitehub/console/attachments/" })
+  const id = pending!.blobs[0]!.pathname.split("/").at(-1)!
   await expect(consoleInputMessage("retry", [{ id, name: "image" }])).rejects.toMatchObject({ statusCode: 404, message: "The stored image is pending deletion." })
 })
 
@@ -135,9 +150,9 @@ it("rolls back a partially written batch without deleting an earlier successful 
     },
   })
   await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toBe(failure)
-  const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
   expect(listError).toBeNull()
-  expect(result?.blobs.map(item => item.pathname)).toEqual([`vitehub-console-attachments/${retained.id}`])
+  expect(result?.blobs.map(item => item.pathname)).toEqual([`_vitehub/console/attachments/${retained.id}`])
 })
 
 it("attempts every rollback even when one deletion fails", async () => {
@@ -160,7 +175,7 @@ it("attempts every rollback even when one deletion fails", async () => {
     },
   })
   await expect(uploadBatch([{ url: `data:image/png;base64,${png}` }, { url: `data:image/png;base64,${png}` }])).rejects.toMatchObject({ errors: [failure, cleanupError] })
-  expect(del.mock.calls.filter(([path]) => typeof path === "string" && path.startsWith("vitehub-console-attachments/"))).toHaveLength(2)
+  expect(del.mock.calls.filter(([path]) => typeof path === "string" && path.startsWith("_vitehub/console/attachments/"))).toHaveLength(2)
 })
 
 it("returns durable references for every file in a successful batch", async () => {
@@ -197,7 +212,7 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
       return blob.head(path)
     },
     async del(path) {
-      if (typeof path === "string" && path.startsWith("vitehub-console-attachments/") && ++deletions === 1 && failCleanup) return [cleanupError, undefined]
+      if (typeof path === "string" && path.startsWith("_vitehub/console/attachments/") && ++deletions === 1 && failCleanup) return [cleanupError, undefined]
       return blob.del(path)
     },
   })
@@ -208,10 +223,10 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
   if (failCleanup) await expect(input).rejects.toMatchObject({ errors: [failure, cleanupError] })
   else await expect(input).rejects.toBe(failure)
   expect(deletions).toBe(2)
-  const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
   expect(listError).toBeNull()
   expect(result?.blobs).toHaveLength(failCleanup ? 2 : 1)
-  expect(result?.blobs.map(item => item.pathname)).toContain(`vitehub-console-attachments/${retained.id}`)
+  expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })
 
 it.each([false, true])("only rolls back startup failures before runtime handoff: %s", async (handedOff) => {
@@ -224,10 +239,10 @@ it.each([false, true])("only rolls back startup failures before runtime handoff:
     if (handedOff) handoff()
     throw failure
   })).rejects.toBe(failure)
-  const [listError, result] = await blob.list({ prefix: "vitehub-console-attachments/" })
+  const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
   expect(listError).toBeNull()
   expect(result?.blobs).toHaveLength(handedOff ? 2 : 1)
-  expect(result?.blobs.map(item => item.pathname)).toContain(`vitehub-console-attachments/${retained.id}`)
+  expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })
 
 
@@ -240,7 +255,7 @@ it("accepts fresh images after quarantining corruption across restart but reject
   }
   connect()
   const old = await upload(`data:image/png;base64,${png}`)
-  await blob.put(`vitehub-console-attachment-cleanup/batch/${crypto.randomUUID()}`, "{", { contentType: "application/json" })
+  await blob.put(`_vitehub/console/cleanup/batch/${crypto.randomUUID()}`, "{", { contentType: "application/json" })
   for (let attempt = 0; attempt < 2; attempt++) {
     connect()
     const fresh = await upload(`data:image/png;base64,${png}`)

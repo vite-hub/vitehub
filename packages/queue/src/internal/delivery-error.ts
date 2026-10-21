@@ -1,20 +1,9 @@
-import { getQueueErrorPublicShape, isQueueOwnedError, normalizePublicQueueIdentifier } from "../errors.ts"
-import type { QueueErrorCode } from "../errors.ts"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
 
-const nonRetryableBuiltInCodes = new Set<string>([
-  "CLOUDFLARE_BINDING_INVALID",
-  "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
-  "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS",
-  "QUEUE_DEFINITION_LOAD_FAILED",
-  "QUEUE_DEFINITION_NOT_FOUND",
-  "QUEUE_DISABLED",
-  "VERCEL_PROVIDER_EXPECTED",
-  "VERCEL_QUEUE_REGION_REQUIRED",
-  "VERCEL_QUEUE_SDK_INVALID",
-  "VERCEL_QUEUE_SDK_LOAD_FAILED",
-  "VERCEL_TOPIC_RESOLUTION_REQUIRED",
-  "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS",
-] satisfies QueueErrorCode[])
+import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
+
+// A provider failure can pass on the next delivery. Every other Queue error needs a code or deployment change.
+const retryableQueueCodes = new Set<string>(["QUEUE_PROVIDER_FAILED", "QUEUE_PROVIDER_INVALID_RESPONSE"])
 
 interface QueueDeliveryErrorContext {
   attempts: number
@@ -29,6 +18,8 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
   error: {
     code?: string
     details?: Readonly<Record<string, unknown>>
+    docs?: string
+    fix?: string
     message: string
     name: string
   }
@@ -36,12 +27,20 @@ interface QueueDeliveryErrorReport extends Omit<QueueDeliveryErrorContext, "id" 
 }
 
 export function isNonRetryableQueueError(error: unknown): boolean {
-  const shape = getQueueErrorPublicShape(error)
-  return isQueueOwnedError(error) && shape !== undefined && nonRetryableBuiltInCodes.has(shape.code)
+  return isQueueError(error) && !retryableQueueCodes.has(error.code)
+}
+
+function toReportError(error: unknown): QueueDeliveryErrorReport["error"] {
+  if (isQueueError(error)) {
+    return { code: error.code, docs: error.docs, fix: error.fix, message: error.why, name: error.name }
+  }
+  // Application code can throw a `ViteHubError` with its own code.
+  const shape = getViteHubErrorShape(error)
+  if (shape) return { code: shape.code, details: shape.details, message: shape.message, name: "ViteHubError" }
+  return { message: "[vitehub] Queue Delivery failed.", name: "Error" }
 }
 
 export function createQueueDeliveryErrorReport(error: unknown, context: QueueDeliveryErrorContext): QueueDeliveryErrorReport {
-  const queueError = getQueueErrorPublicShape(error)
   const id = normalizePublicQueueIdentifier(context.id)
   const queue = normalizePublicQueueIdentifier(context.queue)
   return {
@@ -49,11 +48,7 @@ export function createQueueDeliveryErrorReport(error: unknown, context: QueueDel
     provider: context.provider,
     ...(id ? { id } : {}),
     ...(queue ? { queue } : {}),
-    error: {
-      ...(queueError ? { code: queueError.code, details: queueError.details } : {}),
-      message: queueError?.message ?? "[vitehub] Queue Delivery failed.",
-      name: queueError ? "ViteHubError" : "Error",
-    },
+    error: toReportError(error),
     retryable: !isNonRetryableQueueError(error),
   }
 }

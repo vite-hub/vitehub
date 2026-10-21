@@ -1,44 +1,44 @@
-import { ViteHubError } from "@vite-hub/runtime"
+import { Diagnostic } from "nostics"
 
-import type { KVErrorDetails, KVOperation, KVResult } from "./types.ts"
-import { kvErrorDiagnostics } from "./error-diagnostics.ts"
+import type { Result, ResultError } from "@vite-hub/runtime"
 
-export function unknownKVStoreError(name: string): Error {
-  return kvErrorDiagnostics.KV_R0015({ message: `[vitehub] Unknown KV store "${name}".` })
+import type { KVErrorCode, KVOperation } from "./types.ts"
+import { kvConfigErrorCodes, kvErrorDiagnostics } from "./error-diagnostics.ts"
+
+function hasCode<TCode extends KVErrorCode>(error: Diagnostic, codes: readonly TCode[]): error is ResultError<TCode> {
+  return codes.some(code => code === error.code)
 }
 
-export function unsupportedCloudflareKVGetAndDeleteError(): Error {
-  return kvErrorDiagnostics.KV_R0016({ message: "[vitehub] Cloudflare KV does not support atomic operations. Use Upstash." })
-}
-
-export function unsupportedCloudflareKVIncrementError(): Error {
-  return kvErrorDiagnostics.KV_R0017({ message: "[vitehub] Cloudflare KV does not support atomic operations. Use Upstash." })
-}
-
-export function invalidKVListLimitError(): Error {
-  return kvErrorDiagnostics.KV_R0018({ message: "`limit` must be a positive integer." })
-}
-
-export function kvError(
+/**
+ * Runs one KV operation and returns `[error, data]`.
+ * A KV error with one of `codes` is returned as it is. A config error is thrown.
+ * Any other failure becomes `KV_OPERATION_FAILED` with the failure in `cause`.
+ */
+export async function kvResult<TData, TCode extends KVErrorCode = never>(
   operation: KVOperation,
   store: string,
-  cause: unknown,
-): ViteHubError<"KV_OPERATION_FAILED", KVErrorDetails> {
-  return new ViteHubError("KV_OPERATION_FAILED", "KV storage operation failed.", {
-    cause,
-    details: { operation, store },
-  })
-}
-
-export async function kvResult<TResult>(
-  operation: KVOperation,
-  store: string,
-  run: () => Promise<TResult>,
-): Promise<KVResult<TResult>> {
+  run: () => Promise<TData>,
+  codes: readonly TCode[] = [],
+): Promise<Result<TData, TCode | "KV_OPERATION_FAILED">> {
   try {
-    return [null, await run()]
+    return [undefined, await run()]
   }
   catch (cause) {
-    return [kvError(operation, store, cause), undefined]
+    if (cause instanceof Diagnostic && kvConfigErrorCodes.has(cause.code)) throw cause
+    if (cause instanceof Diagnostic && hasCode(cause, codes)) return [cause, undefined]
+    return [kvErrorDiagnostics.KV_OPERATION_FAILED({ cause, operation, store }), undefined]
   }
+}
+
+// The generated Cloudflare KV runtime imports these helpers from the package build.
+export function kvStoreNotFoundError(store: string): ResultError<"KV_STORE_NOT_FOUND"> {
+  return kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store })
+}
+
+export function kvUnsupportedOperationError(operation: KVOperation, store: string): ResultError<"KV_UNSUPPORTED_OPERATION"> {
+  return kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation, store })
+}
+
+export function kvInvalidLimitError(): ResultError<"KV_INVALID_LIMIT"> {
+  return kvErrorDiagnostics.KV_INVALID_LIMIT()
 }

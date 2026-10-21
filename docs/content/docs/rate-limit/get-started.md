@@ -27,10 +27,9 @@ Enable Rate Limit on the `node` preset for this local check. Supported deploymen
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', rateLimit: true })],
 })
 ```
 
