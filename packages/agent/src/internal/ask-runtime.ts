@@ -181,7 +181,10 @@ const retryableJevStatuses = new Set([408, 429, 500, 502, 503, 504])
 const jevAttempts = 3
 
 function errorStatus(error: unknown): number | undefined {
-  return isRuntimeRecord(error) && Number.isInteger(error.status) ? Number(error.status) : undefined
+  if (!isRuntimeRecord(error)) return undefined
+  // Advocaat exposes provider HTTP failures as `statusCode`; older adapters use `status`.
+  const status = Number.isInteger(error.statusCode) ? Number(error.statusCode) : error.status
+  return Number.isInteger(status) ? Number(status) : undefined
 }
 
 function errorRequestId(error: unknown): string | undefined {
