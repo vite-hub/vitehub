@@ -339,7 +339,11 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     await commit(({ entries }) => {
       const entry = entries.get(id)
       if (!entry) return
-      if (claimIsActive(entry.stored, Date.now())) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
+      // A claim may have expired while its publisher is still in flight.  Do not
+      // delete any claimed schedule: doing so would let that publisher publish
+      // after cancellation reports success.  Expired claims are recovered by
+      // publishDue(), which can safely fence the old publisher with its token.
+      if (entry.stored.running) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
       found = true
       return {
         delete: [entry.path],
