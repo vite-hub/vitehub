@@ -257,12 +257,23 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     }
   }
   const body = objectLiteral(expression)
+  // Keep identifier-valued resources opaque, but inspect a local object
+  // identifier for dynamic readReplication so request middleware is retained.
+  const readReplicationBody = body ?? objectLiteral(expression, file)
   if (resource === "opaque") {
-    if (cloudflareEntries.length && !isUndefinedIdentifier(expression)) return { resource, value: {} }
+    const resolvedBody = objectLiteral(expression, file)
+    const readReplication = readObjectPropertyValue(resolvedBody, "readReplication")
+    const readReplicationProjection = readReplication !== undefined
+      && !(readReplication.type === "Literal" && typeof readReplication.value === "boolean")
+      ? "opaque" as const
+      : undefined
+    if (cloudflareEntries.length && !isUndefinedIdentifier(expression)) {
+      return { resource, ...(readReplicationProjection ? { readReplication: readReplicationProjection } : {}), value: {} }
+    }
     return { resource }
   }
-  if (body === undefined) return { resource }
-  const readReplication = readObjectPropertyValue(body, "readReplication")
+  if (body === undefined && readReplicationBody === undefined) return { resource }
+  const readReplication = readObjectPropertyValue(readReplicationBody, "readReplication")
   const readReplicationProjection = readReplication !== undefined
     && !(readReplication.type === "Literal" && typeof readReplication.value === "boolean")
     ? "opaque" as const
