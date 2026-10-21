@@ -83,7 +83,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { type AgentMessagePhase, type Message, blobArrayBuffer, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
+import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
