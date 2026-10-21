@@ -152,7 +152,7 @@ function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: 
   const ifRange = event.req.headers.get("if-range")
   // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
   if (ifRange !== null && (!etag || ifRange !== etag)) return
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
   if (!match || (!match[1] && !match[2])) return
   if (!match[1]) {
     const length = Number(match[2])

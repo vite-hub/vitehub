@@ -539,6 +539,13 @@ describe("Blob byte ranges", () => {
     expect(request.res.headers.get("content-type")).toBe("video/mp4")
   })
 
+  it("accepts a case-insensitive range unit", async () => {
+    const { request, text } = await serve({ range: "Bytes=0-1" })
+    expect(request.res.status).toBe(206)
+    expect(text).toBe("01")
+    expect(request.res.headers.get("content-range")).toBe("bytes 0-1/20")
+  })
+
   it("serves open-ended ranges and clamps the end to the body size", async () => {
     const open = await serve({ range: "bytes=15-" })
     expect(open.request.res.status).toBe(206)
