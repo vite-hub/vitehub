@@ -137,7 +137,7 @@ import {
   traceAgentInvocationStart,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
-import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope, scopedAgentAsyncIterable } from "./internal/invocation-scope.ts"
+import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope } from "./internal/invocation-scope.ts"
 import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
@@ -7369,7 +7369,6 @@ async function executeAgentInvocationWithCapacityLease<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       result = await runInAgentInvocationScope(scope, () => generate(adapterContext as never))
     }
-    if (isAsyncIterable(result)) result = scopedAgentAsyncIterable(scope, result)
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
