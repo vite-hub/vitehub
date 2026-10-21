@@ -4,6 +4,7 @@ description: Run Sandbox Task Definitions from server code and read their result
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

@@ -22,6 +22,8 @@ Select a session to read its messages and reply. This example uses the package s
 
 ## Components
 
+- [Invocation inspector](/docs/ui/invocation-inspector)
+
 ::ui-component-gallery
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
 - **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)

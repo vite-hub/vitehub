@@ -4,6 +4,7 @@ description: Read documents, navigation, and search results, and save, publish, 
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

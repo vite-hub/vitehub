@@ -4,6 +4,7 @@ description: Read, write, and delete KV keys from server code.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

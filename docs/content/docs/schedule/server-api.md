@@ -4,6 +4,7 @@ description: Run Static Schedule Definitions on demand and read Schedule Runs fr
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports
