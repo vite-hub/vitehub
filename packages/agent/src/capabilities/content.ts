@@ -256,11 +256,8 @@ function dataSchema(collections: readonly ContentCollectionHandle[]): JsonSchema
 }
 
 /** Entries of `content_publish` and `content_schedule`: reviewed drafts, pinned by digest. */
-function conditionalRequired(collections: readonly ContentCollectionHandle[], field: "id" | "body", required: (collection: ContentCollectionHandle) => boolean): JsonSchema[] {
-  return collections.filter(required).map(collection => ({
-    if: { properties: { collection: { const: collection.name } } },
-    then: { required: [field] },
-  }))
+function nullableIdSchema(singletons: boolean): JsonSchema {
+  return { anyOf: [idSchema(singletons), { type: "null" }], description: idSchema(singletons).description }
 }
 
 function documentsSchema(collections: readonly ContentCollectionHandle[], description: string): JsonSchema {
@@ -269,9 +266,8 @@ function documentsSchema(collections: readonly ContentCollectionHandle[], descri
     description,
     items: {
       additionalProperties: false,
-      properties: { collection: collectionSchema(names), digest: digestSchema, id: idSchema(true) },
-      required: ["collection", "digest"],
-      allOf: conditionalRequired(collections, "id", collection => collection.kind !== "singleton"),
+      properties: { collection: collectionSchema(names), digest: digestSchema, id: nullableIdSchema(true) },
+      required: ["collection", "digest", "id"],
       type: "object",
     },
     minItems: 1,
@@ -468,6 +464,7 @@ function contentTools(
   }
   /** The document id of an input: required for a collection, optional for a singleton. Undefined when it is missing or wrong. */
   const documentId = (target: ContentCollectionHandle, id: unknown): string | undefined => {
+    if (id === null) id = undefined
     if (target.kind === "singleton") return id === undefined || id === target.id ? target.id : undefined
     return String(id) === id && id ? id : undefined
   }
@@ -640,9 +637,8 @@ function contentTools(
       icon: "i-lucide-file-text",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: idSchema(singletons), ref: refSchema },
-        required: ["collection"],
-        allOf: conditionalRequired(scoped, "id", collection => collection.kind !== "singleton"),
+        properties: { collection: collectionSchema(names), id: nullableIdSchema(singletons), ref: refSchema },
+        required: ["collection", "id"],
         type: "object",
       },
       metadata: metadata("get"),
@@ -663,8 +659,8 @@ function contentTools(
       icon: "i-lucide-git-compare",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: idSchema(singletons, " Omit it to compare every document.") },
-        required: ["collection"],
+        properties: { collection: collectionSchema(names), id: { ...nullableIdSchema(singletons), description: `${idSchema(singletons).description} Omit it to compare every document.` } },
+        required: ["collection", "id"],
         type: "object",
       },
       metadata: metadata("status"),
@@ -697,7 +693,7 @@ function contentTools(
         additionalProperties: false,
         properties: {
           collection: collectionSchema(names),
-          id: idSchema(singletons, " Combine it with collection."),
+          id: { ...nullableIdSchema(singletons), description: `${idSchema(singletons).description} Combine it with collection.` },
           status: { enum: ["pending", "overdue", "failed"], type: "string" },
         },
         type: "object",
@@ -721,7 +717,7 @@ function contentTools(
         if (target.format === "markdown" && String(input.body) !== input.body) {
           return invalidInput("body", `${target.name} stores Markdown. Send the full body, or an empty string for none.`)
         }
-        if (target.format !== "markdown" && input.body !== undefined && input.body !== "") {
+        if (target.format !== "markdown" && input.body !== undefined && input.body !== "" && input.body !== null) {
           return invalidInput("body", `${target.name} stores ${target.format.toUpperCase()} data without a body. Omit body.`)
         }
         try {
@@ -742,23 +738,16 @@ function contentTools(
       inputSchema: {
         additionalProperties: false,
         properties: {
-          body: {
-            description: "Markdown body after the frontmatter. Send the full body for a Markdown collection. Omit it for a JSON or YAML collection.",
-            type: "string",
-          },
+          body: { anyOf: [{ type: "string" }, { type: "null" }], description: "Markdown body after the frontmatter. Send the full body for a Markdown collection. Use null for a JSON or YAML collection." },
           collection: collectionSchema(names),
           data: dataSchema(scoped),
-          id: idSchema(singletons),
+          id: nullableIdSchema(singletons),
           ifDigest: {
             anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
             description: "Digest of the draft you edited, or null to create a new document.",
           },
         },
-        required: ["collection", "data", "ifDigest"],
-        allOf: [
-          ...conditionalRequired(scoped, "id", collection => collection.kind !== "singleton"),
-          ...conditionalRequired(scoped, "body", collection => collection.format === "markdown"),
-        ],
+        required: ["body", "collection", "data", "id", "ifDigest"],
         type: "object",
       },
       metadata: metadata("save"),
