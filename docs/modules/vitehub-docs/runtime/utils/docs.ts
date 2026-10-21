@@ -50,7 +50,7 @@ export function getDocsPageByPath(path: string) {
 
   for (const section of docsManifest.sections) {
     const page = section.pages.find(page => normalizeDocsPath(page.path) === normalizedPath);
-    if (page && page.navigation !== false) {
+    if (page) {
       return page;
     }
   }
