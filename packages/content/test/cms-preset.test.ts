@@ -288,8 +288,8 @@ describe("hubContent()", () => {
     // vitehub() returns an array, so the Content plugin sits one level down in the app's plugin list. Collecting the
     // Database contributions of that list must not call this plugin's hooks again.
     const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
-    expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, rootDir: root })).toEqual([])
-    expect(await plugin.vitehub.databases({ plugins, rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, root })).toEqual([])
+    expect(await plugin.vitehub.databases({ plugins, projectRoot: root, root, rootDir: root })).toEqual([])
   })
 
   it("fails discovery when the Database choice is ambiguous", async () => {
