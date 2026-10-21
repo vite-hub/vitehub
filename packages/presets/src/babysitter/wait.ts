@@ -119,7 +119,10 @@ function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
     // Keep check runs separate from commit statuses. GitHub can report both
     // with the same name and no app, but they represent different evidence.
     const kind = signal.head_sha !== undefined ? "check" : "status";
-    const key = `${kind}\0${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
+    // Hydrated id-less check runs carry an anonymous identity. Keep those
+    // records separate so a completed run cannot hide a queued run.
+    const anonymous = kind === "check" && String(signal.id).startsWith("anonymous:");
+    const key = `${kind}\0${String(signal.name)}\0${String(signal.app?.id ?? "")}\0${anonymous ? String(signal.id) : ""}`;
     const previous = latest.get(key);
     if (!previous || Number(signal.id ?? 0) >= Number(previous.id ?? 0)) latest.set(key, signal);
   }

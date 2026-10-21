@@ -991,7 +991,12 @@ export class PullRequestInbox {
           // explicit event (or a targeted thread query) supplies that evidence.
           // Comments with no matching thread stay resolution-unknown.
         }
-        if (check) upsert(s.checks, check, `${event}:${check.id}`)
+        if (check) {
+          // Check-run webhooks may omit GitHub's id. Use the payload digest as
+          // a stable fallback so distinct parser-valid records are retained.
+          const checkKey = check.id === undefined ? digest(check) : String(check.id)
+          upsert(s.checks, check, `${event}:${checkKey}`)
+        }
         if (event === 'status') upsert(s.statuses, payload, payload.context)
         if (event === 'push') {
           // Preserve source-branch evidence before synchronize updates the PR head.

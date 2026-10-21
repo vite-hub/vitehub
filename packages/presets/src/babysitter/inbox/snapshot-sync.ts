@@ -109,10 +109,13 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     // GitHub normally supplies a check-run ID, but webhook and test payloads can
     // omit it. Keep each id-less record so a queued run cannot be overwritten by
     // a later completed run during snapshot hydration.
-    checks: Object.fromEntries(checks.map(parseEvidence).map((check, index) => [
-      `check_run:${check.id ?? `anonymous:${index}`}`,
-      check,
-    ])),
+    checks: Object.fromEntries(checks.map(parseEvidence).map((check, index) => {
+      // Carry the temporary identity on the record as well as the map key.
+      // Reconciliation and wait projections consume the record itself and
+      // must not turn every id-less check into the same `undefined` record.
+      const normalized = check.id === undefined ? { ...check, id: `anonymous:${index}` } : check
+      return [`check_run:${normalized.id}`, normalized]
+    })),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })

@@ -153,6 +153,14 @@ describe("Babysitter check waits", () => {
       s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued" } };
       s.statuses = { ci: { context: "ci", sha: head, state: "success" } };
     }), now)).toBe(true);
+    // Hydration assigns identities to id-less runs; a later completed run
+    // must not hide an earlier queued run during latest-signal selection.
+    expect(checksStillRunning(await parked(s => {
+      s.checks = {
+        "check_run:anonymous:0": { id: "anonymous:0", name: "ci", head_sha: head, status: "completed", conclusion: "success" },
+        "check_run:anonymous:1": { id: "anonymous:1", name: "ci", head_sha: head, status: "queued" },
+      };
+    }), now)).toBe(true);
     expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 
