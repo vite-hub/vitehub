@@ -232,7 +232,7 @@ export function createContentSessions(options: {
   function target(collectionName: unknown, idOrOptions: unknown, maybeOptions: unknown): { collection: SessionCollection, id: string, options: unknown } {
     const collection = options.collection(collectionName)
     const hasId = hasRuntimeType(idOrOptions, "string")
-    return { collection, id: collection.documentId(hasId ? idOrOptions : undefined), options: hasId ? maybeOptions : idOrOptions }
+    return { collection, id: collection.documentId(hasId ? idOrOptions as string : undefined), options: hasId ? maybeOptions : idOrOptions }
   }
 
   async function report(collectionName: unknown, idOrOptions: unknown, maybeOptions: unknown, mode: "report" | "acquire"): Promise<ContentDocumentSessions> {
