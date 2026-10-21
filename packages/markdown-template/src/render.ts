@@ -161,17 +161,38 @@ function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | u
   if (!destination || !/^(?:\s+(?:"[\s\S]*"|'[\s\S]*'|\([\s\S]*\)))?\s*\)/.test(after)) return
   // Element siblings, such as emphasis in the label, cannot contain the label brackets.
   const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
-  const label = labelStart(text.slice(0, text.length - destination[0].length + 1))
+  const labelText = text.slice(0, text.length - destination[0].length + 1)
+  const label = labelStart(labelText)
   // Images and partial destinations keep their existing behavior.
   if (label === undefined || text[label - 1] === "!") return
   const path = String(node[1][":value"])
   throw diagnostics.MARKDOWN_TEMPLATE_R0033({ message: `[vitehub] Markdown template binding "{{ ${path} }}" cannot be a Markdown link destination. Use [label](){:href="${path}"}.` })
 }
 
-/** Returns the index of an opening `[` in the label text. */
+/** Returns the matching unescaped opening `[` in the label text. */
 function labelStart(text: string): number | undefined {
-  const index = text.lastIndexOf("[")
-  return index === -1 ? undefined : index
+  let depth = 0
+  for (let index = text.length - 1; index >= 0; index--) {
+    const character = text[index]
+    if ((character !== "[" && character !== "]") || isEscaped(text, index)) continue
+    if (character === "]") {
+      depth++
+      continue
+    }
+    if (depth === 0) return undefined
+    depth--
+    if (depth === 0) return index
+  }
+  // Comark drops the escape marker from an escaped closing bracket. If that
+  // leaves an extra closing bracket, retain the only plausible label opener.
+  const opener = text.lastIndexOf("[")
+  return opener >= 0 && !isEscaped(text, opener) ? opener : undefined
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let backslashes = 0
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor--) backslashes++
+  return backslashes % 2 === 1
 }
 
 function rejectBoundEventHandlers(source: Record<string, unknown>): void {
