@@ -58,6 +58,15 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("runs authorize callbacks on routes from another JavaScript realm", async () => {
+    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
+      access: { routes: [foreignRoute] },
+    }))
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
+  })
+
   it("does not resolve Auth for unmatched requests", async () => {
     const handler = createAuthAccessHandler([{ route: "/private/**" }])
     await expect(handler(new Request("https://app.example/public"))).resolves.toBeUndefined()
