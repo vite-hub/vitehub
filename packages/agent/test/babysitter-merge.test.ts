@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Snapshot } from "../src/server/github-inbox.ts";
+import type { Snapshot } from "../src/presets/babysitter/inbox/store.ts";
 import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, mergeReviewEvidenceKey, snapshotCheckEvidence } from "../src/presets/babysitter/merge.ts";
 import { directMergeBranchSafety, stackRetargetBase } from "../src/presets/babysitter/stack.ts";
 

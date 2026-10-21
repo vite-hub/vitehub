@@ -66,7 +66,7 @@ function documentedComponents(): Map<string, DocumentedComponent> {
   for (const file of markdownFiles(uiDocsRoot)) {
     const page = relative(uiDocsRoot, file);
     const source = readFileSync(file, "utf8");
-    const reference = source.split("\n## API reference\n")[1]?.split(/\n## (?!#)/)[0];
+    const reference = source.split("\n## API Reference\n")[1]?.split(/\n## (?!#)/)[0];
     if (!reference) continue;
     for (const section of reference.split(/\n### /).slice(1)) {
       const [heading = "", ...body] = section.split("\n");
@@ -94,8 +94,9 @@ function runtimeDefault(options: RuntimePropOptions): string | undefined {
   if (options.required) return "Required";
   let value = options.default;
   if (typeof value === "function" && options.type !== Function) value = Reflect.apply(value, undefined, []);
-  if (value === undefined) return options.type === Boolean ? "false" : undefined;
-  if (typeof value === "string") return `'${value}'`;
+  // Vue casts a missing Boolean prop to `false`, unless the prop declares `default: undefined`.
+  if (value === undefined) return options.type === Boolean && !("default" in options) ? "false" : undefined;
+  if (typeof value === "string") return `"${value}"`;
   return JSON.stringify(value);
 }
 

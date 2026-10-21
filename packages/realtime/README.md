@@ -90,9 +90,10 @@ Open the page in two tabs. Each tab first reports `Realtime: connecting`, then `
 Room updates do not write the Workspace document. Save the current Markdown and create a Workspace snapshot explicitly:
 
 ```ts
-const checkpoint = await realtime.history.checkpoint()
+const [error, checkpoint] = await realtime.history.checkpoint()
+if (error) throw error
 
-console.log(checkpoint.content)
+console.log(checkpoint.document.body)
 console.log(checkpoint.snapshot.id)
 ```
 
@@ -104,7 +105,7 @@ console.log(checkpoint.snapshot.id)
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
 - Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.
 - One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
-- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. A checkpoint rejects during a document switch until the Vue watcher creates the new document. Pending checkpoint retries reject when their original document is disconnected or replaced. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
+- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
 
 ## Public imports
 

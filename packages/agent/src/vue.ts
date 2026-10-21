@@ -43,7 +43,6 @@ export function useAgent(name: string): AgentClient {
 
 function agentChatRoute(name: string): string {
   const path = resolveAgentRoutePath(defaultAgentChatRoute, { agent: name })
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite replaces this build-time constant, while direct source imports leave it undeclared.
   const baseURL = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
   return baseURL === "/" ? path : `${baseURL.replace(/\/+$/, "")}${path}`
 }

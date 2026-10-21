@@ -22,10 +22,10 @@ it("keeps build dependencies out of the published application entry", async () =
   expect(imports).not.toContain("node:path")
 })
 
-it("keeps build dependencies out of the runtime Console entry", async () => {
+it("keeps build dependencies out of the runtime Process entry", async () => {
   const result = await build({
     bundle: true,
-    entryPoints: [resolve(import.meta.dirname, "../dist/runtime/console.js")],
+    entryPoints: [resolve(import.meta.dirname, "../dist/runtime/process.js")],
     format: "esm",
     metafile: true,
     packages: "external",

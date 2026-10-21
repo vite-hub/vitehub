@@ -107,7 +107,9 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
     },
     async list(prefix = "") {
       await ensurePrepared()
-      const normalizedPrefix = prefix ? normalizeSafeSourcePath(prefix, { allowEmpty: true }) : ""
+      const normalizedPrefix = prefix
+        ? normalizeSafeSourcePath(prefix, { allowEmpty: true }).split("/").filter(Boolean).join("/")
+        : ""
       const sourceKeys = await keys()
       const directories = createDirectorySet(sourceKeys, normalizedPrefix)
       const result = new Map<string, SourceListEntry<string>>()
@@ -117,10 +119,12 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
       }
 
       for (const key of sourceKeys) {
-        if (key === normalizedPrefix) continue
-        if (!isNestedUnder(key, normalizedPrefix)) continue
-        const rest = normalizeSourcePath(key.slice(normalizedPrefix.length)).replace(/^\//, "")
+        const normalizedKey = normalizeSourcePath(key).split("/").filter(Boolean).join("/")
+        if (normalizedKey === normalizedPrefix) continue
+        if (!isNestedUnder(normalizedKey, normalizedPrefix)) continue
+        const rest = normalizedKey.slice(normalizedPrefix.length).replace(/^\//, "")
         if (rest.includes("/")) continue
+        result.delete(normalizedKey)
         result.set(key, { key, type: "file" })
       }
 

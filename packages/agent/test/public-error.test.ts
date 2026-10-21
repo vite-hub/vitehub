@@ -30,6 +30,15 @@ describe("Agent public error seams", () => {
     })
   })
 
+  it("tells chat users that the Invocation ran out of time", () => {
+    expect(toAgentPublicError(agentDiagnostics.AGENT_R0820({ message: "Chat invocation timed out after 900000ms." }), "invocation")).toEqual({
+      code: "TIMEOUT",
+      error: "I ran out of time before I could finish this. Please try a narrower request.",
+    })
+    expect(toAgentPublicError(agentDiagnostics.AGENT_R0820({ message: "Chat invocation timed out while waiting to steer the active Agent invocation." }), "http").code).toBe("TIMEOUT")
+    expect(toAgentPublicError(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }), "invocation").code).toBe("INTERNAL")
+  })
+
   it("preserves the stable authentication failure contract", () => {
     expect(toAgentPublicError(new ViteHubError("AUTHENTICATION_REQUIRED", "Authentication required."), "http")).toEqual({
       code: "AUTHENTICATION_REQUIRED",

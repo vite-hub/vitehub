@@ -25,8 +25,8 @@ interface StoredAgentChannelDelivery extends AgentChannelDelivery {
   journalStatus?: AgentChannelDeliveryStatus
 }
 
-export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
-export const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
+const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
+const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
@@ -64,6 +64,8 @@ export interface AgentChannelDeliveryTracker {
   delivery: AgentChannelDelivery
   duplicate: boolean
   event(input: AgentChannelDeliveryEventInput): Promise<AgentChannelDeliveryEvent>
+  getMarker?(name: string): Promise<string | null>
+  setMarker?(name: string, value: string): Promise<void>
 }
 
 type AgentChannelDeliveryWorkflowResolver = (
@@ -204,6 +206,7 @@ function advanceDeliveryStatus(
     retrySignaled = false
   }
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
+  if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
   if (
     event.type === "accepted" ||
@@ -348,11 +351,14 @@ async function appendEvent(
 
 function tracker(state: StateAdapter, stored: StoredAgentChannelDelivery, duplicate: boolean): AgentChannelDeliveryTracker {
   const delivery = publicDelivery(stored)
+  const markerKey = (name: string) => `deliveries:${delivery.id}:marker:${name}`
   const value: AgentChannelDeliveryTracker = {
     claimed: false,
     delivery,
     duplicate,
     event: async (input) => await appendEvent(state, stored, input),
+    getMarker: async (name) => await state.get<string>(markerKey(name)),
+    setMarker: async (name, markerValue) => await state.set(markerKey(name), markerValue, retentionMs),
   }
   // A duplicate may already be terminal and is still usable through its request
   // context. Keeping it process-global would retain its State Adapter forever.

@@ -17,6 +17,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -104,6 +105,7 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const details: unknown = Reflect.get(value, "consoleDetails")
   if (String(code) === code) Object.assign(failure, { code })
   if (String(code) === code && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
+  if (String(code) !== code) Object.assign(failure, consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message))
   return failure
 }
 
@@ -265,7 +267,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
+  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   if (!isConsoleRpcCallPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown

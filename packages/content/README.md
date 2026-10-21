@@ -16,22 +16,26 @@ export const content = defineContent({
 })
 ```
 
-`defineContent()` forwards Comark plugins to each content instance. Install the
-plugin you need and pass it in `plugins`; plugin options are evaluated when the
-content runtime is created and can be changed by rebuilding or recreating that
-runtime.
+`defineContent()` forwards plugins to each content instance. Comark parse
+plugins, which change how Markdown is parsed, go in `markdown.plugins`. Comark
+Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go in
+`plugins`. A parse plugin in `plugins` throws `CONTENT_R0006`. Plugin options are
+evaluated when the content runtime is created and can be changed by rebuilding
+or recreating that runtime.
 
 ```ts
 import knap from "comark-knap"
 
 export const content = defineContent({
-  plugins: [
-    knap({
-      variables: {
-        environment: process.env.NODE_ENV,
-      },
-    }),
-  ],
+  markdown: {
+    plugins: [
+      knap({
+        variables: {
+          environment: process.env.NODE_ENV,
+        },
+      }),
+    ],
+  },
   source: fs("./docs"),
 })
 ```
@@ -44,14 +48,16 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ## Document collections
 
-`collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`.
+`collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`.
 
 ```ts
-import { defineContent, documents } from "@vite-hub/content"
+import { defineContent } from "@vite-hub/content"
+import { documents } from "@vite-hub/content/collections"
+import cms from "@vite-hub/content/presets/cms"
 import { z } from "zod"
 
 export const content = defineContent({
-  workspace: "site",
+  extends: cms,
   collections: {
     posts: documents({
       path: "posts/**/*.md",
@@ -90,4 +96,17 @@ await content.publish({ expect: [{ collection: "settings", digest: draft.digest 
 await settings.get() // the published settings, also at /api/content/get/settings
 ```
 
-Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve only `published`. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.
+Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve `published`, except to a request with a valid preview cookie. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.
+
+## Draft preview
+
+`content.preview.enable(event)` signs an HMAC token with `VITEHUB_CONTENT_KEY` (32 random bytes as base64 or hex) and sets it as an `HttpOnly`, `SameSite=Strict` cookie for one hour by default. A request with a valid cookie reads `draft` through `/api/content/**`, `content.get()`/`list()`/`navigation()`/`search()`, and collection `get()`/`list()`, and gets `Cache-Control: private, no-store`. The grant lives in `AsyncLocalStorage` for that request only.
+
+```ts
+if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
+await content.preview.enable(event, { maxAge: 900 })
+content.preview.disable(event)
+await content.preview.run(event, () => content.collection("posts").get("hello")) // outside Nitro
+```
+
+ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 4 (Nitro 2) apps. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.

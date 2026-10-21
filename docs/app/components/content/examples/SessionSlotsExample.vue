@@ -22,7 +22,7 @@ const session: ViteHubUISession = {
 </script>
 
 <template>
-  <AgentSession :session="session" class="h-96">
+  <ChatSession :session="session" class="h-96">
     <template #header="{ session: current }">
       <header class="flex items-center justify-between gap-3 border-b border-default px-4 py-3">
         <div class="min-w-0">
@@ -37,5 +37,5 @@ const session: ViteHubUISession = {
         Read-only history. Start a new session to continue.
       </p>
     </template>
-  </AgentSession>
+  </ChatSession>
 </template>

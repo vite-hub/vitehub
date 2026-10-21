@@ -4,6 +4,7 @@ description: Read sessions, call Better Auth, and guard routes from server and V
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports
@@ -33,7 +34,7 @@ import { useUserSession } from '@vite-hub/auth/vue'
 export const userSession = useUserSession()
 ```
 
-Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. Pass the same `basePath` to the client and the Definition.
+Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
 
 Server code can read the discovered Auth instance or require a session for a request.
 

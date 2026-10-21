@@ -14,6 +14,23 @@ import { contentSource, defineContent, defineContentHandler } from "../src/index
 
 afterEach(clearSources)
 
+it("accepts Web Requests from another realm", async () => {
+  const request = runInNewContext(`new Request("https://example.test/content", {
+    method: "POST",
+    body: "hello",
+  })`, { Request }) as Request
+  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
+  const response = await handler({ req: request } as never) as Response
+  expect(response.status).toBe(200)
+  await expect(response.text()).resolves.toBe("hello")
+})
+
+it("rejects spoofed Web Requests", async () => {
+  const request = { get [Symbol.toStringTag]() { return "Request" } }
+  const handler = defineContentHandler({ handler: async input => new Response(await input.text()) })
+  await expect(handler({ req: request } as never)).rejects.toMatchObject({ code: "CONTENT_R0005" })
+})
+
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((resolvePromise) => {
@@ -600,6 +617,37 @@ describe("contentSource", () => {
     })).toThrow()
   })
 
+  it("rejects Comark parse plugins in plugins", () => {
+    const knap = { name: "knap", pre() {} }
+    expect(() => defineContent({ plugins: [knap], source: "source" as SourceName })).toThrow(expect.objectContaining({
+      code: "CONTENT_R0006",
+      message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
+    }))
+
+    const mixed = { name: "mixed", setup() {}, post() {} }
+    expect(() => defineContent({ plugins: [mixed], source: "source" as SourceName })).toThrow(expect.objectContaining({
+      code: "CONTENT_R0006",
+      message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
+    }))
+  })
+
+  it("runs Comark parse plugins from markdown.plugins", async () => {
+    const content = defineContent({
+      markdown: {
+        plugins: [{
+          name: "checked",
+          post(state) {
+            state.tree.meta.checked = true
+          },
+        }],
+      },
+      source: { keys: () => ["index.md"], getItem: () => "# Docs", getItemRaw: () => "# Docs" },
+    })
+
+    await expect(content.get("/")).resolves.toMatchObject({ meta: { checked: true } })
+    await content.dispose()
+  })
+
   it("preserves native Comark Content Sources", async () => {
     const source = {
       async keys() {
@@ -731,6 +779,15 @@ describe("contentSource", () => {
     await expect(source.getItem("index.md")).resolves.toBe("# Native")
   })
 
+  it("decodes content bytes created in another realm", async () => {
+    const foreignBytes = runInNewContext("new Uint8Array([35, 32, 70, 111, 114, 101, 105, 103, 110])")
+    const source = contentSource({
+      items: async () => [{ key: "index.md", content: foreignBytes }],
+    } as never)
+
+    await expect(source.getItem("index.md")).resolves.toBe("# Foreign")
+  })
+
   it("does not treat a reader with inherited Comark methods as a native source", async () => {
     const source = Object.assign(Object.create({
       keys: async () => ["inherited.md"],
@@ -801,6 +858,38 @@ describe("contentSource", () => {
     })
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
+  })
+
+  it("reports malformed source paths with the content diagnostic", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: 42, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("reports an explicitly malformed path even when the key is valid", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: "valid.md", path: 0, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("honors an inherited source path", async () => {
+    const prototype = { path: "declared.md" }
+    const item = Object.assign(Object.create(prototype), { key: "fallback.md", content: "# Declared" })
+    const source = contentSource({ items: async () => [item] } as never)
+
+    await expect(source.keys()).resolves.toEqual(["declared.md"])
+  })
+
+  it("falls back to the key when the optional path is undefined", async () => {
+    const source = contentSource({
+      items: async () => [{ key: "fallback.md", path: undefined, content: "# Fallback" }],
+    } as never)
+
+    await expect(source.keys()).resolves.toEqual(["fallback.md"])
   })
 })
 

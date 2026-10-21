@@ -102,7 +102,6 @@ function resolveCloudflareAccessConsoleAuth(root: string, config: CloudflareAcce
     teamDomain: config.teamDomain ?? env({ source: env.source("CF_ACCESS_TEAM_DOMAIN") }),
   }
   for (const [key, value] of Object.entries(values)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A setting is either a literal string or an Env declaration.
     if (typeof value === "string") {
       if (key === "teamDomain" ? !cloudflareAccessIssuer(value) : !value.trim()) {
         throw new TypeError(`[vitehub] Cloudflare Access Console Auth ${key} must be ${key === "teamDomain" ? "an HTTPS team domain such as acme.cloudflareaccess.com" : "a non-empty Application Audience (AUD) tag"}.`)
@@ -261,6 +260,8 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
       "  if (path === '/_vitehub/sign-in') return",
+      "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",
+      "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start') }), mountBase)",
@@ -283,12 +284,13 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
 export const consoleConnectionsActorId = "#vitehub/console/connections-actor"
 
 /** Write the Connections access policy module. It checks each management request with the Console access policy. */
-export async function writeConsoleConnectionsActor(root: string): Promise<string> {
+export async function writeConsoleConnectionsActor(root: string, sessionActorModule?: string): Promise<string> {
   const file = resolve(root, ".vitehub/nitro/console/connections-actor.mjs")
   await writeFileIfChanged(file, [
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
+    ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
     "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    "  return consoleConnectionsActor(event)",
+    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))

@@ -117,6 +117,7 @@ export interface CloudflareEnvelope<T> {
 interface ProvisionRequestOptions {
   method?: string
   body?: unknown
+  headers?: Record<string, string>
   query?: Record<string, string>
 }
 
@@ -158,7 +159,8 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
     }
     const method = Object.hasOwn(options, "method") ? options.method : undefined
     const body = Object.hasOwn(options, "body") ? options.body : undefined
-    const init: RequestInit = { method: method ?? "GET", headers: { ...headers } }
+    const requestHeaders = Object.hasOwn(options, "headers") ? options.headers : undefined
+    const init: RequestInit = { method: method ?? "GET", headers: { ...requestHeaders, ...headers } }
     if (body !== undefined) {
       init.headers = { ...init.headers, "content-type": "application/json" }
       init.body = JSON.stringify(body)

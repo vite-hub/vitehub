@@ -64,6 +64,21 @@ describe("Cloudflare provider output", () => {
     ).toThrow(/already assigned/)
   })
 
+  it("treats an R2 binding in another jurisdiction as a different bucket", () => {
+    const config = createProviderOutputCatalog()
+    contributeCloudflareProviderOutput(config, { owner: "blob",
+      r2Buckets: [{ binding: "BLOB", bucket_name: "assets", jurisdiction: "eu" }],
+    })
+    const withBuckets = (r2_buckets: unknown[]) => ({ cloudflare: { wrangler: { r2_buckets } } })
+
+    expect(composeNitroCloudflareProviderOutput(config, withBuckets([{ binding: "BLOB", bucket_name: "assets", jurisdiction: "eu", preview_bucket_name: "preview" }])))
+      .toHaveProperty("cloudflare.wrangler.r2_buckets", [{ binding: "BLOB", bucket_name: "assets", jurisdiction: "eu", preview_bucket_name: "preview" }])
+    expect(() => composeNitroCloudflareProviderOutput(config, withBuckets([{ binding: "BLOB", bucket_name: "assets" }])))
+      .toThrow(/already assigned/)
+    expect(() => composeNitroCloudflareProviderOutput(config, withBuckets([{ binding: "BLOB", bucket_name: "assets", jurisdiction: "fedramp" }])))
+      .toThrow(/already assigned/)
+  })
+
   it("composes required secrets without taking ownership of existing names", () => {
     const config = createProviderOutputCatalog()
     contributeCloudflareProviderOutput(config, { owner: "env",

@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { combineSources } from "../src/index.ts"
@@ -71,5 +73,22 @@ describe("combined Sources", () => {
     await expect(collection.get(["enumerable", "one"])).resolves.toBe("one")
     await expect(collection.get(["keyed", "two"])).resolves.toBe("two")
     expect(items).not.toHaveBeenCalled()
+  })
+
+  it("keeps enumeration for readers with cross-realm items functions", async () => {
+    const items = runInNewContext("async () => [{ key: 'one' }] ") as () => Promise<Array<{ key: string }>>
+    const collection = combineSources({
+      sources: {
+        remote: {
+          async get(key: string) {
+            return key
+          },
+          items,
+        },
+      },
+    })
+
+    expect(collection).toHaveProperty("items")
+    await expect(collection.items()).resolves.toEqual([{ identity: ["remote", "one"], key: "one", source: "remote" }])
   })
 })

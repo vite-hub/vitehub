@@ -6,7 +6,7 @@ import {
   agentInvocationExternalUrl,
   agentInvocationProject,
   agentInvocationTitle,
-} from "@vite-hub/ui";
+} from "./invocation";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -18,6 +18,7 @@ import {
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
+  resolveConsoleAgentCatalog,
   resolveConsoleAgentRows,
 } from "./console-agent-list";
 
@@ -26,7 +27,7 @@ import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
   AgentInvocationView,
-} from "@vite-hub/ui";
+} from "./invocation";
 import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
@@ -38,6 +39,7 @@ import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
@@ -57,6 +59,7 @@ import {
 } from "./console-session-bootstrap";
 import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
+import "./invocation/invocation.css";
 
 const route = useRoute();
 const router = useRouter();
@@ -84,6 +87,9 @@ const capabilitiesLoading = ref(false);
 const capabilitiesError = ref<unknown>();
 const initialBootstrapPending = ref(!selectedAgentName.value);
 const agentNames = ref<string[]>([]);
+// Names that appear only in invocation history. Their sessions stay browsable, but they are not listed as Agents.
+const historicalAgentNames = ref<string[]>([]);
+const sessionAgentNames = computed(() => [...agentNames.value, ...historicalAgentNames.value]);
 const agentsLoading = ref(true);
 const agentsError = ref<unknown>();
 interface ConsoleAgentProfile {
@@ -157,7 +163,7 @@ const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
 );
 const { selectAgentName } = useConsoleSessionBootstrap({
-  agentNames,
+  agentNames: sessionAgentNames,
   firstInvocation: computed(() => list.invocations.value[0]),
   initialBootstrapPending,
   isUsageRoute,
@@ -418,7 +424,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -433,7 +438,6 @@ function capabilityLabel(id: string): string {
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -474,14 +478,6 @@ function observedConfiguration(
     const configuration = record(entry.attributes?.["vitehub.agent.configuration"]);
     if (configuration) return invocationConfiguration(configuration);
   }
-}
-
-function errorMessage(error: unknown): string | undefined {
-  return error instanceof Error
-    ? error.message
-    : error
-      ? "The console could not load this data."
-      : undefined;
 }
 
 async function selectInvocation(
@@ -637,14 +633,10 @@ async function loadAgents(): Promise<void> {
   agentsLoading.value = true;
   try {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
-    const names = Array.isArray(value?.agents)
-      ? value.agents.filter((name): name is string => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
-          return typeof name === "string" && Boolean(name.trim());
-        })
-      : [];
+    const catalog = resolveConsoleAgentCatalog(value);
     if (agentsRequest === controller) {
-      agentNames.value = [...new Set(names)];
+      agentNames.value = catalog.agents;
+      historicalAgentNames.value = catalog.historicalAgents;
       const invocation = record(value?.invocation);
       agentInvocationOptions.value = Object.fromEntries(
         agentNames.value.flatMap((name) => {
@@ -826,7 +818,7 @@ watch(
 );
 
 watch(
-  [routeAgent, agentNames, isUsageRoute, initialBootstrapPending],
+  [routeAgent, sessionAgentNames, isUsageRoute, initialBootstrapPending],
   async ([requestedAgent, names, usageRoute, bootstrapPending]) => {
     if (usageRoute) return;
     if (!names.length) return;
@@ -1016,9 +1008,7 @@ onBeforeUnmount(() => {
                 >
                   <USkeleton v-for="index in 2" :key="index" class="h-8 rounded" />
                 </div>
-                <p v-else-if="errorMessage(capabilitiesError)" class="py-1 text-xs text-error">
-                  {{ errorMessage(capabilitiesError) }}
-                </p>
+                <ConsoleState v-else-if="capabilitiesError" compact :error="capabilitiesError" title="Could not load session filters" />
                 <template v-else>
                   <label class="grid gap-1.5 text-xs font-medium">
                     <span>Used capability</span>
@@ -1138,7 +1128,7 @@ onBeforeUnmount(() => {
           }}</span>
         </h2>
         <div
-          v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
+          v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
           class="px-3"
         >
           <UAlert
@@ -1193,14 +1183,13 @@ onBeforeUnmount(() => {
         <AgentInvocationList
           v-if="
             (!list.isLoading.value || invocationItems.length) &&
-            (!errorMessage(list.error.value) || invocationItems.length)
+            (!list.error.value || invocationItems.length)
           "
           class="vitehub-console__session-list min-h-0 flex-1 px-1.5 pb-3"
           :continuation-key="list.cursor.value"
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
-          :remaining-statuses="list.remainingStatuses.value"
           group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"
@@ -1222,6 +1211,7 @@ onBeforeUnmount(() => {
           </template>
           <template #empty
             ><UEmpty
+              v-if="activeFilterCount"
               class="px-4"
               icon="i-lucide-message-square-more"
               :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
@@ -1236,6 +1226,7 @@ onBeforeUnmount(() => {
     <ConsoleSearch
       :actions="searchActions"
       :agent-names="agentNames"
+      :historical-agent-names="historicalAgentNames"
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
       :kv-base="kvBase"
@@ -1247,7 +1238,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel
       v-else
-      id="agent-session"
+      id="chat-session"
       class="vitehub-console__session-panel"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
@@ -1291,7 +1282,7 @@ onBeforeUnmount(() => {
             <ConsoleSessionLoading
               v-else
               class="h-full min-h-0"
-              :error="errorMessage(detail.error.value)"
+              :error="detail.error.value"
               :maximized="true"
               surface="inspector"
               @close="closeDetails"
@@ -1403,7 +1394,7 @@ onBeforeUnmount(() => {
               <ConsoleSessionLoading
                 v-else
                 class="h-full min-h-0"
-                :error="errorMessage(detail.error.value)"
+                :error="detail.error.value"
                 surface="inspector"
                 @close="closeDetails"
                 @retry="refresh"
@@ -1570,19 +1561,17 @@ onBeforeUnmount(() => {
   min-height: 2.75rem;
 }
 
-/* Section labels follow the Executor sidebar: small uppercase text with a quiet count. */
+/* Section labels are quiet sentence-case text with a count, like the labels on onmax.me. */
 .vitehub-console__section-label {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--ui-text-dimmed);
   display: flex;
-  font-size: 0.6875rem;
-  font-weight: 500;
+  font-size: 0.75rem;
+  font-weight: 400;
   gap: 0.375rem;
   height: 1.75rem;
-  letter-spacing: 0.08em;
   min-width: 0;
   padding-inline: 0.625rem;
-  text-transform: uppercase;
   width: 100%;
 }
 
@@ -1689,7 +1678,7 @@ button.vitehub-console__section-label:focus-visible {
   font-size: 0.75rem;
 }
 
-/* Recency headings sit under the uppercase Sessions label, so they use sentence case. */
+/* Recency headings sit under the Sessions label and use the same sentence case. */
 .vitehub-console__session-list .vh-invocation-list__group-heading {
   color: var(--ui-text-dimmed);
   font-size: 0.6875rem;

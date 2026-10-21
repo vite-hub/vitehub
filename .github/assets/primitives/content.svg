@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -4536ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.ink-line {
+  opacity: 0.85;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.job,
+.command,
+.budget {
+  opacity: 0.55;
+}
+.lens {
+  fill: var(--tile-bg, var(--ui-bg));
+  fill-opacity: 0.6;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.ct-lens { animation-name: ct-lens; }
+.ct-line-1 { animation-name: ct-line-1; }
+.ct-line-2 { animation-name: ct-line-2; }
+.ct-line-3 { animation-name: ct-line-3; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes ct-lens {
+  0%, 12% { transform: translateY(0); }
+  22%, 34% { transform: translateY(5px); }
+  44%, 56% { transform: translateY(10px); }
+  66%, 78% { transform: translateY(5px); }
+  88%, 100% { transform: translateY(0); }
+}
+@keyframes ct-line-1 {
+  0%, 10% { opacity: 0.75; }
+  18%, 84% { opacity: 0.35; }
+  92%, 100% { opacity: 0.75; }
+}
+@keyframes ct-line-2 {
+  0%, 18%, 40%, 62%, 84%, 100% { opacity: 0.35; }
+  26%, 32%, 70%, 76% { opacity: 0.75; }
+}
+@keyframes ct-line-3 {
+  0%, 40% { opacity: 0.35; }
+  48%, 54% { opacity: 0.75; }
+  62%, 100% { opacity: 0.35; }
+}
+</style>
+      <rect x="6" y="6" width="26" height="28" rx="2" class="line" />
+      <rect x="10" y="10.5" width="12" height="3" rx="1" class="command" />
+      <rect x="10" y="17" width="18" height="2" rx="1" class="soft a ct-line-1" />
+      <rect x="10" y="22" width="14" height="2" rx="1" class="soft a ct-line-2" />
+      <rect x="10" y="27" width="16" height="2" rx="1" class="soft a ct-line-3" />
+      <g class="a ct-lens">
+        <circle cx="26" cy="18" r="5" class="ink-line lens" />
+        <path d="m29.6 21.6 3.6 3.6" class="ink-line" />
+      </g>
+</svg>

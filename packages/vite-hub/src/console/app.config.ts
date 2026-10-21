@@ -2,8 +2,8 @@ export const consoleAppConfig = {
   colors: {
     error: "red",
     info: "sky",
-    neutral: "zinc",
-    primary: "blue",
+    neutral: "neutral",
+    primary: "neutral",
     success: "emerald",
     warning: "amber",
   },

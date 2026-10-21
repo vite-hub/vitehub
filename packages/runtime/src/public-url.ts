@@ -25,12 +25,10 @@ export function registerPublicUrlAgentName(name: string, discoveredName: string)
 }
 
 function publicUrlConfig(): PublicUrlConfig {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The build injects this value only when `vitehub({ publicUrl })` is set.
   return typeof __VITEHUB_PUBLIC_URL__ === "undefined" ? {} : __VITEHUB_PUBLIC_URL__
 }
 
 function applicationBasePath(): string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The injected host base is optional in standalone package consumers.
   const configured = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
   const segments = configured.split("/").filter(Boolean)
   return segments.length ? `/${segments.join("/")}` : ""
@@ -40,12 +38,21 @@ function configuredAgentUrl(config: PublicUrlConfig, name: string): string | und
   return config.agents && Object.hasOwn(config.agents, name) ? config.agents[name] : undefined
 }
 
+function isInternalRequestHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  if (host === "internal") return true
+  if (host.endsWith(".internal") || host.endsWith(".svc")) return true
+  const octets = host.split(".").map(Number)
+  if (octets.length !== 4 || octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false
+  return octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168)
+}
+
 /**
  * Resolve the public origin of this deployment.
  *
  * Order: the Agent's origin from `vitehub({ publicUrl })`, the single configured
- * origin, the configured origin with the same host as the request, and then the
- * request origin. Returns `undefined` when nothing is configured and no request exists.
+ * origin, the configured origin with the same host as the request, the configured
+ * origin for an internal request host, and then the request origin.
  */
 export function resolvePublicUrl(options: { agentName?: string, request: Pick<Request, "url"> }): string
 export function resolvePublicUrl(options?: { agentName?: string, request?: Pick<Request, "url"> }): string | undefined
@@ -55,11 +62,14 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   const agentUrl = options.agentName
     ? configuredAgentUrl(config, options.agentName) ?? (discoveredName ? configuredAgentUrl(config, discoveredName) : undefined)
     : undefined
-  if (agentUrl) return agentUrl
   if (config.url) return config.url
-  if (!options.request) return
+  if (!options.request) return agentUrl
   const request = new URL(options.request.url)
-  return Object.values(config.agents ?? {}).find(url => new URL(url).host === request.host) ?? request.origin
+  const configuredAgents = Object.values(config.agents ?? {})
+  const requestHostUrl = configuredAgents.find(url => new URL(url).host === request.host)
+  if (requestHostUrl) return requestHostUrl
+  if (isInternalRequestHost(request.hostname)) return agentUrl ?? (configuredAgents.length === 1 ? configuredAgents[0] : request.origin)
+  return request.origin
 }
 
 /** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */

@@ -16,7 +16,7 @@ function filterFiles(batch: readonly File[]) {
 
 <template>
   <div class="space-y-3">
-    <AgentChatPrompt
+    <PromptInput
       v-model="input"
       v-model:files="files"
       accept="image/*,.txt,.log"

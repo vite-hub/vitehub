@@ -2012,9 +2012,7 @@ describe("agent chat capability discovery", () => {
     const initialAgentDb = { query: vi.fn() }
     let agentDb = initialAgentDb
     const runtimeDbs: unknown[] = []
-    const schedules = { create: vi.fn() }
-    const setScheduleRuntimeRegistry = vi.fn()
-    let runtimeSchedule: unknown
+    let runtimeSchedule: unknown = "unset"
     const agent = defineAgent({
       capabilities: [db()],
       driver: {
@@ -2028,8 +2026,6 @@ describe("agent chat capability discovery", () => {
     const { handlers, server } = createFakeServer(root, { default: agent })
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => {
       if (args[0] === "@vite-hub/database/drizzle") return { agentDb }
-      if (args[0] === "#vitehub/schedule/registry") return { default: { reminders: vi.fn() } }
-      if (args[0] === "@vite-hub/schedule/runtime") return { schedules, setScheduleRuntimeRegistry }
       return { default: agent }
     })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -2064,8 +2060,8 @@ describe("agent chat capability discovery", () => {
     ])
     expect(server.ssrLoadModule).toHaveBeenCalledWith("@vite-hub/database/drizzle")
     expect(runtimeDbs).toEqual([initialAgentDb])
-    expect(runtimeSchedule).toEqual({ schedules })
-    expect(setScheduleRuntimeRegistry).toHaveBeenCalledOnce()
+    expect(runtimeSchedule).toBeUndefined()
+    expect(server.ssrLoadModule).not.toHaveBeenCalledWith("#vitehub/schedule/registry")
 
     const refreshedAgentDb = { query: vi.fn() }
     agentDb = refreshedAgentDb
@@ -2077,7 +2073,6 @@ describe("agent chat capability discovery", () => {
       ...await devLoopTokenHeaders(root),
     })
     expect(runtimeDbs).toEqual([initialAgentDb, refreshedAgentDb])
-    expect(setScheduleRuntimeRegistry).toHaveBeenCalledTimes(2)
   })
 
 

@@ -1,3 +1,4 @@
+
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
 import type {
@@ -7,11 +8,14 @@ import type {
   CursorCollectionSource,
 } from "@vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export * from "@vite-hub/source"
+
+
 
 interface TableShape {
   readonly _: {
@@ -27,7 +31,9 @@ type QueryOutput<TSchema extends StandardSchemaV1<unknown, object> | undefined> 
 
 type QueryInput<TSchema extends StandardSchemaV1<unknown, object> | undefined> =
   TSchema extends StandardSchemaV1<infer TInput extends object, object>
+
     ? CollectionQueryInput<TInput>
+
     : CollectionRequestQuery
 
 export interface TableSourceOptions<
@@ -166,14 +172,18 @@ export function table<TTable extends TableShape>(
     querySchema?: undefined
   },
 ): CollectionSource<TTable["$inferSelect"], CollectionRequestQuery, KeysetCursor>
+
 export function table(input: unknown): CursorCollectionSource<TableShape["$inferSelect"], CollectionRequestQuery, KeysetCursor> {
+
   // SAFETY: Public overloads constrain input to TableSourceOptions before this implementation runs.
   const options = input as TableSourceOptions<TableShape, StandardSchemaV1<unknown, object> | undefined>
   const rawTable: unknown = options.table
   // SAFETY: TableShape is the structural subset supplied by every supported Drizzle SQLite table.
   const databaseTable = rawTable as SQLiteTable
   // SAFETY: TableSourceOptions requires the Drizzle select entry point used below.
+
   const database = options.db as { select(): any }
+
   // SAFETY: TableSourceOptions constrains both order columns to this table's column union.
   const columns = [options.orderBy.column, options.orderBy.tieBreaker] as AnySQLiteColumn[]
   const keys = columns.map(column => columnKey(databaseTable, column))
@@ -191,6 +201,7 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
   const direction = options.orderBy.direction
   const order = columns.map(column => (direction === "asc" ? asc(column) : desc(column)))
   // SAFETY: Both the custom and default schemas return object-shaped Collection queries.
+
   const querySchema = (options.querySchema ?? requestQuerySchema) as StandardSchemaV1<unknown, object>
 
   return {
@@ -198,6 +209,7 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     cursorSchema: keysetCursorSchema(columns),
     defaultLimit: options.defaultLimit,
     async load({ cursor, limit, query, signal }: { cursor?: KeysetCursor; limit: number; query: CollectionRequestQuery; signal?: AbortSignal }) {
+
       signal?.throwIfAborted()
       // SAFETY: The where hook contract returns a Drizzle SQL expression when it returns a value.
       const filter = options.where?.({ query, table: options.table }) as SQL | undefined
@@ -213,6 +225,7 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
       return rows
     },
     maxLimit: options.maxLimit,
+
     // SAFETY: Public overloads preserve the concrete schema input/output types.
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
   }
