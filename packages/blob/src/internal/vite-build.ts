@@ -224,7 +224,7 @@ function renderProviderEntry(
           "  const route = (serve.route || \"\").replace(/^\\/+|\\/+$/g, \"\")",
           "  const path = pathname.split(\"/\").map(segment => encodeURIComponent(segment)).join(\"/\")",
           "  const joined = [base, route, path].filter(Boolean).join(\"/\")",
-          "  return serve.publicBaseUrl ? (joined || \"/\") : `/${joined}`",
+          "  return base ? (joined || \"/\") : `/${joined}`",
           "}",
         ]
       : []),
