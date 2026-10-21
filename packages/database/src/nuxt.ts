@@ -630,7 +630,9 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
 
 /** Each request's database calls go on its evlog wide event (`database`), on every host and in `nuxt dev`. */
 async function installNitroRequestStats(config: Record<string, unknown>, root: string) {
-  if (resolveNitroHostingProvider(config, { nitro: config }) === "cloudflare") {
+  // Nitro's hook receives the resolved options object without Nuxt's preset, so
+  // the presence of the Cloudflare section is the reliable signal here.
+  if (resolveNitroHostingProvider(config, { nitro: config }) === "cloudflare" || isRecord(config.cloudflare)) {
     const cloudflare = ensureRecord(config, "cloudflare")
     const wrangler = ensureRecord(cloudflare, "wrangler")
     const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
@@ -685,6 +687,9 @@ function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: Resolve
   const nitro = ensureRecord(config, "nitro")
   const cloudflare = ensureRecord(nitro, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
+  const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
+  wrangler.compatibility_flags = flags
   wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
 }
 
