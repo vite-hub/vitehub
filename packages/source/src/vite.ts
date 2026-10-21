@@ -13,7 +13,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { findExportNames } from "mlly"
 
 import { parseSync as parseJavaScript } from "vite"
-import type { Plugin } from "vite"
+import type { Plugin, UserConfig } from "vite"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles } from "./internal/collection-discovery.ts"
@@ -1284,7 +1284,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           configurationTransitionByRoot.delete(projectRoot)
         }
       }).catch(() => {})
-      return transition
+      // SAFETY: Vite merges the contribution into its user config. Its `nitro` key is Nitro's own config shape, which
+      // this package types loosely so it does not depend on Nitro's types.
+      return transition as Promise<Omit<UserConfig, "plugins"> | undefined>
     },
     async configResolved(config) {
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
