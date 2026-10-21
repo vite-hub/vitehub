@@ -877,7 +877,7 @@ const menuItems = computed(() => [[
         />
         <UDropdownMenu
           v-if="state !== 'deleted'"
-          :items="[{ label: 'Schedule…', icon: 'i-lucide-calendar-clock', disabled: Boolean(schedule && schedule.status !== 'failed'), onSelect: openSchedule }]"
+          :items="[{ label: 'Schedule…', icon: 'i-lucide-calendar-clock', disabled: Boolean(schedule), onSelect: openSchedule }]"
           :content="{ align: 'end' }"
         >
           <UButton icon="i-lucide-chevron-down" aria-label="More publish options" :disabled="Boolean(conflict) || publishing" :loading="scheduling" class="border-s border-(--ui-bg)/25" />

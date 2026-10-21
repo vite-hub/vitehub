@@ -142,11 +142,11 @@ describe("scheduled publishing", { timeout: 30_000 }, () => {
     await expect(posts.status("hello")).resolves.toMatchObject({ state: "draft", schedule: { id: schedule.id, status: "failed", digest: reviewed.digest } })
     await expect(content.publishDue({ now: new Date(at.getTime() + hour) })).resolves.toEqual({ published: [], failed: [] })
 
-    // A failed schedule does not block a new one for the latest draft.
+    // A failed schedule must be dismissed before scheduling the latest draft.
+    await expect(content.schedule({ at: new Date(at.getTime() + hour), expect: [{ collection: "posts", id: "hello", digest: changed.digest }] })).rejects.toMatchObject({ code: "CONTENT_R0011" })
+    await content.unschedule(schedule.id)
     const next = await content.schedule({ at: new Date(at.getTime() + hour), expect: [{ collection: "posts", id: "hello", digest: changed.digest }] })
     await expect(posts.status("hello")).resolves.toMatchObject({ schedule: { id: next.id, status: "pending" } })
-    await content.unschedule(schedule.id)
-    await expect(content.schedules()).resolves.toEqual([next])
   })
 
   it("cancels a pending schedule", async () => {
