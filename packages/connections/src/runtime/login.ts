@@ -135,7 +135,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     if (!issuer || !isSafeEndpoint(issuer)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: `found no authorization server for ${provider.mcp}`, problem: "login" })
     }
     let server: v.InferOutput<typeof serverMetadataSchema> | undefined
     for (const url of serverMetadataUrls(issuer)) {
@@ -147,13 +147,13 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     if (!server) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: `found no authorization server metadata for ${issuer}`, problem: "login" })
     }
     let clientId = await resolveValue(provider.clientId)
     let clientSecret: string | undefined
     if (!clientId) {
       if (!server.registration_endpoint) {
-        throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
+        throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ connection: name, problem: "registration" })
       }
       const loopback = new URL(provider.redirectUri).protocol === "http:"
       const registration = v.safeParse(registrationSchema, await readJson(server.registration_endpoint, {
@@ -169,7 +169,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
         method: "POST",
       }))
       if (!registration.success) {
-        throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+        throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: "could not register a client at its authorization server", problem: "login" })
       }
       clientId = registration.output.client_id
       clientSecret = registration.output.client_secret
@@ -269,7 +269,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     const token = v.safeParse(tokenResponseSchema, body)
     if (!response.ok || !token.success) {
       const error = v.safeParse(v.object({ error: v.string() }), body)
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: current.clientId, problem: "token-request", status: response.status })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: `could not get a token${error.success ? ` (${error.output.error.slice(0, 100)})` : ""}`, problem: "login", status: response.status })
     }
     return token.output
   }
@@ -302,7 +302,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
       }
     }
     const secret = await credentials(provider)
-    if (secret === undefined) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name })
+    if (secret === undefined) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name, login: "credentials" })
     const verifier = randomToken()
     const state = randomToken()
     const url = new URL(current.authorizationEndpoint)
@@ -324,7 +324,7 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     catch (error) {
       // A login failure message could contain the credentials, so only Connection errors pass through.
       if (isConnectionError(error)) throw error
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, problem: "login" })
     }
     let callback: URL | undefined
     try {
@@ -333,13 +333,13 @@ export function createLoginSessions(options: { now: () => number, request: typeo
     catch {}
     const redirect = new URL(provider.redirectUri)
     if (!callback || callback.origin !== redirect.origin || callback.pathname !== redirect.pathname) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: `it must return the URL that the provider redirects to ${provider.redirectUri}`, problem: "login" })
     }
     const error = callback.searchParams.get("error")
-    if (error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request", message: error.slice(0, 100) })
+    if (error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: `provider "${provider.id}" rejected it (${error.slice(0, 100)})`, problem: "login" })
     const code = callback.searchParams.get("code")
     if (!code || callback.searchParams.get("state") !== state) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ provider: provider.id, problem: "token-request" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ connection: name, message: "it returned no authorization code for this request", problem: "login" })
     }
     return toToken(definition, await tokenRequest(name, current, { code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: provider.redirectUri }, signal))
   }

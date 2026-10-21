@@ -217,7 +217,7 @@ function objectRecord(object: BlobObject, previous: MediaRecord | undefined): Me
     createdAt,
     pathname: object.pathname,
     size: object.size ?? previous?.size ?? 0,
-    updatedAt: previous?.updatedAt ?? createdAt,
+    updatedAt: object.uploadedAt.toISOString(),
   }
 }
 

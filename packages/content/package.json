@@ -31,6 +31,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./collections": {
+      "types": "./dist/collections.d.ts",
+      "import": "./dist/collections.js",
+      "require": "./dist/collections.js",
+      "default": "./dist/collections.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
@@ -49,7 +55,9 @@
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
   },

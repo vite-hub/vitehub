@@ -415,6 +415,8 @@ export type ContentHistorySource = ComarkContentSource & { readonly loadedRevisi
 
 export interface ContentCollectionsOptions {
   workspace: string
+  /** Selects the default ref for unqualified reads (draft during preview). */
+  defaultRef?: () => ContentRef
   collections: Record<string, ContentCollectionDefinition>
 }
 
@@ -1279,3 +1281,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     dispose: plugin,
   }
 }
+
+// Public collection definition helpers are kept on this entry point for compatibility.
+export { documents, singleton, optional } from "./documents.ts"
