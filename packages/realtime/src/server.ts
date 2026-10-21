@@ -57,7 +57,7 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
+import { hasNativeCloudflareSql, type RealtimeRoomSql } from "./cloudflare-sql.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
