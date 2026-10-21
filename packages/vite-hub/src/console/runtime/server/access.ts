@@ -410,8 +410,6 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
   }
 }
 
-const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
-
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
 /** A JSON rejection with the Console diagnostic fields: `code`, `message` (the why), `fix`, and `docs`. */
