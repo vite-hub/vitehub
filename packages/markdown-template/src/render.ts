@@ -158,7 +158,7 @@ function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | u
   const after = siblings[index + 1]
   if (index < 1 || typeof before !== "string" || typeof after !== "string") return
   const destination = before.match(/\]\(\s*$/)
-  if (!destination || !/^(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?\s*\)/.test(after)) return
+  if (!destination || !/^(?:\s+(?:"[^\n]*"|'[^\n]*'|\([^\n]*\)))?\s*\)/.test(after)) return
   // Element siblings, such as emphasis in the label, cannot contain the label brackets.
   const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
   const label = labelStart(text.slice(0, text.length - destination[0].length + 1))
