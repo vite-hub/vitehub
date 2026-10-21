@@ -1196,7 +1196,13 @@
     "ssh2": "^1.17.0",
     "uploadthing": "catalog:storage",
     "valibot": "catalog:runtime",
-    "workflow": "catalog:workflow"
+    "workflow": "catalog:workflow",
+    "@internationalized/date": "^3.12.4",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extensions": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "comark": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "^5.3.0",

@@ -366,7 +366,7 @@ onBeforeUnmount(() => request++);
                       </span>
                       <a
                         v-if="section.docs"
-                        class="vitehub-console__overview-docs pointer-events-auto relative hidden items-center gap-1 sm:inline-flex"
+                        class="vitehub-console__overview-docs pointer-events-auto relative inline-flex items-center gap-1"
                         :href="section.docs"
                         rel="noreferrer"
                         target="_blank"

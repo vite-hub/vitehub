@@ -84,6 +84,22 @@ export class ConsoleNetworkError extends Error {
   }
 }
 
+export async function consoleResponseError(response: Response, overrides: { code?: string; message?: string } = {}): Promise<ConsoleRequestError> {
+  let payload: Record<string, unknown> | undefined
+  try {
+    payload = record(await response.clone().json())
+  }
+  catch {
+    payload = undefined
+  }
+  const fields: { code?: string; docs?: string; fix?: string; message?: string } = { ...overrides }
+  if (typeof payload?.code === "string") fields.code = payload.code
+  if (typeof payload?.docs === "string") fields.docs = payload.docs
+  if (typeof payload?.fix === "string") fields.fix = payload.fix
+  if (typeof payload?.message === "string") fields.message = payload.message
+  return new ConsoleRequestError(response.status, fields)
+}
+
 export function isRetryableConsoleRequestError(error: unknown): boolean {
   if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
   return error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
