@@ -15,6 +15,19 @@ test('claim hydration persists feedback/checks and reuses it on the same generat
  assert.equal(calls, 6)
  await hydrateSnapshot(inbox, claim, fetch); assert.equal(calls, 6)
 })
+test('claim hydration preserves distinct id-less check runs', async t => {
+ const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
+ const claim = (await inbox.claim(1))[0]!
+ const checks = [
+  { name: 'ci', head_sha: 'a', status: 'queued' },
+  { name: 'ci', head_sha: 'a', status: 'completed', conclusion: 'success' },
+ ]
+ const fetch = async (path: string) => path.endsWith('/pulls/7') ? [pr] : path.includes('check-runs') ? checks : []
+ assert.equal(await hydrateSnapshot(inbox, claim, fetch), true)
+ assert.equal(Object.keys(claim.snapshot.checks).length, 2)
+ assert.equal(claim.snapshot.checks['check_run:anonymous:0']?.status, 'queued')
+ assert.equal(claim.snapshot.checks['check_run:anonymous:1']?.conclusion, 'success')
+})
 test('new webhook during hydration wins over stale REST projection', async t => {
  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); await inbox.seed(repo, pr)
  const claim = (await inbox.claim(1))[0]!

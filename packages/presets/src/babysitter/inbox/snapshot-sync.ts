@@ -106,7 +106,13 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
-    checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
+    // GitHub normally supplies a check-run ID, but webhook and test payloads can
+    // omit it. Keep each id-less record so a queued run cannot be overwritten by
+    // a later completed run during snapshot hydration.
+    checks: Object.fromEntries(checks.map(parseEvidence).map((check, index) => [
+      `check_run:${check.id ?? `anonymous:${index}`}`,
+      check,
+    ])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
