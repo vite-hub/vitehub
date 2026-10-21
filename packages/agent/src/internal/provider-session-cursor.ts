@@ -5,6 +5,8 @@ export const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
 
 export interface ProviderSessionCursorRecord {
   [providerSessionCursorRecordKey]: "invalidated" | "ready"
+  /** Digest of the Codex developer instructions that started the provider session. */
+  instructions?: string
   value?: unknown
 }
 

@@ -177,6 +177,20 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
+During development, read history from the CLI. The commands call the Nitro
+runtime of a running Vite + Nitro Development Server and never write:
+
+```sh
+vitehub workspace history content            # revisions on every ref, newest first
+vitehub workspace history content --ref draft
+vitehub workspace refs content                # each ref and its head revision
+vitehub workspace show content draft          # one revision and its files
+vitehub workspace show content draft posts/hello.md
+```
+
+Add `--json` for machine-readable output. A Store without retained history
+fails with `WORKSPACE_R0069`.
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
@@ -326,13 +340,17 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry gives the Workspace `name`, a `module` (absolute path or package specifier), and an optional `export`:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
 
 ```ts
 const plugin = {
   name: "my-package/vite",
   vitehub: {
-    workspaces: ({ projectRoot }) => [{ name: "content", module: "my-package/workspace", export: "contentWorkspace" }],
+    workspaces: () => [{
+      name: "content",
+      definition: { module: "my-package/workspace", export: "contentWorkspace" },
+      reason: "Stores CMS documents.",
+    }],
   },
 }
 ```

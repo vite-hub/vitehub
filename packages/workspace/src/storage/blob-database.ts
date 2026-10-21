@@ -295,6 +295,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     validateHistoryMessage(options.message)
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
+    const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
+      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
+      return [normalizeHistoryRef(name), head] as const
+    })
     const workspace = await this.#key()
     await this.#assertActive()
     const current = await this.#ref(workspace, ref)
@@ -370,6 +374,8 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       for (const result of results) if (result.status === "rejected") throw result.reason
     }
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
+    // Check the other refs in the same statement that advances this ref, including absent refs.
+    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
     // All supported Database drivers execute batch atomically. No interactive transaction is needed.
     const [, , changed] = await this.options.database.batch([
       this.options.database.insert(refs).select(sql`
@@ -395,6 +401,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     ])
     if (!changed.length) {
       if (await this.#isDeleted()) this.#deleted()
+      for (const [name, expected] of expectedHeads) {
+        const actual = (await this.#ref(workspace, name))?.head ?? null
+        if (actual !== expected) throw this.#conflict(name, expected, actual)
+      }
       throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
     }
     return publicRevision({ ...row, committed: true })

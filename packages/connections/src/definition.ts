@@ -117,11 +117,17 @@ export function isConnectionDefinition(value: unknown): value is ConnectionDefin
   return v.is(definitionSchema, value)
 }
 
+/** Whether a value is a keyed Connection Definition with `instances`. */
 export function isConnectionInstances(value: unknown): value is ConnectionInstancesDefinition {
   return v.is(instancesSchema, value)
 }
 
-/** Define a Connection. The file name under `server/connections/` is the Connection name. */
+/**
+ * Define a Connection. The file name under `server/connections/` is the Connection name.
+ *
+ * With `instances`, define one Connection per instance, for example one per tenant: each instance
+ * is a Connection named `<name>:<instance>`, and `definition(instance)` returns its definition.
+ */
 export function defineConnection<
   const TApis extends object,
   const TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
@@ -131,5 +137,6 @@ export function defineConnection<
   ? ConnectionDefinition<TApis, TSelection>
   : ConnectionInstancesDefinition<TInstance, TDefinition> {
   if (!isConnectionDefinition(definition) && !isConnectionInstances(definition)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "definition" })
+  // SAFETY: The validated input is returned unchanged; the conditional type names the member that it matched.
   return definition as [TInstance] extends [never] ? ConnectionDefinition<TApis, TSelection> : ConnectionInstancesDefinition<TInstance, TDefinition>
 }

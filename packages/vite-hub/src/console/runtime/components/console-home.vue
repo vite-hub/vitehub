@@ -24,6 +24,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -111,9 +112,6 @@ const summary = computed(() => {
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The console could not load its configuration.";
-}
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
@@ -196,7 +194,7 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <UAlert
+            <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-12"
               color="error"

@@ -107,7 +107,7 @@ describe("useCollection", () => {
   })
 
   it("rejects malformed total and facets", async () => {
-    for (const body of [{ total: -1 }, { total: "3" }, { facets: { kind: [{ value: 1, count: 1 }] } }, { facets: [] }]) {
+    for (const body of [{ total: -1 }, { total: "3" }, { facets: { kind: [{ value: 1, count: 1 }] } }, { facets: { kind: [{ value: "a", count: -1 }] } }, { facets: [] }]) {
       const { calls, request } = controlledRequester()
       const scope = effectScope()
       let collection!: UseCollectionReturn<typeof definition>
