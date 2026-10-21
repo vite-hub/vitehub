@@ -62,7 +62,7 @@ export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
   const host = globalThis as { __env__?: CloudflareWorkerEnv }
   // Nitro updates __env__ for the current Worker request. Prefer that ambient
   // binding over the process fallback, which may belong to an earlier request.
-  return Object.hasOwn(host, "__env__") ? host.__env__ : activeEnv
+  return Object.hasOwn(host, "__env__") && host.__env__ !== undefined ? host.__env__ : activeEnv
 }
 
 /**
