@@ -48,7 +48,7 @@ Collections need a Workspace with retained history. The [CMS preset](/docs/conte
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import cms from '@vite-hub/content/presets/cms'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -65,7 +65,7 @@ To use a Workspace you define yourself, pass its name as `workspace` instead of 
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import cms from '@vite-hub/content/presets/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 

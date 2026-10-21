@@ -25,6 +25,13 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
+| `vite-hub/agent/process-host` | Persistent Node process host integration for Agent presets. |
+| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/sandbox-task` | Sandbox Task definition and runner helpers. |
+| `vite-hub/sandbox/ssh` | Sandbox SSH connection helpers. |
+| `vite-hub/source/files` | Source file collection helpers. |
+| `vite-hub/content/presets/cms` | Content CMS preset. |
+| `vite-hub/console/ui` | Console UI view types and helpers. |
 | `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
 | `vite-hub/agent/evlog/posthog` | Optional Node.js PostHog event, Error Tracking and log exporter. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
