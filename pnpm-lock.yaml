@@ -1334,9 +1334,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../sandbox
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
