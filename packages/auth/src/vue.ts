@@ -1,4 +1,4 @@
-import { computed, getCurrentScope, shallowRef, watch } from "vue"
+import { computed, getCurrentInstance, getCurrentScope, shallowRef, watch } from "vue"
 
 import { resolveAuthMountPath } from "./application-path.ts"
 
@@ -27,10 +27,11 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
 
   function hook(name: string, args: unknown[]) {
     const scope = getCurrentScope()
+    const nuxtApp = getCurrentInstance()?.appContext.config.globalProperties.$nuxt as { runWithContext<T>(run: () => T): T } | undefined
     // SAFETY: `name` is one of the client's `use*` hooks.
     const real = (client: VueAuthClient<Option>) => (Reflect.get(client, name) as Callable)(...args)
     // Better Auth's `useSession(useFetch)` for Nuxt answers with a promise, so it can wait for the load too.
-    if (typeof args[0] === "function") return load().then(client => runIn(scope, () => real(client)))
+    if (typeof args[0] === "function") return load().then(client => runIn(scope, () => nuxtApp ? nuxtApp.runWithContext(() => real(client)) : real(client)))
     const pending = pendingState(async (...query: unknown[]) => {
       await load()
       const current = state.value as { refetch?: Callable }
