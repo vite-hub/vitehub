@@ -60,7 +60,9 @@ function stripViteHubOptions(
 
 /** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
 function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown): AuthBetterAuthRuntimeOptions {
-  if (options.secret || options.secrets) return options
+  // Presence is significant here: Better Auth must validate an explicitly empty secret
+  // instead of silently replacing it with the ViteHub-derived fallback.
+  if (Object.hasOwn(options, "secret") || Object.hasOwn(options, "secrets")) return options
   const secret = deriveAuthSecret(event)
   return secret ? { ...options, secret } : options
 }

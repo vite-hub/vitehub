@@ -151,6 +151,7 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
   it("keeps an explicit secret, secrets, or Better Auth environment secret", () => {
     vi.stubEnv("VITEHUB_SECRET", root)
     expect(resolveAuthOptions(definition, { runtimeOptions: { secret: "explicit" } }).providerOptions.secret).toBe("explicit")
+    expect(resolveAuthOptions(definition, { runtimeOptions: { secret: "" } }).providerOptions.secret).toBe("")
     const secrets = [{ version: 1, value: "rotated" }]
     expect(resolveAuthOptions(definition, { runtimeOptions: { secrets } }).providerOptions).not.toHaveProperty("secret")
     for (const name of ["BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) {
