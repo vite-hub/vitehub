@@ -1333,12 +1333,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const pendingInboxHeads = new Set([pullRequest.headRefOid]);
               const assertLease = async () => {
                 abortSignal.throwIfAborted();
-                // Renew the lease in the same durable store immediately before
-                // provider work. Once renewed, another worker cannot reclaim
-                // this claim between the ownership check and dispatch.
-                if (!await pullRequestInbox.renew(inboxClaim, Date.now() + 2 * 60 * 60_000)) {
-                  throw new DOMException("Pull request lease lost.", "AbortError");
-                }
                 const current = await pullRequestInbox.get(repository, number);
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
@@ -1412,6 +1406,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       // Dependency conflicts must be resolved before the explicit refresh tool can install.
                       const conflict = error.cause instanceof GitHubDependencyConflictError;
                       if (conflict && !preparedMergeBase) throw error;
+                      // Busy installer slots are a host wait, not a failed install. The PR waits
+                      // for capacity instead of spending a pass without dependencies.
+                      if (error.kind === "capacity") throw error;
                       // An optional install, or a lockfile defect handed to this pass, continues without
                       // dependencies. The failure stays in .git/vitehub-install.json for the model.
                       if (!conflict && installRequired && !(installDefect && isGitHubLockfileDefect(error))) throw error;

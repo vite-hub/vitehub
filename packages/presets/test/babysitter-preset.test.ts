@@ -363,6 +363,10 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     let mcp: { endpoint: string; authorizationHeader: string } | undefined = configuredEndpoint
       ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.T3_MCP_BEARER_TOKEN}` }
       : undefined;
+    // Codex receives driver instructions as `developer_instructions` (#2636) and gets an empty AGENTS.md.
+    // The runtime unescapes these characters inside a double-quoted argument; Codex parses the value as TOML.
+    const developerInstructions = /-c "developer_instructions=((?:[^"\\]|\\.)*)"/.exec(options.settings?.launchArgs ?? "")?.[1];
+    const launchedInstructions: string | undefined = developerInstructions === undefined ? undefined : JSON.parse(developerInstructions.replace(/\\(["\\$`])/g, "$1"));
     let runtimeMode: string | undefined;
     let approvalPolicy: string | undefined;
     return {
@@ -396,7 +400,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             schemas: Object.fromEntries(listedTools.map((tool) => [tool.name, tool.inputSchema])),
             prompt: input.input,
             session: threadId,
-            instructions: preset.sandbox || placedSandbox ? "Sandbox Home instructions" : await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
+            instructions: preset.sandbox || placedSandbox ? "Sandbox Home instructions" : launchedInstructions ?? await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
             runtimeMode,
             approvalPolicy,
             install: preset.sandbox || placedSandbox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
