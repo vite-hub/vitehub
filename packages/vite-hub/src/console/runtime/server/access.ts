@@ -69,28 +69,13 @@ function isRuntimeResponse(value: ConsoleAccess | Response): value is Response {
 }
 
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
+  if (value instanceof Response) return value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
+  if (!value || typeof value !== "object") return undefined
   try {
-    if (value instanceof Response) {
-      // `instanceof` also accepts proxies, but Fetch internal-slot accessors
-      // reject proxied Responses. Probe an accessor that does not disturb or
-      // lock the body, so consumed and locked responses remain valid results.
-      try {
-        Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
-      }
-      catch {
-        return invalidAuthorizationResponse
-      }
-      return value
-    }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
-    if (!value || typeof value !== "object") return undefined
-    if (objectToString.call(value) !== "[object Response]") return undefined
     // A foreign Response cannot be branded by this realm's constructor. Validate
     // its transferable fields and let Fetch construct the route's actual Response.
     if (objectToString.call(value) !== "[object Response]"
-      // A genuine Fetch Response exposes its tag on the prototype. An own tag
-      // is caller-controlled and cannot establish the Response brand.
-      || Object.prototype.hasOwnProperty.call(value, Symbol.toStringTag)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch validates these primitive response-init fields below.
       || !("status" in value) || typeof value.status !== "number"
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- These response-init strings are validated by Fetch below.
@@ -99,320 +84,29 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       || !("headers" in value) || !value.headers || typeof value.headers !== "object"
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the iterable protocol check before Headers consumes it.
       || !(Symbol.iterator in value.headers) || typeof value.headers[Symbol.iterator] !== "function"
-      || !("body" in value)) return invalidAuthorizationResponse
+      || !("body" in value)) return undefined
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
-    // Use the candidate implementation's clone algorithm so a Response from
-    // another Fetch implementation can pass its own internal-slot check. The
-    // returned clone is validated below, so compatible own methods are allowed.
-    const prototype = Object.getPrototypeOf(value)
-    let responsePrototype = prototype
-    while (responsePrototype) {
-      const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
-      // Keep the brand tied to the concrete prototype that supplies clone and
-      // the validated Response surface. An ancestor-only tag is caller-
-      // controlled and can brand an unrelated implementation-shaped object.
-      const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
-      const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
-      const constructorPrototype = typeof constructor === "function"
-        ? Object.getOwnPropertyDescriptor(constructor, "prototype")
-        : undefined
-      const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
-      const hasResponseMethods = methods.every(method => {
-        let methodPrototype: object | null = responsePrototype
-        while (methodPrototype) {
-          if (typeof Object.getOwnPropertyDescriptor(methodPrototype, method)?.value === "function") return true
-          methodPrototype = Object.getPrototypeOf(methodPrototype)
-        }
-        return false
-      })
-      // These accessors are part of the complete Fetch Response surface. A
-      // small caller-created prototype can imitate the transferable fields,
-      // but it must not be mistaken for a Response implementation without
-      // the rest of its standard accessors.
-      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok"]
-      const hasResponseAccessors = accessors.every(method => {
-        const descriptor = Object.getOwnPropertyDescriptor(responsePrototype, method)
-        // Fetch implementations may expose these properties as own fields on
-        // each instance (happy-dom does this) instead of prototype getters.
-        return typeof descriptor?.get === "function" || Object.prototype.hasOwnProperty.call(value, method)
-      })
-      // Require an implementation accessor on the prototype. The tag is excluded
-      // because it is caller-controlled and must not count as a brand signal.
-      const prototypeAccessorCount = accessors.filter(method =>
-        typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
-      const hasPrototypeAccessor = prototypeAccessorCount >= 1
-      let hasConstructibleResponse = false
-      let hasFactoryBrand = false
-      let hasNativeConstructorLineage = false
-      if (typeof constructor === "function") {
-        // A genuine Fetch constructor is an ordinary function constructor whose
-        // parent is that realm's intrinsic Function.prototype. Caller-created
-        // derived classes retain a caller-controlled parent and must fail closed.
-        const constructorParent = Object.getPrototypeOf(constructor)
-        const parentConstructor = constructorParent && Object.getOwnPropertyDescriptor(constructorParent, "constructor")?.value
-        const constructorSource = Function.prototype.toString.call(constructor)
-        // Fetch Response constructors are class/native implementations. An
-        // ordinary caller-created function can reproduce every public field
-        // and factory above, but cannot provide a native function body. Keep
-        // class-based foreign implementations (such as happy-dom) supported.
-        const isClassConstructor = /^class(?:\s|$)/.test(constructorSource)
-        // A caller can manufacture a self-consistent class with the public
-        // Response surface. Independently implemented Fetch responses use a
-        // base body implementation, so their constructor is derived; reject
-        // stand-alone caller classes before the structural checks below.
-        // Only a class header can establish the derived implementation shape.
-        // A caller-controlled comment, string, or method body may contain the
-        // word "extends" without making the constructor a derived Response.
-        const isDerivedClassConstructor = isClassConstructor
-          && /^class(?:\s+[^\s{]+)?\s+extends\s+/.test(constructorSource)
-        // Fetch implementations may expose a standalone class (for example
-        // happy-dom's Response), so inheritance is not part of the contract.
-        // Keep the intrinsic-parent and full structural checks as the
-        // compatibility gate while allowing both standalone and derived
-        // class implementations.
-        // Independently implemented derived Responses expose a real shared
-        // implementation base (happy-dom uses `ResponseImplementation`). A
-        // callback-created class can reproduce the public surface, but it
-        // cannot claim that implementation-owned base without also being the
-        // implementation itself. Keep native constructors on their intrinsic
-        // path and require this marker for non-native derived classes.
-        // Accept only implementation markers in the constructor header. A marker
-        // in a comment, string, or method body is caller-controlled text and does
-        // not establish provenance for the Fetch implementation.
-        const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
-        // happy-dom's standalone Response carries its implementation-owned
-        // Window binding on the prototype. This preserves that supported
-        // foreign implementation without accepting an arbitrary constructor
-        // name as provenance.
-        const hasWindowBinding = (() => {
-          const symbols = Object.getOwnPropertySymbols(responsePrototype)
-          return symbols.some(symbol => {
-            if (symbol.description !== "window") return false
-            const window = Reflect.get(responsePrototype, symbol) as {
-            Response?: unknown, Headers?: unknown, window?: unknown, self?: unknown,
-            document?: { defaultView?: unknown }, location?: unknown,
-            } | undefined
-          // happy-dom stores its actual Window on the implementation prototype.
-          // Require the Window self-references and document back-reference as
-          // implementation-owned structure; a callback-created object carrying
-          // only Response and Headers must not establish foreign provenance.
-              return !!window
-                && window.Response === constructor
-                && typeof window.Headers === "function"
-                && !!window.document
-                && window.document.defaultView === window
-                && !!window.location
-                && (window.window === window || window.self === window)
-            })
-        })()
-        hasNativeConstructorLineage = constructorSource.includes("[native code]")
-          // Independently implemented classes must identify their implementation
-          // base. A callback-created standalone class can otherwise reproduce
-          // the entire public Response surface and bypass this boundary.
-          || (isDerivedClassConstructor && hasImplementationBase && parentConstructor !== Function)
-          || (isClassConstructor && hasWindowBinding)
-        try {
-          const constructed = new constructor()
-          hasConstructibleResponse = constructed && typeof constructed === "object"
-            && Object.getPrototypeOf(constructed) === responsePrototype
-            // Independently implemented Responses (such as happy-dom) keep
-            // their state on the instance. Native implementations expose
-            // internal slots instead. A spoof that only returns
-            // Object.create(proto) has neither signal.
-            && (constructorSource.includes("[native code]")
-              || (Object.prototype.hasOwnProperty.call(constructed, "status")
-                && Object.prototype.hasOwnProperty.call(constructed, "headers")
-                && Object.prototype.hasOwnProperty.call(constructed, "body")))
-
-          // Fetch constructors expose static factories that create genuinely
-          // branded Responses. Calling one with the candidate constructor as
-          // `this` rejects copied factories on caller-created classes: their
-          // result belongs to the host Response prototype, outside this
-          // candidate implementation's prototype chain.
-          const factories = [
-            ["error", []],
-            ["json", [null]],
-            ["redirect", ["https://example.com"]],
-          ] as const
-          const factoryDescriptors = factories.map(([name]) => [name, Object.getOwnPropertyDescriptor(constructor, name)] as const)
-          // Some compatible Fetch implementations (including happy-dom) do not
-          // provide the optional static factory helpers. Validate helpers when
-          // present, while allowing an implementation with none of them.
-          hasFactoryBrand = hasWindowBinding && factoryDescriptors.every(([, descriptor]) => descriptor === undefined)
-          for (const [name, args] of factories) {
-            const factoryDescriptor = Object.getOwnPropertyDescriptor(constructor, name)
-            if (factoryDescriptor === undefined) {
-              if (!hasWindowBinding) hasFactoryBrand = false
-              continue
-            }
-            hasFactoryBrand = true
-            // Class static methods are defined as non-enumerable properties.
-            // An enumerable factory is an assignment supplied by the callback,
-            // so it cannot establish the implementation's Response brand.
-            const factory = factoryDescriptor?.value
-            if (typeof factory !== "function") {
-              hasFactoryBrand = false
-              break
-            }
-            if (isClassConstructor && factoryDescriptor?.enumerable !== false) {
-              hasFactoryBrand = false
-              break
-            }
-            const factoryResult = Reflect.apply(factory, constructor, args)
-            if (!factoryResult || typeof factoryResult !== "object"
-              || objectToString.call(factoryResult) !== "[object Response]"
-              || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)
-              // Native Fetch factories expose these fields through prototype
-              // accessors backed by internal slots rather than own properties.
-              || !("status" in factoryResult)
-              || !("headers" in factoryResult)
-              || !("body" in factoryResult)
-              ) {
-              hasFactoryBrand = false
-              break
-            }
-            const hasFactoryField = (field: "status" | "headers" | "body"): boolean => {
-              if (Object.prototype.hasOwnProperty.call(factoryResult, field)) return true
-              let fieldPrototype = Object.getPrototypeOf(factoryResult)
-              while (fieldPrototype) {
-                if (typeof Object.getOwnPropertyDescriptor(fieldPrototype, field)?.get === "function") return true
-                fieldPrototype = Object.getPrototypeOf(fieldPrototype)
-              }
-              return false
-            }
-            if (!hasFactoryField("status") || !hasFactoryField("headers") || !hasFactoryField("body")) {
-              hasFactoryBrand = false
-              break
-            }
-            const factoryArrayBuffer = Reflect.get(factoryResult, "arrayBuffer")
-            if (typeof factoryArrayBuffer !== "function") {
-              hasFactoryBrand = false
-              break
-            }
-            const factoryBody = await Reflect.apply(factoryArrayBuffer, factoryResult, [])
-            try {
-              ArrayBuffer.prototype.byteLength.call(factoryBody)
-            }
-            catch {
-              hasFactoryBrand = false
-              break
-            }
-            let factoryPrototype = Object.getPrototypeOf(factoryResult)
-            while (factoryPrototype && factoryPrototype !== responsePrototype) {
-              factoryPrototype = Object.getPrototypeOf(factoryPrototype)
-            }
-            if (!factoryPrototype) {
-              hasFactoryBrand = false
-              break
-            }
-          }
-        }
-        catch {
-          hasConstructibleResponse = false
-          hasFactoryBrand = false
-        }
-      }
-      if (typeof cloneDescriptor?.value === "function"
-        && hasResponseMethods
-        && hasResponseAccessors
-        && hasPrototypeAccessor
-        && hasConstructibleResponse
-        && hasNativeConstructorLineage
-        && hasFactoryBrand
-        && tagDescriptor
-        && typeof constructor === "function"
-        // A genuine Response constructor owns an immutable prototype slot.
-        // Caller-created function constructors have a writable prototype by
-        // default, so this rejects self-consistent prototype spoofs without
-        // relying on the constructor name or realm identity.
-        && constructorPrototype?.value === responsePrototype
-        && constructorPrototype.writable === false
-        && constructorPrototype.configurable === false
-        && constructor.prototype === responsePrototype) break
-      responsePrototype = Object.getPrototypeOf(responsePrototype)
-    }
-    // Genuine Fetch implementations expose both the clone algorithm and Response tag
-    // on a Response prototype. Walking the chain accepts subclasses while rejecting
-    // plain objects whose custom prototype only imitates those slots.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
-    if (!responsePrototype) return invalidAuthorizationResponse
-    // A null body is valid for ordinary responses (for example, a bodyless
-    // 401 challenge). Preserve that response while keeping the no-content
-    // status restrictions below.
-    // Fetch permits bodyless 204/205/304 responses. Preserve their status and
-    // headers while constructing the host-realm response; a non-null body is
-    // rejected by the response constructor below.
-    if ([204, 205, 304].includes(value.status)) {
-      // Fetch forbids bodies for these statuses. Inspect the foreign value before
-      // normalizing it so an impostor cannot silently discard a non-null body.
-      if (value.body !== null) return invalidAuthorizationResponse
-      return new Response(null, init)
-    }
-    // Response.error() is the Fetch representation for a network error and
-    // intentionally carries status 0, which the Response constructor rejects.
-    if (value.status === 0) return Response.error()
-    // A consumed foreign response is still a valid authorization result, but
-    // its clone algorithm must reject the already-used body. Normalize it to
-    // the host realm so the route boundary recognizes it as a response, and
-    // consume the replacement body when the foreign response had one. This
-    // preserves status, headers, bodyUsed, and subsequent body-read errors.
-    if (value.bodyUsed === true) {
-      const consumed = new Response(value.body === null ? null : "", init)
-      if (value.body !== null) await consumed.arrayBuffer()
-      return consumed
-    }
-    const cloneMethod = Reflect.get(value, "clone")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
-    if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
-    const clone = Reflect.apply(cloneMethod, value, [])
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the foreign clone result before inspecting its fields.
-    let clonePrototype = clone && typeof clone === "object" ? Object.getPrototypeOf(clone) : null
-    let sharesResponsePrototype = false
-    while (clonePrototype) {
-      if (clonePrototype === responsePrototype) {
-        sharesResponsePrototype = true
-        break
-      }
-      clonePrototype = Object.getPrototypeOf(clonePrototype)
-    }
-    if (!clone || typeof clone !== "object" || clone === value || !sharesResponsePrototype
-      || objectToString.call(clone) !== "[object Response]"
-      || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return invalidAuthorizationResponse
-    // A callable clone spoof must also expose the transferable Response contract.
-    if (!("status" in clone) || typeof clone.status !== "number"
-      || !("statusText" in clone) || typeof clone.statusText !== "string"
-      || !("headers" in clone) || !clone.headers || typeof clone.headers !== "object"
-      || !(Symbol.iterator in clone.headers) || typeof clone.headers[Symbol.iterator] !== "function"
-      || !("body" in clone)) return invalidAuthorizationResponse
+    // Validate the implementation brand through its own clone operation.
+    // This accepts supported foreign Fetch responses while rejecting tagged impostors.
+    if (typeof (value as { clone?: unknown }).clone !== "function") return invalidAuthorizationResponse
+    const cloned = (value as { clone: () => unknown }).clone()
+    if (!cloned || cloned === value || objectToString.call(cloned) !== "[object Response]") return invalidAuthorizationResponse
     // Validate init before taking ownership of a foreign stream.
+    const empty = new Response(null, init)
+    if (value.body === null) return empty
+    if ([204, 205, 304].includes(value.status)) return undefined
     // Calling the native stream method checks its internal brand across realms;
     // piping into a local stream also avoids realm-sensitive Fetch body checks.
-    // Read the foreign body through its own implementation, then construct the
-    // local response from bytes so independently implemented Fetch realms work.
-    if (!("arrayBuffer" in clone) || typeof clone.arrayBuffer !== "function") return invalidAuthorizationResponse
-    const body = await Reflect.apply(clone.arrayBuffer, clone, [])
-    // Fetch's arrayBuffer() must return an actual ArrayBuffer. Calling the
-    // intrinsic accessor checks its internal slot and rejects plain spoof data.
-    try {
-      ArrayBuffer.prototype.byteLength.call(body)
-    }
-    catch {
-      return invalidAuthorizationResponse
-    }
-    return value.body === null ? new Response(null, init) : new Response(body as ArrayBuffer, init)
+    const body = ReadableStream.prototype.pipeThrough.call(value.body, new TransformStream())
+    return new Response(body, init)
   }
   catch {
     return invalidAuthorizationResponse
   }
 }
 
-const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
-
-export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
-
-/** A JSON rejection with the Console diagnostic fields: `code`, `message` (the why), `fix`, and `docs`. */
 function rejection(status: number, code: ConsoleDiagnosticCode, message?: string): Response {
   return Response.json({ ...consoleDiagnosticBody(code, message), ok: false, status }, {
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },

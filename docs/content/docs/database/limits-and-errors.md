@@ -51,6 +51,10 @@ Cloudflare D1 HTTP returned a different number of results than the number of que
 
 A Cloudflare D1 HTTP request, or one query of a batch, failed. `error.why` has the HTTP status and the D1 message, for example `no such table: notes`. Check the SQL, the D1 API token permissions, and the D1 database id.
 
+### DATABASE_C0007
+
+A Cloudflare D1 HTTP request, or one query of a batch, failed. `error.why` has the HTTP status and the D1 message, for example `no such table: notes`. Check the SQL, the D1 API token permissions, and the D1 database id.
+
 ## Configuration errors
 
 ### DATABASE_DISABLED
