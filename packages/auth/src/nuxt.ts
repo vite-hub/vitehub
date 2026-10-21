@@ -52,7 +52,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 
   nuxt.options.plugins ??= []
   const vueRuntimePlugin = fileURLToPath(new URL("./runtime/vue-nuxt.js", import.meta.url))
-  if (!nuxt.options.plugins.includes(vueRuntimePlugin)) nuxt.options.plugins.push(vueRuntimePlugin)
+  if (!nuxt.options.plugins.includes(vueRuntimePlugin)) nuxt.options.plugins.unshift(vueRuntimePlugin)
 
   nuxt.options.vite ??= {}
   nuxt.options.vite.plugins ??= []

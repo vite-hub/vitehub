@@ -31,6 +31,15 @@ function createNuxt() {
 }
 
 describe("Auth Nuxt integration", () => {
+  it("installs the Vue context bridge before existing Nuxt plugins", () => {
+    const nuxt = createNuxt()
+    nuxt.options.plugins = ["/tmp/user-plugin.mjs"]
+
+    hubAuthNuxt({ env: false }, nuxt)
+
+    expect(nuxt.options.plugins?.[0]).toMatch(/\/runtime\/vue-nuxt\.js$/)
+    expect(nuxt.options.plugins?.[1]).toBe("/tmp/user-plugin.mjs")
+  })
   it("registers the Env resolver for the generated Auth Definition", async () => {
     const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")
 
