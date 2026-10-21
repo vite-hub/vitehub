@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
-import { defineChannel, defineChannelTrigger, type AgentChannelStateBinding, type AgentDurableChannelTriggerContext } from "../src/channels.ts"
+import { defineChannel, defineChannelTrigger, type AgentChannelState, type AgentDurableChannelTriggerContext } from "../src/channels.ts"
 
 describe("Channel trigger durableState", () => {
   it("types channelState as present with durableState: true", () => {
@@ -7,7 +7,7 @@ describe("Channel trigger durableState", () => {
       durableState: true,
       invoke: (context) => {
         expectTypeOf(context).toEqualTypeOf<AgentDurableChannelTriggerContext>()
-        expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelStateBinding>()
+        expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelState>()
         return { input: { prompt: context.channelState.keyPrefix } }
       },
     })
@@ -19,7 +19,7 @@ describe("Channel trigger durableState", () => {
       const trigger = defineChannelTrigger({
         durableState,
         invoke: (context) => {
-          expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelStateBinding | undefined>()
+          expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelState | undefined>()
           return { input: { prompt: "triage" } }
         },
       })
@@ -34,13 +34,13 @@ describe("Channel trigger durableState", () => {
         durable: {
           durableState: true,
           invoke: (context) => {
-            expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelStateBinding>()
+            expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelState>()
             return { input: { prompt: "triage" } }
           },
         },
         plain: {
           invoke: (context) => {
-            expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelStateBinding | undefined>()
+            expectTypeOf(context.channelState).toEqualTypeOf<AgentChannelState | undefined>()
             return { input: { prompt: "triage" } }
           },
         },
