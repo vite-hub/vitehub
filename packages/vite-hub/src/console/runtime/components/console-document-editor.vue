@@ -656,6 +656,7 @@ watch(() => props.changes, (next, previous) => {
 });
 
 onBeforeRouteLeave(async () => {
+  await bodyEditor.value?.commit();
   if (!dirty.value) return;
   // A pending autosave finishes before leaving. Anything that cannot save asks first.
   await settled();
