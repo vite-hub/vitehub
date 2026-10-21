@@ -31,6 +31,9 @@ describe("dayLabel and exactTimestamps", () => {
   it("names days relative to now in the given time zone", () => {
     expect(dayLabel("2026-10-06T00:30:00.000Z", now, "UTC")).toBe("Today")
     expect(dayLabel("2026-10-05T23:30:00.000Z", now, "UTC")).toBe("Yesterday")
+    // The previous local day can be 23 hours across the spring DST transition.
+    const dstNow = Date.parse("2026-03-09T04:30:00.000Z")
+    expect(dayLabel("2026-03-08T12:00:00.000Z", dstNow, "America/New_York")).toBe("Yesterday")
     // The same instant is already today two hours east of UTC.
     expect(dayLabel("2026-10-05T23:30:00.000Z", now, "Europe/Madrid")).toBe("Today")
     expect(dayLabel("2026-09-28T10:00:00.000Z", now, "UTC")).toBe("Sep 28")

@@ -42,7 +42,7 @@ const config = {
     database: true,
     kv: true,
     queue: true,
-    sandbox: true,
+    sandboxTask: true,
     schedule: true,
     workflow: true,
     workspace: true,

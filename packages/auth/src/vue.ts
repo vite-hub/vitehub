@@ -1,6 +1,8 @@
 import { createAuthClient } from "better-auth/vue"
 import { computed } from "vue"
 
+import { resolveAuthMountPath } from "./application-path.ts"
+
 import type { SessionQueryParams } from "better-auth"
 import type { BetterFetchError, VueAuthClient } from "better-auth/vue"
 import type { ComputedRef, DeepReadonly, Ref } from "vue"
@@ -8,7 +10,7 @@ import type { ComputedRef, DeepReadonly, Ref } from "vue"
 export { createAuthClient }
 export type { VueAuthClient } from "better-auth/vue"
 
-export const authClient: VueAuthClient<{}> = createAuthClient()
+export const authClient: VueAuthClient<{}> = createAuthClient({ basePath: resolveAuthMountPath("/api/auth") })
 
 export function useAuthClient(): typeof authClient {
   return authClient

@@ -85,6 +85,7 @@ describe("Blob reference schemas", () => {
       path: ["contentType"],
     }])
     expect(image()["~standard"].validate({ pathname: "a.svg", contentType: "Image/SVG+XML; charset=utf-8" }).issues).toBeUndefined()
+    expect(image()["~standard"].validate({ pathname: "a", contentType: "image/" }).issues).toHaveLength(1)
   })
 
   it("lets file() accept every type unless accept is set", () => {
@@ -154,6 +155,7 @@ describe("Blob reference schemas", () => {
     expect(pathname.test("_vitehub/exports/report.csv")).toBe(true)
     const contentType = new RegExp(properties.contentType.pattern)
     expect(contentType.test("Image/SVG+XML; charset=utf-8")).toBe(true)
+    expect(contentType.test("image/")).toBe(false)
     expect(contentType.test("application/pdf")).toBe(false)
     const svg = file({ accept: "image/svg+xml" })
     const svgPattern = (svg["~standard"].jsonSchema.input({ target: "draft-07" }) as { properties: { contentType: { pattern: string } } }).properties.contentType.pattern

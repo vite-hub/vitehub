@@ -83,7 +83,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
 
-export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
+function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
   const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
@@ -397,6 +397,13 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
+/** Returns how many recent history images to send again, and how old they may be. */
+export function chatTriggerHistoryImages(triggerHistory: AgentChatTriggerHistory | undefined): { maxAgeMs: number, maxImages: number } {
+  if (!chatTriggerHistoryLimit(triggerHistory) || !triggerHistory || triggerHistory === "none") return { maxAgeMs: Infinity, maxImages: 0 }
+  const maxImages = typeof triggerHistory.maxImages === "number" && Number.isFinite(triggerHistory.maxImages) ? Math.max(0, Math.floor(triggerHistory.maxImages)) : 0
+  return { maxAgeMs: normalizedMaxAgeMs(triggerHistory.maxAgeMs) ?? Infinity, maxImages }
+}
+
 function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {
   const maxAgeMs = normalizedMaxAgeMs(triggerHistory.maxAgeMs)
   if (maxAgeMs === undefined || messages.length < 2) return messages
@@ -452,10 +459,10 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
-  if (options.concurrency === "queue") {
+  if (options.concurrency === "queue" || options.concurrency === "steer") {
     const metadata = v.safeParse(retainedQueueMetadataSchema, messages.at(-1)?.metadata)
     if (metadata.success) {
-      // Retained queue input belongs to this invocation, even when history is disabled.
+      // Retained queue or burst input belongs to this invocation, even when history is disabled.
       const retained = messages.slice(-Math.min(messages.length, metadata.output.chat.skippedCount + 1))
       selectedMessages = [...selectedMessages.filter(message => !retained.includes(message)), ...retained]
     }

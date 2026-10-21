@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 import { filesSdkDriverPeers } from "./src/internal/files-sdk-peers.ts";
 
 const bundledFilesSdkDrivers = new Set([
@@ -85,16 +87,14 @@ export default defineConfig({
       "src/index.ts",
       "src/media.ts",
       "src/vite.ts",
-      "src/runtime/cloudflare-vite.ts",
       "src/runtime/dev.ts",
       "src/runtime/state.ts",
-      "src/runtime/vercel-vite.ts",
       "src/virtual.ts",
       "src/vue.ts",
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports)
             .filter(([key]) => key !== "./drivers/vercel-bundled" && key !== "./storage")
             .map(([key, value]) => {
@@ -110,7 +110,7 @@ export default defineConfig({
                 },
               ];
             }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },

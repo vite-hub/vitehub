@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), useWorkspace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), refs: vi.fn(), list: vi.fn(), open: vi.fn(), useWorkspace: vi.fn() }))
 vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
@@ -7,7 +7,11 @@ vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspace: mocks.useWorkspace
 import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
 import { allowed } from "./support/console-access.ts"
 const handler = allowed(handlerRoute)
-const request = (path?: string) => ({ method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${path === undefined ? "" : `?path=${encodeURIComponent(path)}`}` } })
+const request = (path?: string, query: Record<string, string> = {}) => {
+  const params = new URLSearchParams(path === undefined ? query : { ...query, path })
+  const search = params.toString()
+  return { method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` } }
+}
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.useWorkspace.mockReturnValue({ fs: mocks })
@@ -49,6 +53,34 @@ describe("invocation Workspace inspection", () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
     expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
+  })
+  it("returns retained refs and a paged revision list when the Workspace exposes history", async () => {
+    const head = { id: "rev-2", ref: "main", parentId: "rev-1", createdAt: "2026-10-15T10:00:00.000Z", message: "Update docs", files: 2, bytes: 24, metadata: { url: "https://github.com/org/repo/commit/rev-2" } }
+    mocks.refs.mockResolvedValue([{ name: "main", head }])
+    mocks.list.mockResolvedValue({ revisions: [head], cursor: "main:2" })
+    mocks.useWorkspace.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    expect(await handler(request())).toEqual({
+      paths: ["AGENTS.md"],
+      repository: "bot",
+      revision: "current",
+      history: { refs: [{ name: "main", head }], ref: "main", revisions: [head], cursor: "main:2" },
+    })
+    expect(mocks.refs).toHaveBeenCalledOnce()
+    expect(mocks.list).toHaveBeenCalledWith({ ref: "main", limit: 20 })
+  })
+  it("reads a selected immutable revision without falling back to the mounted tree", async () => {
+    const revision = { id: "rev-2", ref: "main", parentId: "rev-1", createdAt: "2026-10-15T10:00:00.000Z", message: "Update docs", files: 2, bytes: 24 }
+    const view = { revision, list: mocks.glob, stat: mocks.stat, readFile: mocks.readFile }
+    mocks.refs.mockResolvedValue([{ name: "main", head: revision }])
+    mocks.list.mockResolvedValue({ revisions: [revision] })
+    mocks.open.mockResolvedValue(view)
+    mocks.stat.mockResolvedValue({ type: "file", size: 4 })
+    mocks.readFile.mockResolvedValue("old")
+    mocks.useWorkspace.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    expect(await handler(request("AGENTS.md", { revision: "rev-2", ref: "main" }))).toEqual({ path: "AGENTS.md", content: "old", revision: "rev-2", size: 3 })
+    expect(mocks.open).toHaveBeenCalledWith("rev-2")
+    expect(mocks.readFile).toHaveBeenCalledWith("AGENTS.md", { encoding: "utf8" })
+    expect(mocks.exists).not.toHaveBeenCalled()
   })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })

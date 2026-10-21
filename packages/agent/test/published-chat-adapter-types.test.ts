@@ -17,9 +17,10 @@ const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 const childProcessTimeout = 20_000
 const packedPackages = [
   "agent",
-  "box",
+  "sandbox",
   "connections",
   "env",
+  "forge",
   "markdown-template",
   "rate-limit",
   "runtime",
@@ -102,7 +103,7 @@ it("shares private authority across packed Agent, Connections, and Env", { timeo
     import { agentEnvAccess } from "@vite-hub/env/internal/agent";
     import { apiKey, defineConnection } from "@vite-hub/connections";
     import { createConnectionsRuntime, createDatabaseConnectionStore } from "@vite-hub/connections/server";
-    assert.deepEqual(Object.keys(identityAPI), ["readAgentEnvIdentity"]);
+    assert.deepEqual(Object.keys(identityAPI), ["readAgentEnvIdentity", "readAgentEnvParents"]);
     assert.throws(() => agentEnvAccess({ name: "owner" }), { code: "ENV_BRIDGE_UNTRUSTED" });
     const db = createClient({ url: ":memory:" });
     try {

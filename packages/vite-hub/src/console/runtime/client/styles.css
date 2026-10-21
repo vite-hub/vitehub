@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+/* Geist and Geist Mono ship inside the Console bundle, so the Console looks the same on every host. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @source "../components";
 @source "../../app.config.ts";
 
@@ -62,9 +65,9 @@
   --ui-text-dimmed: #71717a;
   --ui-text-highlighted: #171717;
   /* Popovers, menus, and tooltips use a translucent surface over the page. */
-  --vitehub-console-floating: rgb(255 255 255 / 86%);
-  --vitehub-console-scrollbar: #d4d4d8;
-  --vitehub-console-scrollbar-hover: #a1a1aa;
+  --vitehub-console-floating: rgb(255 255 255 / 92%);
+  --vitehub-console-scrollbar: oklch(0.87 0 0);
+  --vitehub-console-scrollbar-hover: oklch(0.708 0 0);
   background: var(--ui-bg);
   color: var(--ui-text);
   font-family: var(--font-sans);
@@ -85,7 +88,7 @@
   --ui-text-dimmed: #71717a;
   --ui-text-highlighted: #fafafa;
   /* Dark floating surfaces sit one step above the page instead of matching it. */
-  --vitehub-console-floating: rgb(24 24 27 / 84%);
+  --vitehub-console-floating: rgb(23 23 23 / 92%);
   --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
   --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
 }

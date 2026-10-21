@@ -30,7 +30,15 @@ describe("agent config", () => {
         webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "auto",
+      shutdown: {},
     })
+  })
+
+  it("normalizes the shutdown drain option", () => {
+    expect(normalizeAgentOptions({ shutdown: { drainMs: 45_000 } })).toMatchObject({ shutdown: { drainMs: 45_000 } })
+    expect(normalizeAgentOptions({ shutdown: false })).toMatchObject({ shutdown: false })
+    expect(() => normalizeAgentOptions({ shutdown: { drainMs: -1 } })).toThrow("agent.shutdown.drainMs")
+    expect(() => normalizeAgentOptions({ shutdown: { drainMs: Number.NaN } })).toThrow("agent.shutdown.drainMs")
   })
 
   it("preserves provider options", () => {

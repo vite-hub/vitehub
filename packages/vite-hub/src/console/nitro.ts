@@ -2,10 +2,6 @@ import { join } from "node:path"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-export function addConsoleDevframeHandler(nitro: { handlers?: Array<{ handler: string; route: string }> }, consoleRuntimeRoot: string): void {
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot)
-}
-
 function mountBase(base: string | undefined): string {
   if (!base || base === "./") return ""
   let pathname = base

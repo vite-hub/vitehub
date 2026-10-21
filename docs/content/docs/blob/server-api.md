@@ -4,6 +4,7 @@ description: Read, write, list, upload, sign, and validate objects from server c
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports
@@ -16,7 +17,7 @@ icon: i-lucide-code-2
 | `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Browser-safe image helpers. `@vite-hub/blob` re-exports them for server code. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
-| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
+| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and its Nitro plugin. |
 | `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
 | `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
 
@@ -89,6 +90,8 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name)` | Selects a named Blob Store. |
 
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`, so a route that lets it through answers `400`. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. `list()` checks `prefix` the same way and accepts a trailing slash.
+
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
 
 ## Serve a transformed object
@@ -101,7 +104,7 @@ The optional `transform` receives the original `Blob` and returns the response `
 
 Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.del(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.del`. No background eviction runs.
 
-Filesystem cache keys normalize dot segments and separators. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
+Filesystem cache keys normalize repeated slashes. Use consistent filename casing on case-insensitive filesystems; differently cased aliases can leave unused variants that require operator cleanup.
 
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
@@ -144,6 +147,8 @@ The cache is best effort across runtimes. Concurrent source updates can evict a 
 
 `blob.handleUpload()` reads a `multipart/form-data` request and calls `put()`
 for each file. The file name, without any directory part, is the pathname.
+ViteHub stores the name as written and does not URL-decode it, so a file named
+`..%2Fevil.txt` stays inside `prefix`.
 It returns `[error, objects]`. A request without files, with too many files, or
 with a file that fails `ensure` throws an H3 400 error before anything is
 stored.
@@ -296,6 +301,8 @@ if (uploadError) throw uploadError
 ```
 
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
+
+The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the other drivers that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL that expires after exactly `expiresIn` seconds, and a `PUT` only when its provider issues a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign the request, `blob.sign()` returns a `BLOB_OPERATION_FAILED` error and the `cause` explains the reason. The driver never returns a permanent public link instead.
 
 Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 

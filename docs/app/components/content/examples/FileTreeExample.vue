@@ -10,6 +10,6 @@ const paths = [
 
 <template>
   <div class="mx-auto h-80 max-w-lg overflow-auto rounded-md border border-default bg-default p-2">
-    <AgentFileTree :paths="paths" :options="{ initialExpansion: 'open', search: true }" />
+    <FileTree :paths="paths" :options="{ initialExpansion: 'open', search: true }" />
   </div>
 </template>

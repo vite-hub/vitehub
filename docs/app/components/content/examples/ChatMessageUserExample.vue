@@ -17,9 +17,9 @@ const message: UIMessage = {
 </script>
 
 <template>
-  <AgentChatMessage :message="message">
+  <ChatMessage :message="message">
     <template #header>
       <span class="text-xs text-muted">Sent with 1 attachment</span>
     </template>
-  </AgentChatMessage>
+  </ChatMessage>
 </template>

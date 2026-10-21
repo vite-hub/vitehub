@@ -137,6 +137,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:triangle-alert",
   "lucide:type",
   "lucide:upload",
+  "lucide:user-round",
   "lucide:wifi-off",
   "lucide:wrap-text",
   "lucide:wrench",

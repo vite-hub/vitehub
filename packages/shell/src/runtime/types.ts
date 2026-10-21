@@ -1,3 +1,5 @@
+import type { ExecutionBudget } from "@vite-hub/runtime"
+
 export type ShellObservationEvent =
   | "command_finished"
   | "command_timed_out"
@@ -5,6 +7,9 @@ export type ShellObservationEvent =
   | "session_disposed"
 
 export interface ShellRuntimeExecOptions {
+  budget?: ExecutionBudget
+  /** Set when the caller already charged this command against the budget. */
+  budgetCharged?: boolean
   cwd?: string
   env?: Record<string, string>
   /** Abort the command and any provider-owned work, such as a Source request. */

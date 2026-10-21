@@ -7,12 +7,14 @@ navigation.group: Choose a target
 icon: i-lucide-table-properties
 ---
 
-Use this page before you claim that a feature works on a host. The first table
-names the provider that each primitive uses on each host. The second table shows
-how the repository proves each host and how fresh that proof is.
-`Package-specific` means support belongs to the named package or generated
-output, not the host as a whole.
+Use this page before you claim that a feature works on a host. Each row is a
+server primitive or a deployment contract, and each column is a host. Hover over
+a cell to see the provider that the host uses and the limits of that support.
+Select a proof cell to open the CI run behind it. `Package-specific` means
+support belongs to the named package or generated output, not the host as a
+whole.
 
+::support-matrix
 ## Server primitives
 
 | Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno           | Nitro and UnJS | Node and self-hosted  |
@@ -25,14 +27,10 @@ output, not the host as a whole.
 | Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare or Vercel | —                     |
 | Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
 | Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
-| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Box provider          |
+| Sandbox    | Sandbox provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Sandbox provider          |
 | Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | Standalone `Deno.cron` | Provider Wake  | Process runtime       |
 | Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
 | Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
-
-Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
-
-Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
 
 ## Deployment and proof
 
@@ -45,6 +43,15 @@ Local Vite discovers Queue Definitions and generates provider output, but it doe
 | Contract tests | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) |
 | Local Provider Run | — | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32939970902) (last observed 2026-08-26; stale after 30 days) | **Not published** | **Not published** | **Not published** |
 | Live Smoke | — | **Stopped at provision** [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32928943031) (last observed 2026-08-26; stale after 2 days) | **Stopped at provision** [Evidence](https://github.com/vite-hub/vitehub/actions/runs/32928943031) (last observed 2026-08-26; stale after 2 days) | **Not published** | **Not published** | **Not published** | **Not published** |
+::
+
+## Provider notes
+
+Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+
+Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+
+## Proof scope
 
 Cloudflare's nightly target includes nine primitives, including Rate Limit. Vercel targets eight because ViteHub has no native Vercel Rate Limit driver. Browser and Agent routes have contract tests but are outside those deployed runs.
 

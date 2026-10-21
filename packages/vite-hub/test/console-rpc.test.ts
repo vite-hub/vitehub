@@ -96,7 +96,7 @@ describe("Console RPC", () => {
 
     const failure = await call(JSON.stringify({ method: consoleRpcMethods.definitions }))
     expect(failure.status).toBe(400)
-    await expect(failure.json()).resolves.toEqual({ message: "A valid definition section is required.", ok: false, status: 400 })
+    await expect(failure.json()).resolves.toMatchObject({ code: expect.any(String), message: "A valid definition section is required.", ok: false, status: 400 })
   })
 
   it("preserves upstream search status messages in RPC errors", async () => {
@@ -105,7 +105,7 @@ describe("Console RPC", () => {
       method: consoleRpcMethods.search,
     }))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       message: "Console search must be at most 256 characters.",
       ok: false,
       status: 400,
@@ -155,7 +155,7 @@ describe("Console RPC", () => {
       }))
       expect(response.status).toBe(403)
       expect(response.headers.has("access-control-allow-origin")).toBe(false)
-      await expect(response.json()).resolves.toEqual({ message: "Forbidden", ok: false, status: 403 })
+      await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_REJECTED", fix: expect.stringContaining("Origin"), message: "Cross-origin Console requests are not allowed.", ok: false, status: 403 })
     }
   })
 
@@ -187,7 +187,7 @@ describe("Console RPC", () => {
   it("limits the complete call body", async () => {
     const oversized = await call(JSON.stringify({ input: { body: "x".repeat(16 * 1_024 * 1_024) }, method: consoleRpcMethods.agentInvocations }))
     expect(oversized.status).toBe(413)
-    await expect(oversized.json()).resolves.toEqual({ message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
+    await expect(oversized.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", docs: expect.stringMatching(/^https:\/\//), message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
   })
 
   it("enforces the non-invocation limit on raw envelope bytes", async () => {
@@ -196,7 +196,7 @@ describe("Console RPC", () => {
     expect((await call(body)).status).toBe(200)
     const response = await call(`${body} `)
     expect(response.status).toBe(413)
-    await expect(response.json()).resolves.toEqual({ message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", docs: expect.stringMatching(/^https:\/\//), message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
   })
 
   it("cancels oversized ordinary envelopes before reading the remaining body", async () => {
@@ -238,13 +238,13 @@ describe("Console RPC", () => {
     const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations })
     const response = await call(envelope.padEnd(80 * 1_024, " "))
     expect(response.status).toBe(405)
-    await expect(response.json()).resolves.toEqual({ message: "Method not allowed", ok: false, status: 405 })
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", message: "Method not allowed", ok: false, status: 405 })
   })
 
   it("keeps the larger allowance for invocation envelopes", async () => {
     const response = await call(JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024), method: "POST" } }))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ message: "Missing Agent name.", ok: false, status: 400 })
+    await expect(response.json()).resolves.toMatchObject({ message: "Missing Agent name.", ok: false, status: 400 })
   })
 
   it("classifies invocation prefixes split across stream chunks", async () => {

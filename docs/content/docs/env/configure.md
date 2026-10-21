@@ -4,6 +4,7 @@ description: Declare Public Env, Define Env, and Server Env values, their source
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configure Env

@@ -35,6 +35,7 @@ it.each(["workspace:build-directory-users", "workspace:retirement:build-director
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
@@ -55,6 +56,7 @@ it.each(["workspace:build-directory-users", "workspace:retirement:build-director
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
@@ -108,6 +110,7 @@ it("retains failed removal authority across Store reopen without reviving comple
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
@@ -145,5 +148,6 @@ it("does not revive a relinquished shared claim after a sibling removal and meta
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })

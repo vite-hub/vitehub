@@ -292,6 +292,12 @@ export interface BlobStorage {
   store(name: BlobStoreName): BlobStorage
 }
 
+/**
+ * Cloudflare R2 jurisdiction that keeps bucket data in one region.
+ * @see https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions
+ */
+export type CloudflareR2Jurisdiction = "eu" | "fedramp" | "us"
+
 export interface CloudflareR2BlobStoreConfig {
   accountId?: string
   accessKeyId?: string
@@ -299,6 +305,8 @@ export interface CloudflareR2BlobStoreConfig {
   bucketName?: string
   defaultUrlExpiresIn?: number
   driver: "cloudflare-r2"
+  /** Jurisdiction of the bucket. Sets the wrangler binding, the provisioning request, and the S3 API host. */
+  jurisdiction?: CloudflareR2Jurisdiction
   publicBaseUrl?: string
   secretAccessKey?: string
 }
@@ -538,7 +546,7 @@ export interface BlobStoresConfig extends BlobModuleBaseOptions {
 export type BlobModuleOptions =
   | false
   | BlobStoresConfig
-  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName">>)
+  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)
   | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
   | (BlobModuleBaseOptions & BlobStoreConfig)
 
