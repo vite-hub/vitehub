@@ -79,8 +79,9 @@ export const AgentChatPrompt = defineComponent({
       const text = clipboard.getData("text/plain");
       const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/"));
       if (files.length === 0) return;
-      event.preventDefault();
-      if (text.length > 0) {
+      await addFiles(files, () => {
+        event.preventDefault();
+        if (text.length === 0) return;
         const target = event.target;
         if (target instanceof HTMLTextAreaElement) {
           const start = target.selectionStart;
@@ -92,8 +93,7 @@ export const AgentChatPrompt = defineComponent({
         } else {
           emit("update:modelValue", `${props.modelValue}${text}`);
         }
-      }
-      await addFiles(files);
+      });
     };
     return () =>
       h(
