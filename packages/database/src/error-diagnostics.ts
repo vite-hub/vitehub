@@ -87,6 +87,16 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
     },
 
+    // Migration errors. `vitehub db migrate` prints them and exits with code 1.
+    DATABASE_MIGRATION_CHECK_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
+      fix: "Make the database reachable with the connection that `vitehub db migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, or `connection.url` or the PG* variables and the `postgres` package for Postgres.",
+    },
+    DATABASE_MIGRATION_DATA_LOSS: {
+      why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
+      fix: "Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.",
+    },
+
     // Definition errors. `defineDatabase()` throws them.
     DATABASE_INVALID_CASING: {
       why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",

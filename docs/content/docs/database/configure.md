@@ -71,6 +71,38 @@ export default defineDatabase({
 
 ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Definition still cannot load, for example because it imports a module that only a Vite plugin provides, `vite dev` and builds print a warning and fall back to the keys of a literal `schema: { ... }` object. `vitehub db generate` fails in that case, so a migration never silently omits a table.
 
+## Apply migrations
+
+`vitehub db generate` writes a Drizzle migration beside the Definition. `vitehub db migrate` applies the pending migrations with Drizzle Kit. Before it applies anything, it reads the Drizzle migrations table of each database and checks the SQL of each pending migration.
+
+```bash [commands/migrate]
+pnpm vitehub db migrate --dry-run
+pnpm vitehub db migrate
+```
+
+`--dry-run` prints each pending migration with its SQL and changes nothing. `vitehub db migrate` refuses pending migrations that lose data and names the statements with `DATABASE_MIGRATION_DATA_LOSS`. These statements lose data: `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. With `--dry-run`, the command exits with code 1 when a pending migration loses data, so CI can run it as a check.
+
+```txt
+[vitehub] Database "default" (local SQLite .vitehub/data/database/sqlite.db): 1 pending migration.
+
+  0001_drop_body
+    ALTER TABLE `notes` DROP COLUMN `body`;
+    ! Data loss: drops column "body" from "notes".
+```
+
+To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`. This flag also skips the check, for example when ViteHub cannot read the migrations table.
+
+The check reads the same database that Drizzle Kit migrates:
+
+| Database | Check |
+| --- | --- |
+| Local SQLite | Reads the file. A missing file has no applied migrations, and the dry run does not create it. |
+| Remote libSQL | Connects with `connection.url` and `connection.authToken`. |
+| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
+| Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
+
+Wrangler applies the migrations of a native D1 binding with `wrangler d1 migrations apply`, not `vitehub db migrate`. That path does not use this check.
+
 ## Tables from Nuxt layers
 
 In a Nuxt application, ViteHub also discovers Database Definitions in the server
