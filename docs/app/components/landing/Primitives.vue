@@ -51,14 +51,17 @@ function blur() {
               class="primitive-focus"
               aria-hidden="true"
             />
-            <div class="primitive-illustration h-10 w-16 text-muted">
-              <LandingPrimitiveMotion :name="primitive.id" :play="visible" :offset="(index * 0.37) % 1" />
-            </div>
-            <div>
+            <LandingPrimitiveLines
+              :icon="primitive.icon"
+              :active="activeId === primitive.id"
+              :play="visible"
+              :delay="240 + index * 35"
+              class="primitive-lines"
+            />
+            <div class="relative">
               <h2 class="text-sm font-medium text-highlighted">{{ primitive.name }}</h2>
               <p class="primitive-description mt-0.5 text-xs/5 text-muted">{{ primitive.description }}</p>
             </div>
-            <UIcon name="i-lucide-arrow-up-right" class="primitive-arrow size-3.5" aria-hidden="true" />
           </NuxtLink>
         </li>
       </ul>
@@ -78,8 +81,6 @@ function blur() {
   height: 100%;
   min-height: 4.5rem;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 0.75rem;
   border-right: 1px solid var(--ui-border);
   border-bottom: 1px solid var(--ui-border);
   padding: 1rem 1.25rem;
@@ -100,54 +101,37 @@ function blur() {
   pointer-events: none;
 }
 
-.primitive-illustration {
-  opacity: 0.72;
-  transition: opacity 200ms ease, transform 200ms ease, color 200ms ease;
-}
-
-.primitive-arrow {
-  position: absolute;
-  top: 1.25rem;
-  right: 1.25rem;
+/* The line field takes the tile color, so hover and focus change it the same way as text. */
+.primitive-lines {
   color: var(--ui-text-muted);
-  opacity: 0;
-  transform: translate(-2px, 2px);
-  transition: opacity 180ms ease, transform 180ms ease;
+  opacity: 0.65;
+  transition: opacity 200ms ease, color 200ms ease;
 }
 
-.primitive-tile:focus-visible .primitive-illustration {
+.primitive-tile:focus-visible .primitive-lines {
   color: var(--ui-text-highlighted);
   opacity: 1;
 }
 
-.primitive-tile:focus-visible .primitive-arrow {
-  opacity: 1;
-  transform: translate(0, 0);
-}
-
 @media (hover: hover) and (pointer: fine) {
-  .primitive-tile:hover .primitive-illustration {
+  .primitive-tile:hover .primitive-lines {
     color: var(--ui-text-highlighted);
     opacity: 1;
-    transform: translateY(-2px);
-  }
-
-  .primitive-tile:hover .primitive-arrow {
-    opacity: 1;
-    transform: translate(0, 0);
   }
 }
 
 /* On phones 21 tiles with illustrations fill almost two screens. Show names only. */
 @media (max-width: 639px) {
-  .primitive-illustration {
+  .primitive-lines {
     display: none;
   }
 }
 
 @media (min-width: 640px) {
+  /* The line field fills the top of the tile, so the name and description sit at the bottom. */
   .primitive-tile {
     min-height: 9rem;
+    justify-content: flex-end;
     padding: 1.25rem;
   }
 
@@ -158,10 +142,8 @@ function blur() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .primitive-illustration,
-  .primitive-arrow {
+  .primitive-lines {
     transition: none;
-    transform: none;
   }
 }
 </style>
