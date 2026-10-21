@@ -544,7 +544,14 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
     if (!isAstNode(node) || node.type !== "ObjectExpression") return
     const result = new Map<string, unknown>()
     for (const property of Array.isArray(node.properties) ? node.properties : []) {
-      if (!isAstNode(property) || property.type !== "Property" || property.computed) return
+      if (!isAstNode(property)) return
+      if (property.type === "SpreadElement") {
+        const spread = properties(resolveNode(property.argument))
+        if (!spread) return
+        for (const [key, value] of spread) result.set(key, value)
+        continue
+      }
+      if (property.type !== "Property" || property.computed) return
       const key = astName(property.key)
       if (key) result.set(key, property.value)
     }

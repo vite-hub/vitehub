@@ -92,8 +92,7 @@ export async function contentSitemapEntries(collections: readonly AnyContentColl
     } while (cursor)
   }
   if (entries.length > contentSitemapLimit) {
-    console.warn(`[vitehub] The Content sitemap has ${entries.length} URLs. One sitemap holds ${contentSitemapLimit}, so it lists the first ${contentSitemapLimit}.`)
-    entries.length = contentSitemapLimit
+    throw contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] The Content sitemap has ${entries.length} URLs, exceeding the ${contentSitemapLimit}-URL sitemap limit. Split the routes across sitemap files.` })
   }
   return entries
 }
