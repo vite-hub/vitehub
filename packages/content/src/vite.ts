@@ -158,7 +158,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         // contribution pass usable for packed consumers in that case.
         const projectRoot = context.projectRoot ?? context.rootDir
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
-        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
+        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir ?? projectRoot)
         const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
         const plan = await resolveCmsPreset({ databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(projectRoot, cmsWorkspaceModulePath)
@@ -170,10 +170,10 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         return [{ export: cmsWorkspaceExport, module, name: plan.workspace }]
       },
       async databases(context: DatabaseContributionContext) {
-        const root = projectRoot ?? context.rootDir
+        const root = projectRoot ?? context.rootDir ?? process.cwd()
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
         const contributed = await collectDatabaseContributions(otherPlugins, context)
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir ?? root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
