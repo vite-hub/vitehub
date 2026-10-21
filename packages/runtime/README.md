@@ -52,6 +52,22 @@ drain. Keep the
 status endpoint available until `vitehub-drain` observes the terminal `drained`
 status; process exit or endpoint loss before that acknowledgement is a failed drain.
 
+ViteHub packages register their stop work with `onShutdown(nitroApp, name, drain)`
+from the `/shutdown` entry, in a Nitro plugin. Applications do not call it. When a server
+that owns stop signals gets `SIGTERM` or `SIGINT`, ViteHub runs every registered drain
+in parallel and keeps HTTP open. Each drain gets the shared budget from
+`VITEHUB_SHUTDOWN_DRAIN_MS` (default 0) and an `AbortSignal` that aborts when the
+budget ends. A drain that does not settle 15 seconds after the budget ends is
+reported as `timeout`. Then the server closes HTTP, Nitro runs its `close` hooks
+for up to 10 seconds, and the process exits once with code 0. Give the host a
+termination grace period longer than the budget plus 25 seconds. The Node, Bun, and
+Deno server presets own stop signals. In development, during prerender, on
+serverless and Cloudflare hosts, and when the server's graceful shutdown is off,
+ViteHub does not handle signals; the drains run when the Nitro app calls its
+`close` hooks. `shutdownState()` (also `process.__vitehubShutdown`) shows the
+registered drains, the signal, and each drain result. The logs have the events
+`shutdown.draining`, `shutdown.drained`, and `shutdown.exited`.
+
 ## Get a first result
 
 Create the host context explicitly, register one Runtime Capability, and look it
@@ -310,6 +326,7 @@ safe for public responses. Use the `ViteHubError` public contract at that bounda
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, and public URL APIs |
 | `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
+| `@vite-hub/runtime/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
 
 Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 

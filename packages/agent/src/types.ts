@@ -2358,9 +2358,9 @@ export interface AgentPreparationOptions {
 
 export interface AgentShutdownOptions {
   /**
-   * Default for `VITEHUB_SHUTDOWN_DRAIN_MS`: how long a stop signal waits for inline Chat
-   * invocations and active webhook queue deliveries. The variable wins when it is set.
-   * Defaults to 0, which interrupts the work at once.
+   * Default for `VITEHUB_SHUTDOWN_DRAIN_MS`, the shared budget of every ViteHub shutdown drain,
+   * such as inline Chat invocations and active webhook queue deliveries. The variable wins when
+   * it is set. Defaults to 0, which interrupts the work at once.
    */
   drainMs?: number
 }
@@ -2377,8 +2377,8 @@ export interface AgentModuleOptions {
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
   /**
-   * Drain Agent work on SIGTERM and SIGINT on a persistent Node host, then exit.
-   * Set `false` when the application installs its own stop handler.
+   * Drain inline Chat invocations when a persistent server stops. ViteHub shutdown runs the
+   * drain on SIGTERM and SIGINT. Set `false` to interrupt them without a drain.
    */
   shutdown?: false | AgentShutdownOptions
 }

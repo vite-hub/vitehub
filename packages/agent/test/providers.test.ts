@@ -2845,12 +2845,21 @@ export default defineAgent({
         const hooks = new Map<string, () => void>()
         let startup: (() => void) | undefined
         // Execute the generated plugin with an earlier process start and a deferred timer.
-        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
+        const shutdownDrains: string[] = []
+        // ViteHub runs registered drains from the Nitro close hook when no stop signal arrives.
+        const onShutdown = (app: { hooks: { hook: (name: string, callback: () => unknown) => void } }, name: string, drain: (context: { signal: AbortSignal, timeoutMs: number }) => unknown) => {
+          shutdownDrains.push(name)
+          if (name === "agent.webhook-queues") app.hooks.hook("close", () => drain({ signal: new AbortController().signal, timeoutMs: 0 }))
+        }
+        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           warmWebhookRoutes,
           { timeOrigin: Date.now() - 60_000 },
           (callback: () => void) => { startup = callback },
           undefined,
+          onShutdown,
+          async () => {},
+          async () => ({ active: 0, interrupted: 0, unsettled: 0 }),
         )
         install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
         hooks.get("close")?.()
@@ -2866,12 +2875,12 @@ export default defineAgent({
         expect(queuePlugin).toContain("stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)")
         expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
-        expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
-        expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
-        expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
-        // The Agent shutdown drain owns the exit through its runtime, not a direct process.exit().
+        // ViteHub owns stop signals and the exit. The plugin only registers its drains.
+        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+        expect(queuePlugin).not.toContain("SIGTERM")
         expect(queuePlugin).not.toContain("process.exit")
-        expect(queuePlugin).toContain("installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, undefined, nodeProcess)")
+        expect(queuePlugin).not.toContain("VITEHUB_SHUTDOWN_DRAIN_MS")
+        expect(shutdownDrains).toEqual(["agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues"])
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )
@@ -14000,7 +14009,7 @@ describe("server helpers", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
-    const { drainInlineChatInvocations } = await import("../src/server.ts")
+    const { drainInlineChatInvocations } = await import("../src/server/internal.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-inline-chat-restart-"))

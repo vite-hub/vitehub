@@ -9,6 +9,7 @@ export {
   createChannelWebhookRouteHandler,
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
+  drainInlineChatInvocations,
   hasChannelChatRoute,
   installAgentChannelDeliveryWorkflowResolver,
   setAgentChannelDeliveryWorkflowStateResolver,
@@ -18,6 +19,8 @@ export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
 export type { ChannelReplayRequestOptions } from "../channel-replay.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
+export { webhookQueueShutdown } from "../internal/webhook-queue.ts"
+export { onShutdown } from "@vite-hub/runtime/shutdown"
 export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
 export { markDiscoveredAgentName, resetPublicUrlAgentNames } from "../internal/discovered-agent-name.ts"

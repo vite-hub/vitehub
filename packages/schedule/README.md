@@ -198,7 +198,7 @@ With the Process Runtime, the default `providerOutput: "auto"` emits no host Pro
 
 `installScheduleRuntime()` returns only after its driver reconciles the complete stored snapshot, including disabled Runtime Schedules. Later creates, updates, and deletes persist first and reconcile one at a time. If host reconciliation fails, ViteHub restores the previous stored record and rejects the change.
 
-When a custom host installs a wake driver, call and await `controller.close()` during shutdown. Closing stops new wakes, drains active wakes and `waitUntil()` work, and releases driver resources. It does not delete Schedule Definitions, Runtime Schedules, or run history. The generated Nitro Process Runtime connects the same close operation to Nitro shutdown and process termination signals.
+When a custom host installs a wake driver, call and await `controller.close()` during shutdown. Closing stops new wakes, drains active wakes and `waitUntil()` work, and releases driver resources. It does not delete Schedule Definitions, Runtime Schedules, or run history. The generated Nitro Process Runtime registers the same close operation with ViteHub shutdown, so it runs on a stop signal before the server closes HTTP, or when Nitro closes. See [graceful shutdown](../runtime/README.md).
 
 ## Inspect Runtime Schedules
 

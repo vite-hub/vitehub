@@ -1,99 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
-import type { ProcessShutdownDrains, ProcessStopSignal } from "./internal/shutdown-drain.ts";
-
-type ProcessHostStopSignal = ProcessStopSignal;
-
-/** The part of `process` that the generated stop handler uses. Tests pass a replacement. */
-export interface ProcessHostStopRuntime {
-  __vitehubShutdown?: ProcessShutdownDrains;
-  exit(code: number): void;
-  listeners(signal: ProcessHostStopSignal): unknown[];
-  off(signal: ProcessHostStopSignal, listener: (signal: ProcessHostStopSignal) => void): unknown;
-  on(signal: ProcessHostStopSignal, listener: (signal: ProcessHostStopSignal) => void): unknown;
-}
-
-/**
- * Starts the host in the generated Nitro plugin and installs its stop order.
- *
- * SIGTERM and SIGINT first stop admission with `host.close()`, which waits for the
- * invocations that the host tracks. HTTP stays up, so webhooks still reach durable
- * queues. Then the server's own signal listeners close HTTP, and the process exits.
- * A second signal does not start more work. The drain is registered in
- * `process.__vitehubShutdown`, and the process exits once, after every registered drain
- * settles. This includes the Agent shutdown drain of the generated webhook queue plugin.
- *
- * The Nitro Node server calls srvx `serve()` after it runs plugins, and srvx adds its
- * graceful shutdown listeners there. Nitro does not expose an option that disables
- * them or orders them after a plugin. This function records the existing listeners,
- * then detaches the listeners that were added during startup on the next check phase
- * and calls them after the drain.
- *
- * The plugin generator emits this function with `Function.prototype.toString()`,
- * so it must use only its parameters and JavaScript globals.
- */
-export function installProcessHostStop(
-  host: { close(): Promise<void>; start(): void },
-  app: { hooks: { hook(name: "close", callback: () => Promise<void>): unknown } },
-  runtime: ProcessHostStopRuntime = process,
-): void {
-  host.start();
-  app.hooks.hook("close", () => host.close());
-  const signals: ProcessHostStopSignal[] = ["SIGTERM", "SIGINT"];
-  const existing = new Map(signals.map((signal) => [signal, new Set(runtime.listeners(signal))]));
-  const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
-  let resolveSetup!: () => void;
-  const setup = new Promise<void>((resolve) => { resolveSetup = resolve });
-  const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
-  let stopping: Promise<void> | undefined;
-  const stop = (signal: ProcessHostStopSignal) => {
-    if (stopping) return;
-    stopping = (async () => {
-      await setup;
-      console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
-      try {
-        await host.close();
-      } catch (error) {
-        console.error("[vitehub]", error);
-      }
-      const closeServer = Promise.all(
-        serverListeners
-          .filter(([name]) => name === signal)
-          .map(([, listener]) => Promise.resolve().then(() => listener(signal))),
-      );
-      await Promise.race([
-        closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
-        new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
-      ]);
-    })();
-    shutdown.drains.add(stopping);
-    void (async () => {
-      let settled = -1;
-      while (settled !== shutdown.drains.size) {
-        settled = shutdown.drains.size;
-        await Promise.allSettled(shutdown.drains);
-      }
-      if (shutdown.exited) return;
-      shutdown.exited = true;
-      console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
-      runtime.exit(0);
-    })();
-  };
-  for (const signal of signals) runtime.on(signal, stop);
-  setImmediate(() => {
-    for (const signal of signals) {
-      for (const listener of runtime.listeners(signal)) {
-        if (typeof listener !== "function" || listener === stop || existing.get(signal)?.has(listener) || (listener as { __vitehubAgentDrain?: boolean }).__vitehubAgentDrain) continue;
-        // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
-        const handler = listener as (signal: ProcessHostStopSignal) => void;
-        runtime.off(signal, handler);
-        serverListeners.push([signal, handler]);
-      }
-    }
-    resolveSetup();
-  });
-}
 
 /** Install a process host exported from an application module into Nitro. */
 export function processAgentHost(options: { entry: string; exportName?: string; drainRoute?: string }): Plugin {
@@ -122,9 +30,21 @@ export function processAgentHost(options: { entry: string; exportName?: string; 
       await mkdir(directory, { recursive: true });
       const plugin = resolve(directory, "plugin.ts");
       const drain = resolve(directory, "drain.ts");
+      // The generated file lives in the application, which may not resolve ViteHub packages.
+      const shutdown = createRequire(import.meta.url).resolve("@vite-hub/runtime/shutdown");
+      // On a stop signal, ViteHub stops admission with `host.close()` while HTTP stays up, so
+      // webhooks still reach durable queues. Then the server closes HTTP and the process exits.
       await writeFile(
         plugin,
-        `${hostImport}\nconst installProcessHostStop = ${installProcessHostStop.toString()}\nexport default function(app) { installProcessHostStop(host, app) }\n`,
+        [
+          hostImport,
+          `import { onShutdown } from ${JSON.stringify(shutdown)}`,
+          "export default function(app) {",
+          "  host.start()",
+          "  onShutdown(app, 'agent.process-host', () => host.close())",
+          "}",
+          "",
+        ].join("\n"),
       );
       await writeFile(
         drain,
