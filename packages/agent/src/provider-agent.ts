@@ -4177,10 +4177,11 @@ export function createProviderAgentAdapter<
   const cwdLocks = new Map<string, Promise<void>>()
   const codexHomeRetention: CodexHomeRetentionSource | undefined = options.provider === "codex" && options.retention
     ? {
-        cursors: () => resumeCursors.values(),
+        // Since #2636 the map holds resume states; retention reads the provider cursor in each.
+        cursors: () => [...resumeCursors.values()].map(state => state.cursor),
         invalidate(threadIds) {
-          for (const [key, cursor] of resumeCursors) {
-            const threadId = providerNativeThreadId(cursor)?.toLowerCase()
+          for (const [key, state] of resumeCursors) {
+            const threadId = providerNativeThreadId(state.cursor)?.toLowerCase()
             if (threadId && threadIds.has(threadId)) resumeCursors.delete(key)
           }
         },
