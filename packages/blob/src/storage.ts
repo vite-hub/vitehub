@@ -15,6 +15,7 @@ import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, Blo
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import isBlob from "./internal/is-blob.ts"
+import { assertValidPathname } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
 
