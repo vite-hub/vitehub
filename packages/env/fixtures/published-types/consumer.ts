@@ -1,6 +1,7 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { secretCliFeatures, type EnvErrorCode, type EnvErrorDetails, type EnvSourceIdentifier } from "@vite-hub/env"
+import { type EnvErrorCode, type EnvErrorDetails, type EnvSourceIdentifier } from "@vite-hub/env"
+import { secretCliFeatures } from "@vite-hub/env/cli"
 
 const code = "ENV_SOURCE_FAILED" satisfies EnvErrorCode
 const source = "git:branch" satisfies EnvSourceIdentifier
