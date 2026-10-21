@@ -134,7 +134,7 @@ describe("vitehub agent invocations --database", () => {
 
   it.each([
     [["list", "--database", "missing.sqlite"], "No Agent Invocation journal exists at"],
-    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
+    [["list", "--database", "libsql://journal.example.com"], "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app."],
     [["list", "--database", "journal.sqlite", "--url", "http://localhost:5173/api/invocations"], "Pass --url or --database, not both."],
     [["cancel", "ainv_1", "--database", "journal.sqlite"], "cancel needs the running app. Pass --url or --server instead of --database."],
     [["list", "--database", "journal.sqlite", "--status", "stuck"], "--status must be one of pending, running, completed, failed, cancelled."],
