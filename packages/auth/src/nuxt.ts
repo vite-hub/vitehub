@@ -18,7 +18,7 @@ export interface AuthNuxtModuleOptions {
 }
 
 type NuxtLike = {
-  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
+  hook?: (name: "modules:done" | "nitro:config", handler: ((nitroConfig: Record<string, unknown>) => Promise<void>) | (() => void)) => void
   options: {
     plugins?: string[]
     _layers?: NuxtServerDirOptions["_layers"]
@@ -46,13 +46,19 @@ type NuxtLike = {
 
 const composables = ["useAuthClient", "useSession", "useSignIn", "useSignUp", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
+const vueBridgeRegistered = new WeakSet<object>()
 
 export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
 
   nuxt.options.plugins ??= []
   const vueRuntimePlugin = fileURLToPath(new URL("./runtime/vue-nuxt.js", import.meta.url))
-  if (!nuxt.options.plugins.includes(vueRuntimePlugin)) nuxt.options.plugins.unshift(vueRuntimePlugin)
+  const ensureVueRuntimePlugin = () => {
+    const index = nuxt.options.plugins!.indexOf(vueRuntimePlugin)
+    if (index > 0) nuxt.options.plugins!.splice(index, 1)
+    if (index !== 0) nuxt.options.plugins!.unshift(vueRuntimePlugin)
+  }
+  ensureVueRuntimePlugin()
 
   nuxt.options.vite ??= {}
   nuxt.options.vite.plugins ??= []
@@ -102,6 +108,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
         viteAuth: nuxt.options.vite?.auth,
       }))
     })
+  }
+
+  if (!vueBridgeRegistered.has(nuxt) && nuxt.hook) {
+    vueBridgeRegistered.add(nuxt)
+    // Modules may register plugins after this module. Reassert the bridge once
+    // module registration is complete, before Nuxt starts running plugins.
+    nuxt.hook("modules:done", ensureVueRuntimePlugin)
   }
 
   nuxt.options.imports ??= {}

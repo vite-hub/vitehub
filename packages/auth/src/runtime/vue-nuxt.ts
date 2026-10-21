@@ -1,3 +1,5 @@
+// Nuxt provides this virtual module to applications that install the module.
+// @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
 import { tryUseNuxtApp } from "#app"
 
 import { setNuxtAppResolver } from "../vue.ts"

@@ -83,8 +83,8 @@ describe("Vue Auth composables", () => {
   })
 
   it("restores Nuxt context for delayed useFetch hooks without a Vue instance", async () => {
-    const runWithContext = vi.fn((run: () => unknown) => run())
-    setNuxtAppResolver(() => ({ runWithContext }))
+    const runWithContext = vi.fn(<T>(run: () => T): T => run())
+    setNuxtAppResolver(() => ({ runWithContext }) as never)
     const client = createAuthClient()
     const useFetch = () => undefined
     await client.useSession(useFetch as never)
