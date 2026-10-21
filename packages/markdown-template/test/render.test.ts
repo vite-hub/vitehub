@@ -173,6 +173,12 @@ describe("renderMarkdownTemplate", () => {
       "[Open recap]({{ data.url }} \"Monthly \\\"recap\\\"\")",
       "[Open recap]({{ data.url }} 'Monthly \\'recap\\'')",
       "[Open recap]({{ data.url }} (Monthly \\(recap\\)))",
+      `[Open recap]({{ data.url }} "Monthly
+recap")`,
+      `[Open recap]({{ data.url }} 'Monthly
+recap')`,
+      `[Open recap]({{ data.url }} (Monthly
+recap))`,
     ]) {
       await expect(renderMarkdownTemplate(template, { data })).rejects.toMatchObject({
         code: "MARKDOWN_TEMPLATE_R0033",
