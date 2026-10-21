@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `task`, and the CLI includes the built-in `inspect` and `provision` namespaces.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -49,7 +49,7 @@ Available namespaces:
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
-  sandbox     Serve an authenticated SSH runner or check its readiness.
+  sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
 ```
@@ -71,6 +71,7 @@ Available namespaces:
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
