@@ -256,17 +256,19 @@ function dataSchema(collections: readonly ContentCollectionHandle[]): JsonSchema
 }
 
 /** Entries of `content_publish` and `content_schedule`: reviewed drafts, pinned by digest. */
-function nullableIdSchema(singletons: boolean): JsonSchema {
-  return { anyOf: [idSchema(singletons), { type: "null" }], description: idSchema(singletons).description }
+function nullableIdSchema(allowNull: boolean): JsonSchema {
+  const schema = idSchema(allowNull)
+  return allowNull ? { anyOf: [schema, { type: "null" }], description: schema.description } : schema
 }
 
 function documentsSchema(collections: readonly ContentCollectionHandle[], description: string): JsonSchema {
   const names = collections.map(collection => collection.name)
+  const allSingletons = collections.every(collection => collection.kind === "singleton")
   return {
     description,
     items: {
       additionalProperties: false,
-      properties: { collection: collectionSchema(names), digest: digestSchema, id: nullableIdSchema(true) },
+      properties: { collection: collectionSchema(names), digest: digestSchema, id: nullableIdSchema(allSingletons) },
       required: ["collection", "digest", "id"],
       type: "object",
     },
@@ -432,7 +434,7 @@ function contentTools(
   const scoped = options.collections ? options.collections.map(name => byName.get(name)!) : available
   if (!scoped.length) return {}
   const names = scoped.map(collection => collection.name)
-  const singletons = scoped.some(collection => collection.kind === "singleton")
+  const allSingletons = scoped.every(collection => collection.kind === "singleton")
 
   // Resolve the Actor's Auth user once per Invocation.
   let user: Promise<ContentCapabilityUser | null> | undefined
@@ -637,7 +639,7 @@ function contentTools(
       icon: "i-lucide-file-text",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: nullableIdSchema(singletons), ref: refSchema },
+        properties: { collection: collectionSchema(names), id: nullableIdSchema(allSingletons), ref: refSchema },
         required: ["collection", "id"],
         type: "object",
       },
@@ -659,7 +661,7 @@ function contentTools(
       icon: "i-lucide-git-compare",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: { ...nullableIdSchema(singletons), description: `${idSchema(singletons).description} Omit it to compare every document.` } },
+        properties: { collection: collectionSchema(names), id: { ...nullableIdSchema(allSingletons), description: `${idSchema(allSingletons).description} Omit it to compare every document.` } },
         required: ["collection", "id"],
         type: "object",
       },
@@ -693,7 +695,7 @@ function contentTools(
         additionalProperties: false,
         properties: {
           collection: collectionSchema(names),
-          id: { ...nullableIdSchema(singletons), description: `${idSchema(singletons).description} Combine it with collection.` },
+          id: { ...nullableIdSchema(allSingletons), description: `${idSchema(allSingletons).description} Combine it with collection.` },
           status: { enum: ["pending", "overdue", "failed"], type: "string" },
         },
         type: "object",
@@ -714,6 +716,10 @@ function contentTools(
         if (input.ifDigest !== null && (String(input.ifDigest) !== input.ifDigest || !input.ifDigest)) {
           return invalidInput("ifDigest", "ifDigest must be the draft digest you edited, or null for a new document.")
         }
+        // The strict-provider schema uses `null` to represent an omitted body for
+        // data collections. Normalize it to an empty Markdown body as well so a
+        // schema-valid nullable value never trips this guard for Markdown.
+        if (target.format === "markdown" && input.body === null) input.body = ""
         if (target.format === "markdown" && String(input.body) !== input.body) {
           return invalidInput("body", `${target.name} stores Markdown. Send the full body, or an empty string for none.`)
         }
@@ -741,7 +747,7 @@ function contentTools(
           body: { anyOf: [{ type: "string" }, { type: "null" }], description: "Markdown body after the frontmatter. Send the full body for a Markdown collection. Use null for a JSON or YAML collection." },
           collection: collectionSchema(names),
           data: dataSchema(scoped),
-          id: nullableIdSchema(singletons),
+          id: nullableIdSchema(allSingletons),
           ifDigest: {
             anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
             description: "Digest of the draft you edited, or null to create a new document.",
