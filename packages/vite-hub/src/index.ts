@@ -40,6 +40,7 @@ import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
+import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
@@ -977,6 +978,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Before Env, so Env reads the PostHog key declaration.
     plugins.push(observabilityVitePlugin(options.observability, { agent: options.agent, hosting: plan.nitroPreset }))
   }
+  // evlog records request errors when observability is on.
+  else plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
