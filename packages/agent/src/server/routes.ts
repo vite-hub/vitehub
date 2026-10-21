@@ -1675,7 +1675,7 @@ async function failOpenQueuedWebhookInvocation(
     // SAFETY: Agent Definitions own this field; the journal boundary validates it.
     const invocations = agent.invocations as AgentInvocations
     const identity = routeAgentIdentity(handlerOptions)
-    const agentName = routeAgentInvocationName(agent, identity)
+    const agentName = delivery.invocation?.agentName || routeAgentInvocationName(agent, identity)
     const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
     if (summary?.status !== "pending" && summary?.status !== "running") return
     const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
@@ -1998,7 +1998,14 @@ async function executeQueuedWebhookDelivery(
         if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
           throw agentDiagnostics.AGENT_R0782({ message: "[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId." })
         }
-        invocation = { input: resolved.input, run: resolved.run }
+        const resolvedAgentName = resolved.agent ? taskAgentIdentity(resolved.agent).name : undefined
+        if (invocation?.task !== undefined && resolved.task !== invocation.task) {
+          throw new Error(`[vitehub] Persisted webhook delivery resolved task "${resolved.task ?? ""}" instead of "${invocation.task}".`)
+        }
+        if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
+          throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
+        }
+        invocation = { ...invocation, input: resolved.input, run: resolved.run }
         accepted = resolved
       }
       else {

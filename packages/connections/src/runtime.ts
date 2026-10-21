@@ -315,7 +315,14 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function connectionNames(): Promise<string[]> {
     const names: string[] = []
     for (const name of Object.keys(options.definitions).sort()) {
-      const loaded = await loadDefinition(name).catch(() => undefined)
+      let loaded: ConnectionModule | undefined
+      try {
+        loaded = await loadDefinition(name)
+      }
+      catch {
+        // A broken lazy definition must not hide healthy Connections from discovery.
+        continue
+      }
       if (loaded && isConnectionInstances(loaded)) names.push(...loaded.instances.map(instance => `${name}:${instance}`))
       else names.push(name)
     }
