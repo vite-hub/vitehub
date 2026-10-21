@@ -10,6 +10,7 @@
   "exports": {
     "./cli": "./dist/cli.js",
     "./console": "./dist/console.js",
+    "./contributions": "./dist/contributions.js",
     "./env": "./dist/env.js",
     "./effect": "./dist/effect.js",
     "./arrays": "./dist/arrays.js",

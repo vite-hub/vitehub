@@ -96,15 +96,16 @@ describe("@vite-hub/ui package contract", () => {
     });
   });
 
-  it("loads every JavaScript entrypoint from the built package", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [
-      ".",
-      ...componentEntries,
-      "./headless",
-      "./nuxt",
-      "./primitive-rail",
-      "./vite",
-    ]);
+  // Each fresh Node process gets its own timeout and reports the failing entrypoint.
+  it.each([
+    ".",
+    ...componentEntries,
+    "./headless",
+    "./nuxt",
+    "./primitive-rail",
+    "./vite",
+  ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
   it("keeps component entry exports identical to the root barrel", async () => {

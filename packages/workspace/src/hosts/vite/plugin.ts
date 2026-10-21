@@ -7,6 +7,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
@@ -18,7 +19,9 @@ import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
 import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
+import { workspaceHistoryDevRuntimeRoute } from "../../history-dev.ts"
 import { inspectWorkspaceDefinitions } from "../../inspect.ts"
+import { registerWorkspaceHistoryDevEndpoint, writeWorkspaceHistoryDevHandler } from "./history-dev.ts"
 import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 import { isWorkspaceStore } from "../../storage/provider.ts"
@@ -1416,10 +1419,17 @@ function shouldInstallNitroWorkspacePlugin(
     || (hasNitroConfig(config) && definitions.length > 0)
 }
 
-function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
+function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
+  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
+  const baseURL: unknown = isRecord(nitro) ? nitro.baseURL : undefined
+  return hasRuntimeType(baseURL, "string") ? baseURL : process.env.NITRO_APP_BASE_URL
+}
+
+function mergeNitroWorkspaceConfig(value: unknown, historyDevHandler?: string): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(generatedNitroWorkspacePlugin)
+  if (historyDevHandler) kit.addHandler({ handler: historyDevHandler, route: workspaceHistoryDevRuntimeRoute })
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }
@@ -1674,6 +1684,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
   let serverDirs: string[] | undefined
+  // Each plugin instance owns one history dev route, so a CLI process that loads the config does not replace it.
+  const historyDevServerId = globalThis.crypto.randomUUID()
+  let historyDevHandlerInstalled = false
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
     const definitions = discoverDefinitions(roots, serverDirs)
@@ -1746,7 +1759,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
-        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        // CLI discovery loads the config without a server, so it must not add a route.
+        const historyDevHandler = env?.command === "serve" && Reflect.get(config, "vitehubCliDiscovery") !== true
+          ? await writeWorkspaceHistoryDevHandler({ importBase, projectRoot: roots.projectRoot, serverId: historyDevServerId })
+          : undefined
+        historyDevHandlerInstalled = Boolean(historyDevHandler)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, historyDevHandler)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
@@ -1874,6 +1892,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         headerValue: workspaceDevHeaderValue,
         label: "Workspace Dev",
         route: workspaceDevRoute,
+      })
+      await registerWorkspaceHistoryDevEndpoint(devServer, {
+        available: () => historyDevHandlerInstalled,
+        nitroBaseURL: () => readNitroBaseURL(resolved),
+        projectRoot: roots.projectRoot,
+        serverId: historyDevServerId,
       })
     },
     vitehub: {

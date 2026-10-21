@@ -55,6 +55,7 @@ describe("CI merge gate", () => {
     const commands = workflow.jobs["contracts-examples"]?.steps.flatMap(step => step.run ? [step.run] : [])
     expect(commands).toEqual([
       "vp run build",
+      "git diff --exit-code -- 'packages/*/package.json' || {\n  echo \"::error::vp run build rewrote package.json exports. Run it locally and commit the result.\"\n  exit 1\n}\n",
       "vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts",
       "vp run --ignore-depends-on examples:verify",
     ])

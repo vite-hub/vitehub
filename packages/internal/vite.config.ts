@@ -8,6 +8,7 @@ export default defineConfig({
       "src/arrays.ts",
       "src/cli.ts",
       "src/console.ts",
+      "src/contributions.ts",
       "src/definition-catalog.ts",
       "src/deployment.ts",
       "src/dev-endpoint.ts",

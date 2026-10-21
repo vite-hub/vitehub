@@ -70,14 +70,21 @@ export function createCloudflareShellProvider(options: CloudflareShellProviderOp
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const [cmd = "", ...args] = parseShellCommand(command)
-      const result = await options.sandbox.exec(cmd, args, {
-        cwd: execOptions.cwd,
-        env: execOptions.env,
+      const clientOptions: NonNullable<Parameters<CloudflareShellClient["exec"]>[2]> = {
         onStderr: execOptions.onStderr,
         onStdout: execOptions.onStdout,
         signal: execOptions.signal,
         stdin: execOptions.stdin,
         timeout: execOptions.timeout,
+      }
+      if (options.sandbox.supports.execCwd && execOptions.cwd !== undefined) {
+        clientOptions.cwd = execOptions.cwd
+      }
+      if (options.sandbox.supports.execEnv && execOptions.env !== undefined) {
+        clientOptions.env = execOptions.env
+      }
+      const result = await options.sandbox.exec(cmd, args, {
+        ...clientOptions,
       })
       return {
         command,

@@ -63,7 +63,9 @@ export function createCloudflareImagesTransformer(binding: CloudflareImagesBindi
       if (!images) throw blobErrorDiagnostics.BLOB_R0034({ message: `Cloudflare Images binding "${String(binding)}" was not found. Add an \`images\` binding to the Worker.` })
       // The region is already cut to the output aspect, so `cover` only scales. Cloudflare trims before resizing.
       const size = { fit: "cover", height: operation.height, width: operation.width }
-      const options = operation.extract ? { ...size, trim: operation.extract } : size
+      const options = operation.extract
+        ? { ...size, trim: { left: operation.extract.left, top: operation.extract.top, right: operation.extract.left + operation.extract.width, bottom: operation.extract.top + operation.extract.height } }
+        : size
       const result = await images.input(input.stream()).transform(options).output({
         format: `image/${operation.format}`,
         ...(operation.format === "png" ? {} : { quality: operation.quality ?? defaultImageQuality }),

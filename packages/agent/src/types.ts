@@ -2232,6 +2232,11 @@ export interface AgentChatFinishExtension {
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
+  /**
+   * With `concurrency: "steer"`, wait this many milliseconds after the first message of a burst,
+   * then start one handler with every message received in that window. Unset keeps the default behavior.
+   */
+  debounceMs?: number
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean

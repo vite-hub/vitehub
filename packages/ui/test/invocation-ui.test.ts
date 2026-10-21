@@ -18,6 +18,23 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it.each(["unknown", "constructor", "toString", "__proto__"])("renders persisted status %s without throwing", (value) => {
+    const status = value as AgentInvocationView["status"];
+    const invocation = {
+      createdAt: "2026-09-08T00:00:00.000Z",
+      id: "unknown-status",
+      observations: [],
+      status,
+      traceId: "trace",
+      updatedAt: "2026-09-08T00:00:00.000Z",
+    } as AgentInvocationView;
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(inspector.get('.vh-invocation-inspector__status').text()).toContain("Unknown");
+
+    const list = mount(AgentInvocationList, { props: { items: [{ id: "unknown-status", status, title: "Unknown status" }] } });
+    expect(list.get(".vh-invocation-list__state").text()).toContain("Unknown");
+  });
+
   it("recognizes safe absolute provider Workspace artifact links", () => {
     expect(workspaceArtifactPath("/workspace/vitehub-provider-DjQaJy/artifacts/source-map.html")).toBe("artifacts/source-map.html");
     expect(workspaceArtifactPath("/workspace/run/../.env")).toBeUndefined();

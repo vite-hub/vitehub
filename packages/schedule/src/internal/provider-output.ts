@@ -212,7 +212,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, normalizeCron, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -251,9 +251,10 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    return new Response('ViteHub schedule provider wake endpoint')",
           "  },",
           "  async scheduled(event, env, ctx) {",
+          "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || definition.cron !== event.cron) return",
+          "      if (!definition || normalizeCron(definition.cron) !== normalizeCron(event.cron)) return",
           "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime), waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",

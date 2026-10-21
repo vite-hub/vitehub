@@ -195,7 +195,8 @@ function assertUpdate(patch: MediaUpdate): void {
 
 function isFresh(record: MediaRecord, object: BlobObject): boolean {
   if (record.hash === undefined || record.contentType !== (object.contentType ?? record.contentType)) return false
-  return object.httpEtag ? record.etag === object.httpEtag : record.size === object.size
+  // Drivers without an ETag cannot prove that a same-sized object is unchanged.
+  return Boolean(object.httpEtag && record.etag === object.httpEtag)
 }
 
 /** Keeps editorial fields from a record whose probed fields no longer describe the object. */
@@ -397,6 +398,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (!object) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${from} was not found in store ${store}.`)
     if (canonical(from) === canonical(to)) return await requireRecord(from)
     if (!overwrite && await driver.head(to)) throw new MediaFailure("BLOB_CONFLICT", `Blob ${to} already exists in store ${store}.`)
+    const destination = overwrite ? await readRecord(to) : undefined
     const record = await requireRecord(from)
     const moved = await copyObject(from, to, object)
     let crops: Record<string, MediaCrop> | undefined
@@ -418,6 +420,13 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     await context.clearDerived(moved.pathname)
     await writeRecord(next)
     if (next.hash) await writeJson(hashPath(next.hash), { pathname: next.pathname })
+    if (destination?.hash && destination.hash !== next.hash) {
+      const entry = await readJson(hashPath(destination.hash))
+      if (isRecord(entry) && entry.pathname === to) await driver.delete([hashPath(destination.hash)])
+    }
+    for (const crop of Object.values(destination?.crops ?? {})) {
+      if (crop.replacement) await removeReplacement(crop.replacement)
+    }
     unwrap(await context.storage.del(from))
     for (const crop of Object.values(record.crops ?? {})) {
       if (crop.replacement) await removeReplacement(crop.replacement)
@@ -475,10 +484,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (alt !== undefined) record.alt = alt
     if (caption !== undefined) record.caption = caption
     if (focal) record.focal = { x: focal.x, y: focal.y }
-    if (crops) record.crops = applyCropPatch(record.crops, crops).crops
+    const appliedCrops = crops ? applyCropPatch(record.crops, crops) : undefined
+    if (appliedCrops) record.crops = appliedCrops.crops
     if (previous) await context.clearDerived(object.pathname)
     await writeRecord(record)
     await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
+    for (const replacement of appliedCrops?.removed ?? []) await removeReplacement(replacement)
     return record
   }
 
@@ -605,7 +616,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       if (canonical(target) === canonical(source) || canonical(target).startsWith(`${canonical(source)}/`)) throw invalid(`Cannot move folder ${source}/ into itself.`)
       const objects = await listAll(`${source}/`)
       if (!objects.length) throw new MediaFailure("BLOB_NOT_FOUND", `Folder ${source}/ was not found in store ${store}.`)
-      if ((await listAll(`${target}/`)).length) throw new MediaFailure("BLOB_CONFLICT", `Folder ${target}/ in store ${store} is not empty.`)
+      if ((await listAll(`${target}/`)).some(object => baseName(object.pathname) !== mediaFolderMarker)) throw new MediaFailure("BLOB_CONFLICT", `Folder ${target}/ in store ${store} is not empty.`)
       let moved = 0
       for (const object of objects) {
         const destination = `${target}/${object.pathname.slice(source.length + 1)}`

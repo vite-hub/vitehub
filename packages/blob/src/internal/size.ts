@@ -6,5 +6,6 @@ export function blobSizeToBytes(input: string): number | undefined {
   if (!match) return undefined
   // SAFETY: The regex matches only the listed units; indexOf runs on the uppercased unit.
   const unit = match[2]!.toUpperCase() as typeof sizeUnits[number]
-  return Math.floor(Number.parseFloat(match[1]!) * 1024 ** sizeUnits.indexOf(unit))
+  const bytes = Math.floor(Number.parseFloat(match[1]!) * 1024 ** sizeUnits.indexOf(unit))
+  return Number.isSafeInteger(bytes) ? bytes : undefined
 }

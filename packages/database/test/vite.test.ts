@@ -1,8 +1,13 @@
 import { createServer as createHttpServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { promisify } from "node:util"
+
+import { createClient } from "@libsql/client"
+import { drizzle } from "drizzle-orm/libsql"
 
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
@@ -14,6 +19,7 @@ import {
   hubDb,
 } from "../src/vite.ts"
 
+const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
 
 async function createTempProject() {
@@ -458,8 +464,10 @@ describe("hubDb", () => {
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
+    expect(analyticsConfig).toContain("import databaseDefinition from \"../../../server/databases/analytics/config.ts\"")
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
     expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
+    expect(primaryConfig).toContain("import databaseDefinition from \"../../../server/databases/primary/config.ts\"")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
     expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
@@ -545,6 +553,101 @@ describe("hubDb", () => {
     expect(drizzleConfig).toContain("url: \"libsql://database.example.turso.io\"")
     expect(drizzleConfig).toContain("authToken: \"libsql-token\"")
     expect(drizzleConfig).not.toContain("driver: \"d1-http\"")
+  })
+
+  it("applies Definition Drizzle casing to generated migrations", async () => {
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-casing-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/schema.ts"), [
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const userProfiles = sqliteTable('user_profiles', {",
+      "  id: integer().primaryKey(),",
+      "  displayName: text().notNull(),",
+      "})",
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { userProfiles } from './schema.ts'",
+      "export default defineDatabase({",
+      "  drizzle: { casing: 'snake_case' },",
+      "  schema: { userProfiles },",
+      "})",
+      "",
+    ].join("\n"))
+
+    await resolveConfigResolved(hubDb())({ root: rootDir })
+    await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
+    for (const command of ["generate", "migrate"]) {
+      await execFileAsync(process.execPath, [
+        join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+        command,
+        "--config",
+        ".vitehub/database/drizzle.config.ts",
+      ], { cwd: rootDir })
+    }
+
+    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
+    const migration = await readFile(join(migrationsDir, migrationFile!), "utf8")
+    expect(migration).toContain("`display_name` text NOT NULL")
+    expect(migration).not.toContain("displayName")
+
+    const { userProfiles } = await import(join(rootDir, "server/databases/schema.ts"))
+    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      const db = drizzle({ casing: "snake_case", client })
+      await db.insert(userProfiles).values({ displayName: "Ada", id: 1 })
+      await expect(db.select().from(userProfiles)).resolves.toEqual([{ displayName: "Ada", id: 1 }])
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("routes several databases to their own Drizzle configs", async () => {
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-several-databases-"))
+    tempDirs.push(rootDir)
+    // Both Databases share one casing, so only the per-Database credentials and migrations tell them apart.
+    for (const [name, casing] of [["accounts", "snake_case"], ["billing", "snake_case"]] as const) {
+      await mkdir(join(rootDir, "server/databases", name), { recursive: true })
+      await writeFile(join(rootDir, "server/databases", name, "config.ts"), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        `const ${name} = sqliteTable('${name}', { id: integer().primaryKey(), displayName: text().notNull() })`,
+        "export default defineDatabase({",
+        `  name: '${name}',`,
+        `  name: '${name}',`,
+        `  drizzle: { casing: '${casing}' },`,
+        `  schema: { ${name} },`,
+        "})",
+        "",
+      ].join("\n"))
+    }
+
+    await resolveConfigResolved(hubDb())({ root: rootDir })
+    const generate = (config: string) => execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      config,
+    ], { cwd: rootDir })
+
+    await expect(generate(".vitehub/database/drizzle.config.ts")).rejects.toMatchObject({
+      stderr: expect.stringContaining("more than one Database"),
+    })
+    for (const name of ["accounts", "billing"]) {
+      await generate(`.vitehub/database/drizzle/${name}.config.ts`)
+      const migrationsDir = join(rootDir, "server/databases", name, "migrations")
+      const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
+      const migration = await readFile(join(migrationsDir, migrationFile!), "utf8")
+      expect(migration).toContain(`CREATE TABLE \`${name}\``)
+      expect(migration).toContain("`display_name` text NOT NULL")
+      expect(migration).not.toContain(name === "accounts" ? "`billing`" : "`accounts`")
+    }
   })
 
   it("lets top-level config disable the database plugin", async () => {

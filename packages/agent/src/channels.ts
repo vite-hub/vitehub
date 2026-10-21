@@ -73,6 +73,7 @@ import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
+import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import {
   createGmailChannelSyncProvider,
@@ -2207,7 +2208,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
       if (adapter.stream && await adapter.stream(threadId, stream) !== null) return
       let body = ""
       for await (const chunk of stream) body += chunk
-      if (body) await adapter.postMessage(threadId, { markdown: body })
+      if (body) await postChannelReply(adapter, threadId, context.run.messageId, { markdown: body })
     }
     return
   }
@@ -2264,7 +2265,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     : undefined
   if (adapter && context.run?.threadId) {
     try {
-      await adapter.postMessage(context.run.threadId, message)
+      await postChannelReply(adapter, context.run.threadId, context.run.messageId, message)
     }
     catch (error) {
       if (context.effect.intent === chatFinalReplyIntent) clearChatFinalReplyText(context.context)

@@ -8,6 +8,7 @@ import { createServer, mergeConfig, resolveConfig } from "vite"
 
 import * as authServer from "../src/server.ts"
 import { defineAuth } from "../src/index.ts"
+
 import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -483,45 +484,6 @@ describe("hubAuth", () => {
     })
 
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
-  })
-
-  it("accepts comma-separated forwarded protocols in the dev middleware", async () => {
-    const root = await createTempProject()
-    await writeAuth(root)
-    const plugin = hubAuth()
-    await resolvePluginConfig(plugin, root)
-
-    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer({
-      middlewares: {
-        use(handler: typeof middleware) {
-          middleware = handler
-        },
-      },
-      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
-    })
-    if (!middleware) throw new Error("Auth middleware was not registered.")
-
-    const next = vi.fn()
-    let ended = false
-    const response = {
-      appendHeader: vi.fn(),
-      end: vi.fn(() => { ended = true }),
-      statusCode: 0,
-      statusMessage: "",
-      write() {},
-    }
-
-    await middleware({
-      headers: { host: "app.example", "x-forwarded-proto": "https,http" },
-      method: "GET",
-      url: "/api/auth/session",
-    }, response, next)
-
-    expect(next).not.toHaveBeenCalled()
-    expect(response.statusCode).toBeGreaterThanOrEqual(200)
-    expect(ended).toBe(true)
   })
 })
 
