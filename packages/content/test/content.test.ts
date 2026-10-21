@@ -617,6 +617,37 @@ describe("contentSource", () => {
     })).toThrow()
   })
 
+  it("rejects Comark parse plugins in plugins", () => {
+    const knap = { name: "knap", pre() {} }
+    expect(() => defineContent({ plugins: [knap], source: "source" as SourceName })).toThrow(expect.objectContaining({
+      code: "CONTENT_R0006",
+      message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
+    }))
+
+    const mixed = { name: "mixed", setup() {}, post() {} }
+    expect(() => defineContent({ plugins: [mixed], source: "source" as SourceName })).toThrow(expect.objectContaining({
+      code: "CONTENT_R0006",
+      message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
+    }))
+  })
+
+  it("runs Comark parse plugins from markdown.plugins", async () => {
+    const content = defineContent({
+      markdown: {
+        plugins: [{
+          name: "checked",
+          post(state) {
+            state.tree.meta.checked = true
+          },
+        }],
+      },
+      source: { keys: () => ["index.md"], getItem: () => "# Docs", getItemRaw: () => "# Docs" },
+    })
+
+    await expect(content.get("/")).resolves.toMatchObject({ meta: { checked: true } })
+    await content.dispose()
+  })
+
   it("preserves native Comark Content Sources", async () => {
     const source = {
       async keys() {

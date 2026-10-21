@@ -16,22 +16,26 @@ export const content = defineContent({
 })
 ```
 
-`defineContent()` forwards Comark plugins to each content instance. Install the
-plugin you need and pass it in `plugins`; plugin options are evaluated when the
-content runtime is created and can be changed by rebuilding or recreating that
-runtime.
+`defineContent()` forwards plugins to each content instance. Comark parse
+plugins, which change how Markdown is parsed, go in `markdown.plugins`. Comark
+Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go in
+`plugins`. A parse plugin in `plugins` throws `CONTENT_R0006`. Plugin options are
+evaluated when the content runtime is created and can be changed by rebuilding
+or recreating that runtime.
 
 ```ts
 import knap from "comark-knap"
 
 export const content = defineContent({
-  plugins: [
-    knap({
-      variables: {
-        environment: process.env.NODE_ENV,
-      },
-    }),
-  ],
+  markdown: {
+    plugins: [
+      knap({
+        variables: {
+          environment: process.env.NODE_ENV,
+        },
+      }),
+    ],
+  },
   source: fs("./docs"),
 })
 ```
