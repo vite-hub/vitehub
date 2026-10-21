@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
-import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
-import { snapshotPrompt, assertPromptFits } from '../src/presets/babysitter/inbox/snapshot-prompt.ts'
+import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
+import { snapshotPrompt, assertPromptFits } from '../src/babysitter/inbox/snapshot-prompt.ts'
 
 async function snapshot() {
   const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['acme/repo'] })

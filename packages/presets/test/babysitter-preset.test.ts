@@ -46,13 +46,16 @@ import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime } from "../src/babysitter/server.ts";
 import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
-import { github as githubChannel, githubChannelIdentity } from "@vite-hub/agent/channels";
+import { github as githubChannel } from "@vite-hub/agent/channels";
+import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
 import { feedbackFingerprints, liveMergeReadiness } from "../src/babysitter/merge.ts";
 import * as githubRuns from "../../agent/src/server/github-pull-requests.ts";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../../agent/src/server/github-repair.ts";
 import * as githubInstalls from "../../agent/src/server/github-install.ts";
 import { agentInvocationId } from "@vite-hub/agent";
 import type { GitHubHost } from "@vite-hub/agent/server/github";
+import { RateLimitedError } from "@vite-hub/forge";
+import { githubError, githubForge, type GitHubTestRequest } from "../../agent/test/fixtures/github-forge.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -144,7 +147,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     },
   });
-  const command = vi.fn<GitHubHost["command"]>(async (args, request) => {
+  const command = vi.fn(async (args: string[], request?: { signal?: AbortSignal }) => {
     const text = args.join(" ");
     if (preset.actionsDenied && text.includes("/actions/runs/")) throw new Error("HTTP 403: Actions permission denied");
     if (text.includes("enablePullRequestAutoMerge"))
@@ -176,13 +179,10 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       return { stdout: JSON.stringify({ data }), stderr: "" };
     }
     if (text.includes("-X PUT") && text.includes("/merge")) return { stdout: JSON.stringify({ status: "merged", details: { sha: "b".repeat(40) } }), stderr: "" };
-    if (args.includes("--slurp")) throw new Error("unknown flag: --slurp");
     if (text.includes("/protection/required_status_checks")) {
-      expect(args).toContain(". | @json");
       return { stdout: JSON.stringify({ contexts: [], checks: [] }), stderr: "" };
     }
     if (text.includes("/rules/branches/")) {
-      expect(args).toContain(".[] | @json");
       const rule = {
         type: "required_status_checks",
         parameters: { required_status_checks: [{ context: "test" }] },
@@ -197,7 +197,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     if (path.includes("pulls?state=all&head="))
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
     if (path === "repos/acme/app")
-      return { stdout: JSON.stringify({ delete_branch_on_merge: false }), stderr: "" };
+      return { stdout: JSON.stringify({ id: 1, node_id: "R_1", name: "app", full_name: "acme/app", owner: { login: "acme", type: "Organization" }, private: false, default_branch: "main", html_url: "https://github.com/acme/app", delete_branch_on_merge: false, allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true }), stderr: "" };
     if (path.startsWith("repos/acme/app/compare/"))
       return { stdout: JSON.stringify({ status: compareStatus, behind_by: compareStatus === "ahead" ? 0 : 1 }), stderr: "" };
     if (path.startsWith("repos/acme/app/git/ref/heads/"))
@@ -248,12 +248,48 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     } else head = "b".repeat(40);
     return head;
   });
+  // Route the forges GitHub provider through the gh-shaped `command` fake: `["api", "-X", METHOD, path, ...fields]`.
+  const singleRecord = /^repos\/[^/]+\/[^/]+(?:\/pulls\/\d+(?:\/merge(?:-async(?:\/[^/]+)?)?)?|\/git\/ref\/.+|\/actions\/runs\/\d+|\/actions\/jobs\/\d+|\/issues\/comments\/\d+|\/branches\/.+|\/compare\/.+)?$/;
+  const { provider } = await githubForge(async (request: GitHubTestRequest) => {
+    const path = `${request.path.slice(1)}${request.url.search}`;
+    const input = request.path === "/graphql" ? request.variables : request.body;
+    const fields = typeof input === "object" && input !== null
+      ? Object.entries(input).map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`)
+      : [];
+    const args = request.path === "/graphql"
+      ? ["api", "graphql", request.query ?? "", ...fields]
+      : ["api", ...(request.method === "GET" ? [] : ["-X", request.method]), path, ...fields];
+    try {
+      const result = await command(args, { signal: request.signal });
+      const values: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+      if (request.path === "/graphql") {
+        const first = values[0];
+        return typeof first === "object" && first !== null && "data" in first ? first.data : first;
+      }
+      const [only] = values;
+      // A route that already returns a list envelope, such as `{ total_count, workflow_runs }`.
+      if (values.length === 1 && typeof only === "object" && only !== null && "total_count" in only) return only;
+      if (request.path.endsWith("/check-runs")) return { total_count: values.length, check_runs: values };
+      if (request.path.endsWith("/jobs")) return { total_count: values.length, jobs: values };
+      if (request.path.endsWith("/status")) return { state: "success", total_count: values.length, statuses: values };
+      if (request.method !== "GET" || singleRecord.test(request.path.slice(1))) return values[0] ?? {};
+      return values;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "rate limited") return Response.json({ message }, { status: 429, headers: { "retry-after": "60" } });
+      const status = Number(/HTTP\s+(\d{3})/i.exec(message)?.[1] ?? 500);
+      // A thrown `stdout` is the GitHub error body, such as a pending merge request.
+      const body = typeof error === "object" && error !== null && "stdout" in error && typeof error.stdout === "string" ? error.stdout : undefined;
+      return body ? new Response(body, { status, headers: { "content-type": "application/json" } }) : githubError(status, message);
+    }
+  });
   const github: GitHubHost = {
     identity: () => "repair-bot",
-    command,
+    forge: async () => provider,
     channel: (options) => {
-      const channel = githubChannel({ ...options, app: github });
-      expect(githubChannelIdentity({ github: channel })).toBe(github);
+      const channel = githubChannel({ ...options, app: { token: async (_context, scope) => (await github.access(scope)).token } });
+      expect(readForgeAccess(channel)).toBeDefined();
       if (preset.activityBarrier) channel.activity = { update: async () => { await preset.activityBarrier; } };
       return channel;
     },
@@ -263,16 +299,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     access: async () => {
       throw new Error("Worker must not resolve GitHub credentials");
     },
-    budget: () => ({ limited: false }),
-    ensureGraphQLBudget: async () => ({
-      checkedAt: Date.now(),
-      remaining: 100,
-      resetAt: Date.now() + 60_000,
-      release() {},
-      settle() {},
-      submit() {},
-    }),
-    isRateLimitError: (error) => error instanceof Error && error.message === "rate limited",
+    rateLimit: () => undefined,
     withPullRequestCheckout: async (_pr, run) => {
       const result = await run({
         path: checkout,
@@ -293,7 +320,6 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     ...(discovered ? {} : { name: "babysitter" }),
     preset: "babysitter",
     presets: { babysitter },
-    github,
     // SAFETY: exercise preservation of a valid custom capability across the preset boundary.
     capabilities: [defineCapability({
       id: "internal-check",
@@ -438,7 +464,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     await Promise.all(tracked);
     if (expectedError) {
       expect(errors).toHaveBeenCalledExactlyOnceWith(expectedError, expect.anything(), expect.anything());
-    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure.message === "rate limited")
+    } else if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure instanceof RateLimitedError)
       expect(errors.mock.calls).toEqual([]);
     else expect(errors).toHaveBeenCalledOnce();
   }
@@ -931,7 +957,7 @@ describe("Babysitter preset runtime", () => {
         nodes: [{ id: "PRRT_1", isResolved: resolved, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -1000,7 +1026,7 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       const merge = f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT"));
-      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=squash", "merge_action=direct_merge", "bypass_rules=false", `sha=${"a".repeat(40)}`]));
+      expect(merge?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=squash", "merge_action=direct_merge", `sha=${"a".repeat(40)}`]));
       expect(createProviderRuntime).not.toHaveBeenCalled();
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
     } finally { await f.runtime.inbox.close(); }
@@ -1025,8 +1051,7 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   }, 20_000);
 
-  it("persists an asynchronous merge and waits for confirmed completion", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+  it("waits for a pending asynchronous merge inside one pass", async () => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
     const uuid = "630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42";
@@ -1037,16 +1062,12 @@ describe("Babysitter preset runtime", () => {
     });
     try {
       await f.reconcile();
-      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
-      expect((await f.runtime.inbox.get("acme/app", 12))?.lease).toBeNull();
-      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ requestId: uuid });
-      vi.setSystemTime(Date.now() + 31_000);
-      await f.reconcile();
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
       expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toBeUndefined();
       expect(f.command.mock.calls.filter(([args]) => args.includes("PUT"))).toHaveLength(1);
+      expect(f.command.mock.calls.some(([args]) => args.includes(`repos/acme/app/pulls/12/merge-async/${uuid}`))).toBe(true);
       expect(createProviderRuntime).not.toHaveBeenCalled();
-    } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
+    } finally { await f.runtime.inbox.close(); }
   });
 
   it.each([404, 502])("reconciles an unavailable asynchronous result with HTTP %s", async status => {
@@ -1061,12 +1082,10 @@ describe("Babysitter preset runtime", () => {
     });
     try {
       await f.reconcile();
-      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ requestId: uuid });
-      vi.setSystemTime(Date.now() + 31_000);
-      await f.reconcile();
+      // A 4xx result read releases the fence, so the next pass rechecks every gate. A 5xx keeps it.
       if (status === 404) expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toBeUndefined();
-      else expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ requestId: uuid });
-      expect((await f.runtime.inbox.get("acme/app", 12))?.status).not.toBe("terminal");
+      else expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ asynchronous: true });
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
       expect(f.command.mock.calls.filter(([args]) => args.includes("PUT"))).toHaveLength(1);
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
@@ -1235,6 +1254,69 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it("keeps a reviewed-head result when an unrelated event moves the claim during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
+    f.beforeResult(async () => {
+      await f.runtime.inbox.ingest("unrelated-edit-during-pass", "pull_request", {
+        repository: { full_name: "acme/app" }, action: "edited",
+        pull_request: { ...f.pr(), base: { ...f.pr().base, repo: { ...f.pr().base.repo, pushed_at: "2026-10-08T20:00:00Z", open_issues_count: 20 } } },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current).toMatchObject({ status: "waiting", lastResult: "Reviewed", attempts: 0, wait: { headSha: head } });
+      // The kept result costs the pass once, like a reviewed head on a current claim.
+      expect(current?.progressBudget?.count).toBe(1);
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("checks a reviewed head again when new feedback arrives during the pass", async () => {
+    const head = "a".repeat(40);
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: head } });
+    f.beforeResult(async () => {
+      f.beforeResult(() => {});
+      await f.runtime.inbox.ingest("bot-review-during-pass", "pull_request_review", {
+        repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+        review: { id: 101, body: "Finding after the pass started", user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: head },
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(f.events.mock.calls.some(([name]) => name === "babysitter.result.unqualified_park")).toBe(false);
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toMatchObject({ head });
+      await f.reconcile();
+      // The recorded evidence is from the claim, so the new review needs another pass.
+      expect(f.passes).toHaveLength(2);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("discards a reviewed-head result when the head changes during the pass", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    f.beforeResult(async () => {
+      f.advanceHead("b".repeat(40));
+      await f.runtime.inbox.ingest("external-push-during-pass", "pull_request", {
+        repository: { full_name: "acme/app" }, action: "synchronize", pull_request: f.pr(),
+      });
+    });
+    try {
+      await f.reconcile();
+      const current = await f.runtime.inbox.get("acme/app", 12);
+      expect(current?.pr?.head?.sha).toBe("b".repeat(40));
+      expect(current?.wait).toBeUndefined();
+      expect(current?.status).toBe("ready");
+      expect(await f.runtime.inbox.meta("review-assessment:acme/app#12")).toBeUndefined();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("exposes scoped host state and the verified pushed head through MCP", async () => {
     const f = await fixture();
     f.choose("readRepairState");
@@ -1267,7 +1349,7 @@ describe("Babysitter preset runtime", () => {
     expect(agent.options.install).toBe(false);
   });
 
-  it.each(["repos/acme/app", "repos/acme/app/pulls?state=open&base=fix&per_page=100"])("parks the claim when branch safety read %s fails", async (path) => {
+  it.each(["repos/acme/app", "repos/acme/app/pulls?state=open&base=fix&per_page=100&page=1"])("parks the claim when branch safety read %s fails", async (path) => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
@@ -1289,11 +1371,13 @@ describe("Babysitter preset runtime", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
+    const uuid = "630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42";
     f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/pulls/12/merge-async/${uuid}`)) return { stdout: JSON.stringify({ status: "merged", details: { sha: "b".repeat(40) } }), stderr: "" };
       const result = await command(args, request);
       if (args.includes("-X") && args.includes("PUT")) {
         if (f.command.mock.calls.filter(([call]) => call.includes("PUT")).length === 1) throw new Error("Connection reset after merge request delivery");
-        throw Object.assign(new Error("gh: Merge already pending (HTTP 409)"), { stdout: JSON.stringify({ status: "pending", details: { uuid: "630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42", expected_head_sha: "a".repeat(40), merge_action: "direct_merge", merge_method: "squash" } }) });
+        throw Object.assign(new Error("gh: Merge already pending (HTTP 409)"), { stdout: JSON.stringify({ status: "pending", details: { uuid, expected_head_sha: "a".repeat(40), merge_action: "direct_merge", merge_method: "squash" } }) });
       }
       return result;
     });
@@ -1305,7 +1389,9 @@ describe("Babysitter preset runtime", () => {
       expect((await f.runtime.inbox.get("acme/app", 12))?.lease).toBeNull();
       vi.setSystemTime(Date.now() + 31_000);
       await f.reconcile();
-      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toMatchObject({ requestId: "630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42" });
+      // GitHub names the pending request, and forges waits for its result.
+      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toBeUndefined();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
       expect(f.command.mock.calls.filter(([args]) => args.includes("PUT"))).toHaveLength(2);
     } finally { vi.useRealTimers(); await f.runtime.inbox.close(); }
   });
@@ -1561,7 +1647,7 @@ describe("Babysitter preset runtime", () => {
         });
       }
       await f.reconcile();
-      // Two passes exhaust the budget. The next bot review grants one more pass on the head, once.
+      // Two passes exhaust the head. The first later bot review grants one more pass, once per head.
       expect(f.passes).toHaveLength(3);
       expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true, grants: ["bot-feedback"] });
     } finally { await f.runtime.inbox.close(); }
@@ -1572,13 +1658,13 @@ describe("Babysitter preset runtime", () => {
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
       // No Actions run identifies the tested base, so every changed file counts as overlap.
-      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify(["source.ts", null]), stderr: "" };
+      if (args.includes("repos/acme/app/pulls/12/files?per_page=100")) return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
       return await command(args, request);
     });
     try {
       await f.reconcile();
       const update = f.command.mock.calls.find(([args]) => args.includes("repos/acme/app/pulls/12/update-branch"));
-      expect(update?.[0]).toEqual(["api", "-X", "PUT", "repos/acme/app/pulls/12/update-branch", "-f", `expected_head_sha=${"a".repeat(40)}`]);
+      expect(update?.[0]).toEqual(["api", "-X", "PUT", "repos/acme/app/pulls/12/update-branch", `expected_head_sha=${"a".repeat(40)}`]);
       expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
       expect(f.passes).toHaveLength(0);
       expect(f.events).toHaveBeenCalledWith("babysitter.branch.updated", expect.objectContaining({ files: ["source.ts"] }));
@@ -2488,7 +2574,7 @@ describe("Babysitter preset runtime", () => {
         nodes: [{ id: "PRRT_1", isResolved: false, comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }],
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
+      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: "PRRT_1", pullRequest: { id: "PR_12" }, isResolved: resolved } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         resolved = true;
         return { stdout: JSON.stringify({ data: { resolveReviewThread: { thread: { id: "PRRT_1" } } } }), stderr: "" };
@@ -2518,7 +2604,7 @@ describe("Babysitter preset runtime", () => {
         nodes: ["PRRT_1", "PRRT_2"].map(id => ({ id, isResolved: resolved.has(id), comments: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } })),
         pageInfo: { hasNextPage: false, endCursor: null },
       } } } } }), stderr: "" };
-      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
+      if (query.includes("node(id:")) return { stdout: JSON.stringify({ data: { node: { id: args.find(arg => arg.startsWith("id="))!.slice(3), pullRequest: { id: "PR_12" }, isResolved: false } } }), stderr: "" };
       if (query.includes("resolveReviewThread(input:")) {
         const id = args.find(arg => arg.startsWith("id="))!.slice(3);
         resolved.add(id);
@@ -2684,7 +2770,7 @@ describe("Babysitter preset runtime", () => {
 
   it.each([
     new DOMException("Checkout cancelled", "AbortError"),
-    new Error("rate limited"),
+    new RateLimitedError("rate limited", 429, ""),
     new Error("Checkout cleanup failed"),
   ])("parks a successful push after checkout failure: %s", async (error) => {
     const f = await fixture();
@@ -2755,16 +2841,14 @@ describe("Babysitter preset runtime", () => {
     vi.mocked(prepareGitHubRepairBase).mockImplementationOnce(async () => { f.advanceBase(liveBase); });
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
-      const path = args.find(arg => arg.startsWith("/repos/"));
-      if (path === `/repos/acme/app/commits/${liveBase}/check-runs?per_page=100`)
-        return { stdout: JSON.stringify({ total_count: 0, check_runs: [] }), stderr: "" };
-      if (path === `/repos/acme/app/commits/${liveBase}/statuses?per_page=100`)
-        return { stdout: "[]", stderr: "" };
-      if (path === `/repos/acme/app/actions/runs?head_sha=${liveBase}&per_page=100`)
+      const path = args.find(arg => arg.startsWith("repos/"));
+      const url = path ? new URL(path, "https://api.github.test/") : undefined;
+      if (url?.pathname === `/repos/acme/app/commits/${liveBase}/check-runs` || url?.pathname === `/repos/acme/app/commits/${liveBase}/status`)
+        return { stdout: "", stderr: "" };
+      if (url?.pathname === "/repos/acme/app/actions/runs" && url.searchParams.get("head_sha") === liveBase)
         return { stdout: JSON.stringify({ total_count: 0, workflow_runs: [] }), stderr: "" };
-      if (path === "/repos/acme/app/actions/runs/42")
-        return { stdout: JSON.stringify({ head_sha: liveBase, repository: { full_name: "acme/app" } }), stderr: "" };
-      if (args[0] === "run" && args[1] === "view") return { stdout: "base failure logs", stderr: "" };
+      if (url?.pathname === "/repos/acme/app/actions/runs/42")
+        return { stdout: JSON.stringify({ id: 42, name: "CI", status: "completed", conclusion: "failure", head_sha: liveBase, head_branch: "main", html_url: "https://github.com/acme/app/actions/runs/42", run_attempt: 1, repository: { full_name: "acme/app" } }), stderr: "" };
       return await command(args, request);
     });
     f.choose(operation, operation === "readBaseCheckLogs" ? { runId: 42 } : {});
@@ -2774,7 +2858,7 @@ describe("Babysitter preset runtime", () => {
       expect(f.passes).toHaveLength(1);
       expect(f.command.mock.calls.some(([args]) => args.some(arg => operation === "readBaseCheckEvidence"
         ? arg.includes(`/commits/${liveBase}/check-runs`)
-        : arg === "/repos/acme/app/actions/runs/42"))).toBe(true);
+        : arg === "repos/acme/app/actions/runs/42"))).toBe(true);
       expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes(`/commits/${staleBase}/`)))).toBe(false);
     } finally { await f.runtime.inbox.close(); }
   });
@@ -2948,7 +3032,7 @@ describe("Babysitter preset runtime", () => {
     const environment = createProviderRuntime.mock.calls[0]?.[0].environment;
     expect(environment).not.toHaveProperty("GH_TOKEN");
     expect(environment).not.toHaveProperty("GITHUB_TOKEN");
-    expect(environment).not.toHaveProperty("VITEHUB_GITHUB_HEAD_TOKEN");
+    expect(environment).not.toHaveProperty("GIT_CONFIG_KEY_0");
     expect(environment).toHaveProperty("OPENAI_API_KEY", "provider-only");
     const commitRoot = await mkdtemp(join(tmpdir(), "vitehub-babysitter-commit-"));
     roots.push(commitRoot);

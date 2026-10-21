@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { PullRequestInbox } from "../src/presets/babysitter/inbox/store.ts"
-import { detectChangedPullRequests, openPullRequestFingerprint, probeChangedSnapshots } from "../src/presets/babysitter/inbox/snapshot-sync.ts"
+import { PullRequestInbox } from "../src/babysitter/inbox/store.ts"
+import { detectChangedPullRequests, openPullRequestFingerprint, probeChangedSnapshots } from "../src/babysitter/inbox/snapshot-sync.ts"
 
 const repository = "acme/app"
 const head = "a".repeat(40)

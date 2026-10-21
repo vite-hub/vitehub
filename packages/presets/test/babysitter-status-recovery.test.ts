@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { github } from "../src/channels.ts";
-import { publishAgentActivity } from "../src/index.ts";
-import { PullRequestInbox } from "../src/presets/babysitter/inbox/store.ts";
-import type { StatusDelivery } from "../src/presets/babysitter/inbox/status-delivery.ts";
-import { createBabysitterStatusRecovery } from "../src/presets/babysitter/status-recovery.ts";
+import { github } from "@vite-hub/agent/channels";
+import { publishAgentActivity } from "@vite-hub/agent";
+import { PullRequestInbox } from "../src/babysitter/inbox/store.ts";
+import type { StatusDelivery } from "../src/babysitter/inbox/status-delivery.ts";
+import { createBabysitterStatusRecovery } from "../src/babysitter/status-recovery.ts";
 const head = 'a'.repeat(40)
 const repository = 'acme/app'
 const pr = { number: 239, state: 'open', draft: false, title: 'Repair cache', user: { login: 'developer' }, head: { sha: head, ref: 'fix', repo: { full_name: repository } }, base: { sha: 'b'.repeat(40), ref: 'main' } }
@@ -375,7 +375,8 @@ test('a stalled publisher retains ownership until its aborted write settles', as
     await flushing
   }
   const entries = await inbox.metaEntries('status-outbox:v1:')
-  assert.equal((entries[0]?.[1] as { attempts: number }).attempts, 1)
+  assert.ok(entries[0])
+  assert.equal((entries[0][1] as { attempts: number }).attempts, 1)
 })
 
 test('an expired delivery lease can be recovered while its old owner is fenced', async t => {
@@ -440,7 +441,8 @@ test('the publication deadline reaches GitHub credentials and stalled HTTP reque
   assert.equal(credentialSignal?.aborted, true)
   assert.equal(requestSignal?.aborted, true)
   const entries = await inbox.metaEntries('status-outbox:v1:')
-  assert.equal((entries[0]?.[1] as { attempts: number }).attempts, 1)
+  assert.ok(entries[0])
+  assert.equal((entries[0][1] as { attempts: number }).attempts, 1)
 })
 
 for (const legacy of [false, true]) test(`saved waiting activity publishes after the invocation has completed, legacy=${legacy}`, async t => {
@@ -636,7 +638,7 @@ test('lease replacement corrects a late GitHub write through the real activity c
     // Each process host has its own in-memory publication queue. Isolate the
     // channel modules so this test can still overlap writes across hosts.
     vi.resetModules()
-    const { github: processGitHub } = await import('../src/channels.ts')
+    const { github: processGitHub } = await import("@vite-hub/agent/channels")
     const channel = processGitHub({ activity: true, app: { token, identity: { login: 'expiry-worker[bot]' }, fetch: async (_input, init) => {
       const method = init?.method ?? 'GET'
       if (method === 'GET') return Response.json(comments)

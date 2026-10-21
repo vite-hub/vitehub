@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PullRequestInbox, type Snapshot } from "../src/presets/babysitter/inbox/store.ts";
-import { createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/presets/babysitter/wait.ts";
-import { snapshotCheckEvidence } from "../src/presets/babysitter/merge.ts";
-import { stackRetargetBase } from "../src/presets/babysitter/stack.ts";
-import { evaluateGitHubRequiredChecks } from "../src/server/github-required-checks.ts";
+import { PullRequestInbox, type Snapshot } from "../src/babysitter/inbox/store.ts";
+import { checksStillRunning, createCheckWait, dailyPassExemption, hasPendingChecks, pushCause, reviewCheckRunning, reviewPushBudgetWork, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/babysitter/wait.ts";
+import { snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { stackRetargetBase } from "../src/babysitter/stack.ts";
+import { evaluateGitHubRequiredChecks } from "../../agent/src/server/github-required-checks.ts";
 
 const repository = "acme/app";
 const head = "a".repeat(40);
@@ -104,7 +104,8 @@ describe("Babysitter check waits", () => {
     expect(hasPendingChecks(snapshot, policy)).toBe(false);
     expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
     snapshot.wait!.defer = "checks";
-    expect(wakeReasons(snapshot, "pending", policy)).toEqual([]);
+    // Nothing runs on the head, so a deferral wakes even while the required-check policy reads pending.
+    expect(wakeReasons(snapshot, "pending", policy)).toEqual(["gates-settled"]);
     expect(wakeReasons(snapshot, "passed", policy)).toEqual(["gates-settled"]);
   });
 
@@ -118,20 +119,36 @@ describe("Babysitter check waits", () => {
     snapshot.comments["manual"] = { id: 56, body: "Service access restored, please retry", user: { login: "dev" } };
     expect(wakeReasons(snapshot, "passed", policy)).toEqual(["feedback-changed"]);
   });
-  it("holds a deferred pass while gates run, then wakes once they settle", async () => {
+  it("holds a deferred pass while checks run, then wakes once they settle", async () => {
     const deferred = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => {
       s.checks = { "check_run:1": { id: 1, name: "lint", head_sha: head, status: "in_progress", app: { id: 5 } } };
       s.wait = { headSha: head, ...createCheckWait(s, policy), defer: "checks" };
       update(s);
     });
     const feedback = (s: Snapshot) => { s.comments["9"] = { id: 9, body: "Please fix", user: { login: "reviewer" } } };
+    const settled = (s: Snapshot) => { s.checks["check_run:1"] = { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success", app: { id: 5 } } };
+    const failed = (s: Snapshot) => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } };
     expect(wakeReasons(await deferred(feedback), "pending", policy)).toEqual([]);
-    expect(wakeReasons(await deferred(s => { s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "in_progress", app: { id: 6 } } }), "passed", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { settled(s); s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "in_progress", app: { id: 6 } } }), "passed", policy)).toEqual([]);
     expect(wakeReasons(await deferred(s => { s.pr!.mergeable_state = "dirty" }), "pending", policy)).toEqual(["merge-conflict"]);
-    expect(wakeReasons(await deferred(s => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } }), "pending", policy)).toEqual(["new-failure"]);
-    // The deferral recorded no assessment, so it wakes without new evidence once the gates stop.
-    expect(wakeReasons(await deferred(feedback), "passed", policy)).toEqual(["gates-settled"]);
-    expect(wakeReasons(await deferred(), "unknown", policy)).toEqual(["gates-settled"]);
+    // A fast failure waits for the checks that still run, so one pass sees every result.
+    expect(wakeReasons(await deferred(failed), "pending", policy)).toEqual([]);
+    expect(wakeReasons(await deferred(s => { failed(s); settled(s) }), "failed", policy)).toEqual(["new-failure"]);
+    // The deferral recorded no assessment, so it wakes without new evidence once the checks stop.
+    expect(wakeReasons(await deferred(s => { feedback(s); settled(s) }), "passed", policy)).toEqual(["gates-settled"]);
+    expect(wakeReasons(await deferred(settled), "unknown", policy)).toEqual(["gates-settled"]);
+  });
+
+  it("treats a check that runs for half an hour as stuck", async () => {
+    const now = Date.parse("2026-10-18T12:00:00Z");
+    const running = (startedAt: string) => parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "in_progress", started_at: startedAt, app: { id: 5 } } };
+    });
+    expect(checksStillRunning(await running("2026-10-18T11:45:00Z"), now)).toBe(true);
+    expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(false);
+    // A queued check without a start time still runs.
+    expect(checksStillRunning(await parked(s => { s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued", app: { id: 5 } } } }), now)).toBe(true);
+    expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 
   it("ignores an abandoned earlier run of a review check", async () => {
@@ -157,6 +174,78 @@ describe("Babysitter check waits", () => {
 
   it("holds an external dependency through an unrelated green PR check", async () => {
     expect(wakeReasons(await parked(s => { s.wait!.wake = { kind: "checks", repository, headSha: "b".repeat(40) }; s.wait!.reason = "base CI"; }), "passed", { ...policy, wakeWhenReady: true })).toEqual([]);
+  });
+});
+
+describe("Babysitter review push budget", () => {
+  const budget: BabysitterWaitPolicy = { ...policy, reviewPushBudget: 2 };
+  const bot = { login: "pullfrog[bot]", type: "Bot" };
+  // A PR that spent its budget parks with the automated-review state it has seen.
+  const spent = (update: (snapshot: Snapshot) => void = () => {}, count = 2) => parked(s => {
+    s.reviewPushBudget = { count, heads: [head] };
+    s.wait = { headSha: head, ...createCheckWait(s, budget) };
+    update(s);
+  });
+
+  it("stops waking for automated review feedback and review-check failures", async () => {
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "Consider renaming this.", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.reviews["21"] = { id: 21, state: "CHANGES_REQUESTED", body: "Rename it.", user: bot } }), "pending", budget)).toEqual([]);
+    expect(wakeReasons(await spent(s => { s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } } }), "pending", budget)).toEqual([]);
+    // GraphQL names an App author by its login and a Bot typename.
+    expect(wakeReasons(await spent(s => { s.threads = [{ id: "T2", isResolved: false, comments: [{ id: 22, body: "Nit", author: { login: "pullfrog", __typename: "Bot" } }] }] }), "pending", budget)).toEqual([]);
+  });
+
+  it("keeps waking for a person, a conflict, a required failure and work before the budget is spent", async () => {
+    expect(wakeReasons(await spent(s => { s.comments["20"] = { id: 20, body: "Consider renaming this.", user: bot } }, 1), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } }), "pending", budget)).toEqual(["feedback-changed"]);
+    expect(wakeReasons(await spent(s => { s.pr!.mergeable_state = "dirty" }), "pending", budget)).toEqual(["merge-conflict"]);
+    expect(wakeReasons(await spent(s => { s.checks["check_run:2"] = { id: 2, name: "test", head_sha: head, status: "completed", conclusion: "failure", app: { id: 5 } } }), "failed", budget)).toEqual(["new-failure"]);
+    expect(wakeReasons(await spent(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), "pending", budget)).toEqual(["feedback-changed", "unresolved-thread"]);
+    expect(wakeReasons(await spent(), "passed", { ...budget, wakeWhenReady: true })).toEqual(["ready-to-merge"]);
+  });
+
+  it("ends a check deferral without a review-check failure counting as new", async () => {
+    const deferred = await spent(s => {
+      s.wait = { ...s.wait!, defer: "checks" };
+      s.checks["check_run:3"] = { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } };
+    });
+    expect(wakeReasons(deferred, "pending", budget)).toEqual(["gates-settled"]);
+  });
+
+  it("counts a push as review-driven only without a conflict or a failure outside the review checks", async () => {
+    const reviewed = await parked(s => { s.checks = { "check_run:3": { id: 3, name: "review-bot", head_sha: head, status: "completed", conclusion: "failure", app: { id: 6 } } } });
+    expect(pushCause(reviewed, policy)).toBe("review");
+    expect(pushCause(await parked(), policy)).toBe("repair");
+    expect(pushCause(await parked(s => { s.checks = {}; s.pr!.mergeable_state = "dirty" }), policy)).toBe("repair");
+  });
+
+  it("names the work that still needs a model pass after the budget is spent", async () => {
+    const clean = (update: (snapshot: Snapshot) => void = () => {}) => spent(s => { s.checks = {}; update(s) });
+    expect(reviewPushBudgetWork(await clean(s => { s.comments["20"] = { id: 20, body: "Nit", user: bot } }), budget, new Set())).toEqual([]);
+    expect(reviewPushBudgetWork(await clean(s => { s.pr!.mergeable_state = "dirty" }), budget, new Set())).toEqual(["merge-conflict"]);
+    expect(reviewPushBudgetWork(await spent(), budget, new Set())).toEqual(["failed-check"]);
+    const human = await clean(s => { s.comments["23"] = { id: 23, body: "Please rename it.", user: { login: "maintainer", type: "User" } } });
+    expect(reviewPushBudgetWork(human, budget, new Set())).toEqual(["feedback"]);
+    expect(reviewPushBudgetWork(await clean(s => { s.threads = [{ id: "T3", isResolved: false, comments: [{ id: 24, body: "Why?", author: { login: "maintainer", __typename: "User" } }] }] }), budget, new Set())).toEqual(["unresolved-thread"]);
+    // Someone else moved the head after the budget ran out.
+    expect(reviewPushBudgetWork(await clean(s => { s.reviewPushBudget = { count: 2, heads: ["b".repeat(40)] } }), budget, new Set())).toEqual(["new-head"]);
+  });
+});
+
+describe("Babysitter daily pass budget", () => {
+  it("exempts a person's feedback, the first required failure on a head, and a conflict on an otherwise ready PR", async () => {
+    const clean = (update: (snapshot: Snapshot) => void = () => {}) => parked(s => { s.checks = {}; update(s) });
+    expect(dailyPassExemption(await clean(), "passed", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 2, exemptions: [] })).toBe("human-feedback");
+    expect(dailyPassExemption(await clean(s => { s.humanFeedbackGeneration = 3 }), "passed", { passes: [], human: 3, exemptions: [] })).toBeUndefined();
+    expect(dailyPassExemption(await clean(), "failed", undefined)).toBe(`required-failure:${head}`);
+    expect(dailyPassExemption(await clean(), "failed", { passes: [], exemptions: [`required-failure:${head}`] })).toBeUndefined();
+    const conflict = await clean(s => { s.pr!.mergeable_state = "dirty"; s.pr!.base!.sha = "c".repeat(40) });
+    expect(dailyPassExemption(conflict, "passed", undefined)).toBe(`conflict:${head}:${"c".repeat(40)}`);
+    expect(dailyPassExemption(conflict, "passed", { passes: [], exemptions: [`conflict:${head}:${"c".repeat(40)}`] })).toBeUndefined();
+    // A conflict beside a failing check or an open thread is not an otherwise ready PR.
+    expect(dailyPassExemption(await parked(s => { s.pr!.mergeable_state = "dirty" }), "pending", undefined)).toBeUndefined();
+    expect(dailyPassExemption(await clean(s => { s.pr!.mergeable_state = "dirty"; s.threads = [{ id: "T1", isResolved: false, comments: [] }] }), "passed", undefined)).toBeUndefined();
   });
 });
 
