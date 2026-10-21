@@ -105,7 +105,34 @@ function collectionRouteDisabled(source: string, exportName: string, file: strin
   // with the same name, so first locate the exported initializer and then
   // inspect calls inside that initializer.
   const declaration = new RegExp(`(?:^|[;\\n])\\s*export\\s+(?:const|let|var)\\s+${escapedExportName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
-  const calls = scanner.findIdentifierCalls(source, "defineCollection")
+  const collectionBindings = new Set<string>(["defineCollection"])
+  const collectionNamespaces = new Set<string>()
+  for (const match of source.matchAll(/\bimport\s+([^;\n]+?)\s+from\s+["'](?:vite-hub\/source|@vite-hub\/source)["']/g)) {
+    const clause = match[1]!
+    const named = /\{([^}]*)\}/.exec(clause)?.[1]
+    for (const entry of named?.split(",") ?? []) {
+      const parts = entry.trim().split(/\s+as\s+/)
+      if (parts[0] === "defineCollection") collectionBindings.add(parts[1] ?? parts[0])
+    }
+    const namespace = /\*\s+as\s+([$\p{ID_Start}_][$\p{ID_Continue}]*)/u.exec(clause)?.[1]
+    if (namespace) collectionNamespaces.add(namespace)
+  }
+  const calls = [...collectionBindings].flatMap(name => scanner.findIdentifierCalls(source, name))
+  for (const namespace of collectionNamespaces) {
+    const pattern = new RegExp(`\\b${namespace}\\.defineCollection\\s*\\(`, "g")
+    for (const match of masked.matchAll(pattern)) {
+      const openParen = (match.index ?? 0) + match[0].lastIndexOf("(")
+      const closeParen = scanner.findMatching(source, openParen, "(", ")")
+      if (closeParen === undefined) continue
+      calls.push({
+        arguments: scanner.splitTopLevel(source.slice(openParen + 1, closeParen)),
+        closeParen,
+        name: "defineCollection",
+        openParen,
+        start: match.index ?? 0,
+      })
+    }
+  }
   let call
   const findDeclarationCall = (initializerStart: number) => {
     // Scan only this initializer. Matched groups retain nested calls and
@@ -507,6 +534,7 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
+  const defineContentNamespaces = new Set<string>()
   let contentInit: unknown
   let contentLocal: string | undefined
   for (const statement of body) {
@@ -515,6 +543,10 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
         if (specifier.type === "ImportSpecifier" && astName(specifier.imported) === "defineContent") {
           const local = astName(specifier.local)
           if (local) defineContentNames.add(local)
+        }
+        if (specifier.type === "ImportNamespaceSpecifier") {
+          const local = astName(specifier.local)
+          if (local) defineContentNamespaces.add(local)
         }
       }
     }
@@ -560,8 +592,14 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
 
   const call = unwrapAst(contentInit)
   if (!isAstNode(call) || call.type !== "CallExpression") return maybe
-  const callee = astName(unwrapAst(call.callee))
-  if (!callee || !defineContentNames.has(callee)) return maybe
+  const calleeNode = unwrapAst(call.callee)
+  const callee = astName(calleeNode)
+  const namespaceCall = isAstNode(calleeNode)
+    && calleeNode.type === "MemberExpression"
+    && !calleeNode.computed
+    && defineContentNamespaces.has(astName(calleeNode.object) ?? "")
+    && astName(calleeNode.property) === "defineContent"
+  if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
   if (argument === undefined) return { collections: false, sitemap: false, robots: false }
   const options = rest.length ? undefined : properties(resolveNode(argument))
