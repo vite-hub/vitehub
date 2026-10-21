@@ -1,43 +1,65 @@
 <script setup lang="ts">
-import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
+  docsManifest,
+  getDocsPageByPath,
+  normalizeDocsPath,
+} from "~~/modules/vitehub-docs/runtime/utils/docs";
+import {
+  docsRootSectionId,
   getDocsCatalog,
   getDocsRelatedSections,
-  getDocsSectionForPath,
   getDocsSidebarGroups,
-  type DocsSidebarGroup,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
-const related = computed(() => section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : []);
+const section = useDocsSection();
+// Get started is the home of the docs, so it also lists the site areas that the header shows on the landing page.
+const isRootSection = computed(() => section.value?.id === docsRootSectionId);
+const pageGroups = computed(() => {
+  if (!section.value) return [];
+  const groups = getDocsSidebarGroups(section.value);
+  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
+  if (section.value.id !== "ui" || !perspective) return groups;
+  return groups.map((group) => {
+    const pages = group.pages.filter(page => page.path !== perspective.path);
+    if (group.label !== "Start") return { ...group, pages };
+    return {
+      ...group,
+      pages: [...pages, perspective],
+    };
+  }).filter(group => group.pages.length > 0);
+});
+const related = computed(() =>
+  section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
+);
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
-}
-
-function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
-  return group.pages.some(page => isActive(page.path)) || index === 0;
 }
 </script>
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, groupIndex) in pageGroups" :key="pageGroup.label || 'pages'">
-      <details
-        v-if="pageGroup.label"
-        class="vh-docs-sidebar-page-group group/page-group"
-        :open="isPageGroupOpen(pageGroup, groupIndex)"
+    <section v-if="isRootSection" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
+      <NuxtLink
+        v-for="area in docsSiteAreas"
+        :key="area.to"
+        :to="area.to"
+        :class="['vh-docs-sidebar-link', { 'is-active': isActive(area.to) }]"
+        :aria-current="isActive(area.to) ? 'page' : undefined"
       >
-        <summary class="vh-docs-sidebar-page-group-summary">
-          <span class="min-w-0 truncate">{{ pageGroup.label }}</span>
-          <UIcon name="i-ph-caret-down-light" class="ml-auto size-3 shrink-0 group-open/page-group:rotate-180" />
-        </summary>
+        <UIcon :name="area.icon" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ area.label }}</span>
+      </NuxtLink>
+    </section>
 
+    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
+      <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
+        <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
           v-for="page in pageGroup.pages"
           :key="page.path"
@@ -48,7 +70,7 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
           <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
           <span class="min-w-0 truncate">{{ page.title }}</span>
         </NuxtLink>
-      </details>
+      </section>
 
       <template v-else>
         <NuxtLink
@@ -77,10 +99,6 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
       </NuxtLink>
     </section>
 
-    <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
-      <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
-      <span class="min-w-0 truncate">All products</span>
-    </NuxtLink>
   </nav>
 
   <nav v-else class="vh-docs-sidebar-nav" aria-label="All products">
@@ -103,7 +121,8 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
 .vh-docs-sidebar-nav {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0.5rem 0 1rem;
@@ -119,11 +138,22 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
   border-top: 0;
 }
 
+/* The site areas lead Get started. A rule separates them from the section pages. */
+.vh-docs-sidebar-site-areas {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+  padding-bottom: 0.5rem;
+}
+
+.vh-docs-sidebar-site-areas + .vh-docs-sidebar-page-group {
+  border-top: 0;
+}
+
 .vh-docs-sidebar-category {
   padding-bottom: 0.25rem;
 }
 
-.vh-docs-sidebar-page-group-summary,
+.vh-docs-sidebar-page-group-heading,
 .vh-docs-sidebar-heading {
   display: flex;
   align-items: center;
@@ -137,20 +167,6 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
   text-transform: uppercase;
 }
 
-.vh-docs-sidebar-page-group-summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.vh-docs-sidebar-page-group-summary::-webkit-details-marker {
-  display: none;
-}
-
-.vh-docs-sidebar-page-group-summary:hover,
-.vh-docs-sidebar-page-group-summary:focus-visible {
-  color: var(--ui-text);
-}
-
 .vh-docs-sidebar-link {
   display: flex;
   align-items: center;
@@ -159,7 +175,10 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
   padding: 0.25rem 1.25rem;
   color: var(--ui-text-muted);
   font-size: 0.875rem;
-  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
 }
 
 .vh-docs-sidebar-link.is-grouped {
@@ -174,18 +193,9 @@ function isPageGroupOpen(group: DocsSidebarGroup, index: number) {
   color: var(--ui-text);
 }
 
+/* Related sits at the foot of the list, just above the panel footer, which draws the only rule. */
 .vh-docs-sidebar-related {
-  margin-top: 0.75rem;
-  border-top: 1px solid var(--ui-border);
-  padding-bottom: 0.25rem;
-}
-
-.vh-docs-sidebar-catalog-link {
-  margin-top: 0.5rem;
-  border-top: 1px solid var(--ui-border);
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.8125rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
 }
 </style>
