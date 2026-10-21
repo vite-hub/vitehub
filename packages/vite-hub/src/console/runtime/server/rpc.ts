@@ -105,6 +105,7 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const details: unknown = Reflect.get(value, "consoleDetails")
   if (String(code) === code) Object.assign(failure, { code })
   if (String(code) === code && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
+  if (String(code) !== code) Object.assign(failure, consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message))
   return failure
 }
 

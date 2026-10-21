@@ -169,6 +169,9 @@ catalogs:
     '@tiptap/core':
       specifier: ^3.31.4
       version: 3.31.4
+    '@tiptap/extension-code-block':
+      specifier: ^3.31.4
+      version: 3.31.4
     '@tiptap/extension-collaboration':
       specifier: ^3.31.4
       version: 3.31.4
@@ -1331,18 +1334,12 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@vite-hub/database':
-        specifier: workspace:*
-        version: link:../database
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../workspace
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.33(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.1)
@@ -1365,9 +1362,15 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       comark-content:
         specifier: catalog:markdown
         version: 0.4.1(@azure/identity@4.14.0)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.2)(@vercel/functions@3.10.1(@aws-sdk/credential-provider-web-identity@3.972.81)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.5.0)(uploadthing@7.7.4(express@5.3.0)(h3@2.0.1-rc.33(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.1))(tailwindcss@4.3.3))
@@ -2536,12 +2539,27 @@ importers:
       '@tiptap/core':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/pm@3.31.4)
+      '@tiptap/extension-code-block':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-image':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-table':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
       '@tiptap/extensions':
         specifier: catalog:realtime
         version: 3.32.0(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
       '@tiptap/pm':
         specifier: catalog:realtime
         version: 3.31.4
+      '@tiptap/starter-kit':
+        specifier: catalog:realtime
+        version: 3.31.4
+      '@tiptap/vue-3':
+        specifier: catalog:realtime
+        version: 3.32.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.43(typescript@6.0.3))
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -2738,9 +2756,6 @@ importers:
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(3fc7df1640a1188874ca402d388b58c2)
-      '@tiptap/vue-3':
-        specifier: catalog:realtime
-        version: 3.32.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.43(typescript@6.0.3))
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -2890,6 +2905,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
@@ -8275,7 +8293,7 @@ packages:
       effect: 4.0.0-beta.103
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.1

@@ -864,6 +864,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
+      query: published.query,
+      all: published.all,
       list,
       get,
       raw,

@@ -1,18 +1,42 @@
 ---
 title: Built for the Vue ecosystem
-description: ViteHub is a server primitive library with a Vue and Nuxt point of view.
+description: "Use Vue components for chat, sessions, files, and Agent inspection."
 navigation.title: Built for the Vue ecosystem
-navigation.order: 1.5
-navigation.group: Perspective
+navigation.order: 3.5
+navigation.group: Start
 icon: i-simple-icons-vuedotjs
 ---
 
-ViteHub is a server primitive library. It gives a Vite application durable building blocks for Agents, storage, workspaces, queues, and the rest of the work that sits behind a product. The code that calls those primitives stays in your application.
+I am Maxi, and I built ViteHub's Vue component package for Vue and Nuxt applications.
 
-I am building it for the Vue ecosystem because that is where I spend my time. I am Maxi, and I use Nuxt and Vue for the products I want to ship. Nuxt makes the application boundary clear, Vue makes the UI pleasant to shape, and Vite keeps the development loop short. ViteHub should feel native in that stack.
+`@vite-hub/ui` is ViteHub's Vue component package. It contains the composable
+chat, trace, diff, and file parts used to build interfaces such as the ViteHub
+Console. The Console owns its Agent Invocation views; see the
+[Console documentation](/docs/development/console) when working with those
+views.
 
-The UI package follows the same choice. React has many strong component libraries and a wide range of session, Agent, and chat projects. ViteHub UI is the Vue answer for the first ViteHub use case: the Console. The default chat, session, invocation, trace, diff, and file components should drop into a Nuxt app and look right before you add a line of custom CSS.
+The server packages work independently of Vue. A React application, a server
+route, or a CLI can call the same Server Primitives and run the same Agents.
+Choose your frontend separately from your server features.
 
-That means fewer knobs and better starting points. Components own the spacing, empty states, focus behavior, and dense layouts that a Console needs. You can still replace a slot when your product needs a different decision, but the common path should stay small.
+## Start with a complete block
 
-If you are new to ViteHub, start with [the first Agent](/docs/getting-started/first-agent), then see [the UI installation](/docs/ui/installation) and [the Console blocks](/docs/ui/blocks/chat-app).
+The [Chat App](/docs/ui/blocks/chat-app) combines a session list and chat view.
+The Console shows Agent
+runs and their recorded steps. Start with one of these blocks, then replace
+its slots when your app needs different controls.
+
+The components use Vue props, events, and slots. Nuxt integration registers
+them for your app. Read [Installation](/docs/ui/installation) for the setup
+and required styles, or follow the [UI tutorial](/docs/ui/get-started) to
+render your first component.
+
+## Connect your own data
+
+UI components display the data you pass to them. Installing the package does
+not create an Agent, store sessions, or grant access to a Workspace. Connect
+the UI to your server routes, then handle authorization in those routes.
+
+Use the component's reference page to check its input and events. Use the
+[Agent documentation](/docs/agents) for execution and
+[Workspaces](/docs/workspace) for file access.
