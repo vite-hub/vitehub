@@ -119,6 +119,7 @@ describe("Database Nuxt integration", () => {
     expect(nuxt.options.nitro).toMatchObject({
       cloudflare: {
         wrangler: {
+          compatibility_flags: ["nodejs_als"],
           d1_databases: [
             {
               binding: "EXISTING",
@@ -159,6 +160,7 @@ describe("Database Nuxt integration", () => {
       },
       cloudflare: {
         wrangler: {
+          compatibility_flags: ["nodejs_als"],
           d1_databases: [
             {
               binding: "DB",

@@ -152,7 +152,7 @@ function trackPostgresQuery<TQuery extends object>(query: TQuery): TQuery {
 export function trackPostgresClient<TClient extends object>(client: TClient): TClient {
   return new Proxy(client, {
     apply(target, thisArg, args) {
-      return trackPostgresQuery(Reflect.apply(target, thisArg, args))
+      return trackPostgresQuery(Reflect.apply(target as unknown as Function, thisArg, args) as object)
     },
     get(target, property) {
       const value: unknown = Reflect.get(target, property, target)

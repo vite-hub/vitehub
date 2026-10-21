@@ -631,8 +631,7 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
 /** Each request's database calls go on its evlog wide event (`database`), on every host and in `nuxt dev`. */
 async function installNitroRequestStats(config: Record<string, unknown>, root: string) {
   if (resolveNitroHostingProvider(config, { nitro: config }) === "cloudflare") {
-    const nitro = ensureRecord(config, "nitro")
-    const cloudflare = ensureRecord(nitro, "cloudflare")
+    const cloudflare = ensureRecord(config, "cloudflare")
     const wrangler = ensureRecord(cloudflare, "wrangler")
     const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
     if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
