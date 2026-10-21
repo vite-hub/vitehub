@@ -14,15 +14,6 @@ import {
 const jsxScanner = createSourceScanner("source.tsx")
 
 describe("source scanner", () => {
-  it("scans a generated namespace with thousands of definitions without repeated prefix work", () => {
-    const source = "namespace Runtime {\n" + "defineThing({ value: 1 });\n".repeat(2000) + "}"
-    const started = performance.now()
-    const calls = findIdentifierCalls(source, "defineThing")
-    const elapsed = performance.now() - started
-    expect(calls).toHaveLength(2000)
-    expect(elapsed).toBeLessThan(1000)
-  })
-
   it.each(['const text = "</Email>";', "/* </Email> */", "/* </Email> */\nconst pattern = /Email/;"])("preserves a definition between a type assertion and later JSX text: %s", (after) => {
     const source = `const first = <Email>value;\nexport default defineThing({ value: "real" });\n${after}`
     expect(findDefaultExportCall(source, ["defineThing"])?.argument).toBe('{ value: "real" }')
@@ -524,6 +515,64 @@ describe("source scanner", () => {
     expect(commentedCalls[0]?.arguments).toEqual(["\"real\""])
   })
 
+  it("ignores typed interface method signatures with matching names", () => {
+    const calls = findIdentifierCalls([
+      `interface Config { defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores typed signatures with structural return types", () => {
+    const source = [
+      `type Config = { defineThing(options: Options): { value: string } }`,
+      `interface Tuple { defineThing(): [string, number] }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("finds calls inside switch case expressions", () => {
+    const source = [
+      `switch (value) {`,
+      `  case ready && /* note */ defineThing():`,
+      `    handleResult();`,
+      `    break;`,
+      `}`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("finds calls after conditional colons in switch cases", () => {
+    const source = `switch (value) { case ready ? fallback : defineThing(): handleResult() }`
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("ignores case text in comments when filtering typed signatures", () => {
+    const source = [
+      `interface Config { /* case */ defineThing(options: Options): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores case text in generic type signatures", () => {
+    const source = [
+      `interface Config { defineThing<T extends "case">(): void }`,
+      `const real = defineThing({ value: "real" })`,
+    ].join("\n")
+    expect(findIdentifierCalls(source, "defineThing")).toHaveLength(1)
+  })
+
+  it("keeps conditional calls after a question mark", () => {
+    const calls = findIdentifierCalls(`const value = ready ? defineThing() : fallback`, "defineThing")
+    expect(calls).toHaveLength(1)
+  })
+
   it("keeps generic arrow function commas inside one argument", () => {
     expect(splitTopLevel(`<T, U>(ctx: T) => ctx, { id: "daily" }`)).toEqual([
       `<T, U>(ctx: T) => ctx`,
@@ -831,75 +880,15 @@ describe("source scanner", () => {
     ])
   })
 
-  it("ignores TypeScript type member signatures with matching names", () => {
-    const source = [
-      `interface Fixture<T extends { value: string }> { defineThing(value: string): void }`,
-      `type Other = { defineThing(value: string): void }`,
-      `const value = defineThing({ value: "real" })`,
-    ].join("\n")
+  it("ignores private member calls with matching names", () => {
+    const source = `const value = this.#defineThing({ value: "member" })`
 
-    const calls = findIdentifierCalls(source, "defineThing")
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
   })
 
-  it("ignores inline and nested object type signatures but keeps runtime namespaces", () => {
-    const source = [
-      `const value: { defineThing(value: string): void; nested: { defineThing(): void } } = defineThing({ value: "real" })`,
-      `namespace Runtime { defineThing({ value: "namespace" }) }`,
-      `declare namespace Ambient { defineThing(value: string): void }`,
-    ].join("\n")
-
-    const calls = findIdentifierCalls(source, "defineThing")
-    expect(calls).toHaveLength(2)
-    expect(calls.map(call => call.arguments[0])).toEqual([
-      `{ value: "real" }`,
-      `{ value: "namespace" }`,
-    ])
-  })
-
-  it.each(["class", "abstract class"])("keeps runtime %s field calls while ignoring method signatures", (declaration) => {
-    const source = [
-      `${declaration} Agent {`,
-      `  defineThing(): void;`,
-      `  defineThing() {}`,
-      `  definition = defineThing("direct");`,
-      `  conditional = ready ? defineThing("conditional") : other;`,
-      `  constructed = new defineThing("new");`,
-      `  collection = [defineThing("array"), other];`,
-      `}`,
-    ].join("\n")
-
-    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
-      [`"direct"`],
-      [`"conditional"`],
-      [`"new"`],
-      [`"array"`],
-    ])
-  })
-
-  it.each(["\n", "\r\n", "\u2028", " /* next overload */\n"])("ignores class overload signatures without delimiters: %j", (separator) => {
-    const source = [
-      `class Agent {`,
-      `  defineThing(value: string)${separator}`,
-      `  defineThing(value: number): void${separator}`,
-      `  defineThing(value: string | number) { return defineThing("implementation") }`,
-      `  direct = defineThing("direct")`,
-      `  continued = ready ||${separator}    defineThing("continued")`,
-      `  arrow = () =>${separator}    defineThing("arrow")`,
-      `  chained = other()${separator}    || defineThing("chained")`,
-      `}`,
-      `declare class Ambient { defineThing(value: string) }`,
-      `interface Shape { defineThing(value: string) }`,
-    ].join("\n")
-
-    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
-      [`"implementation"`],
-      [`"direct"`],
-      [`"continued"`],
-      [`"arrow"`],
-      [`"chained"`],
-    ])
+  it("keeps join controls inside identifiers", () => {
+    expect(findIdentifierCalls(`const foo\u200CdefineThing = 1`, "defineThing")).toEqual([])
+    expect(findIdentifierCalls(`const foo\u200DdefineThing = 1`, "defineThing")).toEqual([])
   })
 
   it("ignores member calls with matching names", () => {

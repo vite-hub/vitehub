@@ -1,0 +1,110 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@vite-hub/sandbox": [
+        "packages/sandbox/src/index.ts"
+      ],
+      "@vite-hub/sandbox/_internal/toolchain": [
+        "packages/sandbox/src/internal/host-toolchain.ts"
+      ],
+      "#vitehub/agent/registry": [
+        "packages/agent/src/runtime/empty-registry.ts"
+      ],
+      "#vitehub/agent/provider-agent": [
+        "packages/agent/src/provider-agent.ts"
+      ],
+      "#vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
+      ],
+      "virtual:vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
+      ],
+      "vitehub-sandbox-task-provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
+      ],
+      "@vite-hub/sandbox-task/runtime/provider-loader": [
+        "packages/sandbox-task/src/runtime/provider-loader.ts"
+      ],
+      "#vitehub-sandbox-task-registry": [
+        "packages/sandbox-task/src/runtime/empty-registry.ts"
+      ],
+      "#vitehub-workspace-assets-registry": [
+        "packages/workspace/src/runtime/empty-assets-registry.ts"
+      ],
+      "#vitehub-workspace-registry": [
+        "packages/workspace/src/runtime/empty-registry.ts"
+      ],
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
+      ],
+      "@vite-hub/agent": [
+        "packages/agent/src/index.ts"
+      ],
+      "@vite-hub/agent/*": [
+        "packages/agent/src/*"
+      ],
+      "@vite-hub/runtime": [
+        "packages/runtime/src/index.ts"
+      ],
+      "@vite-hub/rate-limit": [
+        "packages/rate-limit/src/index.ts"
+      ],
+      "@vite-hub/rate-limit/*": [
+        "packages/rate-limit/src/*"
+      ],
+      "@vite-hub/sandbox-task": [
+        "packages/sandbox-task/src/index.ts"
+      ],
+      "@vite-hub/sandbox-task/runtime/state": [
+        "packages/sandbox-task/src/runtime/state.ts"
+      ],
+      "@vite-hub/shell": [
+        "packages/shell/src/index.ts"
+      ],
+      "@vite-hub/shell/providers/just-bash": [
+        "packages/shell/src/providers/just-bash.ts"
+      ],
+      "@vite-hub/shell/workspace": [
+        "packages/shell/src/workspace/index.ts"
+      ],
+      "@vite-hub/source": [
+        "packages/source/src/index.ts"
+      ],
+      "@vite-hub/workspace": [
+        "packages/workspace/src/index.ts"
+      ],
+      "@vite-hub/workspace/*": [
+        "packages/workspace/src/*"
+      ],
+      "@vite-hub/workflow": [
+        "packages/workflow/src/index.ts"
+      ],
+      "@vite-hub/workflow/runtime/state": [
+        "packages/workflow/src/runtime/state.ts"
+      ],
+      "@vite-hub/env/*": [
+        "packages/env/src/*.ts"
+      ],
+      "@vite-hub/agent/env-identity": [
+        "packages/agent/src/env-identity.ts"
+      ],
+      "@vite-hub/runtime/*": [
+        "packages/runtime/src/*"
+      ]
+    },
+    "rootDir": "..",
+    "baseUrl": "../.."
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

@@ -1,5 +1,5 @@
 import { normalizeKVOptions } from "./config.ts"
-import { readEnv, trimmed } from "@vite-hub/internal/env"
+import { resolveHostPreset } from "@vite-hub/internal/hosting"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
@@ -12,17 +12,12 @@ export interface KVViteRuntimeConfig {
   kv: false | ResolvedKVModuleOptions
 }
 
-function resolveHosting(input: KVResolutionInput): string | undefined {
-  const env = input.env || process.env
-  return trimmed(input.hosting) ?? readEnv(env, "VITEHUB_HOSTING")
-}
-
 export function resolveKVViteConfig(
   kv: KVModuleOptions | undefined,
   input: KVResolutionInput = {},
 ): KVViteRuntimeConfig {
   const env = input.env || process.env
-  const hosting = resolveHosting(input)
+  const hosting = resolveHostPreset({ env, hosting: input.hosting })
   const resolved = normalizeKVOptions(kv, { env, hosting })
   return { hosting, kv: resolved ?? false }
 }

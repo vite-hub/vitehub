@@ -105,12 +105,14 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
+      "Collaboration",
       "Agent work",
       "Utilities",
     ]);
     expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
-      .toEqual(["Chat App", "Invocation Dashboard", "Code Review"]);
+      .toEqual(["Chat App", "Code Review", "Collaborative Editor"]);
   });
 
   it("groups every navigable page of a large section", () => {

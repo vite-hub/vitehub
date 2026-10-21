@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { AgentTrace as AgentTraceComponent } from "@vite-hub/ui";
+import type { TraceRun as TraceRunComponent } from "@vite-hub/ui";
 
-type TraceRun = InstanceType<typeof AgentTraceComponent>["$props"]["run"];
+type Run = InstanceType<typeof TraceRunComponent>["$props"]["run"];
 
-const run: TraceRun = {
+const run: Run = {
   durationMs: 12_400,
   endTime: "2026-08-30T15:19:31.000Z",
   events: [],
@@ -38,12 +38,12 @@ const run: TraceRun = {
 </script>
 
 <template>
-  <AgentTrace :run="run" :default-open="run.status === 'failed'">
+  <TraceRun :run="run" :default-open="run.status === 'failed'">
     <template #step="{ step }">
       <div class="flex items-center justify-between gap-3 text-sm">
         <span class="flex items-center gap-2">
           <UIcon
-            :name="step.status === 'failed' ? 'i-lucide-circle-x' : 'i-lucide-circle-check'"
+            :name="step.status === 'failed' ? 'i-ph-x-circle-light' : 'i-ph-check-circle-light'"
             class="size-4 text-muted"
             aria-hidden="true"
           />
@@ -52,5 +52,5 @@ const run: TraceRun = {
         <code class="text-xs text-muted">{{ step.attributes?.command }}</code>
       </div>
     </template>
-  </AgentTrace>
+  </TraceRun>
 </template>

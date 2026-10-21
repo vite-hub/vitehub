@@ -83,7 +83,7 @@ describe("hubEmail", () => {
       .toBe("/tmp/templates/monthly%2Fdetail.mjs")
     expect(resolveEmailTemplateModulePath("/tmp/templates", "other/module")).toBeUndefined()
     expect(() => resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/../secret"))
-      .toThrow("Invalid Email template")
+      .toThrow("is not valid")
   })
 
   it("generates a server-only Email definition without resolving credentials at config time", async () => {
@@ -218,7 +218,7 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "cloudflare-email" })
     const config = functionHook(plugin.config, "config")
 
-    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("requires a Cloudflare hosting provider")
+    await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare-email\" driver needs a Cloudflare host.")
   })
 
   it("loads only discovered Email template modules", async () => {
@@ -281,7 +281,7 @@ describe("hubEmail", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe("")
     expect(() => functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/../secret"))
-      .toThrow("Invalid Email template")
+      .toThrow("is not valid")
   })
 
   it("materializes templates before Cloudflare builds", async () => {
@@ -656,7 +656,7 @@ describe("hubEmail", () => {
       options: {
         apiKey: env({ default: "re_build-secret", secret: true, source: env.source("RESEND_API_KEY") }),
       },
-    })).toThrow("email.options.apiKey cannot have a default")
+    })).toThrow("The secret Email option email.options.apiKey has a default")
   })
 
   it("rejects provider-backed options from the synchronous Email registry", () => {
@@ -667,7 +667,7 @@ describe("hubEmail", () => {
           apiKey: env({ secret: true, source: env.provider("secrets", "resend/api-key") }),
         },
       },
-    })).toThrow("email.options.auth.apiKey cannot use env.provider()")
+    })).toThrow("The Email option email.options.auth.apiKey uses `env.provider()`")
   })
 
   it("marks the package as noExternal for server environments", async () => {

@@ -8,7 +8,7 @@ import { codeHostChannelFetch, codeHostActivityComments, codeHostDeliveryEffects
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, randomUUID } from "node:crypto"
-import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider, githubAppCredentials, readGitHubAppPrivateKey } from "./internal/code-host.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
@@ -98,6 +98,7 @@ import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, enc
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
+import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
@@ -638,9 +639,9 @@ export interface CodeHostChannelOptions<TRuntimeConfig extends AgentRuntimeConfi
   activity?: boolean | { publicUrl?: MaybeResolvable<string, AgentCallbackContext<TRuntimeConfig>> }
   /** Default: Server Env, then gitlab.com or codeberg.org. */
   baseUrl?: MaybeResolvable<string | undefined, AgentCallbackContext<TRuntimeConfig>>
-  /** Default: GITLAB_TOKEN or FORGEJO_TOKEN from Server Env. */
+  /** Default: VITEHUB_GITLAB_TOKEN or VITEHUB_FORGEJO_TOKEN from Server Env. */
   token?: MaybeResolvable<string | { unseal: () => string } | undefined, AgentCallbackContext<TRuntimeConfig>>
-  /** Required. Default: GITLAB_WEBHOOK_SECRET or FORGEJO_WEBHOOK_SECRET from Server Env. */
+  /** Required. Default: VITEHUB_GITLAB_WEBHOOK_SECRET or VITEHUB_FORGEJO_WEBHOOK_SECRET from Server Env. */
   webhookSecret?: MaybeResolvable<string | { unseal: () => string } | undefined, AgentCallbackContext<TRuntimeConfig>>
   /** Commit status name. Default: ViteHub Agent. */
   statusContext?: string
@@ -657,7 +658,7 @@ export type ForgejoChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 
 interface CodeHostChannelServices<TRuntimeConfig extends AgentRuntimeConfig> {
   kind: "gitlab" | "forgejo"
-  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof codeHostProvider>
+  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof forgeProvider>
 }
 
 export interface DiscordAdapterOptions {
@@ -675,6 +676,56 @@ export interface DiscordAdapterOptions {
 export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
   extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
   adapter?: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
+/**
+ * Options for the Microsoft Teams adapter. A credential that you omit is read from
+ * `env.server.teams`: TEAMS_APP_ID, TEAMS_APP_PASSWORD, TEAMS_APP_TENANT_ID, and TEAMS_API_URL.
+ */
+export interface TeamsAdapterOptions {
+  apiUrl?: string
+  appId?: MaybeResolvable<string, AgentCallbackContext<AgentRuntimeConfig>>
+  appPassword?: string | { unseal: () => string }
+  appTenantId?: string
+  appType?: "MultiTenant" | "SingleTenant"
+  userName?: string
+}
+
+export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
+  extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
+  adapter?: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
+export interface TeamsConnectorOptions {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
+  adapter?: TeamsConnectorAdapterOptions | Adapter | (() => MaybePromise<Adapter>)
+}
+
+/** Teams adapter options for a connector, which has no Agent callback context. */
+export type TeamsConnectorAdapterOptions = Omit<TeamsAdapterOptions, "appId"> & {
+  appId?: string | (() => MaybePromise<string>)
+}
+
+export interface TeamsSendOptions {
+  /** A Teams thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
+  recipient: string
+  /**
+   * Keeps every send with the same `key` under one root message in a Teams channel. The recipient must be a channel
+   * without a message ID. ViteHub posts the root once, from `root` or else from the first text.
+   */
+  thread?: { key: string, root?: string }
+  /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
+  idempotencyKey?: string
+  /**
+   * With `idempotencyKey`, edits the message stored for the key to this text and returns its receipt.
+   * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
+   */
+  update?: boolean
+}
+
+export interface TeamsConnector {
+  send: (text: string, options: TeamsSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -757,7 +808,7 @@ function maybeStrings(value: unknown): string[] | undefined {
 
 function githubUserMetadata(value: unknown): GitHubPullRequestCommentMetadata["user"] | undefined {
   if (!isRecord(value)) return
-  const login = maybeString(value.login)
+  const login = maybeString(value.login) || maybeString(value.username)
   const id = maybeNumber(value.id)
   const type = maybeString(value.type)
   if (!login && !id && !type) return
@@ -772,7 +823,7 @@ function githubCommentMetadata(value: unknown): GitHubPullRequestCommentMetadata
   if (!isRecord(value)) return
   const id = maybeNumber(value.id)
   if (id === undefined) return
-  const user = githubUserMetadata(value.user)
+  const user = githubUserMetadata(value.user || value.author)
   return {
     ...(maybeString(value.author_association) ? { authorAssociation: maybeString(value.author_association) } : {}),
     ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
@@ -1211,7 +1262,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch(() => undefined)
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
-    const provider = services ? await services.provider(context) : await codeHostProvider({ host: "github", baseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+    const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
     const { thread, comments, files } = services
       ? await codeHostChannelMetadata(provider, { host: services.kind, instance: provider.instance, repository: command.repository, number: command.issueNumber }, { maxComments, maxFiles })
       : await codeHostPullRequestMetadata(provider, githubCodeHostTarget(command), { maxComments, maxFiles, authenticated: Boolean(token) })
@@ -1535,8 +1586,8 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
   env: Record<string, unknown>,
   context: AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ) {
-  const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
-  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "appPrivateKeyPath", context))
+  const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "privateKey", context))
+  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "privateKeyPath", context))
   try {
     const privateKey = await readGitHubAppPrivateKey(inline, path)
     if (privateKey) return privateKey
@@ -1544,7 +1595,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
   catch (error) {
     throw agentDiagnostics.AGENT_R0347({ message: `[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, cause: error })
   }
-  throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH is required." })
+  throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_PRIVATE_KEY_PATH is required." })
 }
 
 async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1568,7 +1619,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const installationId = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
-    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
+    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "installationId", context), "installationId")
   const credentials = githubAppCredentials({
     appId,
     privateKey: await githubAppPrivateKey(options, env, context),
@@ -1580,9 +1631,9 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     return (await credentials.installationToken(installationId, { signal })).token
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
     throw error
   }
 }
@@ -1712,15 +1763,15 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
     return { appId: (await credentials.app(signal)).id }
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
+    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
     throw error
   }
 }
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   token: string,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
@@ -1730,13 +1781,12 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     return await codeHostIdentity(provider, { kind: "token" })
   }
   catch (error) {
-    if (codeHostErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
+    if (forgeErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
   }
   const processEnv = globalThis.process?.env
   if (
+    // The Actions token, passed as VITEHUB_GITHUB_TOKEN, acts as github-actions[bot].
     processEnv?.GITHUB_ACTIONS === "true"
-    && !processEnv.VITEHUB_GITHUB_TOKEN
-    && !processEnv.GH_TOKEN
     && processEnv.GITHUB_TOKEN === token
   ) {
     return { login: "github-actions[bot]" }
@@ -2002,7 +2052,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await codeHostProvider({ host: "github", baseUrl: apiBaseUrl, token, fetch: codeHostChannelFetch(fetcher), userAgent: options.userAgent })
+          const provider = hostProvider || await forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: codeHostChannelFetch(fetcher), userAgent: options.userAgent })
           const identity = services ? await githubActivityAwait(codeHostIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
@@ -2394,7 +2444,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
 ): Promise<PublishedAgentDeliveryArtifact[]> {
   if (!body || !context.workspace || options.artifacts === false) return []
   const paths = new Set<string>()
@@ -2422,7 +2472,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 async function ensureGitHubArtifactBranch(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   command: GitHubPullRequestCommand,
   branch: string,
 ): Promise<void> {
@@ -2431,7 +2481,7 @@ async function ensureGitHubArtifactBranch(
     return
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== 404) {
       if (status !== undefined) throw agentDiagnostics.AGENT_R0361({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
       throw error
@@ -2443,7 +2493,7 @@ async function ensureGitHubArtifactBranch(
     await provider.request("POST", `/repos/${command.repository}/git/refs`, { body: { ref: `refs/heads/${branch}`, sha } })
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status === 422) return
     if (status !== undefined) throw agentDiagnostics.AGENT_R0363({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
     throw error
@@ -2451,7 +2501,7 @@ async function ensureGitHubArtifactBranch(
 }
 
 async function publishGitHubArtifact(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   command: GitHubPullRequestCommand,
   branch: string,
   input: AgentDeliveryArtifactPublishInput,
@@ -2486,7 +2536,7 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
 ): Promise<string | undefined> {
   const structuredArtifacts = deliveryArtifacts(context)
   const referencedStructuredPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, structuredArtifacts))
@@ -2532,7 +2582,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return codeHostDeliveryEffects({
-    provider: async context => await codeHostProvider({ host: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: codeHostChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
+    provider: async context => await forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: codeHostChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
     target: context => {
       const command = githubCommandFromEffect(context)
       return command ? githubCodeHostTarget(command) : undefined
@@ -2662,6 +2712,183 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
       })
     }
     return adapter
+  }
+}
+
+function isTeamsAdapterOptions(input: unknown): input is TeamsAdapterOptions {
+  return isRecord(input) && !isAdapter(input) && !isResolver(input)
+}
+
+async function createTeamsAdapterFromEnv(options: TeamsAdapterOptions, context: BuiltInEnvContext): Promise<Adapter> {
+  let createTeamsAdapter: (options?: Record<string, unknown>) => Adapter
+  try {
+    ({ createTeamsAdapter } = await import("@chat-adapter/teams"))
+  }
+  catch (error) {
+    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
+  }
+  const env = await channelEnv("teams", context)
+  // SAFETY: the adapter resolver receives the Agent callback context at runtime;
+  // BuiltInEnvContext only describes the host bindings read by channelEnv.
+  const appId = options.appId === undefined ? env.appId : await resolveRuntimeValue(options.appId, context as AgentCallbackContext<AgentRuntimeConfig>)
+  const adapterConfig: Record<string, unknown> = { ...options, appId }
+  for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
+    const value = cleanSecret(adapterConfig[field] ?? env[field])
+    if (value) adapterConfig[field] = value
+    else delete adapterConfig[field]
+  }
+  return createTeamsAdapter(adapterConfig)
+}
+
+function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
+): AgentChannelOptions<TRuntimeConfig>["adapter"] {
+  if (input !== undefined && !isTeamsAdapterOptions(input)) return input
+  const options = input ?? {}
+  return context => createTeamsAdapterFromEnv(options, context)
+}
+
+async function createTeamsConnectorAdapterFromEnv(options: TeamsConnectorAdapterOptions): Promise<Adapter> {
+  const appId = hasRuntimeType(options.appId, "function") ? await options.appId() : options.appId
+  return createTeamsAdapterFromEnv({ ...options, appId } as TeamsAdapterOptions, {})
+}
+
+const teamsLocks = new Map<string, Promise<unknown>>()
+
+/** Runs sends with the same key one after another. This holds within one process only. */
+async function withTeamsLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const task = (teamsLocks.get(key) ?? Promise.resolve()).catch(() => undefined).then(run)
+  teamsLocks.set(key, task)
+  try {
+    return await task
+  }
+  finally {
+    if (teamsLocks.get(key) === task) teamsLocks.delete(key)
+  }
+}
+
+function teamsHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+interface TeamsKV {
+  get: (key: string) => Promise<readonly [error: Error | null, value: unknown]>
+  set: (key: string, value: { id: string } | { threadId: string }) => Promise<readonly [error: Error | null, value: unknown]>
+}
+
+let teamsKVModule: Promise<TeamsKV> | undefined
+
+function teamsKV(): Promise<TeamsKV> {
+  teamsKVModule ??= import("@vite-hub/kv").then(module => module.kv, (error: unknown) => {
+    teamsKVModule = undefined
+    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams.connector() requires @vite-hub/kv to be installed and configured.", cause: error })
+  })
+  return teamsKVModule
+}
+
+async function teamsKVGet(kv: TeamsKV, key: string): Promise<Record<string, unknown> | undefined> {
+  const [error, value] = await kv.get(key)
+  if (error) throw error
+  return isRecord(value) ? value : undefined
+}
+
+async function teamsKVSet(kv: TeamsKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
+  const [error] = await kv.set(key, value)
+  if (error) throw error
+}
+
+function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
+  const data = adapter.decodeThreadId(threadId)
+  if (!isRecord(data) || !hasRuntimeType(data.conversationId, "string")) throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
+  return { ...data, conversationId: data.conversationId }
+}
+
+/** The Chat SDK thread ID of a channel root message: the channel conversation with `;messageid=<root>`. */
+function teamsRootThreadId(adapter: Adapter, recipient: string, root: { id: string, threadId: string }): string {
+  if (root.threadId !== recipient && /;messageid=\d+/.test(decodeTeamsThread(adapter, root.threadId).conversationId)) return root.threadId
+  const target = decodeTeamsThread(adapter, recipient)
+  return adapter.encodeThreadId({ ...target, conversationId: `${target.conversationId};messageid=${root.id}` })
+}
+
+/**
+ * An outbound connector for `defineOutboundChannel()` that sends Markdown to Microsoft Teams.
+ * It builds one adapter like `teams()`. Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `teams:`.
+ */
+function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
+  let adapter: Promise<Adapter> | undefined
+  const useAdapter = (): Promise<Adapter> => {
+    if (!adapter) {
+      const input = options.adapter
+      const pending = adapter = Promise.resolve(
+        input === undefined || isTeamsAdapterOptions(input) ? createTeamsConnectorAdapterFromEnv((input as TeamsConnectorAdapterOptions | undefined) ?? {})
+          : hasRuntimeType(input, "function") ? input()
+            : input,
+      )
+      pending.catch(() => {
+        if (adapter === pending) adapter = undefined
+      })
+    }
+    return adapter
+  }
+  return {
+    async send(text, { recipient, thread, idempotencyKey, update }) {
+      if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
+      if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
+      const teams = await useAdapter()
+      if (!thread) {
+        const target = async () => {
+          if (!recipient.startsWith("user:")) return recipient
+          if (!teams.openDM) throw new TypeError("[vitehub] The Teams adapter cannot open direct messages.")
+          return await teams.openDM(recipient.slice(5))
+        }
+        const post = async () => ({ id: (await teams.postMessage(await target(), { markdown: text })).id })
+        if (!idempotencyKey) return await post()
+        const kv = await teamsKV()
+        const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
+        return await withTeamsLock(receiptKey, async () => {
+          const stored = await teamsKVGet(kv, receiptKey)
+          if (hasRuntimeType(stored?.id, "string")) {
+            if (update) await teams.editMessage(await target(), stored.id, { markdown: text })
+            return { id: stored.id }
+          }
+          const receipt = await post()
+          await teamsKVSet(kv, receiptKey, receipt)
+          return receipt
+        })
+      }
+      if (recipient.startsWith("user:") || /;messageid=/.test(decodeTeamsThread(teams, recipient).conversationId)) {
+        throw new TypeError("[vitehub] A Teams thread requires a channel recipient without a message ID.")
+      }
+      if (!teams.postChannelMessage) throw new TypeError("[vitehub] The Teams adapter cannot post channel messages.")
+      const postChannelMessage = teams.postChannelMessage.bind(teams)
+      const kv = await teamsKV()
+      const key = `teams:threads:${teamsHash(`${recipient}\0${thread.key}`)}`
+      const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
+      return await withTeamsLock(key, async () => {
+        const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
+        const savedRoot = await teamsKVGet(kv, `${key}:root`)
+        let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (hasRuntimeType(stored?.id, "string")) {
+          // Inside a channel thread, Teams edits a message through the root thread ID, also when the message is the root.
+          if (update && threadId) await teams.editMessage(threadId, stored.id, { markdown: text })
+          return { id: stored.id }
+        }
+        if (!threadId) {
+          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
+          if (!root.id) throw new Error("[vitehub] Teams did not return a root message ID.")
+          threadId = teamsRootThreadId(teams, recipient, root)
+          await teamsKVSet(kv, `${key}:root`, { threadId })
+          if (thread.root === undefined) {
+            if (receiptKey) await teamsKVSet(kv, receiptKey, { id: root.id })
+            return { id: root.id }
+          }
+        }
+        const message = await teams.postMessage(threadId, { markdown: text })
+        if (!message.id) throw new Error("[vitehub] Teams did not return a message ID.")
+        if (receiptKey) await teamsKVSet(kv, receiptKey, { id: message.id })
+        return { id: message.id }
+      })
+    },
   }
 }
 
@@ -2818,7 +3045,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
       const appOptions = app ? githubAppOptions(app) || {} : {}
       try {
         const token = services ? undefined : await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository)
-        const provider = services ? await services.provider(context) : await codeHostProvider({ host: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+        const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
         const pullRequest = services ? await codeHostChannelPullRequest(provider, { host: services.kind, instance: provider.instance, repository, number }) : (await codeHostChannelRead(provider, "AGENT_R0351", async () => await codeHostPullRequest(provider, { host: "github", instance: provider.instance, repository, number }))).raw
         if (isRecord(pullRequest)) {
           const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
@@ -3285,7 +3512,7 @@ function codeHostChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMeth
   const setting = codeHostChannelSetting(kind, options)
   const services: CodeHostChannelServices<TRuntimeConfig> = {
     kind,
-    provider: async (context, fetcher) => await codeHostProvider({ host: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: codeHostChannelFetch(fetcher || globalThis.fetch) }),
+    provider: async (context, fetcher) => await forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: codeHostChannelFetch(fetcher || globalThis.fetch) }),
   }
   const secret = async (context: AgentCallbackContext<TRuntimeConfig>) => {
     const value = await setting("webhookSecret", context)
@@ -3678,11 +3905,14 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("slack", options)
 }
 
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
-  return defineMessageChannelInstructions(defineChannel("teams", options), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
+  return defineMessageChannelInstructions(defineChannel("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
 }
+
+/** The Microsoft Teams Channel for an Agent. `teams.connector()` sends outbound messages through a `defineOutboundChannel()`. */
+export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = Object.assign(teamsChannel, { connector: teamsConnector })
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>

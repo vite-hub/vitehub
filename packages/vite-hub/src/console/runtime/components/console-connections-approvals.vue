@@ -5,6 +5,7 @@ import {
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const approvals = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
@@ -13,18 +14,20 @@ const pendingPage = shallowRef(0);
 const nextCursor = shallowRef<string>();
 const loaded = ref(false);
 const busy = ref(false);
-const error = ref("");
+const error = ref<unknown>();
+const errorTitle = ref("Could not complete the request");
 const notice = ref("");
 const pending = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
 const decided = computed(() => approvals.value.filter((approval) => approval.status !== "pending"));
 async function run(action: () => Promise<void>) {
   busy.value = true;
-  error.value = "";
+  error.value = undefined;
+  errorTitle.value = "Could not complete the request";
   notice.value = "";
   try {
     await action();
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Could not complete the request.";
+    error.value = cause;
   } finally {
     busy.value = false;
   }
@@ -75,12 +78,12 @@ function decide(id: string, decision: "approve" | "deny") {
     await fetchApprovals(pendingCursors.value[pendingPage.value]);
     emit("changed");
     if (!failure) return;
-    const message = failure instanceof Error ? failure.message : "Could not complete the request.";
     // An approved call that fails keeps the status "failed". Other errors leave the approval pending.
-    error.value =
+    error.value = failure;
+    errorTitle.value =
       approvals.value.find((approval) => approval.id === id)?.status === "failed"
-        ? `Approved, but the call failed. Status: failed. ${message}`
-        : message;
+        ? "Approved, but the call failed"
+        : "Could not complete the request";
   });
 }
 onMounted(load);
@@ -93,7 +96,7 @@ onMounted(load);
       </p>
       <UButton label="Refresh" color="neutral" variant="ghost" :loading="busy" @click="load" />
     </div>
-    <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
+    <ConsoleState v-if="error" compact :error="error" :title="errorTitle" />
     <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
     <p v-if="loaded && !pending.length" class="text-sm text-muted">No pending approvals.</p>
     <ol v-if="pending.length" role="list" aria-label="Pending approvals" class="divide-y divide-default">

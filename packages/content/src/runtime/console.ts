@@ -300,10 +300,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         if (input.state && !(filter.id as string[]).length) return { items: [], nextCursor: null, total: 0, states, changes }
         if (input.state === "deleted") ref = "published"
         const options: ContentListOptions = { ref, filter, limit }
-        const search = optionalText(input.search?.trim() || undefined, "search")
+        const searchValue = optionalText(input.search, "search")
+        const search = searchValue?.trim() || undefined
         if (search) options.search = search
         if (input.cursor !== undefined) options.cursor = text(input.cursor, "cursor")
         if (input.sort) options.sort = { field: text(input.sort.field, "sort.field"), direction: input.sort.direction === "desc" ? "desc" : "asc" }
+        if (input.facets !== undefined && !Array.isArray(input.facets)) throw invalidInput("facets must be an array.")
         if (input.facets?.length) options.facets = input.facets.map(field => text(field, "facets"))
         const page = await collection.list(options)
         const titleField = titleFieldOf(collection.schema)
@@ -504,9 +506,14 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           const statuses = (await Promise.all((await collection.status()).map(async status =>
             await content.can({ user: context.user, collection: collection.name, action: "read", id: status.id }) ? status : null,
           ))).filter((status): status is ContentDocumentStatus => status !== null)
-          const [page] = await Promise.all([collection.list({ ref: "draft", search: query, limit: maximumListLimit })])
+          const items = new Map<string, ContentDocumentSummary>()
+          let cursor: string | undefined
+          do {
+            const page = await collection.list({ ref: "draft", search: query, limit: maximumListLimit, ...(cursor ? { cursor } : {}) })
+            for (const item of page.items) items.set(item.id, item)
+            cursor = page.nextCursor ?? undefined
+          } while (cursor)
           const byId = new Map(statuses.map(status => [status.id, status]))
-          const items = new Map(page.items.map(item => [item.id, item]))
           for (const item of [...items.values()]) if (!byId.has(item.id)) items.delete(item.id)
           const idMatches = statuses.filter(status => status.draft !== null && !items.has(status.id) && status.id.toLowerCase().includes(needle))
           if (idMatches.length) {

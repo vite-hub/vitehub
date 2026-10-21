@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { isProcessRunning, signalProcess } from "./internal/drain-process.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 const pidInput: string | undefined = process.argv[2]
@@ -15,16 +16,6 @@ if (pidInput === "-h" || pidInput === "--help") {
 if (!Number.isSafeInteger(pid) || pid <= 0) {
   console.error("usage: vitehub-drain MAINPID [STATUS_URL]")
   process.exit(2)
-}
-
-function running(): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  }
-  catch {
-    return false
-  }
 }
 
 async function readStatus(): Promise<"accepting" | "drained" | "draining" | "failed" | "invalid" | "unavailable"> {
@@ -44,14 +35,14 @@ async function readStatus(): Promise<"accepting" | "drained" | "draining" | "fai
 }
 
 try {
-  let signaled = false
-  while (running()) {
+  let signalAttempted = false
+  while (isProcessRunning(pid)) {
     const status = await readStatus()
     if (status === "failed" || status === "invalid") throw runtimeErrorDiagnostics.RUNTIME_R0004({ message: `Process drain reported ${status}.` })
     if (status === "drained") process.exit(0)
-    if (status === "accepting" && !signaled) {
-      process.kill(pid, "SIGUSR2")
-      signaled = true
+    if (status === "accepting" && !signalAttempted) {
+      // A denied signal still leaves the status endpoint as the source of truth.
+      signalAttempted = signalProcess(pid) === "signaled"
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }

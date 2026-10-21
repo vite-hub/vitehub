@@ -107,7 +107,12 @@ async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unkno
 }
 
 function readModule(value: string): string {
-  return value.startsWith("file:") ? fileURLToPath(value) : value
+  if (!/^file:/i.test(value)) return value
+  // `fileURLToPath` normalizes relative spellings such as `file:../x` to an
+  // absolute path, so validate the original URL form before converting it.
+  const url = value.slice("file:".length)
+  if (!url.startsWith("/")) throw new TypeError("relative file URL")
+  return fileURLToPath(`file:${url}`)
 }
 
 function isRelative(module: string): boolean {
@@ -186,7 +191,12 @@ function readContribution(
   if (nameProblem) return fail(`${options.kind} ${JSON.stringify(name)}: ${nameProblem}`)
   if (!isPlainObject(definition)) return fail(`${options.kind} ${JSON.stringify(name)} needs \`definition: { module, export? }\`.`)
   if (!isNonEmptyString(definition.module)) return fail(`\`definition.module\` of ${options.kind} ${JSON.stringify(name)} must be a non-empty string.`)
-  const module = readModule(definition.module)
+  let module: string
+  try {
+    module = readModule(definition.module)
+  } catch {
+    return fail(`\`definition.module\` of ${options.kind} ${JSON.stringify(name)} must be a valid file URL or module specifier.`)
+  }
   if (isRelative(module)) {
     return fail(`\`definition.module\` of ${options.kind} ${JSON.stringify(name)} is relative: ${JSON.stringify(module)}. Use an absolute file path, a file: URL, or a package specifier.`)
   }

@@ -143,6 +143,7 @@ it.each([
   finally {
     resetWorkspaceRegistry()
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 
@@ -417,6 +418,7 @@ it.each(["enumeration", "item"])("preserves unowned legacy files after failed %s
   }
   finally {
     await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
   }
 })
 

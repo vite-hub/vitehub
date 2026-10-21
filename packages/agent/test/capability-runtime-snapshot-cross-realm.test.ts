@@ -33,7 +33,7 @@ describe("capability input snapshots", () => {
     else if (name === "map") (value as unknown as Map<string, object>).set("changed", {})
     else if (name === "set") (value as unknown as Set<object>).add({ changed: true })
     else if (name === "arrayBuffer") new Uint8Array(value as unknown as ArrayBuffer)[0] = 9
-    else if (name === "number") (value as unknown as Number).valueOf = () => 4
+    else if (name === "number") (value as unknown as { valueOf: () => number }).valueOf = () => 4
     else if (name === "string") Reflect.set(value, "extra", "changed")
     else if (name === "boolean") Reflect.set(value, "extra", "changed")
     expect(resolved.inputDataChanged(), name).toBe(true)

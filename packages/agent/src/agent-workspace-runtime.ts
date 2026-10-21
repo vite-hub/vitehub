@@ -46,7 +46,3 @@ export function setAgentWorkspaceDiff(context: AgentInvocationContextStore, diff
 export function readAgentWorkspaceDiff(context: AgentInvocationContextStore): WorkspaceDiff | undefined {
   return workspaceDiffs.get(context)
 }
-
-export function clearAgentWorkspaceDiff(context: AgentInvocationContextStore) {
-  workspaceDiffs.delete(context)
-}

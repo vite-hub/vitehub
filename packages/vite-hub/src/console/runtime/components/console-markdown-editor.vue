@@ -189,13 +189,30 @@ function load(markdown: string): Promise<void> {
   const token = ++loading;
   lossy.value = undefined;
   return new Promise((resolve) => {
+    let finished = false;
     const done = async () => {
+      if (finished) return;
+      finished = true;
       instance.off("transaction", onTransaction);
       clearTimeout(timeout);
+      if (token !== loading) {
+        resolve();
+        return;
+      }
+      const serialized = await getMarkdown();
+      if (token !== loading) {
+        resolve();
+        return;
+      }
       loaded = markdown;
       written = markdown;
-      canonical = (await getMarkdown()) ?? undefined;
-      lossy.value ??= await markdownLoss(markdown, canonical);
+      canonical = serialized ?? undefined;
+      const loss = await markdownLoss(markdown, canonical);
+      if (token !== loading) {
+        resolve();
+        return;
+      }
+      lossy.value ??= loss;
       if (token === loading) loading = 0;
       setEditable();
       publishOutline();

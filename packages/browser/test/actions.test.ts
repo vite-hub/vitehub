@@ -32,6 +32,16 @@ describe("Browser Run actions", () => {
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
+  it("does not resolve an inherited Browser binding", async () => {
+    const quickAction = vi.fn(async () => new Response("unexpected"))
+    runtime.__env__ = Object.create({ BROWSER: { quickAction } })
+
+    const response = await runBrowserAction("content", "https://example.com")
+
+    expect(response.status).toBe(500)
+    expect(quickAction).not.toHaveBeenCalled()
+  })
+
   it("returns raw quick action responses for binary actions", async () => {
     const response = new Response(new Uint8Array([1, 2, 3]), {
       headers: { "content-type": "image/png" },

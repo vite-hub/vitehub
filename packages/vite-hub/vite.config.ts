@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
 const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() =>
@@ -169,7 +171,15 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/invocation",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-workspace-file.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-workspace-history.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -227,6 +237,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/section.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/documents.vue", to: "dist/console/runtime/pages" },
@@ -294,6 +305,7 @@ export default defineConfig({
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/media.ts",
       "src/console/runtime/client/publish.ts",
+      "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
@@ -306,6 +318,7 @@ export default defineConfig({
       "src/console/runtime/server/client.get.ts",
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
+      "src/console/runtime/server/documents.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
       "src/console/runtime/server/rpc.ts",
       "src/console/runtime/server/invocation.get.ts",
@@ -338,6 +351,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/publish"];
+        delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
@@ -374,7 +388,8 @@ export default defineConfig({
         delete exports["./console/auth-client"];
         delete exports["./console/auth-cloudflare-access"];
         delete exports["./console/auth-inline"];
-        return {
+        return normalizePackageExports({
+          ...frameworkPackageManifest.exports,
           ...exports,
           "./console/auth/client": "./dist/console/auth-client.js",
           "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
@@ -388,7 +403,7 @@ export default defineConfig({
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",
-        };
+        });
       },
       inlinedDependencies: false,
     },

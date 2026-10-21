@@ -77,7 +77,7 @@ describe("Email development outbox", () => {
     const driver = { ...providerDriver(), initialize }
     const email = createEmail({ driver: await createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
 
-    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", cause })
+    expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED", cause })
     expect(driver.send).not.toHaveBeenCalled()
     await email.send(message)
     await email.send(message)
@@ -111,6 +111,12 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()).toBeUndefined()
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("uses the default limit for non-finite runtime option %s", async (limit) => {
+    await createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), limit, provider: "resend" })
+
+    expect(getEmailOutbox()?.limit).toBe(defaultEmailOutboxLimit)
+  })
+
   it("captures messages without delivery and never creates the provider driver", async () => {
     const createProviderDriver = vi.fn(() => providerDriver())
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: createProviderDriver, provider: "resend" }) })
@@ -128,7 +134,7 @@ describe("Email development outbox", () => {
       replyTo: "support@example.com",
       scheduledAt: new Date("2026-10-01T09:00:00.000Z"),
       tags: [{ name: "category", value: "welcome" }],
-    })).resolves.toEqual({ driver: "outbox", id: "outbox-1" })
+    })).resolves.toEqual([undefined, { driver: "outbox", id: "outbox-1" }])
 
     expect(createProviderDriver).not.toHaveBeenCalled()
     const outbox = getEmailOutbox()
@@ -184,7 +190,7 @@ describe("Email development outbox", () => {
     const driver = providerDriver()
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: () => driver, provider: "resend" }) })
 
-    await expect(email.send(message)).resolves.toEqual({ driver: "resend", id: "re_1" })
+    await expect(email.send(message)).resolves.toEqual([undefined, { driver: "resend", id: "re_1" }])
 
     expect(driver.initialize).toHaveBeenCalledOnce()
     expect(driver.send).toHaveBeenCalledOnce()
@@ -195,7 +201,7 @@ describe("Email development outbox", () => {
     const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: "" }, error: null }))
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
 
-    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
     expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
   })
 
@@ -203,7 +209,7 @@ describe("Email development outbox", () => {
     const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: 123 as unknown as string }, error: null }))
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
 
-    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
     expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
   })
 
@@ -223,13 +229,13 @@ describe("Email development outbox", () => {
   it("records failed deliveries with a redacted error and keeps the original failure", async () => {
     const rejected = providerDriver(() => ({ data: null, error: emailProviderError("resend", "AUTH", "Invalid key token=re_live_secret") }))
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: rejected, provider: "resend" }) })
-    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_AUTHENTICATION" })
+    expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_AUTHENTICATION" })
 
     const thrown = providerDriver(() => {
       throw new Error("socket closed")
     })
     const failing = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: thrown, provider: "resend" }) })
-    await expect(failing.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect((await failing.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
 
     const [second, first] = getEmailOutbox()?.list() ?? []
     expect(first?.delivery).toEqual({ error: { code: "AUTH", message: "Invalid key token=[redacted]" }, status: "failed" })
@@ -241,7 +247,7 @@ describe("Email development outbox", () => {
     const rejected = providerDriver(() => { throw failure })
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: rejected, provider: "resend" }) })
 
-    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
     expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email delivery failed with an uninspectable error." }, status: "failed" })
   })
 
@@ -250,7 +256,7 @@ describe("Email development outbox", () => {
       driver: () => createEmailDevOutboxDriver({
         deliver: true,
         driver: () => {
-          throw emailProviderError("resend", "INVALID_OPTIONS", "Missing RESEND_API_KEY.")
+          throw emailProviderError("resend", "NOT_CONFIGURED", "Missing RESEND_API_KEY.")
         },
         provider: "resend",
       }),
@@ -258,7 +264,7 @@ describe("Email development outbox", () => {
 
     await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_NOT_CONFIGURED" })
     expect(getEmailOutbox()?.list()[0]).toMatchObject({
-      delivery: { error: { code: "INVALID_OPTIONS", message: "Missing RESEND_API_KEY." }, status: "failed" },
+      delivery: { error: { code: "NOT_CONFIGURED", message: "Missing RESEND_API_KEY." }, status: "failed" },
       provider: "resend",
       subject: "Welcome",
     })

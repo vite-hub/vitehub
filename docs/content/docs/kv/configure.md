@@ -4,6 +4,7 @@ description: Configure the Default KV Store, named KV Stores, and KV drivers.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configuration options

@@ -71,7 +71,10 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
   return left.units * right.scale > right.units * left.scale
 }
 
-function validateOptions(options: AgentBudgetOptions, allowCapacity: boolean): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+  if (options.capacity !== undefined) {
+    throw new TypeError("[vitehub] budget capability does not support capacity; configure it on defineAgent({ budget }).")
+  }
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
@@ -79,11 +82,8 @@ function validateOptions(options: AgentBudgetOptions, allowCapacity: boolean): {
     decimalParts(options.usd)
     usd = options.usd
   }
-  if (!allowCapacity && options.capacity !== undefined) {
-    throw new TypeError("[vitehub] budget capacity is only supported through defineAgent({ budget }).")
-  }
-  if (!Object.keys(tokens).length && usd === undefined && (!allowCapacity || options.capacity === undefined)) {
-    throw new TypeError("[vitehub] budget requires tokens, usd, or capacity.")
+  if (!Object.keys(tokens).length && usd === undefined) {
+    throw new TypeError("[vitehub] budget requires tokens or usd.")
   }
   const result: { tokens: AgentBudgetTokenLimits, usd?: number | string } = { tokens }
   if (usd !== undefined) result.usd = usd
@@ -93,12 +93,13 @@ function validateOptions(options: AgentBudgetOptions, allowCapacity: boolean): {
 function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["cost"], limits: ReturnType<typeof validateOptions>): AgentBudgetExceeded[] {
   if (!usage && !cost) return []
   const exceeded: AgentBudgetExceeded[] = []
+  const totalTokens = usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
+    ? usage.inputTokens + usage.outputTokens
+    : undefined)
   const checks: Array<[AgentBudgetExceeded["metric"], number | undefined, number | undefined]> = [
     ["inputTokens", usage?.inputTokens, limits.tokens.input],
     ["outputTokens", usage?.outputTokens, limits.tokens.output],
-    ["totalTokens", usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
-      ? usage.inputTokens + usage.outputTokens
-      : undefined), limits.tokens.total],
+    ["totalTokens", totalTokens, limits.tokens.total],
   ]
   for (const [metric, actual, limit] of checks) {
     if (actual !== undefined && limit !== undefined && actual > limit) exceeded.push({ actual, limit, metric })
@@ -114,20 +115,11 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
 }
 
 export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
-  return createBudgetCapability(options, false)
-}
-
-// Package-internal composition. Only defineAgent installs and normalizes capacity.
-export function createAgentBudgetCapability(options: AgentBudgetOptions): AgentCapabilityDefinition {
-  return createBudgetCapability(options, true)
-}
-
-function createBudgetCapability(options: AgentBudgetOptions, allowCapacity: boolean): AgentCapabilityDefinition {
   const id = options.id || "budget"
-  const limits = validateOptions(options, allowCapacity)
-  const pricing = options.pricing === false || (limits.usd === undefined && options.pricing === undefined)
+  const limits = validateOptions(options)
+  const pricing = options.pricing === false
     ? undefined
-    : options.pricing || modelsDevPricing()
+    : options.pricing || (limits.usd !== undefined ? modelsDevPricing() : undefined)
   const mode = options.mode || "observe"
 
   const metadata = { kind: "budget", mode, tokens: limits.tokens }
@@ -143,8 +135,8 @@ function createBudgetCapability(options: AgentBudgetOptions, allowCapacity: bool
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
-          return { maxOutputTokens: hasRuntimeType(current, "number") ? Math.min(current, maxOutputTokens) : maxOutputTokens }
+          if (hasRuntimeType(current, "number")) return current <= maxOutputTokens ? undefined : { maxOutputTokens }
+          return { maxOutputTokens }
         },
       })
     },
