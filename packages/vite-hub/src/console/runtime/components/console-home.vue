@@ -197,14 +197,10 @@ onBeforeUnmount(() => request++);
             <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-12"
-              color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
-              ]"
+              :error="error"
+              :retry="loadSections"
             />
 
             <template v-else>
