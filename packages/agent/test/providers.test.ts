@@ -2069,7 +2069,8 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
-      expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+      expect(netlifyFunction).not.toContain("vitehubSetScheduleRuntimeRegistry")
+      expect(netlifyFunction).toContain("schedule: { schedules: vitehubAgentScheduleRegistry }")
       expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
       expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
