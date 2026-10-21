@@ -9,7 +9,7 @@ export default defineConfig({
       neverBundle: [/^@vite-hub\/(?:database|runtime|source|workspace)(?:\/|$)/, "comark-content", /^comark-content\//, "vite", "yaml"],
       onlyBundle: false,
     },
-    entry: ["src/client.ts", "src/index.ts", "src/presets/cms.ts", "src/vite.ts"],
+    entry: ["src/client.ts", "src/collections.ts", "src/index.ts", "src/presets/cms.ts", "src/vite.ts"],
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {

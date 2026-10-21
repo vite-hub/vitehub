@@ -13,30 +13,48 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
-import { isDocumentsDefinition } from "./documents.ts"
+import { documentsRuntimeOf, isDocumentsDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
-  ContentCollectionsRuntime,
-  ContentHistorySource,
+  ContentDocument,
+  ContentDocumentState,
+  ContentDocumentStatus,
+  ContentDocumentSummary,
+  ContentListOptions,
+  ContentPage,
+  ContentPublishExpectation,
+  ContentPublishMismatch,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRawDocument,
+  ContentReadOptions,
   ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
-} from "./collections.ts"
+} from "./collections-types.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentFields, DocumentsDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
+
+type ContentHistorySource = ComarkContentSource & { readonly loadedRevision?: string | null }
+interface ContentCollectionsRuntime {
+  readonly collections: ReadonlyMap<string, ContentCollection>
+  collection(name: string): ContentCollection
+  publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
+  revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  comarkSource(name: string): ContentHistorySource
+  onPublish(listener: (collections: string[]) => Promise<void> | void): void
+  head(ref: ContentRef): Promise<string | null>
+  dispose(): void
+}
 export { contentSource } from "./content-source.ts"
 export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
-export { documents, optional } from "./documents.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export type {
   ContentField,
@@ -67,7 +85,7 @@ export type {
   ContentRevisionsResult,
   ContentSaveInput,
   ContentWriteOptions,
-} from "./collections.ts"
+} from "./collections-types.ts"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>
@@ -229,8 +247,8 @@ export function defineContent<
   }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
-    if (!isDocumentsDefinition(definition)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents().` })
+    if (!isDocumentsDefinition(definition) || !documentsRuntimeOf(definition)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() from @vite-hub/content/collections.` })
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
@@ -242,8 +260,9 @@ export function defineContent<
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
   const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
-  const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
-    ? createContentCollections({
+  const createCollections = collectionEntries[0] && documentsRuntimeOf(collectionEntries[0][1])
+  const documentsRuntime: ContentCollectionsRuntime | undefined = createCollections
+    ? createCollections({
         workspace: workspace!,
         // SAFETY: Each definition was checked with isDocumentsDefinition() above.
         collections: Object.fromEntries(collectionEntries),
