@@ -20,12 +20,18 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
   const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
-  await execFileAsync(command, commandArgs, {
-    cwd,
-    env: { ...process.env, CI: "true" },
-    killSignal: "SIGKILL",
-    timeout: 60_000,
-  })
+  try {
+    await execFileAsync(command, commandArgs, {
+      cwd,
+      env: { ...process.env, CI: "true" },
+      killSignal: "SIGKILL",
+      timeout: 60_000,
+    })
+  }
+  catch (error) {
+    const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr) : String(error)
+    throw new Error(`Command failed: ${command} ${commandArgs.join(" ")}\n${detail}`, { cause: error })
+  }
 }
 
 async function availablePort(): Promise<number> {
