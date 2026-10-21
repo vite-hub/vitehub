@@ -177,11 +177,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         return [{ definition: { export: cmsWorkspaceExport, module }, name: plan.workspace, reason: "Stores the documents of the Content cms preset." }]
       },
       async databases(context: DatabaseContributionContext) {
-        const root = projectRoot ?? context.root
-        const otherPlugins = await pluginsWithoutContent(resolvedPlugins)
+        const root = projectRoot ?? context.projectRoot
+        const otherPlugins = await pluginsWithoutContent(resolvedPlugins ?? context.plugins)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const contributed = await collectDatabaseContributions(otherPlugins, { ...context, rootDir: context.rootDir, projectRoot: root, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot: context.root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
