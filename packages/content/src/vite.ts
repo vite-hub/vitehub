@@ -10,6 +10,8 @@ import { parseAst } from "vite"
 
 export interface ContentConsoleOptions {
   projectRoot: string
+  /** Module specifier used to import defineContent. */
+  contentImportBase?: string
   /** Server directories to search, relative to `projectRoot`. Defaults to `server`. */
   serverDirs?: string[]
 }
@@ -46,14 +48,15 @@ function unwrap(node: unknown): unknown {
  * `content` export and answers false only when it can tell that the call has no non-empty `collections` object.
  * Anything it cannot follow, such as options built by a function or imported from another file, counts as maybe.
  */
-function contentModuleDefinesCollections(program: unknown): boolean {
+function contentModuleDefinesCollections(program: unknown, contentImportBase?: string): boolean {
   const body = isNode(program) ? nodes(program.body) : []
+  const modules = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
   let contentInit: unknown
   let contentLocal: string | undefined
   for (const statement of body) {
-    if (statement.type === "ImportDeclaration" && isNode(statement.source) && contentModules.has(String(statement.source.value))) {
+    if (statement.type === "ImportDeclaration" && isNode(statement.source) && modules.has(String(statement.source.value))) {
       for (const specifier of nodes(statement.specifiers)) {
         if (specifier.type === "ImportSpecifier" && name(specifier.imported) === "defineContent") {
           const local = name(specifier.local)
@@ -117,7 +120,7 @@ async function findContentCollectionsEntry(options: ContentConsoleOptions): Prom
     // The runtime reports the syntax error. Keep the section so the editor shows it.
     return file
   }
-  return contentModuleDefinesCollections(program) ? file : undefined
+  return contentModuleDefinesCollections(program, options.contentImportBase) ? file : undefined
 }
 
 /**
