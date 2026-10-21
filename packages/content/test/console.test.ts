@@ -383,7 +383,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     // The draft drops the cover; the published version still uses it.
     await actions.save({ collection: "posts", id: "launch", data: { title: "Launch" }, body: "Text\n", ifDigest: launch.digest }, editor)
     await actions.save({ collection: "posts", id: "gallery", data: { title: "Gallery", gallery: ["heroes/launch.jpg"] }, body: "", ifDigest: null }, editor)
-    await actions.save({ collection: "notes", id: "body", data: { title: "In the body" }, body: "![Launch](heroes/launch.jpg)\n", ifDigest: null }, editor)
+    await actions.save({ collection: "notes", id: "body", data: { title: "In the body" }, body: "![Launch](heroes/launch.jpg \"Launch image\")\n", ifDigest: null }, editor)
     const found = await actions.references({ pathnames: ["heroes/launch.jpg", "unused.png"] }, editor)
     expect(found.references["unused.png"]).toEqual([])
     expect(found.references["heroes/launch.jpg"]).toEqual(expect.arrayContaining([

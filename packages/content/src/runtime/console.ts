@@ -647,7 +647,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             for (const pathname of pathnames) {
               const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
               const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-              const destination = new RegExp(`\\]\\(\\s*<?${escaped}(?:[?#][^\\s)>]*)?\\s*>?\\)`)
+              const destination = new RegExp(`\\]\\(\\s*(?:<${escaped}(?:[?#][^\\s>)]*)?>|${escaped}(?:[?#][^\\s)>]*)?)\\s*(?:"[^"]*"|'[^']*'|\\([^)]*\\))?\\s*\\)`)
               for (const item of page.items) {
                 if (typeof item.data.body === "string" && destination.test(item.data.body)) add(pathname, item)
               }
