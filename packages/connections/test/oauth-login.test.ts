@@ -192,13 +192,13 @@ describe("oauthLogin", () => {
     expect(test.server.log).toEqual(["POST /api/auth/oauth2/token", "POST /mcp"])
   })
 
-  it("is disconnected without credentials and fails requests with reauth_required", async () => {
+  it("is disconnected without credentials and fails requests as not connected", async () => {
     const test = setup({ acme: "bot@example.com:pa:ss", beta: undefined })
     expect((await test.runtime.list()).map(connection => [connection.name, connection.status])).toEqual([
       ["portal:acme", "connected"],
       ["portal:beta", "disconnected"],
     ])
-    await expect(test.post("portal:beta")).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.post("portal:beta")).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect(test.server.log).toEqual([])
   })
 
@@ -206,7 +206,7 @@ describe("oauthLogin", () => {
     for (const issuer of [undefined, `${ISSUER}/other`]) {
       const test = setup()
       test.server.issuerMetadata = issuer
-      await expect(test.post()).rejects.toMatchObject({ code: "CONNECTION_PROVIDER" })
+      await expect(test.post()).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
       expect(test.server.registrations).toEqual([])
     }
   })
@@ -218,7 +218,7 @@ describe("oauthLogin", () => {
     expect(failures.map(failure => failure.status)).toEqual(["rejected", "rejected"])
     expect(test.server.log.filter(line => line === "POST /api/auth/sign-in")).toHaveLength(1)
     const [failure] = failures
-    expect(failure?.status === "rejected" ? failure.reason : undefined).toMatchObject({ code: "CONNECTION_PROVIDER" })
+    expect(failure?.status === "rejected" ? failure.reason : undefined).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect(String(failure?.status === "rejected" ? failure.reason.message : "")).not.toContain("pa:ss")
     test.server.password = "pa:ss"
     expect(await test.post()).toMatch(/^token-/)
@@ -227,7 +227,7 @@ describe("oauthLogin", () => {
   it("rejects a login result that does not match the request", async () => {
     for (const result of ["https://evil.example.com/callback?code=code-1", `${REDIRECT_URI}?code=code-1&state=other`, `${REDIRECT_URI}?error=access_denied`]) {
       const test = setup({ acme: "bot@example.com:pa:ss" }, { login: async () => result })
-      await expect(test.post()).rejects.toMatchObject({ code: "CONNECTION_PROVIDER" })
+      await expect(test.post()).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     }
   })
 
@@ -245,7 +245,7 @@ describe("oauthLogin", () => {
   it("sends the token only to the mcp endpoint and the declared origins", async () => {
     const test = setup({ acme: "bot@example.com:pa:ss" }, { origins: ["https://api.example.com"] })
     const client = test.runtime.client("portal:acme", { actor: "server" })
-    await expect(client.fetch("https://other.example.com/mcp")).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(client.fetch("https://other.example.com/mcp")).rejects.toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
     expect((await client.fetch("https://api.example.com/v1")).status).toBe(404)
     expect(test.server.log.at(-1)).toBe("GET https://api.example.com/v1")
   })
@@ -275,10 +275,10 @@ describe("oauthLogin", () => {
   })
 
   it("rejects invalid providers", () => {
-    expect(() => oauthLogin({ login })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
-    expect(() => oauthLogin({ login, mcp: "http://portal.example.com/mcp" })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
-    expect(() => oauthLogin({ login, mcp: MCP, redirectUri: "http://example.com/callback" })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
-    expect(() => oauthLogin({ login, mcp: MCP, origins: ["https://api.example.com/v1"] })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => oauthLogin({ login })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_PROVIDER" }))
+    expect(() => oauthLogin({ login, mcp: "http://portal.example.com/mcp" })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_PROVIDER" }))
+    expect(() => oauthLogin({ login, mcp: MCP, redirectUri: "http://example.com/callback" })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_PROVIDER" }))
+    expect(() => oauthLogin({ login, mcp: MCP, origins: ["https://api.example.com/v1"] })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_PROVIDER" }))
     expect(oauthLogin({ login, mcp: "http://127.0.0.1:8787/mcp" })).toMatchObject({ kind: "oauth-login", mcp: "http://127.0.0.1:8787/mcp", redirectUri: REDIRECT_URI })
   })
 })
@@ -301,8 +301,8 @@ describe("keyed Connections", () => {
     })
     const runtime = createConnectionsRuntime({ definitions: { group: async () => ({ default: definition }) }, store: createStore() })
     expect((await runtime.list()).map(connection => connection.name)).toEqual(["group:one"])
-    expect(() => defineConnection({ instances: ["a", "a"], definition: () => definition.definition("one") })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
-    expect(() => defineConnection({ instances: ["a:b"], definition: () => definition.definition("one") })).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID" }))
+    expect(() => defineConnection({ instances: ["a", "a"], definition: () => definition.definition("one") })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
+    expect(() => defineConnection({ instances: ["a:b"], definition: () => definition.definition("one") })).toThrow(expect.objectContaining({ code: "CONNECTIONS_INVALID_DEFINITION" }))
     // SAFETY: The test checks that the runtime rejects an instance definition that is not a Connection Definition.
     const broken = { instances: ["one"], definition: () => ({}) } as unknown as typeof definition
     const brokenRuntime = createConnectionsRuntime({ definitions: { group: broken }, store: createStore() })
