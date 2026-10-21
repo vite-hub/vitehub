@@ -14,6 +14,7 @@ import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
   budget?: ExecutionBudget
+  budgetCharged?: boolean
   broadSearchPaths?: string[]
   commands?: string[]
   cwd?: string
@@ -36,7 +37,9 @@ export async function runWorkspaceInspectionCommand(
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
-  const chargeRejected = () => options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+  const chargeRejected = () => {
+    if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+  }
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
   if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
   const preflight = await withInspectionTimeout(timeout, options.signal, async (signal) => {
@@ -64,6 +67,7 @@ export async function runWorkspaceInspectionCommand(
   const cwd = options.cwd || workspaceMountPoint
   const result = await runtime.exec(command, {
     budget: options.budget,
+    budgetCharged: options.budgetCharged,
     cwd,
     timeout,
     signal: options.signal,

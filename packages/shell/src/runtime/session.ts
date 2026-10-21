@@ -75,8 +75,8 @@ class RuntimeShellSession implements ShellSession {
       return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
     // Count every attempted shell invocation against the shared Invocation budget,
-    // including calls rejected by the per-session shell cap below.
-    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+    // including calls rejected by the per-session shell cap below, unless the caller already charged it.
+    if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
         command,
