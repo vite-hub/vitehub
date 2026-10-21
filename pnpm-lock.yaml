@@ -38,7 +38,7 @@ catalogs:
       version: 1.0.0-beta.16
   auth:
     better-auth:
-      specifier: 1.7.10
+      specifier: 1.7.7
       version: 1.7.7
     jose:
       specifier: ^6.2.12
