@@ -132,7 +132,7 @@ export function describeDatabaseContribution(contribution: CollectedDatabaseCont
 }
 
 function isThenable(value: Record<string, unknown>): value is Record<string, unknown> & PromiseLike<unknown> {
-  return value.then instanceof Function
+  return typeof value.then === "function"
 }
 
 async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unknown>): Promise<void> {
@@ -196,8 +196,9 @@ export async function collectDatabaseContributions(
     const pluginName: unknown = Reflect.get(candidate, "name")
     const plugin = String(pluginName) === pluginName && pluginName ? pluginName : "unnamed plugin"
     // Run each factory once, then route Definition entries here and table entries to the shared collector.
-    const entries: unknown = source instanceof Function ? await Reflect.apply(source, undefined, [factoryContext]) : source
-    if (entries === undefined && source instanceof Function) continue
+    const callable = typeof source === "function"
+    const entries: unknown = callable ? await Reflect.apply(source, undefined, [factoryContext]) : source
+    if (entries === undefined && callable) continue
     if (!Array.isArray(entries)) {
       tablePlugins.push({ name: plugin, vitehub: { databases: entries } })
       continue
