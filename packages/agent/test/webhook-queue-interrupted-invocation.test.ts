@@ -113,7 +113,9 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
+    // The record turns running before the driver starts, so wait for the first attempt to reach the driver.
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce(), firstDrain)
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
 
     await fixture.invocations.cancel(fixture.id)
     await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "cancelled" }))
@@ -130,7 +132,9 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
+    // The record turns running before the driver starts, so wait for the first attempt to reach the driver.
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce(), firstDrain)
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
     await stopFirstProcess()
 
     await fixture.invocations.cancel(fixture.id)
@@ -145,7 +149,9 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     const fixture = await setup()
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }), firstDrain)
+    // The record turns running before the driver starts, so wait for the first attempt to reach the driver.
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce(), firstDrain)
+    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "running" }))
     await stopFirstProcess()
 
     // The next claim finds the delivery out of attempts, so the queue does not run it again.
