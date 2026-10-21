@@ -3335,22 +3335,20 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const workspaceOptions = (agent as AgentDefinition & {
     __vitehubWorkspaceAgentOptions?: { workspace?: unknown }
   }).__vitehubWorkspaceAgentOptions
-  const hasExplicitWorkspaceInstructions = (value: unknown): boolean => {
+  // Normalized Sources (the settings Workspace and the definition's own Sources) also hold the
+  // instructions.md build Source that a source root derives. That one is not explicit: the
+  // Provider Driver gets the document as instructions instead. Authored options hold only what
+  // the author declared.
+  const hasExplicitWorkspaceInstructions = (value: unknown, normalized: boolean): boolean => {
     if (!hasRuntimeType(value, "object") || !isRuntimeRecord(value)) return false
     const sources = isRuntimeRecord(value.sources) ? value.sources : value
-    return Object.hasOwn(sources, "__vitehubAgentInstructions")
-      || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
+    return (Object.hasOwn(sources, "__vitehubAgentInstructions")
+      && !(normalized && isColocatedAgentInstructionsBuildSource(sources.__vitehubAgentInstructions)))
+      || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace, normalized))
   }
-  // The definition's own Sources also hold the instructions.md build Source that a source root
-  // derives. That one is not explicit: the Provider Driver gets the document as instructions instead.
-  const definitionSources = (agent as AgentDefinition & { sources?: unknown }).sources
-  const explicitDefinitionInstructions = isRuntimeRecord(definitionSources)
-    && Object.hasOwn(definitionSources, "__vitehubAgentInstructions")
-    && !isColocatedAgentInstructionsBuildSource(definitionSources.__vitehubAgentInstructions)
-  const explicitWorkspaceInstructions = explicitDefinitionInstructions || [
-    settings.workspace,
-    workspaceOptions?.workspace,
-  ].some(hasExplicitWorkspaceInstructions)
+  const explicitWorkspaceInstructions = hasExplicitWorkspaceInstructions(workspaceOptions?.workspace, false)
+    || hasExplicitWorkspaceInstructions(settings.workspace, true)
+    || hasExplicitWorkspaceInstructions((agent as AgentDefinition & { sources?: unknown }).sources, true)
   if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
   const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
