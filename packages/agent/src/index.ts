@@ -146,6 +146,7 @@ import {
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
+  isColocatedAgentInstructionsBuildSource,
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
@@ -3340,10 +3341,15 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
     return Object.hasOwn(sources, "__vitehubAgentInstructions")
       || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
   }
-  const explicitWorkspaceInstructions = [
+  // The definition's own Sources also hold the instructions.md build Source that a source root
+  // derives. That one is not explicit: the Provider Driver gets the document as instructions instead.
+  const definitionSources = (agent as AgentDefinition & { sources?: unknown }).sources
+  const explicitDefinitionInstructions = isRuntimeRecord(definitionSources)
+    && Object.hasOwn(definitionSources, "__vitehubAgentInstructions")
+    && !isColocatedAgentInstructionsBuildSource(definitionSources.__vitehubAgentInstructions)
+  const explicitWorkspaceInstructions = explicitDefinitionInstructions || [
     settings.workspace,
     workspaceOptions?.workspace,
-    (agent as AgentDefinition & { sources?: unknown }).sources,
   ].some(hasExplicitWorkspaceInstructions)
   if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
