@@ -363,6 +363,18 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     return record?.hash === hash ? record : undefined
   }
 
+  async function repairHashIndex(hash: string, excluding?: string): Promise<void> {
+    const objects = await listAll(mediaRecordsPrefix)
+    for (const object of objects) {
+      const record = sanitizeMediaRecord(await readJson(object.pathname))
+      if (record?.hash === hash && canonical(record.pathname) !== canonical(excluding ?? "")) {
+        await writeJson(hashPath(hash), { pathname: record.pathname })
+        return
+      }
+    }
+    await driver.delete([hashPath(hash)])
+  }
+
   async function removeReplacement(replacement: MediaCropReplacement): Promise<void> {
     await driver.delete([replacement.pathname])
     await context.clearDerived(replacement.pathname)
@@ -389,7 +401,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     await driver.delete([recordPath(pathname)])
     if (record?.hash) {
       const entry = await readJson(hashPath(record.hash))
-      if (isRecord(entry) && entry.pathname === pathname) await driver.delete([hashPath(record.hash)])
+      if (isRecord(entry) && entry.pathname === pathname) await repairHashIndex(record.hash, pathname)
     }
   }
 
@@ -440,6 +452,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
   }
 
   function normalizeTarget(pathname: string): string {
+    let decoded: string
+    try { decoded = decodeURIComponent(pathname) }
+    catch { throw invalid("Media pathname is not valid URL encoding.") }
+    if (decoded.split(/[\\/]/).some(part => part === "." || part === ".." || [...part].some(char => char < " " || char === "\u007f"))) {
+      throw invalid("Media pathname contains invalid path segments.")
+    }
     const normalized = context.normalizePathname(pathname)
     if (!normalized || normalized.endsWith("/")) throw invalid("Media pathname must name a file, not a folder.")
     if (isReservedPathname(normalized)) throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace." })
@@ -488,7 +506,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (appliedCrops) record.crops = appliedCrops.crops
     if (previous) await context.clearDerived(object.pathname)
     await writeRecord(record)
-    await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
+    if (!await readJson(hashPath(analysis.hash))) await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
     for (const replacement of appliedCrops?.removed ?? []) await removeReplacement(replacement)
     return record
   }

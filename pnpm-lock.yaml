@@ -491,9 +491,9 @@ overrides:
 packageExtensionsChecksum: sha256-pz55lQlIjTQPMQabQqX4BU7iLItd/t6YD6/SNMt/XKQ=
 
 patchedDependencies:
-  '@netlify/blobs@11.1.4':
-    hash: e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd
-    path: patches/@netlify__blobs@11.1.4.patch
+  '@netlify/blobs@11.1.3':
+    hash: 0442d5aa3103362ea084742770306552a43b2047322742af4e5ce9782a3ba6b8
+    path: patches/@netlify__blobs@11.1.3.patch
   '@pierre/trees@1.0.0-beta.6':
     hash: 9514e905b6e4cd1bc58382bfba42af1b69f3386a5ca40b6241e91aa47b05061d
     path: patches/@pierre__trees@1.0.0-beta.6.patch
