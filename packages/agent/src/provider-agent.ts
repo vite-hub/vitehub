@@ -403,14 +403,6 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
 
 const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
 const invalidatedProviderSessions = new WeakMap<ProviderRuntimeSessionStore, Set<ThreadId>>()
-const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
-
-interface ProviderSessionCursorRecord {
-  [providerSessionCursorRecordKey]: "invalidated" | "ready"
-  /** Digest of the Codex developer instructions that started the provider session. */
-  instructions?: string
-  value?: unknown
-}
 
 /** A provider session cursor and the developer instructions its session started with. */
 interface ProviderResumeState {
