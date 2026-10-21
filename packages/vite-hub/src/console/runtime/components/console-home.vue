@@ -309,54 +309,7 @@ onBeforeUnmount(() => request++);
                     </ul>
                   </div>
                 </div>
-                <ul class="vitehub-console__overview-list">
-                  <li v-if="lastSectionDetails">
-                    <button
-                      type="button"
-                      class="vitehub-console__overview-row"
-                      :aria-label="`Open ${lastSectionDetails.label}`"
-                      @click="openSection(lastSectionDetails.routeName)"
-                    >
-                      <span class="vitehub-console__overview-icon">
-                        <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-3.5" />
-                      </span>
-                      <span class="vitehub-console__overview-name">{{ lastSectionDetails.label }}</span>
-                      <span class="vitehub-console__overview-description">{{ lastSectionDetails.description }}</span>
-                      <span class="vitehub-console__overview-meta">Last visited</span>
-                    </button>
-                  </li>
-                  <template v-if="agentsEnabled">
-                    <li v-if="recentSessions.pending.value && !sessionItems.length" aria-hidden="true">
-                      <USkeleton class="my-2 h-5 rounded-md" />
-                    </li>
-                    <li v-else-if="recentSessions.error.value" class="vitehub-console__overview-row" data-static>
-                      <span class="vitehub-console__overview-icon"><UIcon name="i-ph-cloud-slash-light" class="size-3.5" /></span>
-                      <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
-                      <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
-                    </li>
-                    <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row" data-static>
-                      <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
-                    </li>
-                    <li v-for="session in sessionItems" v-else :key="session.id">
-                      <button
-                        type="button"
-                        class="vitehub-console__overview-row"
-                        :disabled="!session.agentName"
-                        :aria-label="`Open ${session.agentName || 'Agent'} session ${session.context}, status ${session.status}${session.time ? `, ${session.time}` : ''}`"
-                        @click="session.agentName && openSession(session.agentName, session.id)"
-                      >
-                        <span class="vitehub-console__overview-icon">
-                          <span class="size-1.5 rounded-full" :class="session.dot" aria-hidden="true" />
-                        </span>
-                        <span class="vitehub-console__overview-name">{{ session.agentName || "Agent Invocation" }}</span>
-                        <span class="vitehub-console__overview-description">{{ session.context }}</span>
-                        <span class="vitehub-console__overview-meta">
-                          {{ session.status }}<template v-if="session.time"> · <time>{{ session.time }}</time></template>
-                        </span>
-                      </button>
-                    </li>
-                  </template>
-                </ul>
+
               </section>
 
               <section

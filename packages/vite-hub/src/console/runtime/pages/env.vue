@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { navigateTo, onMounted, ref, useHead, useRuntimeConfig } from "#imports";
 
+import { consoleErrorMessage } from "../client/documents";
 import { requestConsole } from "../client/request";
 import { isConsoleSectionId } from "../sections";
 import ConsoleEnv from "../components/console-env.vue";
@@ -55,6 +56,7 @@ onMounted(loadSections);
           variant="subtle"
           icon="i-lucide-cloud-off"
           title="Could not load the ViteHub Console"
+          :description="consoleErrorMessage(loadError)"
           :actions="[
             { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
           ]"

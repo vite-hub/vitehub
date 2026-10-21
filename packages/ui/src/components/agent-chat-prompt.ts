@@ -77,9 +77,10 @@ export const AgentChatPrompt = defineComponent({
       const clipboard = event.clipboardData;
       if (!clipboard) return;
       const hasText = clipboard.getData("text/plain").length > 0;
-      const files = Array.from(clipboard.files).filter(
-        (file) => file.type.startsWith("image/") || !hasText,
-      );
+      // Leave text-bearing pastes to the prompt so the browser can insert it.
+      // Intercepting a mixed payload would otherwise discard that text.
+      if (hasText) return;
+      const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/"));
       if (files.length === 0) return;
       await addFiles(files, () => event.preventDefault());
     };
