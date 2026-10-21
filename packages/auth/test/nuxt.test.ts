@@ -24,7 +24,7 @@ function createNuxt() {
         alias: { "#nitro-existing": "/tmp/nitro-existing.mjs" },
         plugins: ["/tmp/existing-plugin.mjs"],
       },
-      plugins: [] as string[],
+      plugins: [] as Array<string | { src: string, order?: number }>,
       rootDir: "/tmp/vitehub-auth-nuxt",
     },
   }
@@ -37,12 +37,13 @@ describe("Auth Nuxt integration", () => {
 
     hubAuthNuxt({ env: false }, nuxt)
 
-    expect(nuxt.options.plugins?.[0]).toMatch(/\/runtime\/vue-nuxt\.js$/)
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ src: expect.stringMatching(/\/runtime\/vue-nuxt\.js$/) })
     expect(nuxt.options.plugins?.[1]).toBe("/tmp/user-plugin.mjs")
 
     nuxt.options.plugins.unshift("/tmp/later-module-plugin.mjs")
     nuxt.hooks[1]({} as never)
-    expect(nuxt.options.plugins?.[0]).toMatch(/\/runtime\/vue-nuxt\.js$/)
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
   })
   it("registers the Env resolver for the generated Auth Definition", async () => {
     const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")

@@ -20,7 +20,7 @@ export interface AuthNuxtModuleOptions {
 type NuxtLike = {
   hook?: (name: "modules:done" | "nitro:config", handler: ((nitroConfig: Record<string, unknown>) => Promise<void>) | (() => void)) => void
   options: {
-    plugins?: string[]
+    plugins?: Array<string | { src: string, order?: number }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -54,9 +54,10 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   nuxt.options.plugins ??= []
   const vueRuntimePlugin = fileURLToPath(new URL("./runtime/vue-nuxt.js", import.meta.url))
   const ensureVueRuntimePlugin = () => {
-    const index = nuxt.options.plugins!.indexOf(vueRuntimePlugin)
-    if (index > 0) nuxt.options.plugins!.splice(index, 1)
-    if (index !== 0) nuxt.options.plugins!.unshift(vueRuntimePlugin)
+    const index = nuxt.options.plugins!.findIndex(plugin => typeof plugin === "string" ? plugin === vueRuntimePlugin : plugin.src === vueRuntimePlugin)
+    if (index === 0) return
+    const bridge = index < 0 ? { src: vueRuntimePlugin, order: -1 } : nuxt.options.plugins!.splice(index, 1)[0]
+    nuxt.options.plugins!.unshift(bridge)
   }
   ensureVueRuntimePlugin()
 
