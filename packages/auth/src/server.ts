@@ -211,6 +211,21 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
   return false
 }
 
+type HeadersInput = ConstructorParameters<typeof Headers>[0]
+
+/**
+ * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
+ * Fetch implementation, gives its fields through `entries()`, not through its own properties.
+ */
+function headersInit(headers: AuthRequest["headers"]): HeadersInput {
+  const value: unknown = headers
+  if (typeof value !== "object" || value === null || typeof Reflect.get(value, Symbol.iterator) === "function") return headers as HeadersInput
+  const entries: unknown = Reflect.get(value, "entries")
+  if (typeof entries !== "function") return headers as HeadersInput
+  // SAFETY: The Headers constructor validates each entry and throws for an invalid one.
+  return Array.from(Reflect.apply(entries, value, []) as Iterable<[string, string]>)
+}
+
 function toRequest(request: AuthRequest): Request {
   if (request instanceof Request || isRequestLike(request)) return request
   const init: RequestInitWithDuplex = {
@@ -218,7 +233,7 @@ function toRequest(request: AuthRequest): Request {
   }
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
-  init.headers = new Headers(request.headers as ConstructorParameters<typeof Headers>[0])
+  init.headers = new Headers(headersInit(request.headers))
   if (isAbortSignalLike(request.signal)) init.signal = request.signal
   if (request.body) {
     init.body = request.body
