@@ -237,7 +237,8 @@ export function defineContent<
   const { source, sources, collections, authorize, ...sharedOptions } = options
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
-  if (authorize !== undefined && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
+  if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
   for (const plugin of options.plugins ?? []) {

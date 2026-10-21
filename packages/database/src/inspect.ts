@@ -1,17 +1,24 @@
 import { join } from "pathe"
+
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readStaticDatabaseSchema } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
-import { discoverDatabaseDefinitions, readStaticDatabaseSchema } from "./config.ts"
-
-import type { ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
+import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
+import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
 export interface DatabaseInspectionOptions {
+  /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
+  implicitDefault?: boolean
+  /** Vite plugins that can contribute tables through `vitehub.databases`. */
   plugins?: readonly unknown[]
   projectRoot: string
+  /** Root that Database Definitions are discovered from. */
   rootDir: string
   serverDirs?: string[]
+  /** Vite root that contribution factories receive. Defaults to `rootDir`. */
   viteRoot?: string
 }
 
@@ -23,30 +30,48 @@ function describeTables(files: string[]) {
   return tableNames.length ? `${tableNames.join(", ")}, plus an imported or spread schema` : "Imported or spread schema"
 }
 
-/** Lists Database Definitions with their mode, the tables their sources declare, and the files that add tables to them, without loading them. */
+// A contribution module is a table module, not a Definition, so inspection loads it to name its tables.
+async function describeContributedTables(contribution: ResolvedDatabaseContribution, rootDir: string): Promise<ViteHubDefinitionField> {
+  const tables = await loadContributedDatabaseSchema(contribution, join(rootDir, "package.json"), { onFallback: () => {} })
+    .then(schema => schema.loaded ? schema.tableNames.join(", ") || "No tables" : "Module did not load", (error: unknown) => error instanceof Error ? error.message : String(error))
+  return { label: "Contributed tables", value: [`${tables} from ${describeDatabaseContribution(contribution)}`, contribution.reason].filter(Boolean).join(". ") }
+}
+
+/**
+ * Lists Database Definitions with their mode, non-default dialect, the tables their source declares, and the tables Vite plugins
+ * contribute. Definitions are read from source without loading them.
+ */
 export async function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
-  const definitions = discoverDatabaseDefinitions(options.rootDir, { implicitDefault: true, serverDirs: options.serverDirs })
-  const contributions = await collectDatabaseContributions(options.plugins, { projectRoot: options.projectRoot, root: options.viteRoot ?? options.rootDir, serverDirs: options.serverDirs })
-  const byDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions)
+  const contributions = await collectDatabaseContributions(options.plugins, {
+    projectRoot: options.projectRoot,
+    root: options.viteRoot ?? options.rootDir,
+    rootDir: options.rootDir,
+    serverDirs: options.serverDirs,
+  })
+  const definitions = discoverDatabaseDefinitions(options.rootDir, {
+    definitions: contributions.definitions,
+    implicitDefault: options.implicitDefault,
+    serverDirs: options.serverDirs,
+  })
+  const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
+  // The build checks contribution dialects, so inspection does too.
+  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
+      // SQLite is the default and stays implicit.
+      ...(dialects[definition.name] === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
+      ...isImplicitDefaultDatabase(definition)
+        ? [{ label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub uses an empty default Database. Add `server/databases/config.ts` to declare tables." }]
+        : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(definition.contributor ? [{ label: "Contributed by", value: definition.contributor }] : []),
+      ...(definition.reason ? [{ label: "Reason", value: definition.reason }] : []),
+      ...(definition.migrationsDir ? [{ label: "Migrations", value: relativeDefinitionFile(options.projectRoot, definition.migrationsDir) }] : []),
       ...definition.schemaSources.length > 1
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
         : [],
-      ...await Promise.all((byDatabase[definition.name] ?? []).map(async contribution => {
-        let tables: string
-        try {
-          tables = await loadContributedDatabaseSchema(contribution, join(options.rootDir, "package.json"), { onFallback: () => {} })
-            .then(schema => schema.loaded ? schema.tableNames.join(", ") || "No tables" : "Module did not load")
-        }
-        catch {
-          // Inspection must remain useful when a contribution has an invalid export.
-          tables = "Module did not load"
-        }
-        return { label: "Contributed tables", value: `${tables} from ${describeDatabaseContribution(contribution)}` }
-      })),
+      ...await Promise.all((contributionsByDatabase[definition.name] ?? []).map(contribution => describeContributedTables(contribution, options.rootDir))),
     ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,

@@ -3,15 +3,14 @@ import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/
 import { NuxtLink } from "#components";
 import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
-  getDocsCatalog,
-  getDocsSectionForPath,
+  getDocsRailCatalog,
   getUncategorizedDocsSections,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const currentSection = useDocsSection();
 // One rail group for each catalog category. Sections without a category stay reachable in a last group.
 const groups = [
-  ...getDocsCatalog(docsManifest.sections).map((group) => group.sections),
+  ...getDocsRailCatalog(docsManifest.sections).map((group) => group.sections),
   getUncategorizedDocsSections(docsManifest.sections),
 ].filter((sections) => sections.length > 0);
 </script>
