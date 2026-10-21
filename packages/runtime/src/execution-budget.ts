@@ -52,6 +52,7 @@ export interface ExecutionBudget {
   consume(counter: ExecutionBudgetCounter, amount?: number): void
   recordInputBytes(amount: number): void
   recordOutputBytes(amount: number): void
+  cancel(reason?: unknown): void
   recordRetry(): void
   recordToolCall(inputBytes?: number): void
   snapshot(): ExecutionBudgetSnapshot
@@ -139,6 +140,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     recordOutputBytes(amount) {
       assertAvailable("outputBytes", amount)
       state.usage.outputBytes += amount
+    },
+    cancel(reason) {
+      controller.abort(reason)
     },
     recordRetry() {
       assertAvailable("retries", 1)
