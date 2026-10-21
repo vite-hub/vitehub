@@ -150,10 +150,10 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
     },
   },
   onError: (error, context) => {
-    // A node the editor cannot represent is dropped from the editor, not from the stored Markdown. Editing it here
-    // would delete it, so the body becomes read-only in Rich mode.
-    if (!loading) return;
-    lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+    // Load parsing is handled by the per-load operation below. Other errors are not enough to identify which load
+    // produced them, so they must not change the loss state of the active document.
+    void error;
+    void context;
   },
   onUpdate: () => {
     if (!loading) schedule();
@@ -190,11 +190,12 @@ function load(markdown: string): Promise<void> {
   lossy.value = undefined;
   return new Promise((resolve) => {
     let finished = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const done = async () => {
       if (finished) return;
       finished = true;
       instance.off("transaction", onTransaction);
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       if (token !== loading) {
         resolve();
         return;
@@ -221,10 +222,38 @@ function load(markdown: string): Promise<void> {
     const onTransaction = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
       if (transaction.getMeta("vitehubLoad") === token) void done();
     };
-    // Parsing is asynchronous. An empty body produces no transaction when the editor is already empty.
-    const timeout = setTimeout(() => void done(), 3_000);
-    instance.on("transaction", onTransaction);
-    void setContent(markdown, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } });
+    const fail = (error: unknown) => {
+      if (finished) return;
+      finished = true;
+      instance.off("transaction", onTransaction);
+      if (timeout) clearTimeout(timeout);
+      if (token !== loading) {
+        resolve();
+        return;
+      }
+      lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+      loading = 0;
+      setEditable();
+      resolve();
+    };
+    // Parse in this load's scope. This keeps parse failures tied to the active token instead of the editor-wide
+    // onError callback, whose context does not carry transaction metadata.
+    void parseMarkdown(markdown).then((tree) => {
+      if (token !== loading) {
+        resolve();
+        return;
+      }
+      // Parsing is asynchronous. An empty body produces no transaction when the editor is already empty.
+      timeout = setTimeout(() => void done(), 3_000);
+      instance.on("transaction", onTransaction);
+      // setContent may reject after parsing (for example when a node view cannot be created). Keep the
+      // per-load cleanup together so a failed load cannot leave the listener, timeout, or loading guard active.
+      void Promise.resolve()
+        .then(() => setContent(tree, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } }))
+        .catch(fail);
+    }).catch((error: unknown) => {
+      fail(error);
+    });
   });
 }
 

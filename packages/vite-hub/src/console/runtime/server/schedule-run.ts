@@ -69,7 +69,7 @@ async function runScheduleOperation(event: ConsoleRequestEvent): Promise<{ run: 
 }
 
 /** Console RPC operation behind the Schedules page "Run now" button. */
-export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation)
+export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation, { section: "schedules" })
 
 function failure(message: string, status: number): Response {
   return Response.json({ message }, { headers: responseHeaders, status })

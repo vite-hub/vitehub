@@ -42,6 +42,7 @@ const API_KEY_PATTERN = /^[\x21-\x7e]{1,8192}$/
 // The approval grant of a write requested while the provider `fallback` key was in use.
 // Stored grants use random 43-character ids, so the two never match.
 const FALLBACK_GRANT = "fallback"
+// The approval grant of a login provider. Its tokens are in memory, so an approval binds to the provider.
 const LOGIN_GRANT = "login"
 
 interface StoredToken {
@@ -55,7 +56,10 @@ interface StoredToken {
 }
 
 export interface ConnectionsRuntimeOptions {
-  /** Connection definitions by name, or loaders that import them. */
+  /**
+   * Connection definitions by name, or loaders that import them. A keyed definition with `instances`
+   * defines one Connection per instance, named `<name>:<instance>`.
+   */
   definitions: Readonly<Record<string, ConnectionDefinition | ConnectionInstancesDefinition | (() => Promise<unknown>)>>
   store: ConnectionStore | (() => ConnectionStore | Promise<ConnectionStore>)
   fetch?: typeof fetch
@@ -211,9 +215,16 @@ async function readResponse(response: Response): Promise<unknown> {
   }
 }
 
+/** A Connection Definition, or a keyed definition with `instances`. */
 type ConnectionModule = ConnectionDefinition | ConnectionInstancesDefinition
-function isConnectionModule(value: unknown): value is ConnectionModule { return isConnectionDefinition(value) || isConnectionInstances(value) }
-function isLoginDefinition(definition: ConnectionDefinition): definition is ConnectionLoginDefinition { return isLoginProvider(definition.provider) }
+
+function isConnectionModule(value: unknown): value is ConnectionModule {
+  return isConnectionDefinition(value) || isConnectionInstances(value)
+}
+
+function isLoginDefinition(definition: ConnectionDefinition): definition is ConnectionLoginDefinition {
+  return isLoginProvider(definition.provider)
+}
 
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
@@ -281,8 +292,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ problem: "length" })
     }
     const loaded = await loadDefinition(name)
-    if (loaded && isConnectionInstances(loaded)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "name" })
+    if (loaded && isConnectionInstances(loaded)) {
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, instances: loaded.instances, problem: "instances" })
+    }
     if (loaded) return loaded
+    // Instance keys cannot contain `:`, so the last one separates the definition name from the instance.
     const separator = name.lastIndexOf(":")
     const group = separator > 0 ? await loadDefinition(name.slice(0, separator)) : undefined
     const instance = name.slice(separator + 1)
@@ -290,11 +304,29 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let resolved = instanceDefinitions.get(name)
     if (!resolved) {
       const candidate: unknown = group.definition(instance)
-      if (!isConnectionDefinition(candidate)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "definition" })
+      if (!isConnectionDefinition(candidate)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ connection: name, problem: "instance" })
       resolved = candidate
       instanceDefinitions.set(name, resolved)
     }
     return resolved
+  }
+
+  /** Connection names, with each instance of a keyed definition as `<name>:<instance>`. */
+  async function connectionNames(): Promise<string[]> {
+    const names: string[] = []
+    for (const name of Object.keys(options.definitions).sort()) {
+      let loaded: ConnectionModule | undefined
+      try {
+        loaded = await loadDefinition(name)
+      }
+      catch {
+        // A broken lazy definition must not hide healthy Connections from discovery.
+        continue
+      }
+      if (loaded && isConnectionInstances(loaded)) names.push(...loaded.instances.map(instance => `${name}:${instance}`))
+      else names.push(name)
+    }
+    return names
   }
 
   function envContext(store: ConnectionStore, name: string, permission: "activity" | "replace" | "use", actor: string, options: UseConnectionOptions = {}): EnvAccessContext {
@@ -326,9 +358,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   function oauthProvider(definition: ConnectionDefinition, name: string): ConnectionProvider {
     const provider = definition.provider
-    if (isApiKeyProvider(provider) || isLoginProvider(provider)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: isApiKeyProvider(provider), connection: name })
-    }
+    if (isApiKeyProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: name })
+    if (isLoginProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name, login: "connect" })
     return provider
   }
 
@@ -527,7 +558,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const key = v.is(v.string(), value) ? value.trim() : undefined
     if (!key) return undefined
     if (!API_KEY_PATTERN.test(key)) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({})
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ connection: name, problem: "fallback-key" })
     }
     return key
   }
@@ -668,10 +699,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /** Send with an in-memory login token, recording activity and retrying once after a 401. */
+  /**
+   * Send with the in-memory token of a login provider. A `401` signs in again once and retries.
+   * Activity is recorded like an Env Bridge use while the store is open.
+   */
   async function sendWithLogin(context: CallContext, loaded: ConnectionLoginDefinition, providerRequest: ProviderRequest, init: SendInit): Promise<Response> {
     if (await logins.credentials(loaded.provider) === undefined) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name, problem: "refresh-token" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: context.name, login: "credentials" })
     }
     const connections = await getStore().catch(() => undefined)
     const operationId = crypto.randomUUID()
@@ -809,6 +843,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function inspect(name: string): Promise<ConnectionInspection> {
     const loaded = await definition(name)
+    // A login Connection is inspected without the store. It is connected while its credentials resolve,
+    // because each request signs in when it needs to. A failed sign-in fails that request.
     if (isLoginDefinition(loaded)) {
       const token = logins.latest(name)
       const declared = [...(loaded.scopes ?? [])]
@@ -1005,6 +1041,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function revoke(input: { actor?: string, name: string }): Promise<ConnectionInspection> {
     const loaded = await definition(input.name)
+    // A login Connection has no stored grant. Revoking it drops the tokens, and the next request signs in again.
+    if (isLoginProvider(loaded.provider)) {
+      logins.forget(input.name)
+      return await inspect(input.name)
+    }
     const connections = await getStore()
     const key = tokenKey(input.name)
     const actor = input.actor ?? "user:local"
@@ -1110,6 +1151,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function setKey(input: { actor?: string, key: string, name: string }): Promise<ConnectionInspection> {
     const name = input.name
     const loaded = await definition(name)
+    if (isLoginProvider(loaded.provider)) {
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "login-key" })
+    }
     if (!isApiKeyProvider(loaded.provider)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, problem: "oauth-key" })
     }
@@ -1159,20 +1203,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function list(): Promise<ConnectionInspection[]> {
-    const names: string[] = []
-    for (const name of Object.keys(options.definitions).sort()) {
-      try {
-        const loaded = await loadDefinition(name)
-        if (loaded && isConnectionInstances(loaded)) {
-          for (const instance of loaded.instances) names.push(`${name}:${instance}`)
-        }
-        else if (loaded) names.push(name)
-      }
-      catch {
-        // Preserve discovery behavior: a failed module does not hide other Connections.
-      }
-    }
-    return await Promise.all(names.map(name => inspect(name)))
+    return await Promise.all((await connectionNames()).map(name => inspect(name)))
   }
 
   async function activity(input: { before?: string, name: string }): Promise<readonly EnvActivity[]> {

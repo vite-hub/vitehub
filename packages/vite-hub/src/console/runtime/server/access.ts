@@ -15,7 +15,8 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `cloudflare-access`: the Cloudflare Access application token.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open" | "local" | "host-managed", authorize?: ConsoleAuthorize }
+  | { mode: "open", authorize?: ConsoleAuthorize }
+  | { mode: "local" }
   | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
@@ -428,30 +429,24 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("check" in policy && policy.check !== undefined && typeof policy.check !== "function") {
     throw new TypeError("[vitehub] Console access check must be a function.")
   }
+  if ("authorize" in policy && policy.authorize !== undefined && typeof policy.authorize !== "function") {
+    throw new TypeError("[vitehub] console.authorize must default-export a function.")
+  }
   if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if (policy.authorize !== undefined && typeof policy.authorize !== "function") {
-    throw new TypeError("[vitehub] console.authorize must default-export a function.")
-  }
-  scope[policyKey] = Object.freeze({ ...policy })
   if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
-    if (typeof globalThis.console?.warn === "function") globalThis.console.warn(consoleOpenAccessWarning)
+    globalThis.console?.warn(consoleOpenAccessWarning)
   }
+  scope[policyKey] = Object.freeze({ ...policy })
 }
 
 function productionRuntime(): boolean {
-  return typeof globalThis.process === "undefined" || globalThis.process?.env?.NODE_ENV === "production"
+  return globalThis.process?.env?.NODE_ENV !== "development"
 }
 
-function developmentRuntime(): boolean {
-  // Local Console access is safe only when the host identifies itself as a
-  // development runtime. Missing or partial process objects are unknown.
-  return globalThis.process?.env?.NODE_ENV === "development"
-}
-
-/** Rebuild the host request for runtimes that need its headers, such as Auth sessions. */
+/** Build the standard Fetch request passed to Console authorization and runtime contexts. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
@@ -463,14 +458,14 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       source.forEach((value, name) => setHeader(name, value))
       return
     }
-    if (source instanceof Object && "get" in source && typeof source.get === "function") {
+    if (source !== null && typeof source === "object" && "get" in source && typeof source.get === "function") {
       for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
       return
     }
-    if (!(source instanceof Object)) return
+    if (source === null || typeof source !== "object") return
     for (const [name, value] of Object.entries(source)) {
       if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
     }
@@ -499,15 +494,32 @@ function isRequestLike(value: unknown): value is Request {
   catch { return false }
 }
 
+const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+
+/**
+ * Return whether `value` is a Response of this runtime.
+ * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
+ * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
+ */
+function isRuntimeResponse(value: unknown): value is Response {
+  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
+  try {
+    Reflect.apply(nativeResponseStatus, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function isSectionId(value: unknown): value is ConsoleSectionId {
   return typeof value === "string" && value.length > 0
 }
 
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
-  // Authorization results may come from a different JavaScript realm.
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization results cross the JavaScript module boundary.
-  if (!result || typeof result !== "object") return
-  const sectionsValue = (result as { sections?: unknown }).sections
+  // A section result from another JavaScript realm fails `instanceof Object`.
+  if (result === null || typeof result !== "object") return
+  const sectionsValue = Reflect.get(result, "sections")
   if (!Array.isArray(sectionsValue)) return
   const sections: unknown[] = sectionsValue
   if (!sections.every(isSectionId)) return
@@ -528,38 +540,26 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
-  let authorizeResult: unknown
-  let authorizeResultReady = false
   if (policy.mode === "local") {
-    if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
-  } else if (policy.mode === "host-managed") {
-    // Host-managed exposure is already protected by the host. A callback is
-    // optional and, when present, can further restrict access.
-    if (policy.authorize) {
-      authorizeResult = await policy.authorize({ request: consoleRequest(event) })
-      authorizeResultReady = true
-    }
-  } else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
+    if (productionRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
+  }
+  else if (policy.mode === "open") {
+    // open access intentionally performs no authentication
+  }
+  else {
     if (!policy.check) {
       return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
         ? "console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
         : "Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
-    if (response) {
-      const normalized = await authorizationResponse(response)
-      if (normalized === invalidAuthorizationResponse) return rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
-      return normalized ?? rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
-    }
+    if (response) return response
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
   let sections: ConsoleAccess["sections"] = "all"
-  if (policy.authorize) {
-    const request = consoleRequest(event)
-    const result: unknown = authorizeResultReady ? authorizeResult : await policy.authorize(user ? { request, user } : { request })
-    const response = await authorizationResponse(result)
-    if (response === invalidAuthorizationResponse) return rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
-    if (response) return response
+  if (policy.mode !== "local" && policy.authorize) {
+    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
+    if (isRuntimeResponse(result)) return result
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)

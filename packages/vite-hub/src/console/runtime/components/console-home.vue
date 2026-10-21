@@ -24,6 +24,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -111,9 +112,6 @@ const summary = computed(() => {
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The console could not load its configuration.";
-}
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
@@ -196,17 +194,13 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <UAlert
+            <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-12"
-              color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
-              ]"
+              :error="error"
+              :retry="loadSections"
             />
 
             <template v-else>
@@ -309,54 +303,7 @@ onBeforeUnmount(() => request++);
                     </ul>
                   </div>
                 </div>
-                <ul class="vitehub-console__overview-list">
-                  <li v-if="lastSectionDetails">
-                    <button
-                      type="button"
-                      class="vitehub-console__overview-row"
-                      :aria-label="`Open ${lastSectionDetails.label}`"
-                      @click="openSection(lastSectionDetails.routeName)"
-                    >
-                      <span class="vitehub-console__overview-icon">
-                        <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-3.5" />
-                      </span>
-                      <span class="vitehub-console__overview-name">{{ lastSectionDetails.label }}</span>
-                      <span class="vitehub-console__overview-description">{{ lastSectionDetails.description }}</span>
-                      <span class="vitehub-console__overview-meta">Last visited</span>
-                    </button>
-                  </li>
-                  <template v-if="agentsEnabled">
-                    <li v-if="recentSessions.pending.value && !sessionItems.length" aria-hidden="true">
-                      <USkeleton class="my-2 h-5 rounded-md" />
-                    </li>
-                    <li v-else-if="recentSessions.error.value" class="vitehub-console__overview-row" data-static>
-                      <span class="vitehub-console__overview-icon"><UIcon name="i-ph-cloud-slash-light" class="size-3.5" /></span>
-                      <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
-                      <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
-                    </li>
-                    <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row" data-static>
-                      <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
-                    </li>
-                    <li v-for="session in sessionItems" v-else :key="session.id">
-                      <button
-                        type="button"
-                        class="vitehub-console__overview-row"
-                        :disabled="!session.agentName"
-                        :aria-label="`Open ${session.agentName || 'Agent'} session ${session.context}, status ${session.status}${session.time ? `, ${session.time}` : ''}`"
-                        @click="session.agentName && openSession(session.agentName, session.id)"
-                      >
-                        <span class="vitehub-console__overview-icon">
-                          <span class="size-1.5 rounded-full" :class="session.dot" aria-hidden="true" />
-                        </span>
-                        <span class="vitehub-console__overview-name">{{ session.agentName || "Agent Invocation" }}</span>
-                        <span class="vitehub-console__overview-description">{{ session.context }}</span>
-                        <span class="vitehub-console__overview-meta">
-                          {{ session.status }}<template v-if="session.time"> · <time>{{ session.time }}</time></template>
-                        </span>
-                      </button>
-                    </li>
-                  </template>
-                </ul>
+
               </section>
 
               <section
@@ -384,15 +331,15 @@ onBeforeUnmount(() => request++);
                       <span class="block text-sm font-medium text-highlighted">{{ section.label }}</span>
                       <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
-                  </div>
-                  <span
+                  </li>
+                  <li
                     v-for="filler in group.fillers"
                     :key="filler.index"
                     class="vitehub-console__overview-filler hidden"
                     :class="[filler.sm ? 'sm:block' : '', filler.lg ? 'lg:block' : 'lg:hidden']"
                     aria-hidden="true"
                   />
-                </div>
+                </ul>
               </section>
 
               <section v-if="notEnabledPrimitives.length" class="mt-12" aria-labelledby="console-home-not-enabled">
@@ -417,10 +364,10 @@ onBeforeUnmount(() => request++);
                         Set up
                         <UIcon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
-                    </span>
                     <span class="text-[13px]/[18px] text-muted">{{ entry.pitch }}</span>
                   </a>
-                </div>
+                  </li>
+                </ul>
               </section>
 
               <section class="mt-12" aria-labelledby="console-home-learn">

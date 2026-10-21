@@ -76,12 +76,24 @@ export const AgentChatPrompt = defineComponent({
     const paste = async (event: ClipboardEvent) => {
       const clipboard = event.clipboardData;
       if (!clipboard) return;
-      const hasText = clipboard.getData("text/plain").length > 0;
-      const files = Array.from(clipboard.files).filter(
-        (file) => file.type.startsWith("image/") || !hasText,
-      );
+      const text = clipboard.getData("text/plain");
+      const files = Array.from(clipboard.files).filter((file) => file.type.startsWith("image/"));
       if (files.length === 0) return;
-      await addFiles(files, () => event.preventDefault());
+      await addFiles(files, () => {
+        event.preventDefault();
+        if (text.length === 0) return;
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement) {
+          const start = target.selectionStart;
+          const end = target.selectionEnd;
+          emit("update:modelValue", `${props.modelValue.slice(0, start)}${text}${props.modelValue.slice(end)}`);
+          requestAnimationFrame(() => {
+            target.selectionStart = target.selectionEnd = start + text.length;
+          });
+        } else {
+          emit("update:modelValue", `${props.modelValue}${text}`);
+        }
+      });
     };
     return () =>
       h(
