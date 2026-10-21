@@ -288,7 +288,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
     right?: AstNode
     body?: AstNode | AstNode[] | null
   }
-  type Write = { node: AstNode; fn?: AstNode; guards: Array<{ test: AstNode | undefined; truthy: boolean }> }
+  type Write = { node: AstNode; fn?: AstNode; guards: Array<{ test: AstNode | undefined; truthy: boolean }>; replayed?: boolean }
   type Binding = { init?: AstNode | null; writes?: Write[] }
   type Scope = { bindings: Map<string, Binding>, parent?: Scope }
   const moduleScope: Scope = { bindings: new Map() }
@@ -489,9 +489,12 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
     const previousPosition = readPosition
     let state: "known" | "unknown" = "known"
     for (const guard of write.guards) {
-      // Guards are evaluated when the helper is called. Rewinding to the
-      // guarded assignment's lexical position can observe later mutations of
-      // closed-over state and disagree with runtime call-time ordering.
+      // Helper guards are evaluated when the helper is called. Rewinding to
+      // the guarded assignment's lexical position can observe later mutations
+      // of closed-over state and disagree with runtime call-time ordering.
+      // Module-level guards run where they appear, so read them there: neither
+      // this write nor later ones in the guarded block can change the test.
+      if (!write.fn && !write.replayed) readPosition = guard.test?.start ?? write.node.start ?? readPosition
       const test = unwrap(guard.test)
       if (test?.type !== "Literal") state = "unknown"
       else if (Boolean(test.value) !== guard.truthy) {
@@ -769,7 +772,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
           if (write.node.left?.type !== "MemberExpression") continue
           const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
           if (key !== "route") continue
-          const replay = { ...write, fn: undefined }
+          const replay = { ...write, fn: undefined, replayed: true }
           ;(target.writes ??= []).push(replay)
           indexedWrites.push(replay)
         }
