@@ -331,7 +331,7 @@ onBeforeUnmount(() => request++);
                       <span class="block text-sm font-medium text-highlighted">{{ section.label }}</span>
                       <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
-                  </div>
+                  </li>
                   <span
                     v-for="filler in group.fillers"
                     :key="filler.index"
@@ -339,7 +339,7 @@ onBeforeUnmount(() => request++);
                     :class="[filler.sm ? 'sm:block' : '', filler.lg ? 'lg:block' : 'lg:hidden']"
                     aria-hidden="true"
                   />
-                </div>
+                </ul>
               </section>
 
               <section v-if="notEnabledPrimitives.length" class="mt-12" aria-labelledby="console-home-not-enabled">
@@ -364,10 +364,10 @@ onBeforeUnmount(() => request++);
                         Set up
                         <UIcon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
-                    </span>
                     <span class="text-[13px]/[18px] text-muted">{{ entry.pitch }}</span>
                   </a>
-                </div>
+                  </li>
+                </ul>
               </section>
 
               <section class="mt-12" aria-labelledby="console-home-learn">
