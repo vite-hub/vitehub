@@ -511,7 +511,7 @@ const providerHostEnvironmentKeys = [
   "XDG_DATA_HOME",
 ] as const
 
-function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
+function providerEnvironment(env: Record<string, string | undefined> | undefined): Record<string, string> {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
     return hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []
   }))
@@ -2981,7 +2981,7 @@ async function* runProvider<
   let claudeSandboxPromptFile: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
-  let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  let providerRuntimeEnvironment: Record<string, string> | undefined
   const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
     browserRuntimeEnvironment(context.context),
     providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
@@ -3415,7 +3415,7 @@ async function* runProvider<
       const fallbackInstructions = effectiveCodexInstructions ?? await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => "")
       const digestInput = codexDeveloperInstructions === undefined
         ? JSON.stringify([fallbackInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
-        : effectiveCodexInstructions
+        : codexDeveloperInstructions
       developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
     }
     // Codex renders developer instructions only when a thread starts. Resume a
