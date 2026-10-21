@@ -42,7 +42,7 @@ export function assertConsoleRetention(retention: AgentRetentionPolicy | undefin
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access" | "local" | "host-managed"
+  mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
 }
