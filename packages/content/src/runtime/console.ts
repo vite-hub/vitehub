@@ -641,11 +641,16 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               }
               cursor = page.nextCursor ?? undefined
             } while (cursor)
-            // Bodies: the collection search covers the body of Markdown documents, so a link or an image finds it.
+            // Bodies: search is only a candidate query (and may omit body from configured fields), so
+            // verify an exact Markdown link/image destination before reporting a reference.
             if (collection.format !== "markdown") continue
             for (const pathname of pathnames) {
               const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
-              for (const item of page.items) add(pathname, item)
+              const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+              const destination = new RegExp(`\\]\\(\\s*<?${escaped}(?:[?#][^\\s)>]*)?\\s*>?\\)`)
+              for (const item of page.items) {
+                if (typeof item.data.body === "string" && destination.test(item.data.body)) add(pathname, item)
+              }
             }
           }
           const ids = await readableIds(context, collection, [...local.values()].flatMap(documents => [...documents.keys()]))
