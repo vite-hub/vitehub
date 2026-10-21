@@ -37,7 +37,8 @@ import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
-import { agentInvocationId, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { isResponse } from "../internal/response.ts"
+import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -50,6 +51,7 @@ import {
   bindAgentChannelTriggerQueue,
   bindAgentChannelTriggerState,
   agentChannelOptions,
+  agentTriggerTask,
   isResolvedAgentTriggerHandledInvocation,
   prepareAgentTriggerInvocation,
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
@@ -57,6 +59,7 @@ import {
   resolveAgentTriggerInvocationResult,
   taskAgentIdentity,
   verifyAgentWebhookRequest,
+  withRehydratedBodyDeliveryId,
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
@@ -68,6 +71,7 @@ import {
   settleAgentChannelStateCommit,
 } from "../internal/channel-state.ts"
 import type { ReplayChannelResult } from "../channel-replay.ts"
+import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
@@ -227,6 +231,14 @@ export interface AgentChannelWebhookRouteHandler {
   matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
+  /**
+   * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
+   * the connected and migrated webhook State, and its queue backend ID. Call it at startup so that the first
+   * delivery does not wait for this work. The generated webhook queue plugin calls it, and
+   * `/api/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
+   * would get, for example when a secret resolver or the State connection fails.
+   */
+  warm(options?: AgentChannelWebhookRouteOptions): Promise<void>
 }
 
 interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
@@ -765,8 +777,10 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
+  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
+  if (registration.secretToken !== undefined) return secret !== false
+  // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
@@ -833,6 +847,12 @@ async function terminalChannelDeliveryResponse(
 ): Promise<Response> {
   await recordChannelDeliveryEvidence(delivery, { type })
   return response
+}
+
+/** The `reason` of a `retryLater()` or `rejected()` answer, when the body has one. */
+async function handledResponseReason(response: Response): Promise<string | undefined> {
+  const body: unknown = await response.clone().json().catch(() => undefined)
+  return isRecord(body) && isRuntimeString(body.reason) ? body.reason : undefined
 }
 
 async function observeHandledChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker): Promise<Response> {
@@ -1089,6 +1109,24 @@ function positiveWebhookConcurrencyLimit(value: number | undefined): number | un
   return value
 }
 
+/**
+ * The answer to an accepted or duplicate webhook delivery: the trigger's `webhook.response`, or the JSON receipt.
+ * The queue never stores `webhook.response`, so a replayed delivery has no answer to send.
+ */
+function cloneWebhookResponse(response: Response | undefined): Response | undefined {
+  if (!response) return
+  try {
+    return response.clone()
+  }
+  catch {
+    return
+  }
+}
+
+function webhookReceipt(ownership: { response?: Response } | undefined, receipt: Record<string, unknown>): Response {
+  return cloneWebhookResponse(ownership?.response) ?? Response.json(receipt)
+}
+
 function persistedWebhookRequest(
   deliveryId: string,
   channelDeliveryId: string,
@@ -1105,7 +1143,7 @@ function persistedWebhookRequest(
   },
   scope: string,
   agentName: string,
-  invocation?: { input: unknown; run?: unknown },
+  invocation?: NonNullable<AgentWebhookQueueDelivery["invocation"]>,
   rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
@@ -1172,6 +1210,38 @@ function persistedWebhookInvocation(invocation: { agent?: AgentInput; input: Age
   }
 }
 
+/**
+ * The task of a stored delivery, resolved from the current trigger definition. The stored Agent name
+ * must still match the task, so a renamed or replaced task fails instead of running another Agent.
+ */
+function queuedWebhookTask(
+  trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>,
+  saved: NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+  options: { validateOwnership?: boolean } = {},
+) {
+  if (saved.task === undefined) return undefined
+  const task = agentTriggerTask(trigger, saved.task)
+  if (options.validateOwnership !== false && saved.agentName !== (task.agent ? taskAgentIdentity(task.agent).name : undefined)) {
+    throw new Error(`[vitehub] Queued task "${saved.task}" of trigger "${trigger.id}" no longer runs the Agent it was accepted for.`)
+  }
+  return task
+}
+
+/**
+ * The task key of a queued delivery: the stored key, else the declared task that `run.origin` names.
+ * Rows stored without a task key, such as rows from before the trigger declared tasks, find their task this way.
+ */
+function queuedWebhookTaskKey(
+  trigger: Pick<ResolvedAgentTriggerDefinition, "tasks">,
+  saved: AgentWebhookQueueDelivery["invocation"],
+  run?: AgentRunMetadata,
+): string | undefined {
+  if (saved?.task !== undefined) return saved.task
+  const savedRun: unknown = saved?.run
+  const origin = isRecord(savedRun) && isRuntimeString(savedRun.origin) ? savedRun.origin : run?.origin
+  return origin !== undefined && trigger.tasks && Object.hasOwn(trigger.tasks, origin) ? origin : undefined
+}
+
 function requestFromPersistedWebhook(delivery: AgentWebhookQueueDelivery): Request {
   return new Request(delivery.request.url, {
     body: delivery.request.body || undefined,
@@ -1192,7 +1262,8 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
-): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean } | undefined> {
+  beforeComplete?: () => Promise<void>,
+): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean; duplicate?: boolean } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
   const duplicateResponse = (claim: unknown) => {
@@ -1200,16 +1271,19 @@ async function steerQueuedWebhookDelivery(
       return {
         queued: false,
         invalidState: true,
+        duplicate: true,
         response: Response.json({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" }),
       }
     }
     return claim === "queued"
       ? {
           queued: true,
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }),
         }
       : {
           queued: claim === "steering",
+          duplicate: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }),
         }
   }
@@ -1312,6 +1386,9 @@ async function steerQueuedWebhookDelivery(
             .then(async () => {
               let completed: boolean
               try {
+                // Persist any staged Channel State before marking the delivery
+                // complete. A failed commit must leave the delivery retryable.
+                await beforeComplete?.()
                 completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
               } catch {
                 await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now()).catch(() => false)
@@ -1529,23 +1606,42 @@ async function notifyQueuedWebhookFailure(
   delivery: AgentWebhookQueueDelivery,
   error: unknown,
   attempts: number,
-  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
+  invocation: { agentName?: string, input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
 ): Promise<void> {
   try {
     const request = requestFromPersistedWebhook(delivery)
     const identity = routeAgentIdentity(handlerOptions)
     const context = createRuntimeContext(request, invocation?.run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
-    const failed = await runWithRuntimeCloudflareEnv(context, async () => {
-      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-      const dispatched = delivery.invocation?.trigger
-      // A queued dispatch item reports to the trigger that admitted it.
-      if (!match?.registration.channelId || !isRuntimeString(dispatched)) return match?.trigger.definition.failed
+    const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, delivery.webhookId))
+    const dispatched = delivery.invocation?.trigger
+    // A queued dispatch item reports to the trigger that admitted it; ordinary
+    // queued webhook rows use the registration trigger.
+    const trigger = match?.registration.channelId && isRuntimeString(dispatched)
       // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
-      const triggers = await resolveAgentTriggers(agent as never, context as never)
-      return triggers[`${match.registration.channelId}.${dispatched}`]?.definition.failed
-    })
+      ? (await runWithRuntimeCloudflareEnv(context, () => resolveAgentTriggers(agent as never, context as never)))[`${match.registration.channelId}.${dispatched}`] ?? match.trigger
+      : match?.trigger
+    // A task's own `failed` replaces the trigger's for its deliveries.
+    const taskKey = trigger ? queuedWebhookTaskKey(trigger, delivery.invocation, invocation?.run) : undefined
+    let taskFailed: unknown
+    if (trigger && taskKey !== undefined) {
+      try {
+        // Apply the same persisted-Agent identity check used by queued replay.
+        const task = queuedWebhookTask(
+          trigger,
+          { ...(delivery.invocation ?? {}), task: taskKey } as NonNullable<AgentWebhookQueueDelivery["invocation"]>,
+          { validateOwnership: delivery.invocation?.task !== undefined || delivery.invocation?.agentName !== undefined },
+        )
+        taskFailed = task?.failed
+      }
+      catch {
+        // A replaced task Agent cannot receive the failure; use the trigger fallback.
+        taskFailed = undefined
+      }
+    }
+    const failed = isRuntimeFunction(taskFailed) ? taskFailed : trigger?.definition.failed
     if (!isRuntimeFunction(failed)) return
-    const reference = await runInvocationReference(routeAgentInvocationName(agent, identity), invocation?.run)
+    // The Invocation of a task Agent belongs to that Agent.
+    const reference = await runInvocationReference(delivery.invocation?.agentName || invocation?.agentName || routeAgentInvocationName(agent, identity), invocation?.run)
     await failed({
       attempts,
       deliveryId: delivery.deliveryId,
@@ -1561,6 +1657,52 @@ async function notifyQueuedWebhookFailure(
   }
 }
 
+/**
+ * Fails the Invocation of a delivery that the queue gives up on. A queue stop leaves the
+ * Invocation open for the retry, so without a retry nothing else finishes it.
+ */
+async function failOpenQueuedWebhookInvocation(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+  delivery: AgentWebhookQueueDelivery,
+  error: unknown,
+  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
+): Promise<void> {
+  // SAFETY: The queue persists run metadata from this route contract.
+  const run = (invocation?.run ?? delivery.invocation?.run) as AgentRunMetadata | undefined
+  if (!run?.runId || !isRecord(agent) || !agent.invocations) return
+  try {
+    // SAFETY: Agent Definitions own this field; the journal boundary validates it.
+    const invocations = agent.invocations as AgentInvocations
+    const identity = routeAgentIdentity(handlerOptions)
+    const agentName = delivery.invocation?.agentName || routeAgentInvocationName(agent, identity)
+    const summary = await invocations.getSummary(await agentInvocationId(run.runId, agentName))
+    if (summary?.status !== "pending" && summary?.status !== "running") return
+    const context = createRuntimeContext(requestFromPersistedWebhook(delivery), run, undefined, handlerOptions.cloudflare, handlerOptions.runtime, handlerOptions.capabilities, identity)
+    const journal = await bindAgentInvocations(invocations, context, { agentName, existingOnly: true, expectedCursor: summary.cursor })
+    if (!journal) return
+    await journal?.finish("failed", error)
+  }
+  catch (journalError) {
+    console.error(`[vitehub] Could not fail the open Invocation of webhook delivery "${delivery.deliveryId}".`, journalError)
+  }
+}
+
+async function rollbackQueuedDispatchOrder(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<void> {
+  const queuedOrder = delivery.invocation?.order
+  if (!queuedOrder) return
+  const lock = await acquireChannelStateLock(state, `${queuedOrder.key}:transaction`)
+  try {
+    const current = await state.get<unknown>(queuedOrder.key)
+    if (!isRuntimeNumber(current) || current !== queuedOrder.version) return
+    if (queuedOrder.previous === undefined) await state.delete(queuedOrder.key)
+    else await state.set(queuedOrder.key, queuedOrder.previous)
+  }
+  finally {
+    await state.releaseLock(lock).catch(() => undefined)
+  }
+}
+
 async function deliverQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   state: AgentWebhookQueueStateAdapter,
@@ -1568,9 +1710,10 @@ async function deliverQueuedWebhookFailure(
   delivery: AgentWebhookQueueLease,
   error: unknown,
   attempts: number,
-  invocation: { input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
+  invocation: { agentName?: string, input?: AgentRunInput, run?: AgentRunMetadata } | undefined,
   invocationStarted = true,
 ): Promise<boolean> {
+  await rollbackQueuedDispatchOrder(state, delivery)
   const publicErrorCode = toAgentPublicError(error, "http").code === "TIMEOUT" ? "TIMEOUT" as const : undefined
   const failure = {
     error: error instanceof Error ? error.message : String(error),
@@ -1585,6 +1728,7 @@ async function deliverQueuedWebhookFailure(
       return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
     }
     if (!delivery.failure && !await state.markWebhookDeliveryFailure(delivery.scope, delivery.deliveryId, delivery.leaseToken, failure)) return false
+    await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
     // The dispatch marker is permanent, while queue ownership can expire.
     // Recovery finalizes the failure without repeating a paused callback.
     if (!await state.beginWebhookFailureNotification(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
@@ -1592,8 +1736,39 @@ async function deliverQueuedWebhookFailure(
     return await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
   }
   if (!await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) return false
+  await failOpenQueuedWebhookInvocation(agent, handlerOptions, delivery, error, invocation)
   await notifyQueuedWebhookFailure(agent, handlerOptions, delivery, error, attempts, invocation)
   return true
+}
+
+/** The `reason` of a handled JSON answer such as `retryLater(reason)`. */
+async function handledWebhookResponseReason(response: Response): Promise<string | undefined> {
+  const body: unknown = await response.clone().json().catch(() => undefined)
+  return isRecord(body) && isRuntimeString(body.reason) ? body.reason : undefined
+}
+
+/**
+ * The current trigger of a stored delivery, with the Channel State that the webhook route gave it. A queued dispatch
+ * item uses the trigger that admitted it.
+ */
+async function queuedWebhookTrigger(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  request: Request,
+  delivery: AgentWebhookQueueDelivery,
+  state: AgentWebhookQueueStateAdapter,
+): Promise<ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> | undefined> {
+  const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+  if (!match?.registration.channelId) return match?.trigger
+  bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+  const dispatched = delivery.invocation?.trigger
+  if (isRuntimeString(dispatched)) {
+    // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
+    const triggers = await resolveAgentTriggers(agent as never, context as never)
+    return triggers[`${match.registration.channelId}.${dispatched}`] as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> | undefined
+  }
+  // Resolve again, so `prepare` and task callbacks see the bound Channel State.
+  return (await findAgentWebhookRegistration(agent, context, request, delivery.webhookId))?.trigger
 }
 
 async function executeQueuedWebhookDelivery(
@@ -1635,6 +1810,7 @@ async function executeQueuedWebhookDelivery(
     return retryAt
   }
   if (await supersededWebhookDelivery(state, delivery)) {
+    await rollbackQueuedDispatchOrder(state, delivery)
     if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
       const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
       await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
@@ -1725,8 +1901,10 @@ async function executeQueuedWebhookDelivery(
   let invocationRunId: string | undefined
   let invocationStarted = false
   let handledResponse: Response | undefined
+  // The Agent of the delivery's task, or the Agent that owns the webhook route.
+  let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
   // SAFETY: The queue persists this value from the asserted route contract.
-  let failedInvocation = delivery.invocation as { input?: AgentRunInput, run?: AgentRunMetadata } | undefined
+  let failedInvocation = delivery.invocation as { agentName?: string, input?: AgentRunInput, run?: AgentRunMetadata } | undefined
   try {
     if (delivery.concurrencyKey) {
       const fenceAcquisition = state.acquireLock(webhookConcurrencyFenceKey(delivery.concurrencyKey), delivery.leaseTtlMs)
@@ -1778,24 +1956,30 @@ async function executeQueuedWebhookDelivery(
     }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     let invocation = delivery.invocation as PersistedInvocation | undefined
-    const persistedDeliveryInvocation = delivery.invocation as (PersistedInvocation & { trigger?: string }) | undefined
     if (invocation?.input) {
       invocation = { ...invocation, input: migratePersistedForgeContext(invocation.input as Record<string, unknown>) as AgentRunInput }
     }
+    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State binding.
+    const replayMatch = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
+      const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
+      if (match?.registration.channelId) bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+      return match
+    }), executionTimeout])
+    let accepted: ResolvedAgentTriggerInvocation<ViteAgentRouteRuntimeConfig> | undefined
     if (!invocation || delivery.rehydrate) {
+      // A delivery stored without its invocation, or one that rehydrates, calls `invoke` again and needs its registration.
+      if (!replayMatch) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       const resolved = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
-        const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-        if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
-        const input = createAgentWebhookTriggerInput(request, match.registration, delivery.request.body)
+        const input = createAgentWebhookTriggerInput(request, replayMatch.registration, delivery.request.body)
         const replayed = await resolveAgentTriggerInvocationWithResolvedContext(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
           agent as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           createExecutionContext(context as never) as never,
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          match.trigger.id,
+          replayMatch.trigger.id,
           input,
-          { verifyWebhook: false, queuedInvocation: invocation },
+          { verifyWebhook: false, queuedInvocation: invocation, rawBody: new TextEncoder().encode(delivery.request.body), deliveryId: delivery.deliveryId },
         )
         if (delivery.rehydrate && isResolvedAgentTriggerHandledInvocation(replayed)) {
           throw agentDiagnostics.AGENT_R0780({ message: "[vitehub] Persisted webhook delivery requires rehydration, but its trigger handled the replayed request." })
@@ -1805,7 +1989,7 @@ async function executeQueuedWebhookDelivery(
         }
         const resolved =
           !isResolvedAgentTriggerHandledInvocation(replayed) && delivery.rehydrate && replayed.webhook?.rehydrate
-            ? resolveAgentTriggerInvocationResult(await replayed.webhook.rehydrate(), replayed.trigger)
+            ? resolveAgentTriggerInvocationResult(await withRehydratedBodyDeliveryId(await replayed.webhook.rehydrate(), delivery.request.body, delivery.deliveryId), replayed.trigger)
             : replayed
         await context.flushWaitUntil?.()
         return resolved
@@ -1814,42 +1998,78 @@ async function executeQueuedWebhookDelivery(
         if (!resolved.webhook || resolved.webhook.deliveryId !== delivery.deliveryId) {
           throw agentDiagnostics.AGENT_R0782({ message: "[vitehub] Persisted webhook delivery no longer resolves to the same deliveryId." })
         }
-        invocation = { input: resolved.input, run: resolved.run }
+        const resolvedAgentName = resolved.agent ? taskAgentIdentity(resolved.agent).name : undefined
+        if (invocation?.task !== undefined && resolved.task !== invocation.task) {
+          throw new Error(`[vitehub] Persisted webhook delivery resolved task "${resolved.task ?? ""}" instead of "${invocation.task}".`)
+        }
+        if (invocation?.agentName !== undefined && resolvedAgentName !== invocation.agentName) {
+          throw new Error(`[vitehub] Persisted webhook delivery resolved Agent "${resolvedAgentName ?? ""}" instead of "${invocation.agentName}".`)
+        }
+        invocation = { ...invocation, input: resolved.input, run: resolved.run }
+        accepted = resolved
       }
       else {
         invocation = undefined
         handledResponse = resolved.response
+        // `retryLater(reason)` and other 5xx answers retry the delivery. The error names the reason.
+        const retryReason = handledResponse.status >= 500
+          ? await Promise.race([handledResponseReason(handledResponse), executionTimeout])
+          : undefined
         if (handledResponse.body) await Promise.race([
           handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
           executionTimeout,
         ])
         // The provider has already received admission, so this queue owns transient retries.
-        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}.`)
+        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook rehydration returned HTTP ${handledResponse.status}${retryReason ? ` (${retryReason})` : ""}.`)
       }
     }
-    let executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = agent
-    if (invocation && persistedDeliveryInvocation && (persistedDeliveryInvocation.task !== undefined || persistedDeliveryInvocation.requiresPrepare)) {
-      const prepared = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
-        const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-        if (!match) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
-        const triggers = await resolveAgentTriggers(agent as never, context as never, { queuedInvocation: invocation as never })
-        const trigger = triggers[match.trigger.id]
-        if (!trigger) throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook trigger "${match.trigger.id}" no longer exists.` })
-        const accepted = { ...invocation, trigger, ...(persistedDeliveryInvocation.task !== undefined ? { task: persistedDeliveryInvocation.task } : {}) } as never
-        return await prepareAgentTriggerInvocation(accepted)
-      }), executionTimeout])
+    else if (delivery.invocation) {
+      const saved = delivery.invocation
+      const trigger = await Promise.race([runWithRuntimeCloudflareEnv(context, () => queuedWebhookTrigger(agent, context, request, delivery, state)), executionTimeout])
+      // Persisted tasks and prepared deliveries require their current trigger definition.
+      if (!trigger && (saved.task !== undefined || saved.requiresPrepare)) {
+        throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
+      }
+      const taskKey = trigger ? queuedWebhookTaskKey(trigger, saved, invocation?.run) : undefined
+      const task = trigger && taskKey !== undefined
+        ? queuedWebhookTask(trigger, { ...saved, task: taskKey }, { validateOwnership: saved.task !== undefined || saved.agentName !== undefined })
+        : undefined
+      if (trigger && invocation) {
+        accepted = {
+          ...(task?.agent ? { agent: task.agent } : {}),
+          input: invocation.input,
+          ...(invocation.run ? { run: invocation.run } : {}),
+          ...(taskKey !== undefined ? { task: taskKey } : {}),
+          trigger,
+        }
+      }
+    }
+    if (accepted && invocation) {
+      // A task may run another Agent. Apply that Agent's deadline before its
+      // preparation, while retaining the delivery-wide elapsed-time budget.
+      executionAgent = accepted.agent ?? agent
+      armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
+      // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
+      const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
+      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
-        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook delivery returned HTTP ${handledResponse.status}.`)
+        const retryReason = handledResponse.status >= 500 ? await handledWebhookResponseReason(handledResponse) : undefined
+        if (handledResponse.body) await Promise.race([
+          handledResponse.body.pipeTo(new WritableStream(), { signal: ownershipAbort.signal }),
+          executionTimeout,
+        ])
+        // A 5xx answer such as `retryLater()` retries the delivery. Its reason goes into the error.
+        if (handledResponse.status >= 500) throw new Error(`[vitehub] Handled webhook delivery returned HTTP ${handledResponse.status}${retryReason ? ` (${retryReason})` : ""}.`)
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
-        executionAgent = (prepared.agent ?? agent) as AgentInput<ViteAgentRouteRuntimeContext>
+        if (prepared.agent) executionAgent = prepared.agent
       }
     }
     if (invocation) {
-      failedInvocation = invocation
+      failedInvocation = { ...invocation, ...(executionAgent !== agent ? { agentName: taskAgentIdentity(executionAgent).name } : {}) }
       armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       invocationRunId = invocation.run?.runId
       if (channelDelivery) await Promise.race([
@@ -1868,7 +2088,7 @@ async function executeQueuedWebhookDelivery(
         handlerOptions.cloudflare,
         handlerOptions.runtime,
         handlerOptions.capabilities,
-        executionAgent === agent ? routeAgentIdentity(handlerOptions) : taskAgentIdentity(executionAgent),
+        executionAgent !== agent ? taskAgentIdentity(executionAgent) : routeAgentIdentity(handlerOptions),
       )
       const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       await runWithRuntimeCloudflareEnv(runContext, async () => {
@@ -2011,7 +2231,8 @@ async function executeQueuedWebhookDelivery(
   } catch (error) {
     rejectActiveCompletion?.(error)
     // A user cancellation is final. A retry would run the cancelled Invocation again.
-    if (!executionTimedOut && await queuedWebhookInvocationCancelled(agent, handlerOptions, invocationRunId, error)) {
+    if (!executionTimedOut && await queuedWebhookInvocationCancelled(executionAgent, handlerOptions, invocationRunId, error)) {
+      await rollbackQueuedDispatchOrder(state, delivery)
       if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken) && channelDelivery) {
         await settleChannelDeliveryInvocation(channelDelivery, invocationStarted ? "failed" : undefined, "failed", {
           attempt: delivery.attempts + 1,
@@ -8473,7 +8694,7 @@ async function recoverInterruptedWebhookAgentInvocations(
       for (const delivery of await state.webhookDeliveries(scope)) {
         const run = delivery.invocation?.run
         if (isRecord(run) && isRuntimeString(run.runId) && run.runId) {
-          resumed.add(await agentInvocationId(run.runId, agentName))
+          resumed.add(await agentInvocationId(run.runId, delivery.invocation?.agentName || agentName))
         }
       }
     }
@@ -8522,15 +8743,16 @@ function createQueuedChannelDispatch(
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch items need a non-empty key.`)
       }
       const { order } = item
-      if (order !== undefined && (!isRecord(order) || !isRuntimeString(order.key) || !order.key || !isRuntimeNumber(order.version) || !Number.isFinite(order.version))) {
+      if (order !== undefined && (!isRecord(order) || !isRuntimeString(order.key) || !order.key.trim() || !isRuntimeNumber(order.version) || !Number.isFinite(order.version))) {
         throw new TypeError(`[vitehub] Channel "${channelId}" dispatch item "${item.key}" needs order { key, version } with a non-empty key and a finite number version.`)
       }
       const commit = createAgentChannelStateCommit(webhookState.state)
       try {
+        let admitted: unknown
         if (order) {
           const orderKey = `${webhookState.keyPrefix}order:${triggerId}:${order.key}`
           commit.locks.push(await acquireChannelStateLock(webhookState.state, `${orderKey}:transaction`))
-          const admitted = await webhookState.state.get<unknown>(orderKey)
+          admitted = await webhookState.state.get<unknown>(orderKey)
           if (isRuntimeNumber(admitted) && order.version <= admitted) {
             result.items.push({ id: item.key, key: item.key, reason: "stale", status: "skipped" })
             result.skipped += 1
@@ -8582,6 +8804,8 @@ function createQueuedChannelDispatch(
             ...((triggerDefinition.prepare || taskDefinition?.prepare) ? { requiresPrepare: true as const } : {}),
           }),
           trigger: triggerName,
+          // A terminal failure restores the previous version, so the item can be dispatched again.
+          ...(order ? { order: { key: `${webhookState.keyPrefix}order:${triggerId}:${order.key}`, version: order.version, ...(isRuntimeNumber(admitted) ? { previous: admitted } : {}) } } : {}),
         }
         if (!isJsonSafe(persistedInvocation)) {
           throw new TypeError(`[vitehub] Queued dispatch through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`)
@@ -8789,16 +9013,20 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         }
         // `channelState.transaction()` writes in `invoke` commit with this delivery's admission, or when it is accepted without one.
         const stateCommit = registration.channelId ? createAgentChannelStateCommit(channelState.state) : undefined
+        let stateCommitDeferred = false
         try {
           const input = createAgentWebhookTriggerInput(request, registration, rawBody)
-          let invocation = await resolveAgentTriggerInvocationWithResolvedContext(
+          const invocation = await resolveAgentTriggerInvocationWithResolvedContext(
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             agent as never,
             // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
             createExecutionContext(context as never) as never,
             trigger.id,
             input,
-            stateCommit ? { channelStateCommit: stateCommit } : undefined,
+            {
+              rawBody: rawBodyBytes,
+              ...(stateCommit ? { channelStateCommit: stateCommit } : {}),
+            },
           )
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
             if (invocation.response.status < 400) await settleAgentChannelStateCommit(stateCommit)
@@ -8806,10 +9034,22 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             if (!waitUntil) await context.flushWaitUntil?.()
             return await observeHandledChannelDeliveryResponse(invocation.response, channelDelivery)
           }
+          if (invocation.webhook?.response !== undefined && !isResponse(invocation.webhook.response)) {
+            return await terminalChannelDeliveryResponse(
+              channelDelivery,
+              createJsonErrorResponse(500, "Webhook response must be a Response."),
+            )
+          }
           if (invocation.webhook?.busy === "steer" && (invocation.webhook.concurrencyKey === undefined || invocation.webhook.concurrencyLimit === undefined)) {
             return await terminalChannelDeliveryResponse(
               channelDelivery,
               createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.'),
+            )
+          }
+          if (invocation.webhook?.busy === "steer" && (invocation.task !== undefined || invocation.trigger.prepare)) {
+            return await terminalChannelDeliveryResponse(
+              channelDelivery,
+              createJsonErrorResponse(500, 'Webhook busy: "steer" sends input to a running Invocation. It does not run prepare or a task.'),
             )
           }
           if (
@@ -8830,7 +9070,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           }
           if (invocation.webhook?.concurrencyLimit !== undefined && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
-            if (!deliveryId.trim()) {
+            if (!deliveryId?.trim()) {
               return await terminalChannelDeliveryResponse(
                 channelDelivery,
                 createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."),
@@ -8857,6 +9097,14 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               ...(invocation.task !== undefined ? { task: invocation.task } : {}),
               ...(invocation.trigger.prepare ? { requiresPrepare: true as const } : {}),
             }, Boolean(invocation.webhook.rehydrate))
+            const persistable = isJsonSafe(persistedInvocation)
+            // A task or `prepare` runs from the stored input, so the queue never calls `invoke` again.
+            if (!persistable && (invocation.task !== undefined || invocation.trigger.prepare)) {
+              return await terminalChannelDeliveryResponse(
+                channelDelivery,
+                createJsonErrorResponse(500, `Trigger "${invocation.trigger.id}" uses prepare or a task, so its queued input and run metadata must be JSON-serializable.`),
+              )
+            }
             const delivery = persistedWebhookRequest(
               deliveryId,
               channelDelivery.delivery.id,
@@ -8866,7 +9114,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               { ...invocation.webhook, concurrencyLimit },
               webhookState.keyPrefix,
               routeAgentIdentity(handlerOptions)?.name || "agent",
-              isJsonSafe(persistedInvocation) ? persistedInvocation : undefined,
+              persistable ? persistedInvocation : undefined,
               Boolean(invocation.webhook.rehydrate),
             )
             if (invocation.webhook.busy === "steer") {
@@ -8880,7 +9128,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 waitUntil,
                 async (reserved) => {
                   if (reserved) {
-                    await settleAgentChannelStateCommit(stateCommit)
+                    // The existing delivery remains queued; this invocation was
+                    // not admitted, so discard its staged Channel State.
+                    await releaseAgentChannelStateCommit(stateCommit)
                     return Response.json({
                       accepted: true,
                       duplicate: false,
@@ -8896,10 +9146,27 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   }, delivery)
                   return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
                 },
+                async () => {
+                  await settleAgentChannelStateCommit(stateCommit)
+                },
               )
               if (outcome) {
-                // A delivery steered into the running Invocation is accepted too. After an admission this does nothing.
-                if (outcome.response.ok && !outcome.invalidState) await settleAgentChannelStateCommit(stateCommit)
+                // A steered delivery is only committed after the active invocation
+                // completes successfully. If it fails, release the staged decision
+                // so the retry can re-evaluate it.
+                if (outcome.settlement) {
+                  // The settlement owns the staged commit after this route returns.
+                  stateCommitDeferred = true
+                  context.waitUntil(
+                    outcome.settlement.then(async completed => {
+                      if (!completed) await releaseAgentChannelStateCommit(stateCommit)
+                    }),
+                  )
+                } else if (outcome.response.ok && !outcome.invalidState && !outcome.duplicate) {
+                  await settleAgentChannelStateCommit(stateCommit)
+                } else if (outcome.invalidState || outcome.duplicate) {
+                  await releaseAgentChannelStateCommit(stateCommit)
+                }
                 if (outcome.queued) registerQueue(backendId, webhookState.keyPrefix, webhookQueueState, handlerOptions)
                 if (outcome.settlement) {
                   await recordChannelDeliveryEvidence(channelDelivery, {
@@ -8920,7 +9187,11 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                     runId: invocation.run?.runId,
                   })
                 if (outcome.queued || outcome.settlement) detachAgentChannelDelivery(channelDelivery)
-                return outcome.response
+                // A steered, queued or duplicate delivery gets `webhook.response`; busy and failed answers keep theirs.
+                const webhookResponse = !outcome.invalidState && outcome.response.ok
+                  ? cloneWebhookResponse(invocation.webhook.response)
+                  : undefined
+                return webhookResponse ?? outcome.response
               }
             }
             const queued = await admitAgentChannelStateCommit(stateCommit, webhookQueue, {
@@ -8934,14 +9205,14 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               type: queued ? "queued" : "duplicate",
               runId: invocation.run?.runId,
             })
-            return Response.json({ accepted: queued, duplicate: !queued, ok: true, queued })
+            return webhookReceipt(invocation.webhook, { accepted: queued, duplicate: !queued, ok: true, queued })
           }
           let webhookLock: Lock | null = null
           let deliveryClaimKey: string | undefined
           let concurrencyTtlMs = defaultWebhookConcurrencyTtlMs
           if (invocation.webhook && webhookState) {
             const { concurrencyKey, deliveryId } = invocation.webhook
-            if (!deliveryId.trim()) {
+            if (!deliveryId?.trim()) {
               return await terminalChannelDeliveryResponse(
                 channelDelivery,
                 createJsonErrorResponse(500, "Webhook delivery ownership requires a non-empty deliveryId."),
@@ -8956,9 +9227,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             concurrencyTtlMs = positiveWebhookDuration(invocation.webhook.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs")
             deliveryClaimKey = webhookOwnershipKey(webhookState.keyPrefix, "delivery", deliveryId)
             if ((await webhookState.state.get(deliveryClaimKey)) === true) {
-              await settleAgentChannelStateCommit(stateCommit)
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
-              return Response.json({ accepted: false, duplicate: true, ok: true })
+              return webhookReceipt(invocation.webhook, { accepted: false, duplicate: true, ok: true })
             }
             if (concurrencyKey !== undefined) {
               webhookLock = await webhookState.state.acquireLock(webhookOwnershipKey(webhookState.keyPrefix, "lease", concurrencyKey), concurrencyTtlMs)
@@ -8975,28 +9246,32 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             }
             if (!claimed) {
               if (webhookLock) await webhookState.state.releaseLock(webhookLock)
-              await settleAgentChannelStateCommit(stateCommit)
+              await releaseAgentChannelStateCommit(stateCommit)
               await channelDelivery.event({ type: "duplicate", runId: invocation.run?.runId })
-              return Response.json({ accepted: false, duplicate: true, ok: true })
+              return webhookReceipt(invocation.webhook, { accepted: false, duplicate: true, ok: true })
             }
           }
-          const prepared = await prepareAgentTriggerInvocation(invocation)
-          if (isResolvedAgentTriggerHandledInvocation(prepared)) {
-            if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
-            if (prepared.response.status >= 500 && deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
-            await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted", runId: invocation.run?.runId })
-            return await observeHandledChannelDeliveryResponse(prepared.response, channelDelivery)
-          }
-          const executionAgent = (prepared.agent ?? agent) as AgentInput<ViteAgentRouteRuntimeContext>
-          invocation = prepared
-          // The delivery runs inline, so it is accepted now.
+          // Without the webhook queue, `prepare` and a task run before the webhook is answered.
+          // A handled answer, such as `ignored()`, is the webhook response.
+          let prepared: Awaited<ReturnType<typeof prepareAgentTriggerInvocation<ViteAgentRouteRuntimeConfig>>>
           try {
-            await settleAgentChannelStateCommit(stateCommit)
+            prepared = await prepareAgentTriggerInvocation(invocation)
           } catch (error) {
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
             throw error
           }
+          if (isResolvedAgentTriggerHandledInvocation(prepared)) {
+            if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
+            // A 5xx answer lets the provider retry the delivery.
+            if (prepared.response.status >= 500 && deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
+            if (prepared.response.status < 400) await settleAgentChannelStateCommit(stateCommit)
+            await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
+            if (!waitUntil) await context.flushWaitUntil?.()
+            return await observeHandledChannelDeliveryResponse(prepared.response, channelDelivery)
+          }
+          const executionAgent: AgentInput<ViteAgentRouteRuntimeContext> = prepared.agent ?? agent
+          const runInput = prepared.input
           const runContext = withAgentChannelDelivery(
             createRuntimeContext(
               request,
@@ -9041,9 +9316,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                     runContext as never,
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                     {
-                      ...invocation.input,
+                      ...runInput,
                       context: {
-                        ...invocation.input.context,
+                        ...runInput.context,
                         [agentChannelDeliveryWorkflowContextKey]: {
                           channelId: registration.channelId,
                           deliveryId: channelDelivery.delivery.id,
@@ -9053,8 +9328,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                       },
                       ...(ownershipAbort
                         ? {
-                            abortSignal: invocation.input.abortSignal
-                              ? AbortSignal.any([invocation.input.abortSignal, ownershipAbort.signal])
+                            abortSignal: runInput.abortSignal
+                              ? AbortSignal.any([runInput.abortSignal, ownershipAbort.signal])
                               : ownershipAbort.signal,
                           }
                         : {}),
@@ -9080,10 +9355,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 }
               })
               if (durableHandoff) return
+              await settleAgentChannelStateCommit(stateCommit)
               await settleChannelDeliveryInvocation(channelDelivery, "completed", "completed", {
                 runId: invocation.run?.runId,
               })
             } catch (error) {
+              await releaseAgentChannelStateCommit(stateCommit)
               await settleChannelDeliveryInvocation(channelDelivery, "failed", "failed", {
                 error: channelDeliveryError(error),
                 runId: invocation.run?.runId,
@@ -9092,23 +9369,26 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             }
           })
           try {
+            stateCommitDeferred = true
             context.waitUntil(task)
             dispatch(true)
           } catch (error) {
+            stateCommitDeferred = false
+            await releaseAgentChannelStateCommit(stateCommit)
             dispatch(false)
             stopHeartbeat?.()
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
             throw error
           }
-          return Response.json({ accepted: true, ok: true })
+          return webhookReceipt(invocation.webhook, { accepted: true, ok: true })
         } catch (error) {
           await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           const response = toHttpErrorResponse(error)
           if (response) return response
           throw error
         } finally {
-          await releaseAgentChannelStateCommit(stateCommit)
+          if (!stateCommitDeferred) await releaseAgentChannelStateCommit(stateCommit)
         }
       }
       if (trigger.id !== "chat.message") {
@@ -9276,6 +9556,40 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     return [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
       .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
       .slice(0, handlerOptions.limit ?? 100)
+  }
+  handler.warm = async (handlerOptions = {}) => {
+    const context = createRuntimeContext(
+      new Request("http://vitehub.local/_vitehub/warm"),
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    await runWithRuntimeCloudflareEnv(context, async () => {
+      const connectedStates = new Set<StateAdapter>()
+      for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
+        await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")
+        const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+        if (webhookState) {
+          await webhookState.state.connect()
+          connectedStates.add(webhookState.state)
+          if (hasAgentWebhookQueue(webhookState.state)) await resolveWebhookStateBackendId(webhookState.state)
+        }
+        const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
+        const chatState = await resolveChatState(chatOptions, context, registration, handlerOptions)
+        if (!connectedStates.has(chatState.state)) {
+          await chatState.state.connect()
+          connectedStates.add(chatState.state)
+        }
+        const workflowChatState = await resolveChatState(chatOptions, context, registration, {})
+        if (!connectedStates.has(workflowChatState.state)) {
+          await workflowChatState.state.connect()
+          connectedStates.add(workflowChatState.state)
+        }
+      }
+    })
   }
   handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
