@@ -267,10 +267,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     async collections(context) {
       const collections: ViteHubConsoleDocumentCollection[] = []
       for (const collection of content.collections()) {
+        const id = collection.kind === "singleton" ? collection.id : undefined
         const [read, write, publish] = await Promise.all((["read", "write", "publish"] as const).map(action =>
-          content.can({ user: context.user, collection: collection.name, action })))
+          content.can({ user: context.user, collection: collection.name, action, ...(id === undefined ? {} : { id }) })))
         if (!read) continue
-        if (collection.kind === "singleton" && !await content.can({ user: context.user, collection: collection.name, action: "read", id: collection.id })) continue
         const schema = json(collection.schema)
         const entry: ViteHubConsoleDocumentCollection = {
           name: collection.name,
