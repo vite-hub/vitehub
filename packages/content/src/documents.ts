@@ -6,7 +6,6 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JsonSchema } from "comark-content"
-import type { createContentCollections } from "./collections-runtime.ts"
 
 /** One frontmatter field: any Standard Schema validator, such as Zod, Valibot, ArkType, or a ViteHub Blob `image()`. */
 export type ContentField = StandardSchemaV1
@@ -91,14 +90,15 @@ export function isDocumentsDefinition(value: unknown): value is DocumentsDefinit
 }
 
 // `@vite-hub/content/collections` attaches the Workspace-backed runtime, so the main entry never imports Workspace.
-const documentsRuntimes = new WeakMap<DocumentsDefinition<any>, typeof createContentCollections>()
+type ContentCollectionsFactory = (...args: any[]) => any
+const documentsRuntimes = new WeakMap<DocumentsDefinition<any>, ContentCollectionsFactory>()
 
-export function withDocumentsRuntime<TDefinition extends DocumentsDefinition<any>>(definition: TDefinition, runtime: typeof createContentCollections): TDefinition {
+export function withDocumentsRuntime<TDefinition extends DocumentsDefinition<any>>(definition: TDefinition, runtime: ContentCollectionsFactory): TDefinition {
   documentsRuntimes.set(definition, runtime)
   return definition
 }
 
-export function documentsRuntimeOf(definition: DocumentsDefinition<any>): typeof createContentCollections | undefined {
+export function documentsRuntimeOf(definition: DocumentsDefinition<any>): ContentCollectionsFactory | undefined {
   return documentsRuntimes.get(definition)
 }
 

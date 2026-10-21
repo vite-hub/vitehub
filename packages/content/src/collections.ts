@@ -4,6 +4,7 @@ import { documents as defineDocuments, withDocumentsRuntime } from "./documents.
 import type { ContentFields, DocumentsDefinition, DocumentsOptions } from "./documents.ts"
 
 export { optional } from "./documents.ts"
+export type * from "./collections-types.ts"
 
 /**
  * Define an editable collection of Markdown documents with validated frontmatter. Collections are stored in a

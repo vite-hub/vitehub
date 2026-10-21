@@ -20,17 +20,37 @@ import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
-  ContentCollectionsRuntime,
-  ContentHistorySource,
+  ContentDocument,
+  ContentDocumentState,
+  ContentDocumentStatus,
+  ContentDocumentSummary,
+  ContentListOptions,
+  ContentPage,
+  ContentPublishExpectation,
+  ContentPublishMismatch,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRawDocument,
+  ContentReadOptions,
   ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
-} from "./collections-runtime.ts"
+} from "./collections-types.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentFields, DocumentsDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
+
+type ContentHistorySource = ComarkContentSource & { readonly loadedRevision?: string | null }
+interface ContentCollectionsRuntime {
+  readonly collections: ReadonlyMap<string, ContentCollection>
+  collection(name: string): ContentCollection
+  publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
+  revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  comarkSource(name: string): ContentHistorySource
+  onPublish(listener: (collections: string[]) => Promise<void> | void): void
+  head(ref: ContentRef): Promise<string | null>
+  dispose(): void
+}
 export { contentSource } from "./content-source.ts"
 export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
@@ -65,7 +85,7 @@ export type {
   ContentRevisionsResult,
   ContentSaveInput,
   ContentWriteOptions,
-} from "./collections-runtime.ts"
+} from "./collections-types.ts"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>
