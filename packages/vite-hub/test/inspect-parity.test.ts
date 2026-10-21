@@ -89,7 +89,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "vendor/history.mjs", "export const historySchema = {}\n")
     const historyOwner = {
       name: "history-owner/vite",
-      vitehub: { databases: () => [{ export: "historySchema", module: tables }] },
+      vitehub: { databases: () => [{ definition: { export: "historySchema", module: tables }, name: "history" }] },
     }
 
     const config = await resolveConfig({
@@ -113,7 +113,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
     const contentOwner = {
       name: "content-owner/vite",
-      vitehub: { workspaces: () => [{ export: "contentWorkspace", module: "content-owner/workspace", name: "content" }] },
+      vitehub: { workspaces: () => [{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }] },
     }
 
     const config = await resolveConfig({

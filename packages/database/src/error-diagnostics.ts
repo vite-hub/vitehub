@@ -1,9 +1,4 @@
-import { defineDiagnostics } from "nostics"
-
-const dynamicError = { why: (input: any) => {
-  if (input.message !== undefined) return String(input.message)
-  return Object.entries(input).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`).join(", ")
-} }
+import { defineErrors } from "@vite-hub/runtime"
 
 function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
@@ -53,8 +48,8 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
 }
 
 // Keep published codes stable. Each code has a heading on the docs page.
-export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
+  docs: "https://vitehub.dev/docs/database/limits-and-errors",
   codes: {
     DATABASE_C0007: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
@@ -93,13 +88,6 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
 
     // Definition errors. `defineDatabase()` throws them.
-    DATABASE_C0001: { why: ({ message }: { message?: string }) => message || "The Database Definition name does not match its discovered identity.", fix: "Set the discovered database name." },
-    DATABASE_C0002: { why: ({ message }: { message?: string }) => message || "Database Definitions use incompatible configuration.", fix: "Fix the reported database configuration." },
-    DATABASE_C0003: { why: ({ message }: { message?: string }) => message || "Database Definitions conflict.", fix: "Keep one compatible definition." },
-    DATABASE_C0008: { why: ({ message }: { message?: string }) => message || "Database configuration conflicts.", fix: "Fix the reported database configuration conflict." },
-    DATABASE_C0009: { why: ({ message }: { message?: string }) => message || "Database layer definitions conflict.", fix: "Fix the reported layer conflict." },
-    DATABASE_C0011: { why: ({ message }: { message?: string }) => message || "The Database Definition dialect is invalid.", fix: "Set dialect to sqlite or postgresql." },
-
     DATABASE_INVALID_CASING: {
       why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
       fix: "Set `drizzle: { casing: 'snake_case' }` or `drizzle: { casing: 'camelCase' }`, or remove `casing`.",
@@ -188,10 +176,5 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
     },
-    DATABASE_C0004: dynamicError, DATABASE_C0005: dynamicError, DATABASE_C0006: dynamicError,
-    DATABASE_R0001: dynamicError, DATABASE_R0002: dynamicError, DATABASE_R0003: dynamicError, DATABASE_R0004: dynamicError, DATABASE_R0005: dynamicError, DATABASE_R0006: dynamicError, DATABASE_R0007: dynamicError, DATABASE_R0008: dynamicError, DATABASE_R0009: dynamicError, DATABASE_R0010: dynamicError, DATABASE_R0011: dynamicError, DATABASE_R0012: dynamicError, DATABASE_R0013: dynamicError, DATABASE_R0014: dynamicError, DATABASE_R0015: dynamicError, DATABASE_R0016: dynamicError,
-    DATABASE_B0001: dynamicError, DATABASE_B0002: dynamicError, DATABASE_B0003: dynamicError, DATABASE_B0004: dynamicError, DATABASE_B0005: dynamicError, DATABASE_B0006: dynamicError, DATABASE_B0007: dynamicError, DATABASE_B0008: dynamicError, DATABASE_B0009: dynamicError, DATABASE_B0010: dynamicError,
-    DATABASE_B0012: dynamicError,
-
   },
 })

@@ -13,7 +13,6 @@ export type {
   WorkspaceContribution,
   WorkspaceContributionContext,
   WorkspaceContributionFactory,
-  WorkspaceContributionPluginMetadata,
 } from "./build/contributions.ts"
 export type { DiscoveredWorkspaceDefinition, ViteWorkspaceDiscoveryOptions } from "./build/discovery.ts"
 export { inspectWorkspaceDefinitions, type WorkspaceInspectionOptions, workspaceConsoleSection } from "./inspect.ts"
