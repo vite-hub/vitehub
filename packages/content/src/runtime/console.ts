@@ -238,7 +238,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
 
   async function readable(context: ViteHubConsoleDocumentActionContext): Promise<AnyContentCollection[]> {
     const collections = content.collections()
-    const allowed = await Promise.all(collections.map(collection => content.can({ user: context.user, collection: collection.name, action: "read" })))
+    const allowed = await Promise.all(collections.map(async (collection) => {
+      const collectionAllowed = await content.can({ user: context.user, collection: collection.name, action: "read" })
+      if (!collectionAllowed || collection.kind !== "singleton") return collectionAllowed
+      return await content.can({ user: context.user, collection: collection.name, action: "read", id: collection.id })
+    }))
     return collections.filter((_collection, index) => allowed[index])
   }
 
