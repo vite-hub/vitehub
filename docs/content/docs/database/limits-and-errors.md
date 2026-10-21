@@ -103,7 +103,7 @@ Two Database Definitions, or a Database Definition and the Nuxt host D1 resource
 
 ### DATABASE_DUPLICATE_DEFINITION
 
-Two files define the same database in the same layer. Remove one, or give it another name.
+Two files define the same database in the same layer, two plugins contribute different Definitions with one name, or the application already defines a contributed Database. Remove one, or give it another name.
 
 ### DATABASE_DUPLICATE_TABLE
 
@@ -111,7 +111,7 @@ Two schema sources of one database use the same schema key or the same SQL table
 
 ### DATABASE_INVALID_CONTRIBUTION
 
-A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins contributed tables with the same name, or the contributed module does not export an object of Drizzle tables. `error.why` names the plugin.
+A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins contributed tables with the same name, a contributed Definition module does not exist, or the contributed module does not export an object of Drizzle tables. `error.why` names the plugin.
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 

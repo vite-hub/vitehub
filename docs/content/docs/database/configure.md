@@ -4,6 +4,7 @@ description: Set Database integration options and define Default and Named Datab
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configure the Vite Integration
@@ -170,16 +171,45 @@ The Definition object that you import from its file keeps only its own `schema`.
 
 A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
 
+### Contribute a Database
+
+When the application has no Database a package can use, the package can add a whole Database Definition. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables. Here `definition` is the absolute path of the module, not a `{ module, export }` object:
+
+```ts [my-package/vite.ts]
+import { discoverDatabaseDefinitions } from '@vite-hub/database/config'
+
+// In the plugin object:
+vitehub: {
+  databases: async ({ rootDir }) => {
+    const tables = { name: 'history', definition: { module: 'my-package/schema', export: 'historySchema' } }
+    if (discoverDatabaseDefinitions(rootDir).length) return [tables]
+    const definition = await writeDefinition(rootDir) // export default defineDatabase({ schema: {} })
+    return [{ name: 'default', definition, reason: 'my-package stores its history here because the app has no Database.' }, tables]
+  },
+},
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Database name. The application must not define a Database with this name. |
+| `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })`. A Named Database sets the same `name`. |
+| `reason` | `string` | Optional. Why the package adds the Database. `vitehub inspect` shows it. |
+
+A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [Content CMS preset](/docs/content/cms-preset) uses this to add the `default` Database.
+
+The factory context also has `rootDir`, the root that Database Definitions are discovered from, and `plugins`, the flat list of Vite plugins.
+
 ### Contribution errors
 
 | Code | Cause |
 | --- | --- |
 | `DATABASE_DUPLICATE_TABLE` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. |
 | `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target Database does not exist, is ambiguous, or has a different dialect. |
-| `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid. |
+| `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid, or a contributed Definition module does not exist. |
+| `DATABASE_DUPLICATE_DEFINITION` | Two plugins contribute different Definitions with one Database name, or the application already defines the contributed Database. |
 | `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub db generate` fails; dev and builds print a warning. |
 
-`collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
+`collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution, for other build steps.
 
 ## Database Definition options
 

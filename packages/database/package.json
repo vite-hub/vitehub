@@ -73,12 +73,6 @@
       "require": "./dist/runtime/agent.js",
       "default": "./dist/runtime/agent.js"
     },
-    "./runtime/cloudflare-vite": {
-      "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js",
-      "require": "./dist/runtime/cloudflare-vite.js",
-      "default": "./dist/runtime/cloudflare-vite.js"
-    },
     "./runtime/d1": {
       "types": "./dist/runtime/d1.d.ts",
       "import": "./dist/runtime/d1.js",
@@ -108,12 +102,6 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/vercel-vite": {
-      "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js",
-      "require": "./dist/runtime/vercel-vite.js",
-      "default": "./dist/runtime/vercel-vite.js"
     },
     "./runtime/virtual-databases": {
       "types": "./dist/runtime/virtual-databases.d.ts",

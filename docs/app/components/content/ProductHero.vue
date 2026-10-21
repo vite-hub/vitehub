@@ -144,6 +144,7 @@ const channelPath = computed(() =>
 <style scoped>
 .vh-hero {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2.5rem;
   align-items: start;
   padding: 2.5rem 0 1rem;
@@ -274,11 +275,14 @@ const channelPath = computed(() =>
   margin: 0;
 }
 
+/*
+ * On phones the panel takes the height of the longest file.
+ * A fixed height left a large empty area under short examples.
+ */
 .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
   display: grid;
-  height: 28rem;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius);
@@ -287,6 +291,7 @@ const channelPath = computed(() =>
 
 @media (min-width: 40rem) {
   .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
+    height: 28rem;
     grid-template-columns: 11rem minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
@@ -379,20 +384,32 @@ const channelPath = computed(() =>
 }
 
 @media (max-width: 39.99rem) {
-  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
-    grid-area: 2 / 1;
+  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
+    background: var(--ui-bg-muted);
   }
 
+  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
+    grid-area: 2 / 1;
+    border-top: 1px solid var(--ui-border);
+  }
+
+  /* The copy button sits at the top right of the group, which is the file row on phones. Keep the files out from under it. */
   .vh-hero-panel :deep(> div:not(.vh-files) > [role="tablist"]) {
     flex-direction: row;
     overflow-x: auto;
+    margin-inline-end: 3rem;
     border-right: 0;
-    border-bottom: 1px solid var(--ui-border);
   }
 
+  /* The row has an underline indicator, so the active file does not also get the left bar or a number. */
   .vh-hero-panel :deep(> div:not(.vh-files) [role="tab"]) {
     width: auto;
     flex: 0 0 auto;
+    border-left: 0;
+  }
+
+  .vh-hero-panel :deep(> div:not(.vh-files) [role="tab"])::before {
+    content: none;
   }
 }
 
