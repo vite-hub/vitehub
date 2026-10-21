@@ -309,7 +309,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
         }
-        await installNitroRequestStats(config, root)
+        await installNitroRequestStats(config, root, provider)
       })
     }
 
@@ -629,10 +629,11 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
 }
 
 /** Each request's database calls go on its evlog wide event (`database`), on every host and in `nuxt dev`. */
-async function installNitroRequestStats(config: Record<string, unknown>, root: string) {
-  // Nitro's hook receives the resolved options object without Nuxt's preset, so
-  // the presence of the Cloudflare section is the reliable signal here.
-  if (resolveNitroHostingProvider(config, { nitro: config }) === "cloudflare" || isRecord(config.cloudflare)) {
+async function installNitroRequestStats(config: Record<string, unknown>, root: string, provider?: string) {
+  // Nitro's hook receives the resolved options object without Nuxt's preset. Use
+  // the provider resolved before the hook so incidental Cloudflare config on
+  // another preset cannot enable Cloudflare-only compatibility flags.
+  if (provider === "cloudflare") {
     const cloudflare = ensureRecord(config, "cloudflare")
     const wrangler = ensureRecord(cloudflare, "wrangler")
     const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []

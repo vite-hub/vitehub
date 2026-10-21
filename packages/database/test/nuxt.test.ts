@@ -198,6 +198,20 @@ describe("Database Nuxt integration", () => {
     expect(middleware).toContain(".__env__ ?? vitehubEnv")
   })
 
+  it("does not add Cloudflare async context flags to non-Cloudflare Nitro output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provider-"))
+    try {
+      const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = { cloudflare: { wrangler: { compatibility_flags: ["existing"] } } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.cloudflare.wrangler.compatibility_flags).toEqual(["existing"])
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("merges split Cloudflare bindings with request-local precedence", async () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-database-"))
     await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
