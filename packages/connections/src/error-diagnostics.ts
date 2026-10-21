@@ -87,13 +87,14 @@ const codes = {
     fix: "Pass `actor` as `user:<id>` or `service:<id>` from server code. Agents get their actor from the Agent runtime.",
   },
   CONNECTIONS_INVALID_CONFIG: {
-    why: ({ problem }: { problem: "path" | "segment" | "slash" | "type" }): string => {
+    why: ({ name, problem }: { name?: string, problem: "activity-retention" | "path" | "segment" | "slash" | "type" }): string => {
+      if (problem === "activity-retention") return `Connections activityRetention.${name} must be a positive integer, or set activityRetention to false to keep all activity.`
       if (problem === "type") return "Connections basePath must be a string."
       if (problem === "slash") return "Connections basePath must start with `/`."
       if (problem === "path") return "Connections basePath must be a pathname without a query or fragment."
       return "Connections basePath must include a route segment."
     },
-    fix: "Set `basePath` to a pathname such as `/_vitehub/connections`.",
+    fix: "Set `basePath` to a pathname such as `/_vitehub/connections`, and each `activityRetention` limit to a positive integer.",
   },
   CONNECTIONS_INVALID_DEFINITION: {
     why: ({ connection, problem, provider }: { connection?: string, problem: "client-id" | "definition" | "instance" | "registration" | "revocation" | "verify-result", provider?: string }): string => {
