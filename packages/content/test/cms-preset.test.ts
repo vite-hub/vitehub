@@ -282,6 +282,16 @@ describe("hubContent()", () => {
       .resolves.toBeUndefined()
   })
 
+  it("skips its own plugin when vitehub() nests it in context.plugins", async () => {
+    const root = await project("export const content = {}\n")
+    const plugin = hubContent()
+    // vitehub() returns an array, so the Content plugin sits one level down in the app's plugin list. Collecting the
+    // Database contributions of that list must not call this plugin's hooks again.
+    const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
+    expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.databases({ plugins, rootDir: root })).toEqual([])
+  })
+
   it("fails discovery when the Database choice is ambiguous", async () => {
     const root = await project(presetContent, {
       "server/databases/blog/config.ts": "export default defineDatabase({ name: 'blog', schema: {} })\n",

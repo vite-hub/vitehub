@@ -106,6 +106,17 @@ async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unkno
   plugins.push(value)
 }
 
+/**
+ * Flattens Vite plugin options as `collectContributions` reads them: nested arrays and promised options become one
+ * list of plugin objects, and falsy entries are dropped. A plugin that filters itself out of `context.plugins` must
+ * filter this list, because `vitehub()` nests its plugins in an array.
+ */
+export async function flattenPluginOptions(plugins: readonly unknown[] | undefined): Promise<object[]> {
+  const flattened: object[] = []
+  await flattenPlugins(plugins ?? [], flattened, new Set())
+  return flattened
+}
+
 function readModule(value: string): string {
   if (!/^file:/i.test(value)) return value
   // `fileURLToPath` normalizes relative spellings such as `file:../x` to an
