@@ -200,6 +200,8 @@ export interface ContentRevisionsResult {
   revisions: ContentRevision[]
   /** Pass to the next call to continue. Absent when the history is exhausted. */
   cursor?: string
+  /** Number of raw history entries inspected to produce this page. */
+  scanned: number
 }
 
 /** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
