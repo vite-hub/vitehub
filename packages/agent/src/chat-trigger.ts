@@ -253,7 +253,7 @@ function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
     const persistedSkip = await delivery?.getMarker?.(silentReplyContextKey)
     if (
       silentReplies.has(context.context)
-      || context.input.get().context?.[silentReplyContextKey] !== undefined
+      || context.input.context?.[silentReplyContextKey] !== undefined
       || persistedSkip !== null && persistedSkip !== undefined
     ) return
     const text = context.text?.trim()
