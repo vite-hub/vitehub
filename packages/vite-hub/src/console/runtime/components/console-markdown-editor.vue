@@ -222,6 +222,20 @@ function load(markdown: string): Promise<void> {
     const onTransaction = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
       if (transaction.getMeta("vitehubLoad") === token) void done();
     };
+    const fail = (error: unknown) => {
+      if (finished) return;
+      finished = true;
+      instance.off("transaction", onTransaction);
+      if (timeout) clearTimeout(timeout);
+      if (token !== loading) {
+        resolve();
+        return;
+      }
+      lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+      loading = 0;
+      setEditable();
+      resolve();
+    };
     // Parse in this load's scope. This keeps parse failures tied to the active token instead of the editor-wide
     // onError callback, whose context does not carry transaction metadata.
     void parseMarkdown(markdown).then((tree) => {
@@ -232,17 +246,13 @@ function load(markdown: string): Promise<void> {
       // Parsing is asynchronous. An empty body produces no transaction when the editor is already empty.
       timeout = setTimeout(() => void done(), 3_000);
       instance.on("transaction", onTransaction);
-      void setContent(tree, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } });
+      // setContent may reject after parsing (for example when a node view cannot be created). Keep the
+      // per-load cleanup together so a failed load cannot leave the listener, timeout, or loading guard active.
+      void Promise.resolve()
+        .then(() => setContent(tree, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } }))
+        .catch(fail);
     }).catch((error: unknown) => {
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      finished = true;
-      lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
-      loading = 0;
-      setEditable();
-      resolve();
+      fail(error);
     });
   });
 }
