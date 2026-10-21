@@ -139,6 +139,17 @@ describe("Console access policies", () => {
   })
 
   it("keeps the local development Console open and fails closed in production", async () => {
+    vi.stubGlobal("process", undefined)
+    const absentProcess = await run({ mode: "local" })
+    expect(absentProcess.handler).not.toHaveBeenCalled()
+    await expect(rejection(absentProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
+
+    vi.stubGlobal("process", {})
+    const partialProcess = await run({ mode: "local" })
+    expect(partialProcess.handler).not.toHaveBeenCalled()
+    await expect(rejection(partialProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
+
+    vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
     const allowed = await run({ mode: "local" })
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)

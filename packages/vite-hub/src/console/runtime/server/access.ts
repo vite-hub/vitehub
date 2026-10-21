@@ -87,7 +87,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 }
 
 function productionRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "production"
+  return globalThis.process?.env?.NODE_ENV !== "development"
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -102,14 +102,14 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       source.forEach((value, name) => setHeader(name, value))
       return
     }
-    if (source instanceof Object && "get" in source && source.get instanceof Function) {
+    if (source !== null && typeof source === "object" && "get" in source && typeof source.get === "function") {
       for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
       return
     }
-    if (!(source instanceof Object)) return
+    if (source === null || typeof source !== "object") return
     for (const [name, value] of Object.entries(source)) {
       if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
     }
