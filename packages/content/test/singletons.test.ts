@@ -280,6 +280,12 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
     await expect(actions.collections(editor)).resolves.not.toContainEqual(expect.objectContaining({ name: "settings" }))
   })
 
+  it("hides singleton metadata when only its collection is readable", async () => {
+    const { content } = await setup("settings.json", ({ id }) => id === undefined)
+    const actions = createContentConsoleActions({ content })
+    await expect(actions.collections(editor)).resolves.not.toContainEqual(expect.objectContaining({ name: "settings" }))
+  })
+
   it("rejects an empty generic singleton id", async () => {
     const { settings } = await setup()
     await expect(settings.status("")).rejects.toThrow()

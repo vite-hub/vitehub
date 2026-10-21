@@ -120,7 +120,7 @@ export const content = defineContent({
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves `/robots.txt` that allows every crawler, or `{ disallow }` to keep paths out. It names `/sitemap.xml` when the sitemap is on. |
 
-The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. One sitemap holds 50,000 URLs; beyond that Content warns and lists the first 50,000.
+The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
 
 ViteHub generates both routes the same way it generates `/api/content/**`: the `vitehub()` Vite plugin and the Nuxt module read the `defineContent()` call in `server/content.ts` without running it. The routes are generated when the call sets `seo` with `sitemap` or `robots` that is not literally `false`. They run on Nitro 3, on Nuxt 4 with Nitro 2, and on every preset. A server route of your own at `/sitemap.xml` or `/robots.txt` conflicts with them and fails the build; a file in `public/` is served first.
 
