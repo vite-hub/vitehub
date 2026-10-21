@@ -12,6 +12,9 @@ export const contentSchedulesRef = "schedules" as const
 /** A pending schedule this long past its time has not run: no runner fired, or it fires less often. */
 export const contentScheduleOverdueMs: number = 5 * 60_000
 
+/** A crashed publisher must not strand a schedule forever. */
+export const contentScheduleClaimLeaseMs: number = 15 * 60_000
+
 const maxCommitAttempts = 8
 
 /**
@@ -159,6 +162,13 @@ export function contentScheduleKey(collection: string, id: string): string {
 function statusOf(stored: StoredSchedule, now: number): ContentScheduleStatus {
   if (stored.failure) return "failed"
   return Date.parse(stored.at) + contentScheduleOverdueMs < now ? "overdue" : "pending"
+}
+
+/** Claim tokens start with their creation time. Unknown tokens stay active for safety. */
+function claimIsActive(stored: StoredSchedule, now: number): boolean {
+  if (!stored.running) return false
+  const started = Number(stored.running.slice(0, stored.running.indexOf(":")))
+  return Number.isFinite(started) && started > 0 ? now - started < contentScheduleClaimLeaseMs : true
 }
 
 function withStatus(stored: StoredSchedule, now: number): ContentSchedule {
@@ -329,7 +339,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     await commit(({ entries }) => {
       const entry = entries.get(id)
       if (!entry) return
-      if (entry.stored.running) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
+      if (claimIsActive(entry.stored, Date.now())) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
       found = true
       return {
         delete: [entry.path],
@@ -354,10 +364,10 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     const result: ContentPublishDueResult = { published: [], failed: [] }
     const errors: unknown[] = []
     for (const { path, digest, stored } of due) {
-      const claim = globalThis.crypto.randomUUID()
+      const claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
       const claimed = await commit(({ entries }) => {
         const entry = entries.get(stored.id)
-        if (!entry || entry.digest !== digest || entry.stored.running || entry.stored.failure) return
+        if (!entry || entry.digest !== digest || claimIsActive(entry.stored, Date.now()) || entry.stored.failure) return
         return { put: { [path]: render({ ...entry.stored, running: claim }) }, message: `Claim schedule ${stored.id}`, metadata: { content: { action: "schedule-claimed", schedule: stored.id } } }
       })
       if (!claimed) continue
