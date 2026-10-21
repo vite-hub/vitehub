@@ -474,7 +474,7 @@ export function defineContentHandler(
 
 // Every Comark Content plugin field is optional, so a parse plugin type-checks in `plugins`, but Content never runs it there.
 function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
-  if (typeof plugin !== "object" || plugin === null || "setup" in plugin) return false
+  if (typeof plugin !== "object" || plugin === null) return false
   return "pre" in plugin || "post" in plugin || "markdownItPlugins" in plugin
 }
 

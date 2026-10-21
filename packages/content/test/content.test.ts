@@ -623,6 +623,12 @@ describe("contentSource", () => {
       code: "CONTENT_R0006",
       message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
     }))
+
+    const mixed = { name: "mixed", setup() {}, post() {} }
+    expect(() => defineContent({ plugins: [mixed], source: "source" as SourceName })).toThrow(expect.objectContaining({
+      code: "CONTENT_R0006",
+      message: expect.stringContaining("defineContent({ markdown: { plugins } })"),
+    }))
   })
 
   it("runs Comark parse plugins from markdown.plugins", async () => {
