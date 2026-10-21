@@ -50,6 +50,7 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const deferredUsers = new WeakMap<ConsoleAccess, (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
 const objectToString = Object.prototype.toString

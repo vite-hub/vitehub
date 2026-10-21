@@ -367,7 +367,7 @@ function readOpaqueResourceOwnership(module: ScannedModule, expression: Expressi
   const id = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseId", new Set(seen)))
   const name = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseName", new Set(seen)))
   if ((hasId && id === undefined) || (hasName && name === undefined)) return
-  return Boolean(id) || Boolean(name)
+  return (hasId && id !== undefined) || (hasName && name !== undefined)
 }
 
 /** Whether an opaque Cloudflare value selects D1 HTTP. Undefined when the source cannot prove it either way. */
@@ -392,7 +392,11 @@ function readOpaqueHttpOnly(module: ScannedModule, expression: Expression | unde
       continue
     }
     if (readMemberKey(module, property) !== "http") continue
-    const http = property.node.shorthand ? readModuleDeclaration(module, "http") : property.value
+    const http = property.node.shorthand
+      ? readModuleDeclaration(module, "http")
+      : property.value?.type === "Identifier"
+        ? readModuleDeclaration(module, property.value.name) ?? property.value
+        : property.value
     if (http?.type === "Literal" && http.value === true) httpOnly = true
     else if (http?.type === "ObjectExpression") httpOnly = true
     else if (http?.type === "Literal" && http.value === false) httpOnly = false
@@ -436,7 +440,7 @@ function readDefinitionCloudflareConfig(file: string): DefinitionCloudflareConfi
   let resource: DefinitionCloudflareResource = definitionBody === undefined ? "opaque" : "inherited"
   for (const entry of definitionEntries) {
     if (entry.key === undefined) {
-      resource = "opaque"
+      if (opaqueObjectContainsKey(module, entry.value, "cloudflare") !== false) resource = "opaque"
     }
     else if (entry.key === "cloudflare") {
       resource = readDefinitionCloudflareResource(entry.value)
