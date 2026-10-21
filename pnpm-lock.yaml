@@ -2851,9 +2851,6 @@ importers:
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
-      '@vite-hub/box':
-        specifier: workspace:*
-        version: link:../box
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
@@ -2866,6 +2863,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
