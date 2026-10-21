@@ -94,7 +94,10 @@ async function uploadNow(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]>
 /** Asks for media. Resolves to an empty list when the person cancels. */
 function pick(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]> {
   if (next.files.length) return uploadNow(next);
-  if (next.store && store.value && next.store !== store.value) return Promise.resolve([]);
+  // A store-constrained field must wait for the browser's first listing to establish
+  // the served store. Failing closed also covers a listing that could not establish
+  // an identity, so it can never pick a pathname from the wrong store.
+  if (next.store && next.store !== store.value) return Promise.resolve([]);
   settle?.([]);
   request.value = next;
   folder.value = rememberedConsoleMediaFolder(props.section);
