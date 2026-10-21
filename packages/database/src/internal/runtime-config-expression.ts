@@ -39,6 +39,10 @@ export function usesPostgres(config: ResolvedDBViteConfig) {
   return config.databaseNames.some(name => config.databases[name]?.dialect === "postgresql")
 }
 
+export function usesD1ReadReplication(config: ResolvedDBViteConfig) {
+  return config.databaseNames.some(name => config.databases[name]?.cloudflare?.readReplication === true)
+}
+
 export function usesSqlite(config: ResolvedDBViteConfig) {
   return config.databaseNames.some(name => config.databases[name]?.dialect !== "postgresql")
 }

@@ -16,7 +16,7 @@ import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
@@ -309,7 +309,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   // Workers reuse the env object across requests. This middleware gives each request its own scope,
   // so the Postgres runtime creates one client per request.
   function installNitroPostgresRequestScope() {
-    if (!nitroOptions || !runtimeConfig || !usesPostgres(runtimeConfig) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
+    if (!nitroOptions || !runtimeConfig || !(usesPostgres(runtimeConfig) || usesD1ReadReplication(runtimeConfig)) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
     const handler = resolve(databaseRoot(), NITRO_REQUEST_SCOPE_MIDDLEWARE)
     mkdirSync(dirname(handler), { recursive: true })
     writeFileSync(handler, renderNitroRequestScopeMiddleware())
