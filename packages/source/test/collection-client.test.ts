@@ -212,6 +212,41 @@ describe("useCollection", () => {
     scope.stop()
   })
 
+  it("preserves total when later all-pages responses omit it", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), total: 2 })
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], null))
+    await expect(refresh).resolves.toMatchObject({ items: [{ id: 1 }, { id: 2 }], total: 2 })
+    expect(collection.total.value).toBe(2)
+    scope.stop()
+  })
+
+  it("preserves facets when later all-pages responses omit them", async () => {
+    const { calls, request } = controlledRequester()
+    const scope = effectScope()
+    let collection!: UseCollectionReturn<typeof definition>
+    scope.run(() => {
+      collection = useCollection("items", { all: true, immediate: false, request })
+    })
+
+    const refresh = collection.refresh()
+    const facets = { category: [{ value: "guide", count: 1 }] }
+    calls[0]!.resolve({ ...page([{ id: 1 }], "next"), facets })
+    await settle()
+    calls[1]!.resolve(page([{ id: 2 }], null))
+    await expect(refresh).resolves.toMatchObject({ items: [{ id: 1 }, { id: 2 }], facets })
+    expect(collection.facets.value).toEqual(facets)
+    scope.stop()
+  })
+
   it("stops an all-pages load when the server repeats a cursor", async () => {
     const { calls, request } = controlledRequester()
     const scope = effectScope()

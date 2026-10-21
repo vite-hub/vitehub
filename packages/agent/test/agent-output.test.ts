@@ -1,17 +1,23 @@
 import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
+import { registerResponseConstructor } from "../src/internal/response.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
   agentToolStreamDefaults,
+  agentStreamErrorSymbol,
   finalTextFromAgentOutput,
+  resolveAgentUsageRecord,
   streamAgentOutputToEvents,
   toAgentRunResult,
   toAgentStreamEvent,
   usageRecordFromStreamChunk,
 } from "../src/agent-output.ts"
+
+registerResponseConstructor(ForeignResponse)
 
 describe("agent output helpers", () => {
   it("normalizes primitive values into Agent run results", () => {
@@ -26,6 +32,56 @@ describe("agent output helpers", () => {
       text: "ok",
       usage: undefined,
       usageRecord: undefined,
+    })
+  })
+
+  it.each(["usage", "cost"] as const)("ignores inherited provider %s when computing usage cost", field => {
+    const provider = field === "usage"
+      ? Object.create({ usage: { cost: 9 } })
+      : { usage: Object.create({ cost: 9 }) }
+    const result = toAgentRunResult({ usage: { inputTokens: 1 }, providerMetadata: { gateway: provider } })
+    expect(result.usageRecord?.cost).toBeUndefined()
+  })
+
+  it("ignores inherited metadata on an otherwise valid usage record", () => {
+    const usageRecord = Object.assign(Object.create({
+      cost: { usd: "9", estimated: false, source: "provider" },
+      latency: { durationMs: 999 },
+      provider: "polluted",
+    }), { usage: { inputTokens: 1 } })
+    expect(toAgentRunResult({ usageRecord }).usageRecord).toEqual({ usage: { inputTokens: 1 } })
+  })
+
+  it.each(["finish", "usage"] as const)("ignores inherited usage carriers on %s stream events", type => {
+    const carrier = type === "finish" ? { usage: { inputTokens: 99 } } : { usageRecord: { usage: { inputTokens: 99 } } }
+    const chunk = Object.assign(Object.create(carrier), { type })
+    expect(usageRecordFromStreamChunk(chunk)).toBeUndefined()
+  })
+
+  it("ignores inherited raw provider results", async () => {
+    const result = Object.create({ raw: { usage: { inputTokens: 99 } } })
+    await expect(resolveAgentUsageRecord(result)).resolves.toBeUndefined()
+  })
+
+  it("ignores inherited usage fields", () => {
+    const usage = Object.create({ inputTokens: 99, outputTokens: 1 }) as object
+
+    expect(toAgentRunResult({ usage }).usageRecord).toBeUndefined()
+  })
+
+  it("accepts usage fields exposed through class getters", () => {
+    class Usage {
+      get inputTokens() {
+        return 2
+      }
+
+      get outputTokens() {
+        return 1
+      }
+    }
+
+    expect(toAgentRunResult({ usage: new Usage() }).usageRecord).toMatchObject({
+      usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
     })
   })
 
@@ -555,6 +611,147 @@ describe("agent output helpers", () => {
     })
   })
 
+  it.each([undefined, null])("preserves genuine errors when Error.isError is %s", (isError) => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    try {
+      errorConstructor.isError = isError
+      for (const error of [new Error("boom"), Object.assign(new Error("tagged"), { [Symbol.toStringTag]: "ProviderError" }), new Error(), runInNewContext("new Error('boom')")]) {
+        const event = toAgentStreamEvent({ error, type: "error" })
+        expect(event).toMatchObject({ error: error.message, type: "error" })
+        expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+      }
+      const forged = Object.create(Error.prototype)
+      Object.defineProperties(forged, {
+        message: { value: "forged" },
+        stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
+      })
+      const event = toAgentStreamEvent({ error: forged, type: "error" })
+      expect(event).toMatchObject({ error: "Error: forged", type: "error" })
+      expect(Object.getOwnPropertySymbols(event!)).not.toContain(agentStreamErrorSymbol)
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+    }
+  })
+
+  it("preserves messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error('cross-realm boom')")
+    expect(error).not.toBeInstanceOf(Error)
+    expect(toAgentStreamEvent({ error, recoverable: true, type: "error" })).toEqual({
+      error: "cross-realm boom",
+      recoverable: true,
+      type: "error",
+    })
+  })
+
+  it("preserves empty messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error()")
+    expect(toAgentStreamEvent({ error, type: "error" })).toEqual({
+      error: "",
+      type: "error",
+    })
+  })
+
+  it("preserves tagged cross-realm errors without native brand checks", () => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    const processValue = (globalThis as typeof globalThis & { process?: { getBuiltinModule?: unknown } }).process
+    const mutableProcess = processValue as { getBuiltinModule?: unknown } | undefined
+    const nativeGetBuiltinModule = mutableProcess?.getBuiltinModule
+    try {
+      errorConstructor.isError = undefined
+      if (mutableProcess) mutableProcess.getBuiltinModule = undefined
+      const error = runInNewContext("new Error('tagged cross-realm boom')")
+      Object.defineProperty(error, Symbol.toStringTag, { value: "ProviderError" })
+      const event = toAgentStreamEvent({ error, type: "error" })
+      expect(event).toMatchObject({ error: "tagged cross-realm boom", type: "error" })
+      expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+
+      const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+      const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+      expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const proxySpoof = new Proxy(Object.create(Error.prototype), {
+        get(target, property, receiver) {
+          return property === Symbol.toStringTag ? "Error" : Reflect.get(target, property, receiver)
+        },
+        has(target, property) {
+          return property === Symbol.toStringTag ? false : Reflect.has(target, property)
+        },
+      })
+      const proxyEvent = toAgentStreamEvent({ error: proxySpoof, type: "error" })
+      expect(Object.getOwnPropertySymbols(proxyEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      // Source text containing the native marker must not forge a constructor brand.
+      const forgedConstructor = function Error() { return "[native code]" }
+      const forgedPrototype = Object.create(Error.prototype)
+      Object.defineProperty(forgedConstructor, "prototype", { value: forgedPrototype })
+      Object.defineProperty(forgedPrototype, "constructor", { value: forgedConstructor })
+      const forgedCustom = Object.create(forgedPrototype)
+      Object.defineProperty(forgedCustom, Symbol.toStringTag, { value: "ProviderError" })
+      Object.defineProperty(forgedCustom, "stack", { get: () => "Error: forged", configurable: true })
+      const forgedCustomEvent = toAgentStreamEvent({ error: forgedCustom, type: "error" })
+      expect(Object.getOwnPropertySymbols(forgedCustomEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const nativeStructuredClone = (globalThis as typeof globalThis & { structuredClone?: unknown }).structuredClone
+      Object.defineProperty(globalThis, "structuredClone", { value: () => { throw new Error("clone disabled") }, configurable: true })
+      try {
+        const sameRealm = new Error("clone fallback boom")
+        const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
+        expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
+        expect(Object.getOwnPropertySymbols(sameRealmEvent!)).not.toContain(agentStreamErrorSymbol)
+
+        const forgedCloneFailure = Object.create(Error.prototype)
+        Object.defineProperties(forgedCloneFailure, {
+          stack: { value: "Error: forged clone failure", configurable: true, writable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const forgedCloneFailureEvent = toAgentStreamEvent({ error: forgedCloneFailure, type: "error" })
+        expect(Object.getOwnPropertySymbols(forgedCloneFailureEvent!)).not.toContain(agentStreamErrorSymbol)
+
+        const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+        const copiedGetter = Object.create(Error.prototype)
+        Object.defineProperties(copiedGetter, {
+          message: { value: "forged copied getter" },
+          stack: { get: nativeStackGetter, configurable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const copiedGetterEvent = toAgentStreamEvent({ error: copiedGetter, type: "error" })
+        expect(Object.getOwnPropertySymbols(copiedGetterEvent!)).not.toContain(agentStreamErrorSymbol)
+      }
+      finally {
+        Object.defineProperty(globalThis, "structuredClone", { value: nativeStructuredClone, configurable: true })
+      }
+
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+      if (mutableProcess) mutableProcess.getBuiltinModule = nativeGetBuiltinModule
+    }
+  })
+
+  it("does not treat spoofed or hostile values as stream errors", () => {
+    const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+    const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+    expect(spoofedEvent).toMatchObject({ error: "[object Error]", type: "error" })
+    expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const forged = Object.create(Error.prototype)
+    Object.defineProperties(forged, {
+      message: { value: "forged" },
+      stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
+    })
+    const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
+    expect(forgedEvent).toMatchObject({ error: "Error: forged", type: "error" })
+    expect(Object.getOwnPropertySymbols(forgedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("hostile tag") } })
+    Object.defineProperty(hostile, "message", { get() { throw new Error("hostile message") } })
+    expect(() => toAgentStreamEvent({ error: hostile, type: "error" })).not.toThrow()
+    expect(toAgentStreamEvent({ error: hostile, type: "error" })).toMatchObject({ error: "Unknown error", type: "error" })
+  })
+
   it("keeps approval events when converting normalized streams", async () => {
     const output = (async function* () {
       yield { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" }
@@ -645,6 +842,78 @@ describe("agent output helpers", () => {
     }
     await expect(read()).rejects.toThrow("terminal failure")
     expect(events).toEqual([{ type: "usage", usageRecord }])
+  })
+
+  it("stops at a fatal stream error before reading result promises or fallback text", async () => {
+    let usageReads = 0
+    let textReads = 0
+    let continued = false
+    const output = {
+      fullStream: (async function* () {
+        yield { type: "error", error: "terminal failure" }
+        continued = true
+        yield { type: "finish" }
+      })(),
+      get usage() {
+        usageReads++
+        throw new Error("Rejected final usage")
+      },
+      get textStream() {
+        textReads++
+        return (async function* () { yield "must not be replayed" })()
+      },
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "terminal failure" }])
+    expect(continued).toBe(false)
+    expect(usageReads).toBe(0)
+    expect(textReads).toBe(0)
+  })
+
+  it("does not evaluate deferred response metadata while measuring streamed usage", () => {
+    const reads: string[] = []
+    const output = {
+      fullStream: (async function* () {})(),
+      modelId: "model",
+      provider: "test",
+      get response() {
+        reads.push("response")
+        throw new Error("Deferred response")
+      },
+      get providerMetadata() {
+        reads.push("providerMetadata")
+        throw new Error("Deferred provider metadata")
+      },
+    }
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, output)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(reads).toEqual([])
+  })
+
+  it.each(["cycle", "fresh", "throws"] as const)("bounds %s proxy traversal while measuring streamed usage", mode => {
+    let prototypeReads = 0
+    const stream = (async function* () {})()
+    let carrier: object
+    const handler: ProxyHandler<object> = {
+      getOwnPropertyDescriptor(target, key) {
+        if (mode === "throws" && key === "response") throw new Error("Descriptor unavailable")
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+      getPrototypeOf() {
+        prototypeReads++
+        return mode === "fresh" ? new Proxy({}, handler) : carrier
+      },
+    }
+    carrier = new Proxy({ fullStream: stream, modelId: "model", provider: "test" }, handler)
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, carrier)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(prototypeReads).toBeLessThanOrEqual(400)
   })
 
   it("preserves measured usage when fallback text throws", async () => {
@@ -1136,6 +1405,208 @@ describe("agent output helpers", () => {
       { text: "second", type: "text-delta" },
       { type: "finish" },
     ])
+  })
+
+  it("emits body chunks from a genuine foreign Response implementation", async () => {
+    const response = new ForeignResponse("foreign")
+    expect(response).toBeInstanceOf(ForeignResponse)
+    expect(response).not.toBeInstanceOf(Response)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(response)) events.push(event)
+    expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("surfaces an error for a Response body locked by its caller", async () => {
+    const response = new Response("locked")
+    const reader = response.body?.getReader()
+    await expect(async () => {
+      for await (const _event of streamAgentOutputToEvents(response)) {
+        // Consume the generator until the locked-body failure is raised.
+      }
+    }).rejects.toThrow()
+    reader?.releaseLock()
+  })
+
+  it.each([new Response("wrong stream").body, { incompatible: true }])("preserves textStream on outputs with a caller-controlled status getter and body %j", async (body) => {
+    class Output {
+      body = body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+      textStream = (async function* () { yield "generic" })()
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("does not treat a caller-defined status getter as a Response without an Agent stream", async () => {
+    class Output {
+      body = new Response("wrong stream").body
+      headers = new Headers()
+      statusText = "OK"
+      get status() { return 200 }
+      get [Symbol.toStringTag]() { return "Response" }
+    }
+    const events = []
+    for await (const event of streamAgentOutputToEvents(new Output())) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not classify spoofed Response-shaped objects", async () => {
+    const value = {
+      body: new Response("spoofed").body,
+      headers: { get: () => null },
+      status: 200,
+      statusText: "OK",
+      textStream: (async function* () { yield "generic" })(),
+    }
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
+  })
+
+  it("does not trust spoofed stream methods on Response-shaped objects", async () => {
+    const body = {
+      getReader: () => ({
+        read: () => Promise.resolve({ done: true, value: undefined }),
+        releaseLock: () => {},
+      }),
+      pipeThrough: () => { throw new Error("spoofed pipeThrough") },
+    }
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+      get type() { return "default" },
+      get url() { return "" },
+      get redirected() { return false },
+      get ok() { return true },
+      get bodyUsed() { return false },
+      clone() {},
+      blob() {},
+      arrayBuffer() {},
+      text() {},
+      formData() {},
+      json() {},
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("rejects a spoofed ReadableStream tag on an incompatible body", async () => {
+    const body = Object.create({ [Symbol.toStringTag]: "ReadableStream" })
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a spoofed Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+      get [Symbol.toStringTag]() { return "Response" },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a prototype data Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const prototype = {
+      [Symbol.toStringTag]: "Response",
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    }
+    const value = Object.create(prototype)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust a self-linked fake Response constructor", async () => {
+    const body = new Response("spoofed").body
+    const fakeConstructor = function Response() {}
+    const prototype = {
+      [Symbol.toStringTag]: "Response",
+      constructor: fakeConstructor,
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    }
+    Object.defineProperty(fakeConstructor, "prototype", {
+      value: prototype,
+      writable: false,
+      configurable: false,
+    })
+    Object.assign(fakeConstructor, {
+      error() {},
+      json() {},
+      redirect() {},
+    })
+    const value = Object.create(prototype)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not trust an own Response tag over a prototype response shape", async () => {
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return new Response("spoofed").body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("does not loop on a cyclic response prototype", async () => {
+    const target = {}
+    let value: object
+    value = new Proxy(target, {
+      getPrototypeOf(): object {
+        return value
+      },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
+  it("preserves text from a spoofed Response-shaped result", async () => {
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return null },
+    }) as Record<string | symbol, unknown>
+    value.text = "generic"
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([{ text: "generic", type: "text-delta" }, { type: "finish" }])
   })
 
   it("emits usage from promise-backed textStream results", async () => {

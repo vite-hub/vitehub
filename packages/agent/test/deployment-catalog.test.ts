@@ -121,6 +121,8 @@ async function createDeploymentRuntimeFixture(
   declaredWorkspaceName?: string,
   explicitSourceRoot = false,
   explicitInstructions = false,
+  inheritedWorkspaceName = false,
+  providerDriver = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -138,10 +140,11 @@ async function createDeploymentRuntimeFixture(
     "import { defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
     "  description: 'support',",
-    "  driver: { model: {} },",
+    providerDriver ? "  driver: 'codex'," : "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
     "  workspace: {",
+    ...(inheritedWorkspaceName ? ["    __proto__: { name: 'inherited' },"] : []),
     "    mode: 'write',",
     ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
     ...(explicitInstructions ? ["    sources: { __vitehubAgentInstructions: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } },"] : []),
@@ -480,6 +483,29 @@ describe("generated Agent deployment catalog", () => {
     expect(extended?.description).toBe("Extended")
     expect(extended?.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
     expect(extended?.[Symbol.for("vitehub.agent.colocatedSkills")]).toEqual(skills)
+  })
+
+  it("decorates an owned Workspace with an inherited name in generated deployment output", async () => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, undefined, false, false, true)
+    const workspace = await runtime.workspace("support")
+
+    expect(workspace.sourceRootDir).toBe(join(runtime.supportRoot, "workspace"))
+    expect(workspace.sources).toMatchObject({
+      __vitehubAgentInstructions: { content: "Support the deployment catalog.\n", workspacePath: "AGENTS.md" },
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { workspacePath: ".agents/skills/review/SKILL.md" },
+    })
+  })
+
+  it("keeps bundled Skills and instructions out of a provider Driver Workspace in generated deployment output", async () => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, undefined, false, false, false, true)
+    const workspace = await runtime.workspace("support")
+    const skills = runtime.capture.registeredAgent?.[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
+
+    expect(Object.keys(workspace.sources ?? {}).filter(key => key.startsWith("__vitehubAgent"))).toEqual([])
+    expect(runtime.capture.registeredAgent?.[Symbol.for("vitehub.baseAgentDriver")]).toMatchObject({ instructions: "Support the deployment catalog.\n", kind: "provider" })
+    expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content)).toBe("# Review\n")
   })
 
   it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {

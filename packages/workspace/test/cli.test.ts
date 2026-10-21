@@ -470,7 +470,7 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("requires an explicit Box session host for Workspace Dev commands", async () => {
+  it("requires an explicit Sandbox session host for Workspace Dev commands", async () => {
     const workspace = `workspace-dev-${Math.random().toString(36).slice(2)}`
 
     await expect(runWorkspaceDevCommand({
@@ -483,6 +483,6 @@ describe("workspace CLI", () => {
         store: { provider: "memory" },
       },
       workspace,
-    })).rejects.toThrow("requires a Box session host")
+    })).rejects.toThrow("requires a Sandbox session host")
   })
 })

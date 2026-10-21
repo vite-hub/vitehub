@@ -10,9 +10,42 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe("HTTP request", () => {
+  it("normalizes native Blob bodies without reading bytes or shadowed properties", async () => {
+    const body = new Blob(["test"], { type: "text/plain" })
+    // Simulate a Blob crossing a realm boundary: its internal slots remain
+    // valid, while the local constructor check no longer applies.
+    Object.setPrototypeOf(body, null)
+    Object.defineProperty(body, "arrayBuffer", { value: () => Promise.reject(new Error("shadowed")) })
+    Object.defineProperty(body, "type", { value: "application/evil" })
+    Object.defineProperty(body, "slice", { value: () => { throw new Error("shadowed") } })
+    const readBytes = vi.spyOn(Blob.prototype, "arrayBuffer")
+    const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }
+    Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
+    let captured: RequestInit | undefined
+    const send = vi.fn(async (_url: string, init: RequestInit) => {
+      captured = init
+      return new Response("ok")
+    })
+
+    await executeHttpRequest({ body, method: "POST", url: "https://api.example.com/upload" }, { fetch: send, responseType: "text" })
+
+    expect(readBytes).not.toHaveBeenCalled()
+    readBytes.mockRestore()
+    expect(captured?.body).toBeInstanceOf(Blob)
+    expect(new Response(captured?.body).headers.get("content-type")).toBe("text/plain")
+    await expect(new Response(captured?.body).text()).resolves.toBe("test")
+    expect(new Headers(captured?.headers).has("content-type")).toBe(false)
+
+    captured = undefined
+    await executeHttpRequest({ body: spoof, method: "POST", url: "https://api.example.com/upload" }, { fetch: send, responseType: "text" })
+    expect(captured?.body).toBe(JSON.stringify(spoof))
+    expect(new Headers(captured?.headers).get("content-type")).toBe("application/json")
+  })
+
   it("sends through a custom fetch and never calls the global fetch", async () => {
     const global = vi.fn(async () => new Response("unexpected"))
     vi.stubGlobal("fetch", global)

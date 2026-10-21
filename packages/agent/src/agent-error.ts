@@ -103,6 +103,7 @@ export function agentErrorMessage(error: unknown, fallback?: string): string {
 }
 
 export type AgentPublicErrorCode =
+  | "AGENT_BUDGET_EXCEEDED"
   | "APPROVAL_REQUIRED"
   | "AUTHENTICATION_REQUIRED"
   | "CAPABILITY_DENIED"
@@ -116,6 +117,7 @@ export type AgentPublicErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "RATE_LIMIT_REJECTED"
   | "RATE_LIMIT_UNAVAILABLE"
+  | "TIMEOUT"
   | "TRANSCRIPTION_AUTHENTICATION_FAILED"
   | "TRANSCRIPTION_INVALID_PAYLOAD"
   | "TRANSCRIPTION_INVALID_REQUEST"
@@ -124,7 +126,20 @@ export type AgentPublicErrorCode =
   | "TRANSCRIPTION_QUOTA_EXCEEDED"
   | "TRANSCRIPTION_RATE_LIMITED"
 
+export interface AgentPublicErrorBudgetLimits {
+  tokens?: { input?: number, output?: number, total?: number }
+  usd?: number | string
+}
+
+export interface AgentPublicErrorBudgetExceeded {
+  actual: number | string
+  limit: number | string
+  metric: "inputTokens" | "outputTokens" | "totalTokens" | "usd"
+}
+
 export interface AgentPublicErrorDetails {
+  limits?: AgentPublicErrorBudgetLimits
+  exceeded?: readonly AgentPublicErrorBudgetExceeded[]
   capability?: string
   category?: string
   /** Provider quota reset time as an ISO 8601 timestamp, for a validated reset time. */
@@ -263,6 +278,37 @@ function quotaResetDetails(message: unknown): AgentPublicErrorDetails | undefine
   return { resetText, resetAt: new Date(time).toISOString() }
 }
 
+function budgetDetails(details: unknown): Pick<AgentPublicErrorDetails, "limits" | "exceeded"> | undefined {
+  if (!isRuntimeObject(details)) return
+  const limitsValue = readAgentErrorProperty(details, "limits")
+  const exceededValue = readAgentErrorProperty(details, "exceeded")
+  if (!isRuntimeObject(limitsValue) || !Array.isArray(exceededValue)) return
+  const tokensValue = readAgentErrorProperty(limitsValue, "tokens")
+  const tokens = isRuntimeObject(tokensValue)
+    ? Object.fromEntries((["input", "output", "total"] as const).flatMap(key => {
+        const value = readAgentErrorProperty(tokensValue, key)
+        return hasRuntimeType(value, "number") && Number.isFinite(value) && value >= 0 ? [[key, value]] : []
+      }))
+    : undefined
+  const usd = readAgentErrorProperty(limitsValue, "usd")
+  const limits: AgentPublicErrorBudgetLimits = {
+    ...(tokens && Object.keys(tokens).length ? { tokens } : {}),
+    ...(hasRuntimeType(usd, "number") && Number.isFinite(usd) && usd >= 0 || hasRuntimeType(usd, "string") ? { usd } : {}),
+  }
+  const exceeded = exceededValue.flatMap(item => {
+    if (!isRuntimeObject(item)) return []
+    const actual = readAgentErrorProperty(item, "actual")
+    const limit = readAgentErrorProperty(item, "limit")
+    const metric = readAgentErrorProperty(item, "metric")
+    return (hasRuntimeType(actual, "number") || hasRuntimeType(actual, "string"))
+      && (hasRuntimeType(limit, "number") || hasRuntimeType(limit, "string"))
+      && ["inputTokens", "outputTokens", "totalTokens", "usd"].includes(metric as string)
+      ? [{ actual, limit, metric: metric as AgentPublicErrorBudgetExceeded["metric"] }]
+      : []
+  })
+  return exceeded.length && Object.keys(limits).length ? { limits, exceeded } : undefined
+}
+
 function quotaExhausted(...messages: unknown[]): AgentPublicError {
   const details = messages.map(quotaResetDetails).find(Boolean)
   return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.", details)
@@ -325,7 +371,18 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
         return quotaExhausted(message)
       }
     }
+    // Chat and queued webhook timeouts. The same diagnostic also reports a lost inline turn, which is not a timeout.
+    if (readAgentErrorProperty(error, "code") === "AGENT_R0820") {
+      const message = readAgentErrorProperty(error, "message")
+      if (hasRuntimeType(message, "string") && /\btimed out\b/.test(message)) {
+        return publicError("TIMEOUT", "I ran out of time before I could finish this. Please try a narrower request.")
+      }
+    }
     const viteHubError = getViteHubErrorShape(error)
+    if (viteHubError?.code === "AGENT_BUDGET_EXCEEDED") {
+      const details = budgetDetails(viteHubError.details)
+      return publicError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", details)
+    }
     if (viteHubError?.code === "HOST_RESTARTED") {
       return publicError("HOST_RESTARTED", viteHubError.details?.retry === "exhausted"
         ? "The server restarted twice while I was working on this. Please send your message again."

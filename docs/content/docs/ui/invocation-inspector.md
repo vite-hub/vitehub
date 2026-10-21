@@ -2,6 +2,7 @@
 title: Invocation Inspector
 description: "Inspect the outcome, run summary, Agent setup, Capabilities, tools, and identifiers of one Invocation."
 navigation.order: 32
+navigation: false
 navigation.group: Agent work
 icon: i-ph-sidebar-simple-light
 ---
@@ -10,6 +11,10 @@ icon: i-ph-sidebar-simple-light
 
 ::component-preview{name="InvocationInspectorExample"}
 ::
+
+## Installation
+
+Install `@vite-hub/ui` and register the Nuxt module.
 
 ## Usage
 
@@ -51,6 +56,12 @@ Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to in
 
 The default keeps all recorded tool contracts in the inspector. Use the separate [Capability inspector](/docs/ui/capability-inspector) for Capability details, as in the Console. Set `showCapabilities` to `true` to embed them in a standalone inspector.
 
+::component-preview{name="InvocationExample"}
+::
+
+::component-preview{name="InvocationRunningExample"}
+::
+
 ## Captured configuration
 
 Pass the sanitized configuration stored with the Invocation:
@@ -78,6 +89,8 @@ Include instruction content only when the current viewer may inspect it. The com
 
 ## API reference
 
+## API Reference
+
 ### AgentInvocationInspector
 
 #### Props
@@ -89,7 +102,7 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showError`        | `boolean`             | `true`   | Shows the terminal error in the outcome section.      |
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
 | `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
-| `showSources`      | `boolean`             | `true`   | Shows the Workspace sources captured for the run.     |
+| `showSources`      | `boolean`             | `true`   | Shows structured workspace Sources and readable paths. |
 
 #### Events
 

@@ -25,6 +25,46 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
+  it.each([0, 8])("bounds both streams of inspection feedback to %s characters", async (maxOutputLength) => {
+    const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
+
+    const options = {
+      broadSearchPaths: ["models"],
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    }
+    const unlimited = await runWorkspaceInspectionCommand(workspace, "rg missing models", {
+      ...options,
+      maxOutputLength: Number.POSITIVE_INFINITY,
+    })
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models", {
+      ...options,
+      maxOutputLength,
+    })).resolves.toMatchObject({
+      outputTruncated: true,
+      stderr: `${unlimited.stderr.slice(0, maxOutputLength)}\n[output truncated to ${maxOutputLength} characters]\n`,
+      stdout: `${unlimited.stdout.slice(0, maxOutputLength)}\n[output truncated to ${maxOutputLength} characters]\n`,
+      workspaceGuardrail: { kind: "broad_search" },
+    })
+  })
+
+  it("bounds no-match feedback after runtime execution", async () => {
+    const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models/orders.sql", {
+      broadSearchPaths: ["/workspace/models"],
+      commands: ["rg"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+      maxOutputLength: 0,
+    })).resolves.toMatchObject({
+      outputTruncated: true,
+      stdout: "\n[output truncated to 0 characters]\n",
+      workspaceGuardrail: { kind: "no_match" },
+    })
+  })
+
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
       ".secret": "hidden\n",
@@ -973,6 +1013,16 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       stdout: expect.stringContaining("Workspace path is not mounted: missing.md"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      cwd: workspaceMountPoint,
+      fs,
+      maxOutputLength: 0,
+    })).resolves.toMatchObject({
+      event: "command_finished",
+      outputTruncated: true,
+      stdout: "\n[output truncated to 0 characters]\n",
     })
   })
 

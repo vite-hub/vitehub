@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import ConsoleState from "./console-state.vue";
+
 const props = withDefaults(
   defineProps<{
-    error?: string;
+    error?: unknown;
     maximizable?: boolean;
     maximized?: boolean;
     surface?: "thread" | "inspector";
@@ -64,7 +66,7 @@ const emit = defineEmits<{
           </UTooltip>
         </div>
       </header>
-      <UEmpty
+      <ConsoleState
         v-if="props.error"
         class="h-[calc(100%-3.25rem)] min-h-0"
         icon="i-lucide-cloud-off"

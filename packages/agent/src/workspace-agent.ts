@@ -35,6 +35,8 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { formatRetentionPercentage } from "./internal/retention-policy.ts"
+import type { NormalizedRetention } from "./internal/retention-policy.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
@@ -82,6 +84,7 @@ import type {
   ReadonlyWorkspaceFacade,
   WorkspaceEntry,
   WorkspaceDefinition,
+  WorkspaceMaterializeMode,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
@@ -93,7 +96,8 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
-export const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -103,7 +107,6 @@ const workspaceDefinitionKeys = new Set([
   "hooks",
   "loaders",
   "plugins",
-  "publish",
   "rootDir",
   "rules",
   "runtime",
@@ -222,7 +225,7 @@ export function workspaceAutoCommitDisabled(definition: WorkspaceDefinition, com
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
   return hasRuntimeType(workspace, "object")
     && workspace !== null
-    && "name" in workspace
+    && Object.hasOwn(workspace, "name")
     && hasRuntimeType(workspace.name, "string")
 }
 
@@ -286,14 +289,16 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  // A Provider Driver writes the bundled Skills and instructions into its working directory itself.
+  const storesBundledFiles = Reflect.get(workspaceAgent, baseAgentDriverKind) !== "provider"
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
-  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const colocatedSkills = storesBundledFiles ? Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined : undefined
   const sources: Record<string, WorkspaceSourceInput> = {
     ...colocatedSkills,
     ...ownedWorkspace.sources,
   }
-  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
-    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  if (storesBundledFiles && colocatedInstructions && !Object.hasOwn(sources, colocatedAgentInstructionsSourceKey)) {
+    sources[colocatedAgentInstructionsSourceKey] = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: colocatedAgentInstructionsWorkspacePath }
   }
   const workspaceOptions = {
     ...options,
@@ -366,13 +371,39 @@ export function workspaceDefinitionFromOptions<
       staticAgentCapabilities(options.capabilities),
     )
   }
-  const { commit: _commit, ...workspace } = normalizeWorkspaceOptions(options.workspace)
+  const { commit: _commit, materialize, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    workspace,
+    withDefaultMaterialize(workspace, materialize),
     staticAgentCapabilities(options.capabilities),
-  ))
+  ), options)
+}
+
+const workspaceMaterializeModes = new Set<unknown>(["build", "startup", "lazy", "none"] satisfies WorkspaceMaterializeMode[])
+
+function declaresMaterialize(source: unknown): boolean {
+  if (!isRuntimeRecord(source)) return false
+  if (Object.hasOwn(source, "materialize") && source.materialize !== undefined) return true
+  const mount = Object.hasOwn(source, "mount") ? source.mount : undefined
+  if (isRuntimeRecord(mount) && Object.hasOwn(mount, "materialize") && mount.materialize !== undefined) return true
+  // A Source binding holds another Source input in `source`.
+  return Object.hasOwn(source, "source") && declaresMaterialize(source.source)
+}
+
+/** Apply `workspace.materialize` to every Source in `workspace.sources` that does not set its own mode. */
+function withDefaultMaterialize(workspace: NormalizedWorkspaceOptions, materialize: WorkspaceMaterializeMode | undefined): NormalizedWorkspaceOptions {
+  if (materialize === undefined) return workspace
+  if (!workspaceMaterializeModes.has(materialize)) {
+    throw agentDiagnostics.AGENT_R0882({ message: `[vitehub] Workspace materialize must be one of: ${[...workspaceMaterializeModes].join(", ")}.` })
+  }
+  if (!workspace.sources) return workspace
+  const sources: NonNullable<NormalizedWorkspaceOptions["sources"]> = {}
+  for (const [key, source] of Object.entries(workspace.sources)) {
+    // A Source binding sets materialize without copying the Source definition.
+    sources[key] = declaresMaterialize(source) ? source : { source, materialize }
+  }
+  return { ...workspace, sources }
 }
 
 function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: boolean | string): WorkspaceRules {
@@ -430,9 +461,13 @@ function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boole
   }
 }
 
-function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
+function withColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(workspace: NormalizedWorkspaceOptions, options: WorkspaceAgentOptions<TRuntimeConfig, Name>): NormalizedWorkspaceOptions {
   if (!hasColocatedAgentInstructions(workspace.sourceRootDir)) return workspace
   if (workspace.sources && colocatedAgentInstructionsSourceKey in workspace.sources) return workspace
+  if (providerDriverHasInstructions(options)) return workspace
   return {
     ...workspace,
     sources: {
@@ -506,6 +541,18 @@ function shouldUseColocatedAgentInstructions<
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
   return modelDriverInstructions(options) === undefined
     && workspaceAgentDriverKind(options) === "model"
+}
+
+/** A Provider Driver writes its own instructions into its working directory, so the Workspace needs no AGENTS.md copy. */
+function providerDriverHasInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  if ((asUnknownBoundary(options) as { driver?: unknown }).driver === undefined) return false
+  // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+  const driver = normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>)
+  return driver.kind === "provider" && driver.instructions !== undefined
 }
 
 function workspaceAgentDriverKind<
@@ -795,6 +842,16 @@ function providerResolverKind(value: unknown): "dynamic" | "static" {
     : "static"
 }
 
+function retentionMetadata(retention: NormalizedRetention): NonNullable<AgentInspectionProviderMetadata["retention"]> {
+  return {
+    ...(retention.maxAgeMs === false ? {} : { maxAge: retention.maxAgeMs }),
+    ...(retention.maxRecords === false ? {} : { maxRecords: retention.maxRecords }),
+    ...(retention.maxSize === false
+      ? {}
+      : { maxSize: "bytes" in retention.maxSize ? retention.maxSize.bytes : `${formatRetentionPercentage(retention.maxSize.fraction)}%` }),
+  }
+}
+
 function providerMetadata(driver: {
   credentialProfile?: string
   credentials?: unknown
@@ -809,6 +866,7 @@ function providerMetadata(driver: {
   providerSettings?: Record<string, unknown>
   reasoningEffort?: AgentInspectionProviderMetadata["reasoningEffort"]
   reasoningSummary?: AgentInspectionProviderMetadata["reasoningSummary"]
+  retention?: NormalizedRetention
   sessionStorePath?: string
   toolchain?: AgentInspectionProviderMetadata["toolchain"]
 }): AgentInspectionProviderMetadata {
@@ -830,6 +888,7 @@ function providerMetadata(driver: {
     ...(providerSettings.length ? { providerSettings } : {}),
     ...(driver.reasoningEffort ? { reasoningEffort: driver.reasoningEffort } : {}),
     ...(driver.reasoningSummary ? { reasoningSummary: driver.reasoningSummary } : {}),
+    ...(driver.retention ? { retention: retentionMetadata(driver.retention) } : {}),
     ...(driver.sessionStorePath ? { sessionStore: "sqlite" as const } : {}),
     ...(driver.toolchain !== undefined ? { toolchain: driver.toolchain } : {}),
   }
@@ -1949,30 +2008,6 @@ export function createAgentInspectionMetadata<
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
-  }
-}
-
-export function createInvocationInspectionMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(
-  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  capabilities: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[],
-  tools: readonly string[],
-  resolvedModel?: AgentModelInput,
-  resolvedInstructions?: string,
-): AgentInspectionMetadata {
-  const capabilityMetadata = new Map(capabilityInspectionMetadata(capabilities).map(capability => [capability.id, capability]))
-  const inspection = createAgentInspectionMetadata(definition)
-  const driver = inspection.config?.driver
-  return {
-    ...inspection,
-    capabilities: normalizeCapabilities(capabilities).map(capability => capabilityMetadata.get(capability.id) || { id: capability.id, metadata: {} }),
-    ...(driver && resolvedModel !== undefined
-      ? { config: { ...inspection.config, driver: { ...driver, model: modelMetadata(resolvedModel, true) } } }
-      : {}),
-    ...(resolvedInstructions !== undefined ? { instructions: resolvedInstructions ? [resolvedInstructions] : [] } : {}),
-    tools: tools.map(name => ({ name })),
   }
 }
 

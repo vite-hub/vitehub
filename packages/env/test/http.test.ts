@@ -179,10 +179,14 @@ describe("Env management HTTP", () => {
     }
     for (const action of ["read", "resolve", "use"])
       expect((await handler(request({ path, action }))).status).toBe(400)
-    expect(
-      (await handler(request({ path, action: "replace", value: "stale", expectedRevision: null })))
-        .status,
-    ).toBe(409)
+    const conflict = await handler(request({ path, action: "replace", value: "stale", expectedRevision: null }))
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toEqual({
+      code: "ENV_BRIDGE_CONFLICT",
+      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      fix: "Reload the credential details, then replace it again.",
+      message: "The credential changed. Refresh before replacing it.",
+    })
     expect(await bridge.read({ env: {}, keys: [key], access: admin })).toEqual({ [key]: secret })
   })
 
@@ -257,6 +261,8 @@ describe("Env management HTTP", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
       code: "ENV_BRIDGE_OPERATION_FAILED",
+      docs: "https://vitehub.dev/docs/env/bridge#structured-errors",
+      fix: "Try again. If this continues, read the server logs for this request.",
       message: "Env operation failed.",
     })
   })

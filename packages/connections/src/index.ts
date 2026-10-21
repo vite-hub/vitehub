@@ -1,17 +1,20 @@
 export { apiKey } from "./api-key.ts"
 export { defineConnection } from "./definition.ts"
-export { ConnectionError, isConnectionError } from "./errors.ts"
+export { isConnectionError } from "./errors.ts"
 
 export type { ApiKeyProviderOptions } from "./api-key.ts"
-export type { ConnectionErrorCode, ConnectionErrorDetails, ConnectionErrorReason } from "./errors.ts"
+export type { ConnectionsCatalogCode, ConnectionsErrorCode } from "./errors.ts"
 export type { ConnectionDefinitionName } from "./registry-types.ts"
 export type {
+  ConnectionAccessPreset,
   ConnectionAccessRule,
   ConnectionAccount,
   ConnectionActionInfo,
   ConnectionActionPattern,
+  ConnectionActivityRetention,
   ConnectionApiCatalog,
   ConnectionApiKeyDefinition,
+  ConnectionApiKeyFallback,
   ConnectionApiKeyProvider,
   ConnectionApiKeyVerification,
   ConnectionApiKeyVerifyContext,
@@ -32,6 +35,7 @@ export type {
   ConnectionMethodSignature,
   ConnectionOAuthDefinition,
   ConnectionProvider,
+  ConnectionRequestPolicy,
   ConnectionStatus,
   ConnectionTokenResponse,
   ConnectionValue,

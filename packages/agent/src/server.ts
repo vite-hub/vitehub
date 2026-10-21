@@ -15,6 +15,8 @@ export {
   drainInlineChatInvocations,
 } from "./server/routes.ts"
 export type { DrainInlineChatInvocationsOptions, DrainInlineChatInvocationsResult } from "./server/routes.ts"
+export { drainDeferredWebhookAdmissions } from "./server/webhook-inbox.ts"
+export type { DrainDeferredWebhookAdmissionsOptions, DrainDeferredWebhookAdmissionsResult } from "./server/webhook-inbox.ts"
 export { webhookQueueShutdown } from "./internal/webhook-queue.ts"
 
 export {
@@ -24,7 +26,7 @@ export {
 } from "./server/invocation-health.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
-export { channelMessageRunId, channelReplayRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
+export { channelMessageRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
 export type {
   ChannelHistoryDescription,
   ReplayChannelItem,
@@ -45,7 +47,6 @@ export type {
   AgentInvocationListOptions,
   AgentInvocationListResult,
   AgentInvocationObservationOptions,
-  AgentInvocationRetentionOptions,
   AgentInvocationRecord,
   AgentInvocationRecordStatus,
   AgentInvocationSummary,
@@ -56,6 +57,7 @@ export type {
   AgentInvocationStoreCreateResult,
   AgentInvocationStoreUpdateInput,
 } from "./invocations.ts"
+export type { AgentRetentionDuration, AgentRetentionDurationUnit, AgentRetentionPolicy, AgentRetentionSize, AgentRetentionSizeUnit } from "./retention.ts"
 
 export type {
   AgentRunEvent,

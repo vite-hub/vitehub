@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -22,6 +23,7 @@ export default defineConfig({
       "src/index.ts",
       "src/bridge.ts",
       "src/auth.ts",
+      "src/cli.ts",
       "src/http.ts",
       "src/internal/agent.ts",
       "src/internal/connections.ts",
@@ -37,9 +39,8 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pack export values cross the plugin boundary as strings or conditional export objects.
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }
@@ -51,7 +52,7 @@ export default defineConfig({
               },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },

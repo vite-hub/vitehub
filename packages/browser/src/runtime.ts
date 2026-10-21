@@ -195,7 +195,6 @@ async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition
   if (!entry) throw browserDefinitionNotFoundError(name)
   const loaded = typeof entry === "function" ? await entry() : entry
   const definition = loaded
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary must distinguish objects from functions.
     && (typeof loaded === "object" || typeof loaded === "function")
     && "default" in loaded
     && loaded.default

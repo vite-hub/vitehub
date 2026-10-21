@@ -1055,4 +1055,38 @@ describe("mcp capability", () => {
       vi.doUnmock("@ai-sdk/mcp/mcp-stdio")
     }
   })
+
+  it("extends the parent's mcp() Capability by server name in a child Agent", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const run = () => ({ text: "ok" })
+    const docs = createClient({ read: { execute: vi.fn() } })
+    const removed = createClient({ drop: { execute: vi.fn() } })
+    const portal = createClient({ lookup: { execute: vi.fn() } })
+    const base = defineAgent({
+      driver: { run },
+      capabilities: [mcp({
+        servers: { docs, removed },
+        integrity: { removed: {} },
+        toolOverrides: { docs: { read: { description: "Pinned docs" } }, removed: { drop: { description: "Pinned drop" } } },
+        unavailableNotice: true,
+      })],
+    })
+    const child = defineAgent({ extends: base, capabilities: [mcp({ servers: { portal, removed: false } })] })
+    const grandchild = defineAgent({ extends: child, capabilities: [mcp({ servers: { docs: false } })] })
+    const replaced = defineAgent({ extends: base, capabilities: [mcp({ servers: { portal }, inherit: false })] })
+    const servers = (agent: typeof base) =>
+      Object.keys(agent.capabilities?.find(capability => capability.id === "mcp")?.metadata?.servers ?? {})
+
+    expect(servers(child)).toEqual(["docs", "portal"])
+    expect(servers(grandchild)).toEqual(["portal"])
+    expect(servers(replaced)).toEqual(["portal"])
+    expect(servers(base)).toEqual(["docs", "removed"])
+
+    const resolved = await resolveAgentCapabilities({ capabilities: child.capabilities?.filter(capability => capability.id === "mcp") }, runtime(), {})
+    expect(Object.keys(resolved.tools ?? {}).sort()).toEqual(["mcp_docs_read", "mcp_portal_lookup"])
+    expect(resolved.tools?.mcp_docs_read?.description).toBe("Pinned docs")
+    await resolved.close()
+  })
 })

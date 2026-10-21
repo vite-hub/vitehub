@@ -229,6 +229,13 @@ async function focusFirstInvalid(): Promise<void> {
 let errorSnapshot: Record<string, string> = {};
 /** The body when the owner validators last rejected the draft. Autosave retries once the body or a field changes. */
 let errorBody = "";
+watch(newId, (value) => {
+  if (fieldErrors.value[""] && isConsoleDocumentId(value.trim())) {
+    const next = { ...fieldErrors.value };
+    delete next[""];
+    fieldErrors.value = next;
+  }
+});
 watch(() => draft.value.data, (data) => {
   if (!errorCount.value) return;
   const next = Object.fromEntries(Object.entries(fieldErrors.value).filter(([path]) => {

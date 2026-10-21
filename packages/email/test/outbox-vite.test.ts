@@ -121,7 +121,7 @@ describe("Email development outbox output", () => {
     const email = createEmail(module.definition)
     for (const subject of ["One", "Two", "Three", "Four"]) {
       await expect(email.send({ from: "hello@example.com", html: "<p>Hi</p>", subject, to: "ada@example.com" }))
-        .resolves.toMatchObject({ driver: "outbox" })
+        .resolves.toMatchObject([undefined, { driver: "outbox" }])
     }
     const outbox = getEmailOutbox(module.outboxRuntimeId)
     expect(outbox?.limit).toBe(3)
@@ -168,7 +168,7 @@ describe("Email development outbox output", () => {
     const module: { definition: EmailDefinition, outboxRuntimeId: string } = await import(pathToFileURL(definition).href)
     // No API key is configured, so the provider driver fails. The outbox keeps the message and the failure.
     await expect(createEmail(module.definition).send({ from: "hello@example.com", subject: "Hi", text: "Hi", to: "ada@example.com" }))
-      .rejects.toThrow()
+      .rejects.toMatchObject({ code: "EMAIL_NOT_CONFIGURED" })
     expect(getEmailOutbox(module.outboxRuntimeId)?.list()[0]).toMatchObject({ delivery: { status: "failed" }, provider: "resend", subject: "Hi" })
   })
 
@@ -182,9 +182,9 @@ describe("Email development outbox output", () => {
 
   it("rejects invalid outbox options", () => {
     // SAFETY: the casts pass invalid runtime values that JavaScript callers can send.
-    expect(() => hubEmail({ driver: "resend", outbox: true as unknown as false })).toThrow("email.outbox must be false or an object")
-    expect(() => hubEmail({ driver: "resend", outbox: { deliver: "yes" as unknown as boolean } })).toThrow("email.outbox.deliver must be a boolean")
-    expect(() => hubEmail({ driver: "resend", outbox: { limit: 0 } })).toThrow("email.outbox.limit must be an integer from 1 to 1000")
+    expect(() => hubEmail({ driver: "resend", outbox: true as unknown as false })).toThrow("`email.outbox` must be `false` or an object.")
+    expect(() => hubEmail({ driver: "resend", outbox: { deliver: "yes" as unknown as boolean } })).toThrow("`email.outbox.deliver` must be a boolean.")
+    expect(() => hubEmail({ driver: "resend", outbox: { limit: 0 } })).toThrow("`email.outbox.limit` must be an integer from 1 to 1000.")
     expect(() => hubEmail({ driver: "resend", outbox: { limit: 1001 } })).toThrow("email.outbox.limit")
     expect(() => hubEmail({ driver: "resend", outbox: { limit: 2.5 } })).toThrow("email.outbox.limit")
   })
