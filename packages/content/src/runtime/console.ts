@@ -224,23 +224,39 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
 /** Check one Markdown link/image destination without confusing balanced parentheses with a title. */
 function markdownUsesPathname(body: string, pathname: string): boolean {
   for (let start = body.indexOf("]("); start !== -1; start = body.indexOf("](", start + 2)) {
+    // A destination is only introduced by a matching inline link/image label.
+    // Reject ordinary prose such as `See this text ](file.jpg)`.
+    let labelIndex = start - 1
+    let labelDepth = 0
+    while (labelIndex >= 0) {
+      if (body[labelIndex] === "\\") { labelIndex -= 2; continue }
+      if (body[labelIndex] === "]") { labelDepth++; labelIndex--; continue }
+      if (body[labelIndex] === "[") {
+        if (labelDepth) { labelDepth--; labelIndex--; continue }
+        break
+      }
+      labelIndex--
+    }
+    if (labelIndex < 0 || (labelIndex > 0 && body[labelIndex - 1] !== "!")) continue
     let index = start + 2
     while (/\s/.test(body[index] ?? "")) index++
     let destination = ""
     if (body[index] === "<") {
       index++
+      let closed = false
       while (index < body.length) {
         const character = body[index++]
-        if (character === "\\") { index++; continue }
-        if (character === ">") break
+        if (character === "\\" && index < body.length) { destination += body[index++]; continue }
+        if (character === ">") { closed = true; break }
         destination += character
       }
+      if (!closed) continue
     }
     else {
       let depth = 0
       while (index < body.length) {
         const character = body[index]
-        if (character === "\\") { destination += character; index += 2; continue }
+        if (character === "\\" && index + 1 < body.length) { destination += body[index + 1]; index += 2; continue }
         if (character === "(") { depth++; destination += character; index++; continue }
         if (character === ")") {
           if (!depth) break
