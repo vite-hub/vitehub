@@ -27,6 +27,7 @@ const folder = ref("");
 const selected = ref<string[]>([]);
 const browser = ref<InstanceType<typeof ConsoleMediaBrowser>>();
 const access = ref<ConsoleMediaAccess>({ manage: false, read: true, write: false });
+const store = ref<string>();
 const alt = ref("");
 const inserting = ref(false);
 let settle: ((items: ConsoleMediaItem[]) => void) | undefined;
@@ -93,6 +94,7 @@ async function uploadNow(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]>
 /** Asks for media. Resolves to an empty list when the person cancels. */
 function pick(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]> {
   if (next.files.length) return uploadNow(next);
+  if (next.store && store.value && next.store !== store.value) return Promise.resolve([]);
   settle?.([]);
   request.value = next;
   folder.value = rememberedConsoleMediaFolder(props.section);
@@ -133,7 +135,7 @@ defineExpose({ pick });
         :multiple="!single"
         @update:selected="select"
         @confirm="insert"
-        @info="(info) => { access = info.access }"
+        @info="(info) => { access = info.access; store = info.store }"
       />
     </template>
     <template #footer>

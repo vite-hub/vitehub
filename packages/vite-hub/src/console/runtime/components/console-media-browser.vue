@@ -47,8 +47,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** The picker confirmed its selection with a double click or Enter. */
   confirm: [];
-  /** The access and served URL of the store, once the first listing loads. */
-  info: [info: { access: ConsoleMediaAccess, served: string | null }];
+  /** The access, served URL, and store identity once the first listing loads. */
+  info: [info: { access: ConsoleMediaAccess, served: string | null, store: string }];
   /** Open the details of a file, on the Media page. */
   open: [file: ConsoleMediaFile | undefined];
   /** Files changed: uploaded, moved, or deleted. */
@@ -119,7 +119,7 @@ async function load(options: { more?: boolean } = {}): Promise<void> {
     access.value = listing.access;
     served.value = listing.served;
     error.value = undefined;
-    emit("info", { access: listing.access, served: listing.served });
+    emit("info", { access: listing.access, served: listing.served, store: listing.store });
   }
   catch (requestError) {
     if (current === request) error.value = requestError;
