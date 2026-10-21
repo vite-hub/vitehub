@@ -63,6 +63,7 @@ describe("onShutdown", () => {
       order.push("server")
       await close()
     })
+    Object.defineProperty(closeServer, "name", { value: "closeServer" })
     const applicationSignal = vi.fn()
     emitter.on("SIGTERM", closeServer)
     emitter.on("SIGTERM", applicationSignal)
@@ -114,6 +115,27 @@ describe("onShutdown", () => {
     expect(shutdownState(runtime).entries.size).toBe(0)
   })
 
+  it("does not use listener order to detach application handlers", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    const { emitter, exit, runtime } = fakeRuntime()
+    const { app, close } = fakeApp()
+    onShutdown(app, "queue", async () => {}, runtime)
+    const application = vi.fn()
+    emitter.on("SIGTERM", application)
+    const httpServer = { close: vi.fn() }
+    const host = vi.fn(async () => { httpServer.close(); await close() })
+    Object.defineProperty(host, "name", { value: "server" })
+    emitter.on("SIGTERM", host)
+    await nextTimer()
+
+    expect(emitter.listeners("SIGTERM")).toContain(application)
+    expect(emitter.listeners("SIGTERM")).not.toContain(host)
+    emitter.emit("SIGTERM", "SIGTERM")
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0))
+    expect(application).toHaveBeenCalledWith("SIGTERM")
+    expect(httpServer.close).toHaveBeenCalled()
+  })
+
   it("does not handle signals outside a Node-compatible process", async () => {
     const { emitter, runtime } = fakeRuntime()
     const { app } = fakeApp()
@@ -148,7 +170,8 @@ describe("onShutdown", () => {
     const { emitter, exit, runtime } = fakeRuntime()
     const { app } = fakeApp()
     onShutdown(app, "host", async () => {}, runtime)
-    emitter.on("SIGINT", () => { throw new Error("server close failed") })
+    function shutdown() { throw new Error("server close failed") }
+    emitter.on("SIGINT", shutdown)
     await nextTimer()
 
     emitter.emit("SIGINT", "SIGINT")
