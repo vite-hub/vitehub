@@ -58,6 +58,7 @@ import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -591,7 +592,9 @@ export interface RealtimeRefreshOptions {
 /** The `$DurableObject` binding of the running Worker. Nitro's Cloudflare entry stores each request's bindings in `globalThis.__env__`. */
 function workerDurableObjects(): RealtimeDurableObjectNamespace | undefined {
   try {
-    const binding = (globalThis as { __env__?: Record<string, unknown> }).__env__?.$DurableObject
+    // The internal runtime resolves the active request's AsyncLocalStorage scope before
+    // falling back to Nitro's ambient __env__ binding.
+    const binding = getActiveCloudflareBinding<unknown>("$DurableObject")
     return isRealtimeDurableObjectNamespace(binding) ? binding : undefined
   }
   catch {
