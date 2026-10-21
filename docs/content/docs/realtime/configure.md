@@ -4,6 +4,7 @@ description: Choose the room authority, control saves, and check what each host 
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Choose a room authority

@@ -2,6 +2,7 @@
 title: Invocation Inspector
 description: "Inspect the outcome, run summary, Agent setup, Capabilities, tools, and identifiers of one Invocation."
 navigation.order: 32
+navigation: false
 navigation.group: Agent work
 icon: i-ph-sidebar-simple-light
 ---
@@ -10,6 +11,10 @@ icon: i-ph-sidebar-simple-light
 
 ::component-preview{name="InvocationInspectorExample"}
 ::
+
+## Installation
+
+Install `@vite-hub/ui` and register the Nuxt module.
 
 ## Usage
 
@@ -51,6 +56,12 @@ Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to in
 
 The default keeps all recorded tool contracts in the inspector. Use the separate [Capability inspector](/docs/ui/capability-inspector) for Capability details, as in the Console. Set `showCapabilities` to `true` to embed them in a standalone inspector.
 
+::component-preview{name="InvocationExample"}
+::
+
+::component-preview{name="InvocationRunningExample"}
+::
+
 ## Captured configuration
 
 Pass the sanitized configuration stored with the Invocation:
@@ -77,6 +88,8 @@ Do not rebuild configuration from the current Agent Definition. Dynamic Capabili
 Include instruction content only when the current viewer may inspect it. The component does not fetch missing configuration or authorize access.
 
 ## API reference
+
+## API Reference
 
 ### AgentInvocationInspector
 

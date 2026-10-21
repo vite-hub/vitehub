@@ -4,6 +4,7 @@ description: Configure the Browser Run binding, the session engine, and remote l
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configuration

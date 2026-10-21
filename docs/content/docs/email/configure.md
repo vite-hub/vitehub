@@ -4,6 +4,7 @@ description: Configure the Email Vite Integration, select a driver, and connect 
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configure Vite

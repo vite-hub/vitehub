@@ -4,6 +4,7 @@ description: Query a discovered database from server code with a typed Drizzle c
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

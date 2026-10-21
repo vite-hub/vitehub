@@ -4,6 +4,7 @@ description: Define, run, and control browser operations from server code.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 Browser Definitions are the default path. Use Browser actions for one stateless call, and low-level sessions when your code owns the provider and cleanup.

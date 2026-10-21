@@ -4,6 +4,7 @@ description: Lay out Sandbox Task package projects, free-form Definitions, entry
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Package projects
