@@ -1494,17 +1494,22 @@ async function createAgent(
       }
     : undefined
   const configuredRepairToolCall = commonSettings.repairToolCall ?? commonSettings.experimental_repairToolCall
-  const selectedRepairToolCall = execution?.repairToolCall === false
+  const customRepairToolCall = execution?.repairToolCall === false
     ? undefined
     : hasRuntimeType(execution?.repairToolCall, "function")
       ? execution.repairToolCall
-      : configuredRepairToolCall ?? builtInRepairToolCall
-  const repairToolCall = selectedRepairToolCall
-    ? async (...args: Parameters<NonNullable<typeof selectedRepairToolCall>>) => {
-        context.executionBudget?.recordRetry()
-        return await selectedRepairToolCall(...args)
-      }
-    : undefined
+      : configuredRepairToolCall
+  // The built-in repair spends its own retry before its model call.
+  const repairToolCall = execution?.repairToolCall === false
+    ? undefined
+    : customRepairToolCall
+      ? async (input: Parameters<ToolCallRepairFunction<ToolSet>>[0]) => {
+          // A caller-provided repair callback still spends the shared Invocation budget.
+          context.executionBudget?.recordRetry()
+          // SAFETY: Repair selection admits only callable AI SDK repair callbacks.
+          return await (customRepairToolCall as ToolCallRepairFunction<ToolSet>)(input)
+        }
+      : builtInRepairToolCall
   const maxOutputAttempts = context.output && context.nativeStructuredOutput !== false
     ? outputMaxAttempts(context.output)
     : 1
