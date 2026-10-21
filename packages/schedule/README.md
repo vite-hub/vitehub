@@ -183,7 +183,7 @@ Generated Process Runtime wiring selects this adapter automatically. Application
 
 `hubSchedule()` contributes the `vitehub schedule` CLI namespace: `run <name>`, `runs <name> [--limit <n>]`, and `attempts <runId>`. Each command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it reads the same Schedule Run store and registry as the running app. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there.
 
-Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>` or `runSchedule(name, { registry })` from `@vite-hub/schedule/runtime`. The name is the discovered schedule file name.
+Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>` or `runSchedule(name, { registry })` from `@vite-hub/schedule/runtime`. The name is the discovered schedule file name. Add `--url <app-url>` with `VITEHUB_DISPATCH_KEY` (from `vitehub secret derive vitehub:dispatch`) to run it on a deployment with a signed dispatch instead of a Console session.
 
 Discovery reads `manual` as a literal boolean from directly exported Definitions. Use an identifier key or a quoted key without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 
