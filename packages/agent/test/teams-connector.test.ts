@@ -32,6 +32,7 @@ function createAdapter() {
     // The Teams adapter before chat 4.42 returns the channel ID instead of the root thread ID.
     postChannelMessage: vi.fn(async (channelId: string) => ({ id: String(next++), raw: {}, threadId: channelId })),
     postMessage: vi.fn(async (threadId: string) => ({ id: String(next++), raw: {}, threadId })),
+    editMessage: vi.fn(async (threadId: string, messageId: string) => ({ id: messageId, raw: {}, threadId })),
   }
 }
 
@@ -88,6 +89,47 @@ describe("teams.connector()", () => {
     await expect(connector.send("Follow-up", { recipient: channel, thread: { key: "topic" } })).resolves.toEqual({ id: "101" })
     expect(adapter.postChannelMessage).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenCalledOnce()
+  })
+
+  it("edits the stored message in a channel thread when update is set", async () => {
+    const { adapter, connector } = await setup()
+    const thread = { key: "ticket:2", root: "**Ticket 2**" }
+    const first = await connector.send("Draft", { recipient: channel, thread, idempotencyKey: "card", update: true })
+    await expect(connector.send("Draft", { recipient: channel, thread, idempotencyKey: "card" })).resolves.toEqual(first)
+    await expect(connector.send("Draft + reply", { recipient: channel, thread, idempotencyKey: "card", update: true })).resolves.toEqual(first)
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=100", serviceUrl: "https://smba.example" })
+    expect(adapter.postChannelMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
+    expect(adapter.editMessage.mock.calls).toEqual([[rootThread, first.id, { markdown: "Draft + reply" }]])
+  })
+
+  it("edits a root message that was posted from the first text", async () => {
+    const { adapter, connector } = await setup()
+    const first = await connector.send("Status: running", { recipient: channel, thread: { key: "job" }, idempotencyKey: "status" })
+    await connector.send("Status: done", { recipient: channel, thread: { key: "job" }, idempotencyKey: "status", update: true })
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=100", serviceUrl: "https://smba.example" })
+    expect(first).toEqual({ id: "100" })
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+    expect(adapter.editMessage.mock.calls).toEqual([[rootThread, "100", { markdown: "Status: done" }]])
+  })
+
+  it("edits the stored message for a direct message or a thread ID", async () => {
+    const { adapter, connector } = await setup()
+    const dm = encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" })
+    const first = await connector.send("one", { recipient: "user:29:abc", idempotencyKey: "dm", update: true })
+    await expect(connector.send("two", { recipient: "user:29:abc", idempotencyKey: "dm", update: true })).resolves.toEqual(first)
+    const second = await connector.send("three", { recipient: channel, idempotencyKey: "channel", update: true })
+    await connector.send("four", { recipient: channel, idempotencyKey: "channel", update: true })
+    expect(adapter.postMessage.mock.calls).toEqual([[dm, { markdown: "one" }], [channel, { markdown: "three" }]])
+    expect(adapter.editMessage.mock.calls).toEqual([[dm, first.id, { markdown: "two" }], [channel, second.id, { markdown: "four" }]])
+  })
+
+  it("posts without an idempotency key even when update is set", async () => {
+    const { adapter, connector } = await setup()
+    await connector.send("a", { recipient: channel, update: true })
+    await connector.send("b", { recipient: channel, update: true })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("rejects a thread for a recipient that is not a channel", async () => {

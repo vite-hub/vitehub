@@ -308,23 +308,11 @@
       "require": "./dist/presets.js",
       "default": "./dist/presets.js"
     },
-    "./effect": {
-      "types": "./dist/effect.d.ts",
-      "import": "./dist/effect.js",
-      "require": "./dist/effect.js",
-      "default": "./dist/effect.js"
-    },
     "./dispatch": {
       "types": "./dist/dispatch.d.ts",
       "import": "./dist/dispatch.js",
       "require": "./dist/dispatch.js",
       "default": "./dist/dispatch.js"
-    },
-    "./build/vercel-runtime-package-copy": {
-      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
-      "import": "./dist/build/vercel-runtime-package-copy.js",
-      "require": "./dist/build/vercel-runtime-package-copy.js",
-      "default": "./dist/build/vercel-runtime-package-copy.js"
     }
   },
   "scripts": {
@@ -333,6 +321,7 @@
     "typecheck": "vp run --cache -t @vite-hub/internal#build && tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "effect": "catalog:effect",
