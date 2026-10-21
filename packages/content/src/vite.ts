@@ -17,7 +17,7 @@ import {
   usesCmsPresetSync,
 } from "./cms-build.ts"
 
-import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
+import type { DatabaseContributionContext, DatabaseContribution, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./cms-build.ts"
@@ -139,6 +139,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
   const imports: CmsWorkspaceImports = { ...defaultImports, ...options.imports }
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
+  let resolvedPlugins: readonly unknown[] | undefined
 
   async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
@@ -165,8 +166,8 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
         // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
+        const contributed = await collectDatabaseContributions(otherPlugins, { root: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs })
+        const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.map(({ name }) => ({ name })) })
         const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
           await rm(module, { force: true })
@@ -176,18 +177,18 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         return [{ export: cmsWorkspaceExport, module, name: plan.workspace }]
       },
       async databases(context: DatabaseContributionContext) {
-        const root = projectRoot ?? context.rootDir
-        const otherPlugins = await pluginsWithoutContent(context.plugins)
+        const root = projectRoot ?? context.root
+        const otherPlugins = await pluginsWithoutContent(resolvedPlugins)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, { ...context, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
+        const contributed = await collectDatabaseContributions(otherPlugins, { root: context.root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs })
+        const plan = await resolveCmsPreset({ databaseRoot: context.root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.map(({ name }) => ({ name })) })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
-        const entries: DatabaseContributionEntry[] = [{ database: plan.database, export: "workspaceHistorySchema", module: imports.blobDatabase }]
+        const entries: DatabaseContribution[] = [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]
         if (plan.databaseReason !== "preset") return entries
         await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
-        return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
+        return [{ definition: { module, export: "default" }, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
       },
     },
     config: {
@@ -204,6 +205,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     async configResolved(config) {
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const viteConfig = config as ResolvedConfig & ContentPluginConfig
+      resolvedPlugins = config.plugins
       projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice() ?? serverDirs
       const plan = await resolveCmsPreset({ databaseRoot: config.root, projectRoot, serverDirs })
