@@ -83,7 +83,7 @@ describe("Connections route guard contract", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTIONS_FORBIDDEN",
-        docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_forbidden",
         fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
         message: "The management route found no signed-in manager for this request.",
       },
@@ -189,7 +189,7 @@ describe("Connections OAuth state binding", () => {
       method: "POST",
     }));
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_DENIED" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_FORBIDDEN" } });
     expect(test.provider.calls).toHaveLength(0);
   });
 
@@ -208,6 +208,6 @@ describe("Connections OAuth state binding", () => {
     const test = createTestRuntime();
     const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" });
     await expect(test.runtime.complete({ actor: "user:other", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" });
-    await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" });
+    await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" });
   });
 });
