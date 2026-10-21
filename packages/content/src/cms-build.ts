@@ -163,6 +163,10 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       if (imported === "defineContent") defineContentBindings.add(String(specifier.local.name))
     }
   }
+  // Content entry files commonly rely on the ViteHub-provided global
+  // `defineContent` helper, so the static reader must recognize its canonical
+  // name even when there is no explicit import declaration.
+  defineContentBindings.add("defineContent")
 
   const isPreset = (node: unknown): boolean => {
     const value = unwrap(node)
@@ -183,7 +187,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     const declaration = statement.declaration
     if (isNode(declaration) && declaration.type === "VariableDeclaration") {
       for (const declarator of Array.isArray(declaration.declarations) ? declaration.declarations : []) {
-        if (isNode(declarator) && isNode(declarator.id) && declarator.id.type === "Identifier" && declarator.id.name === "content") {
+        if (isNode(declarator) && isNode(declarator.id) && declarator.id.type === "Identifier") {
           exportedContentBindings.add(String(declarator.id.name))
         }
       }
@@ -195,6 +199,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     }
   }
   let contentOptions: AstNode | undefined
+  let exportedContentDefinitions = 0
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement)) continue
     if (statement.type === "ExportDefaultDeclaration") {
@@ -211,6 +216,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       if (!isNode(declarator) || !isNode(declarator.id) || declarator.id.type !== "Identifier" || !exportedContentBindings.has(String(declarator.id.name))) continue
       const init = unwrap(declarator.init)
       if (!isNode(init) || init.type !== "CallExpression" || !isNode(init.callee) || init.callee.type !== "Identifier" || !defineContentBindings.has(String(init.callee.name))) continue
+      exportedContentDefinitions++
       const argument = unwrap(Array.isArray(init.arguments) ? init.arguments[0] : undefined)
       if (isNode(argument) && argument.type === "ObjectExpression") contentOptions = argument
     }
@@ -227,6 +233,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   }
 
   const usage = "Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { database, blob, workspace }] }) in the exported content Definition."
+  if (exportedContentDefinitions > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
