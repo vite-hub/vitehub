@@ -67,9 +67,12 @@ async function typesafeOptions(context: AskRequestContext) {
   }
   const provider = group.provider === "vercel" ? "vercel" : "typesafe"
   const apiKey = optionalString(group.apiKey)
-  // Without a key, the Vercel provider lets advocaat use VERCEL_OIDC_TOKEN on Vercel.
   if (!apiKey && provider === "typesafe") {
     throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] TypeSafe Jev requests require env.server.${typesafeEnvGroup}.apiKey. Set TYPESAFE_API_KEY, or use typesafeEnv({ provider: "vercel" }) with AI_GATEWAY_API_KEY.` })
+  }
+  // Without a key, advocaat uses VERCEL_OIDC_TOKEN, which only Vercel sets. Fail here with the variable to set.
+  if (!apiKey && provider === "vercel" && !optionalString(globalThis.process?.env?.VERCEL_OIDC_TOKEN)) {
+    throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Jev requests through Vercel AI Gateway require AI_GATEWAY_API_KEY. Set it in the Server Env of this deployment. On Vercel, VERCEL_OIDC_TOKEN also works.` })
   }
   const model = optionalString(group.model)
   return {
@@ -174,6 +177,67 @@ async function requestJev(
   }
 }
 
+const retryableJevStatuses = new Set([408, 429, 500, 502, 503, 504])
+const jevAttempts = 3
+
+function errorStatus(error: unknown): number | undefined {
+  return isRuntimeRecord(error) && Number.isInteger(error.status) ? Number(error.status) : undefined
+}
+
+function errorRequestId(error: unknown): string | undefined {
+  return isRuntimeRecord(error) && hasRuntimeType(error.requestId, "string") && error.requestId ? error.requestId : undefined
+}
+
+function waitForRetry(attempt: number, signal?: AbortSignal): Promise<void> {
+  const delay = 250 * 2 ** attempt * (0.75 + Math.random() / 2)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }, delay)
+    function abort() {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+  })
+}
+
+/**
+ * Sends one batch and retries transient provider failures. Jev questions do not change state, so a retry is safe.
+ * A rejected key fails at once with AGENT_R1009. A provider that keeps failing ends with AGENT_R1010.
+ * Both keep the provider error as `cause` and expose `status`, `providerStatus`, and `requestId`.
+ */
+async function requestJevWithRetry(
+  advocaat: Advocaat,
+  state: AdvocaatEntry,
+  batch: Record<string, AdvocaatQuestion>,
+  options: Awaited<ReturnType<typeof typesafeOptions>> & { signal?: AbortSignal },
+): Promise<JevResponse> {
+  const provider = options.provider === "vercel" ? "Vercel AI Gateway" : "TypeSafe"
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await requestJev(advocaat, state, batch, options)
+    }
+    catch (error) {
+      if (options.signal?.aborted) throw error
+      const status = errorStatus(error)
+      const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
+      if (status === 401 || status === 403) {
+        const env = options.provider === "vercel" ? "AI_GATEWAY_API_KEY" : "TYPESAFE_API_KEY"
+        throw Object.assign(agentDiagnostics.AGENT_R1009({ provider, status, env, cause: error }), { ...details, status: 503 })
+      }
+      // advocaat reports a failed fetch as a TypeError without a status.
+      const transient = status === undefined ? error instanceof TypeError : retryableJevStatuses.has(status)
+      if (!transient) throw error
+      if (attempt + 1 >= jevAttempts) {
+        throw Object.assign(agentDiagnostics.AGENT_R1010({ provider, status, attempts: jevAttempts, cause: error }), { ...details, status: 502 })
+      }
+      await waitForRetry(attempt, options.signal)
+    }
+  }
+}
+
 /** The usage record of one Jev request, or undefined when the response has no token counts. */
 function jevUsageRecord(provider: string, response: JevResponse): AgentUsageRecord | undefined {
   const inputTokens = response.usage?.inputTokens
@@ -272,8 +336,8 @@ async function observeJevBatch(
     async failed(error: unknown) {
       if (!observe) return
       const message = error instanceof Error ? error.message : String(error)
-      const status = isRuntimeRecord(error) && Number.isInteger(error.status) ? error.status : undefined
-      const requestId = isRuntimeRecord(error) && hasRuntimeType(error.requestId, "string") && error.requestId ? error.requestId : undefined
+      const status = isRuntimeRecord(error) && Number.isInteger(error.providerStatus) ? error.providerStatus : errorStatus(error)
+      const requestId = errorRequestId(error)
       for (const name of names) {
         if (settled.has(name)) continue
         settled.add(name)
@@ -392,7 +456,7 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
     context.abortSignal?.throwIfAborted()
     const observed = await observeJevBatch(context.observe, options, questions, batch, { count: batches.length, index: batchIndex })
     try {
-      const response = await requestJev(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      const response = await requestJevWithRetry(advocaat, entry, batch, { ...options, signal: context.abortSignal })
       await observed.usage(response)
       const usage = jevUsageRecord(options.provider, response)
       if (usage) context.recordUsage?.(usage)
