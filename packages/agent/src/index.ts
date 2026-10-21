@@ -1,5 +1,4 @@
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
-export { readAgentEnvIdentity, readAgentEnvParents } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"
@@ -83,7 +82,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { type AgentMessagePhase, type Message, blobArrayBuffer, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
+import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -138,7 +137,7 @@ import {
   traceAgentInvocationStart,
 } from "./trace.ts"
 import { runObservedAgentHook } from "./hooks.ts"
-import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope, scopedAgentAsyncIterable } from "./internal/invocation-scope.ts"
+import { activeAgentInvocationScope, agentInvocationLinkAttributes, runInAgentInvocationScope } from "./internal/invocation-scope.ts"
 import type { AgentInvocationScope } from "./internal/invocation-scope.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
@@ -147,6 +146,7 @@ import {
   streamAgentTriggerWith,
 } from "./trigger-runtime.ts"
 import {
+  isColocatedAgentInstructionsBuildSource,
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
@@ -3341,10 +3341,15 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
     return Object.hasOwn(sources, "__vitehubAgentInstructions")
       || (isRuntimeRecord(value.workspace) && hasExplicitWorkspaceInstructions(value.workspace))
   }
-  const explicitWorkspaceInstructions = [
+  // The definition's own Sources also hold the instructions.md build Source that a source root
+  // derives. That one is not explicit: the Provider Driver gets the document as instructions instead.
+  const definitionSources = (agent as AgentDefinition & { sources?: unknown }).sources
+  const explicitDefinitionInstructions = isRuntimeRecord(definitionSources)
+    && Object.hasOwn(definitionSources, "__vitehubAgentInstructions")
+    && !isColocatedAgentInstructionsBuildSource(definitionSources.__vitehubAgentInstructions)
+  const explicitWorkspaceInstructions = explicitDefinitionInstructions || [
     settings.workspace,
     workspaceOptions?.workspace,
-    (agent as AgentDefinition & { sources?: unknown }).sources,
   ].some(hasExplicitWorkspaceInstructions)
   if (driver.kind === "provider" && explicitWorkspaceInstructions) return agent
   const configured = driver.instructions
@@ -7364,7 +7369,6 @@ async function executeAgentInvocationWithCapacityLease<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       result = await runInAgentInvocationScope(scope, () => generate(adapterContext as never))
     }
-    if (isAsyncIterable(result)) result = scopedAgentAsyncIterable(scope, result)
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)

@@ -39,22 +39,6 @@ export function parentInvocationTrace(): { id: string, parentId: string } | unde
   return journal && traceId ? { id: traceId, parentId: journal.id } : undefined
 }
 
-/** Keeps the Invocation scope active while an async iterable is consumed. */
-export function scopedAgentAsyncIterable<T>(scope: AgentInvocationScope, iterable: AsyncIterable<T>): AsyncIterable<T> {
-  return {
-    [Symbol.asyncIterator]() {
-      const iterator = runInAgentInvocationScope(scope, () => iterable[Symbol.asyncIterator]())
-      const scopedIterator: AsyncIterator<T> & AsyncIterable<T> = {
-        next: (value?: unknown) => runInAgentInvocationScope(scope, () => iterator.next(value)),
-        return: (value?: unknown) => runInAgentInvocationScope(scope, () => iterator.return?.(value) ?? Promise.resolve({ done: true, value } as IteratorResult<T>)),
-        throw: (error?: unknown) => runInAgentInvocationScope(scope, () => iterator.throw?.(error) ?? Promise.reject(error)),
-        [Symbol.asyncIterator]() { return this },
-      }
-      return scopedIterator
-    },
-  }
-}
-
 /** Attributes that name an Invocation: `<prefix>.id` (its record ID), `<prefix>.run.id` and `<prefix>.agent.name`. */
 export function agentInvocationLinkAttributes(scope: AgentInvocationScope, prefix: "agent.invocation.child" | "agent.invocation.parent"): Record<string, string> {
   return {

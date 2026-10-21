@@ -262,12 +262,10 @@ function generatedAgentRuntimeCapabilityImports(capabilities: GeneratedAgentRunt
     : [`import { ${capability.importName} as ${generatedAgentRuntimeCapabilityAlias(capability)} } from ${JSON.stringify(capability.packageName)}`])
 }
 
-
-function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[], schedule: boolean, scheduleRegistry = "vitehubAgentScheduleRegistry"): string {
+function generatedAgentRuntimeCapabilities(capabilities: GeneratedAgentRuntimeCapability[]): string {
   const entries = capabilities.map(capability =>
     `${capability.name}: ${capability.packageName === false ? "false" : generatedAgentRuntimeCapabilityAlias(capability)}`
   )
-  if (schedule) entries.push(`schedule: { schedules: ${scheduleRegistry} }`)
   return `{ ${entries.join(", ")} }`
 }
 
@@ -421,18 +419,11 @@ function generatedAgentRouteCapabilities(options: AgentGeneratedImportOptions) {
       ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
       ...workflowCapabilityLoaders.imports,
       `import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
-
-      ...(options.schedule
-        ? [
-            `import vitehubAgentScheduleRegistry from ${JSON.stringify(options.scheduleRegistryImport ?? scheduleRegistryId)}`,
-          ]
-        : []),
     ],
     requestOption: "capabilities: vitehubAgentRouteCapabilities, ",
     requestProperty: ", capabilities: vitehubAgentRouteCapabilities",
     setup: [
-
-      `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities, options.schedule === true)}`,
+      `const vitehubAgentRouteCapabilities = ${generatedAgentRuntimeCapabilities(runtimeCapabilities)}`,
       "// A standalone runAgent(), such as one in a Schedule handler, gets the same capabilities as these routes.",
       "vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)",
       "",
@@ -473,89 +464,6 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
     mode: "server-agents",
     scanDirs: serverDirs,
   }).length > 0 || discoverStandaloneChannels(serverDirs).length > 0
-}
-
-
-async function transformScheduleRegistry(
-  code: string,
-  definitions: DiscoveredAgentDefinition[],
-  agentImportBase: string,
-  importAnchor?: string,
-  runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
-  scheduleRuntimeSpecifier = scheduleRuntimeImport,
-  generatedImportOptions: AgentGeneratedImportOptions = {},
-): Promise<string | undefined> {
-  if (!definitions.length) return
-  if (!/\b(?:const|let|var)\s+registry\b/.test(code)) {
-    throw agentDiagnostics.AGENT_B0003({ message: "[vitehub] Unable to extend the Runtime Schedule registry: expected a registry binding." })
-  }
-  const entries = (await Promise.all(definitions.map(async (definition) => {
-    const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
-    const agentIdentity = { name: definition.name, ...(definition.workspace ? { workspace: definition.workspace } : {}) }
-    const handlerImport = importAnchor ? moduleImportSpecifier(importAnchor, definition.handler) : definition.handler
-    const colocatedInstructions = await resolveDeploymentColocatedInstructions(definition)
-    return [
-      `if (Object.prototype.hasOwnProperty.call(registry, ${JSON.stringify(`agent/${definition.name}`)})) throw vitehubAgentRuntimeError("AGENT_R0892", ${JSON.stringify(`[vitehub] Duplicate Runtime Schedule target: agent/${definition.name}`)})`,
-      `registry[${JSON.stringify(`agent/${definition.name}`)}] = async () => {`,
-      `  const module = await import(${JSON.stringify(handlerImport)})`,
-      `  return vitehubDefineScheduledAgentTarget(vitehubWithWorkspaceSourceRoot(vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), ${JSON.stringify(colocatedInstructions)}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(readColocatedAgentSkills(definition.handler))}), { agentIdentity: ${JSON.stringify(agentIdentity)}, capabilities: ${generatedAgentRuntimeCapabilities(runtimeCapabilities, true, "registry")} })`,
-      "}",
-    ]
-  }))).flat()
-  const workflowRuntime = generatedAgentWorkflowRuntime(generatedImportOptions, agentImportBase)
-  const workspaceRuntime = generatedAgentWorkspaceDependencyRuntime(
-    generatedImportOptions,
-    generatedImportOptions.workspaceImportBase ?? workspacePackageName,
-  )
-  return [
-    `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, inheritAgentLayerOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    ...workflowRuntime.imports,
-    ...workspaceRuntime.imports,
-    ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
-    code,
-    "function vitehubResolveScheduledAgentModule(module) {",
-    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
-    "}",
-    ...generatedWorkspaceSourceRootHelper("vitehubWithWorkspaceSourceRoot", "vitehubWorkspaceDefinitionFromOptions"),
-    ...workflowRuntime.setup,
-    ...workspaceRuntime.setup,
-    ...entries,
-    "",
-  ].join("\n")
-}
-
-async function writeStandaloneAgentScheduleRegistry(
-  root: string,
-  definitions: DiscoveredAgentDefinition[],
-  agentImportBase: string,
-  runtimeCapabilities: GeneratedAgentRuntimeCapability[] = [],
-  scheduleRuntimeSpecifier = scheduleRuntimeImport,
-  generatedImportOptions: AgentGeneratedImportOptions = {},
-): Promise<string> {
-  const registryPath = join(root, generatedAgentScheduleRegistry)
-  const base = ["const registry = {}", "", "export default registry", ""].join("\n")
-  // The standalone registry must stay provider-free. Provider capabilities are
-  // supplied by the generated host route and are registered globally there.
-  const registryCapabilities = runtimeCapabilities.filter(capability =>
-    capability.name !== "connections" && capability.name !== "db",
-  )
-  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, registryCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
-  await mkdir(dirname(registryPath), { recursive: true })
-  await writeFile(registryPath, contents, "utf8")
-  return registryPath
-}
-
-function transformScheduleTargets(code: string, definitions: DiscoveredAgentDefinition[]): string | undefined {
-  if (!definitions.length) return
-  if (!/\b(?:const|let|var)\s+scheduleTargetNames\b/.test(code)) {
-    throw agentDiagnostics.AGENT_B0004({ message: "[vitehub] Unable to extend Runtime Schedule targets: expected a scheduleTargetNames binding." })
-  }
-  return [
-    code,
-    ...definitions.map(definition => `if (!scheduleTargetNames.includes(${JSON.stringify(`agent/${definition.name}`)})) scheduleTargetNames.push(${JSON.stringify(`agent/${definition.name}`)})`),
-    "",
-  ].join("\n")
 }
 
 function subpath(base: string, path: string): string {
@@ -988,7 +896,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
     "  // A Provider Driver writes the bundled Skills and instructions into its working directory itself.",
     "  const storesBundledFiles = Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriverKind')) !== 'provider'",
-    "  const providerInstructions = Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriver'))?.instructions",
+    `  const providerInstructions = ${typescript ? "(" : ""}Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriver'))${typescript ? " as { instructions?: unknown } | undefined)" : ""}?.instructions`,
     "  const retainedExistingSources = storesBundledFiles ? existingSources : Object.fromEntries(Object.entries(existingSources || {}).filter(([key]) => (key === '__vitehubAgentInstructions' ? providerInstructions === undefined : !key.startsWith('__vitehubAgentSkill:'))))",
     "  const sources = {",
     "    ...retainedExistingSources,",
