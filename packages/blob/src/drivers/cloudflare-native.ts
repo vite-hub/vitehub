@@ -1,11 +1,12 @@
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
-import { runtimeValue } from "./cloudflare-runtime.ts"
+import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { assertValidPathname } from "../internal/pathname.ts"
 
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
@@ -92,8 +93,9 @@ async function readArrayBuffer(object: R2ObjectLike): Promise<ArrayBuffer> {
   return new ArrayBuffer(0)
 }
 
+// `new URL()` resolves `.` and `..` segments before signing, which can change the bucket or the operation.
 function encodePathname(pathname: string): string {
-  return pathname.split("/").map(encodeURIComponent).join("/")
+  return assertValidPathname(pathname).split("/").map(encodeURIComponent).join("/")
 }
 
 async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
@@ -110,7 +112,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
     if (signOptions.contentType) headers["Content-Type"] = signOptions.contentType
     if (signOptions.createOnly) headers["If-None-Match"] = "*"
   }
-  const url = new URL(`https://${accountId}.r2.cloudflarestorage.com/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
+  const url = new URL(`${r2S3Endpoint(accountId, options.jurisdiction)}/${encodeURIComponent(bucket)}/${encodePathname(pathname)}`)
   url.searchParams.set("X-Amz-Expires", String(signOptions.expiresIn))
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
   const signed = await client.sign(url, {
@@ -126,7 +128,6 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
 }
 
 function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare R2 list responses cross the provider boundary before pagination is normalized.
   if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
   }

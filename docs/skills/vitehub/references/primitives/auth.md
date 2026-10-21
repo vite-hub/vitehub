@@ -1,8 +1,12 @@
 # Auth
 
+<!-- Generated from docs/content/docs/auth/index.md. Edit the agent-only block there. -->
+
+Source page: https://vitehub.dev/raw/docs/auth.md
+
 Use Auth when the application needs sign-in, sessions, route protection, or Better Auth server plugins. Auth owns identity and session state. It does not automatically protect Agent, Console, or primitive routes.
 
-Read the [Auth guide](https://vitehub.dev/raw/docs/auth.md) first. Then choose [Get started](https://vitehub.dev/raw/docs/auth/get-started.md), [Configure](https://vitehub.dev/raw/docs/auth/configure.md), or [Server API](https://vitehub.dev/raw/docs/auth/server-api.md).
+Read [Get started](https://vitehub.dev/raw/docs/auth/get-started.md), [Configure](https://vitehub.dev/raw/docs/auth/configure.md), or [Server API](https://vitehub.dev/raw/docs/auth/server-api.md).
 
 Keep route access explicit. Configure the Auth Definition and its `access` policy, then mount the route through the Vite or Nuxt integration. Keep application authorization in the route or Capability that uses the session.
 

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest"
 
-import { defineSchedule, defineScheduleTarget } from "../src/definition.ts"
+import { defineSchedule } from "../src/definition.ts"
 
 describe("Schedule definition property ownership", () => {
+  it("preserves runtime eligibility alongside manual scheduling", () => {
+    const definition = defineSchedule({
+      allowRuntimeSchedules: true,
+      cron: "0 9 * * *",
+      handler: () => "ok",
+      manual: true,
+    })
+
+    expect(definition.options).toEqual({ allowRuntimeSchedules: true, manual: true })
+  })
+
   it("rejects required fields inherited from a prototype", () => {
     const inherited = Object.create({
       cron: "0 9 * * *",
@@ -25,11 +36,5 @@ describe("Schedule definition property ownership", () => {
     })
 
     expect(() => defineSchedule(inherited)).toThrow(/inherited.*manual|does not support.*manual/)
-  })
-
-  it("rejects a target handler inherited from a prototype", () => {
-    const inherited = Object.create({ handler: () => "inherited" })
-
-    expect(() => defineScheduleTarget(inherited)).toThrow(/expects an object with `handler`/)
   })
 })

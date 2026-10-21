@@ -16,20 +16,28 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
+import { resolveContentPreset } from "./presets.ts"
+import type { ContentPresetSelection } from "./presets.ts"
+import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
   ContentCollectionsRuntime,
   ContentHistorySource,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentPreview } from "./preview.ts"
 export { contentSource } from "./content-source.ts"
+export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional } from "./documents.ts"
+export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export type {
   ContentField,
   ContentFieldIssue,
@@ -155,6 +163,11 @@ export type DefineContentOptions<
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
+  /**
+   * Preset that fills Definition options, such as `cms` from `vite-hub/content/presets/cms`, or `[preset, options]`.
+   * The `cms` preset sets `workspace`, so do not pass both.
+   */
+  extends?: ContentPresetSelection
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
   /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
@@ -175,6 +188,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
+  /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
+  readonly preview: ContentPreview
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -198,7 +213,12 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  if (options.extends !== undefined && options.workspace !== undefined) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
+  }
+  const { source, sources, collections, authorize, ...sharedOptions } = options
+  const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
+  const workspace = options.workspace ?? presetDefaults.workspace
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -209,16 +229,21 @@ export function defineContent<
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
+  const preview = createContentPreview({ enabled: collectionEntries.length > 0 })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
-    // SAFETY: Each definition was checked with isDocumentsDefinition() above.
-    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
+    ? createContentCollections({
+        workspace: workspace!,
+        // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+        collections: Object.fromEntries(collectionEntries),
+        defaultRef: () => preview.active() ? "draft" : "published",
+      })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
   for (const [name] of collectionEntries) {
@@ -232,23 +257,43 @@ export function defineContent<
   }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
 
-  // Published collections are refreshed when another writer, process, or host moved the `published` head.
-  let syncing: Promise<void> | undefined
-  async function syncPublished(): Promise<void> {
-    if (!documentsRuntime) return
-    syncing ??= (async () => {
-      const loaded = collectionInstances.filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
-      if (!loaded.length) return
-      const head = await documentsRuntime.publishedHead()
-      const stale: Array<Promise<unknown>> = []
-      for (const { instance, source } of loaded) {
-        if (source.loadedRevision !== head) stale.push(instance.refresh())
+  // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
+  let draft: { hub: ContentHub<ComarkContent[]>, instances: Array<{ instance: ComarkContent, source: ContentHistorySource }> } | undefined
+  function draftHub() {
+    if (!draft) {
+      const pinned = hub.withRefs(Object.fromEntries(collectionEntries.map(([name]) => [name, "draft"])))
+      const names = new Set(collectionEntries.map(([name]) => name))
+      draft = {
+        hub: pinned,
+        // SAFETY: Collection instances read a ContentHistorySource, and withRef() pins it through comarkSource().
+        instances: pinned.instances.filter(instance => names.has(instance.name)).map(instance => ({ instance, source: instance.getSource(instance.name) as ContentHistorySource })),
       }
-      await Promise.all(stale)
-    })().finally(() => {
-      syncing = undefined
-    })
-    await syncing
+    }
+    return draft
+  }
+
+  // Loaded collection instances are refreshed when another writer, process, or host moved the head of their ref.
+  const syncing = new Map<ContentRef, Promise<void>>()
+  async function sync(ref: ContentRef): Promise<void> {
+    if (!documentsRuntime) return
+    let pending = syncing.get(ref)
+    if (!pending) {
+      pending = (async () => {
+        const loaded = (ref === "draft" ? draftHub().instances : collectionInstances)
+          .filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
+        if (!loaded.length) return
+        const head = await documentsRuntime.head(ref)
+        const stale: Array<Promise<unknown>> = []
+        for (const { instance, source } of loaded) {
+          if (source.loadedRevision !== head) stale.push(instance.refresh())
+        }
+        await Promise.all(stale)
+      })().finally(() => {
+        syncing.delete(ref)
+      })
+      syncing.set(ref, pending)
+    }
+    await pending
   }
   documentsRuntime?.onPublish(async (names) => {
     const refreshes: Array<Promise<unknown>> = []
@@ -257,10 +302,15 @@ export function defineContent<
     }
     await Promise.all(refreshes)
   })
-  function fresh<TArgs extends unknown[], TResult>(method: (...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+  /** Run a read on the hub of the current request's ref after refreshing stale instances. */
+  function fresh<TArgs extends unknown[], TResult>(method: (target: ContentHub<ComarkContent[]>, ...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
     return async (...args) => {
-      await syncPublished()
-      return await method(...args)
+      if (documentsRuntime && preview.active()) {
+        await sync("draft")
+        return await method(draftHub().hub, ...args)
+      }
+      await sync("published")
+      return await method(hub, ...args)
     }
   }
   function requireDocuments(): ContentCollectionsRuntime {
@@ -282,6 +332,7 @@ export function defineContent<
   }
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
+    preview,
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string) => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
@@ -309,14 +360,15 @@ export function defineContent<
     ...hub,
     ...documentsApi,
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
-    get: fresh(hub.get.bind(hub)) as ContentHub["get"],
-    navigation: fresh(hub.navigation.bind(hub)),
-    handler: fresh(hub.handler.bind(hub)),
-    list: fresh((names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined)),
-    search: fresh((names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names })),
+    get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts)) as ContentHub["get"],
+    navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names)),
+    handler: fresh((target, request: Request) => target.handler(request)),
+    list: fresh((target, names?: string | string[]) => target.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    search: fresh((target, names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => target.search(query, { ...opts, instances: names })),
     async dispose() {
       documentsRuntime?.dispose()
-      await hub.dispose()
+      // The draft hub shares every non-collection instance with `hub`, so dispose only its pinned collections.
+      await Promise.all([hub.dispose(), ...(draft?.instances ?? []).map(({ instance }) => instance.dispose())])
     },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
@@ -349,18 +401,26 @@ export function defineContent<
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
 }
 
-/** Adapt a Comark Content Web handler to an H3/Nitro route. */
+/**
+ * Adapt a Comark Content Web handler to an H3/Nitro route. With a Content runtime, a request with a valid preview
+ * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
+ */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler">,
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview },
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (event.req instanceof Request) return await content.handler(event.req)
+    if (isRequestLike(event.req)) {
+      return await (content.preview
+        ? content.preview.run(event, () => content.handler(event.req))
+        : content.handler(event.req))
+    }
 
     if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
     // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
     const nodeRequest = event.node.req as NodeContentRequest
     const method = event.method || nodeRequest.method || "GET"
+    const dispatch = async () => {
     const headers = new Headers()
     for (const [name, value] of Object.entries(nodeRequest.headers)) {
       if (value === undefined) continue
@@ -400,5 +460,62 @@ export function defineContentHandler(
       method,
       signal: abort.signal,
     }))
+    }
+    return await (content.preview
+      ? content.preview.run(event, dispatch)
+      : dispatch())
   }) as ContentHandler
+}
+
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Request
+    const findDescriptor = (key: PropertyKey) => {
+      let prototype: object | null = Object.getPrototypeOf(request)
+      for (let depth = 0; prototype && depth < 32; depth++) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (descriptor) return { descriptor, prototype }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return undefined
+    }
+    const methodDescriptor = findDescriptor("method")
+    const urlDescriptor = findDescriptor("url")
+    const headersDescriptor = findDescriptor("headers")
+    if (!methodDescriptor || !urlDescriptor || !headersDescriptor) return false
+    const requestConstructor = Object.getOwnPropertyDescriptor(methodDescriptor.prototype, "constructor")?.value
+    const requestPrototype = typeof requestConstructor === "function" ? requestConstructor.prototype : undefined
+    if (!requestPrototype) return false
+    for (const [key, found] of [["method", methodDescriptor], ["url", urlDescriptor], ["headers", headersDescriptor]] as const) {
+      if (Object.getOwnPropertyDescriptor(requestPrototype, key)?.get !== found.descriptor.get) return false
+    }
+    const methodGetter = methodDescriptor.descriptor.get
+    const urlGetter = urlDescriptor.descriptor.get
+    const headersGetter = headersDescriptor.descriptor.get
+    if (typeof methodGetter !== "function" || typeof urlGetter !== "function" || typeof headersGetter !== "function") return false
+    const method = Reflect.apply(methodGetter, request, [])
+    const url = Reflect.apply(urlGetter, request, [])
+    const headers = Reflect.apply(headersGetter, request, [])
+    let headersPrototype: object | null = Object.getPrototypeOf(headers)
+    let headersGet: unknown
+    let headersForEach: unknown
+    for (let depth = 0; headersPrototype && depth < 32; depth++) {
+      headersGet = Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+      headersForEach = Object.getOwnPropertyDescriptor(headersPrototype, "forEach")?.value
+      if (typeof headersGet === "function" && typeof headersForEach === "function") break
+      headersPrototype = Object.getPrototypeOf(headersPrototype)
+    }
+    const headersConstructor = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "constructor")?.value
+    const headersNativePrototype = typeof headersConstructor === "function" ? headersConstructor.prototype : undefined
+    if (!headersNativePrototype || Object.getOwnPropertyDescriptor(headersNativePrototype, "get")?.value !== headersGet
+      || Object.getOwnPropertyDescriptor(headersNativePrototype, "forEach")?.value !== headersForEach) return false
+    Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
+    Reflect.apply(headersForEach, headers, [() => {}])
+    return typeof method === "string" && typeof url === "string"
+  }
+  catch {
+    return false
+  }
+
 }

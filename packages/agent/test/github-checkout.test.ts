@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import * as fs from 'node:fs/promises'
@@ -69,16 +70,17 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
   await expect(prepareGitHubPullRequestWorkspace(source, target, { signal: AbortSignal.abort() })).rejects.toThrow()
 })
 
-it('supplies Git credentials without running the GitHub CLI', async () => {
+it('supplies Git credentials only for the scoped repository without running the GitHub CLI', async () => {
   const { source } = await fixture()
-  const host = createGitHubHost({ credentials: () => ({ token: 'test-token', rateLimitKey: 'test' }) })
-  const { env } = await host.access()
-  const result = await new Promise<string>((resolve, reject) => {
-    const child = execFile('git', ['credential', 'fill'], { cwd: source, env: { ...process.env, ...env } }, (error, stdout) => error ? reject(error) : resolve(stdout))
-    child.stdin!.end('protocol=https\nhost=github.com\n\n')
+  const host = createGitHubHost({ credentials: () => ({ token: 'test-token' }) })
+  const { env } = await host.access({ repository: 'acme/base' })
+  const header = async (url: string) => await new Promise<string>((resolve) => {
+    execFile('git', ['config', '--get-urlmatch', 'http.extraheader', url], { cwd: source, env: { ...process.env, ...env } }, (error, stdout) => resolve(error ? '' : stdout.trim()))
   })
-  expect(result).toContain('username=x-access-token')
-  expect(result).toContain('password=test-token')
+  expect(await header('https://github.com/acme/base.git/info/refs')).toBe(`AUTHORIZATION: basic ${Buffer.from('x-access-token:test-token').toString('base64')}`)
+  expect(await header('https://github.com/other/repo.git/info/refs')).toBe('')
+  expect(Object.values(env).filter(value => value.includes('basic'))).toHaveLength(1)
+  expect((await host.access()).env).not.toHaveProperty('GIT_CONFIG_KEY_1')
 })
 
 it('records repair publication before post-push validation while retaining source head leases', async () => {
@@ -109,7 +111,7 @@ process.exit(result.status ?? 1);
   await writeFile(globalConfig, `[core]\n hooksPath = ${globalHooks}\n`)
   vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
   vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
-  const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default', rateLimitKey: repository ?? 'default' }))
+  const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
   const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
   await host.withPullRequestCheckout(pr, async checkout => {
@@ -131,7 +133,7 @@ process.exit(result.status ?? 1);
     let custody = true
     credentials.mockImplementationOnce(({ repository }) => {
       custody = false
-      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+      return { token: repository ?? 'default' }
     })
     await expect(checkout.push(target, { beforePush: () => {
       if (!custody) throw new DOMException('Lease lost', 'AbortError')
@@ -140,7 +142,7 @@ process.exit(result.status ?? 1);
     const pushController = new AbortController()
     credentials.mockImplementationOnce(({ repository }) => {
       pushController.abort(new DOMException('Lease expired', 'AbortError'))
-      return { token: repository ?? 'default', rateLimitKey: repository ?? 'default' }
+      return { token: repository ?? 'default' }
     })
     await expect(checkout.push(target, { signal: pushController.signal })).rejects.toThrow('Lease expired')
     expect(await git(fork, 'rev-parse', 'feature')).toBe(headSha)

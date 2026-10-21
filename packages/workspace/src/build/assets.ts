@@ -15,6 +15,8 @@ import { syncWorkspaceDefinition } from "../lifecycle.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 
+import { isWorkspaceDefinitionPackageSpecifier } from "./discovery.ts"
+
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 import type { TransformOptions } from "jiti"
@@ -154,13 +156,32 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
   return loader
 }
 
+/**
+ * Resolves the module of a Workspace Definition to a file. Contributed package specifiers resolve from the
+ * application root, not from this package. Returns the specifier when it cannot be resolved.
+ */
+export function resolveWorkspaceDefinitionModule(
+  loader: ReturnType<typeof createJiti>,
+  definition: Pick<DiscoveredWorkspaceDefinition, "path">,
+  rootDir?: string,
+): string {
+  if (!rootDir || !isWorkspaceDefinitionPackageSpecifier(definition)) return definition.path
+  const resolved = loader.esmResolve(definition.path, { parentURL: pathToFileURL(join(rootDir, "/")).href, try: true })
+  if (!resolved) return definition.path
+  return resolved.startsWith("file:") ? fileURLToPath(resolved) : resolved
+}
+
 export async function loadDiscoveredWorkspaceDefinition(
   loader: ReturnType<typeof createJiti>,
   definition: DiscoveredWorkspaceDefinition,
+  rootDir?: string,
 ): Promise<WorkspaceDefinitionInput> {
-  const mod = await loader.import(definition.path) as { default?: WorkspaceDefinitionInput }
-  if (!mod.default) throw workspaceErrorDiagnostics.WORKSPACE_B0001({ message: `[vitehub] Workspace definition "${definition.name}" has no default export.` })
-  return mod.default
+  // SAFETY: Jiti returns the module namespace; the export is checked before use and normalized by the registry.
+  const mod = await loader.import(resolveWorkspaceDefinitionModule(loader, definition, rootDir)) as Record<string, WorkspaceDefinitionInput | undefined>
+  const exportName = definition.export ?? "default"
+  const loaded = mod[exportName]
+  if (!loaded) throw workspaceErrorDiagnostics.WORKSPACE_B0001({ message: `[vitehub] Workspace definition "${definition.name}" has no ${exportName === "default" ? "default export" : `export ${JSON.stringify(exportName)}`}.` })
+  return loaded
 }
 
 function runtimeAssetsModulePath() {
@@ -202,7 +223,7 @@ export async function syncDiscoveredWorkspaceAssetBundles(
   for (const definition of definitions) {
     if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
-    const workspace = await loadDiscoveredWorkspaceDefinition(workspaceConfigLoader, definition)
+    const workspace = await loadDiscoveredWorkspaceDefinition(workspaceConfigLoader, definition, rootDir)
 
     const store = createMemoryWorkspaceStore()
     await syncWorkspaceDefinition({

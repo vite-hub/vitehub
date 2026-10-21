@@ -5,16 +5,17 @@ import { requestConsole } from "../client/request";
 import { isConsoleSectionId } from "../sections";
 import ConsoleEnv from "../components/console-env.vue";
 import ConsoleProvider from "../components/console-provider.vue";
+import ConsoleState from "../components/console-state.vue";
 
 const appBaseURL = useRuntimeConfig().app.baseURL.replace(/\/+$/, "");
 const sectionsBase = `${appBaseURL}/api/_vitehub/console/sections`;
 const available = ref(false);
-const loadError = ref(false);
+const loadError = ref<unknown>();
 
 useHead({ title: "Env · ViteHub Console" });
 
 async function loadSections() {
-  loadError.value = false;
+  loadError.value = undefined;
   try {
     const value = await requestConsole(sectionsBase);
     const sections =
@@ -26,8 +27,8 @@ async function loadSections() {
       return;
     }
     available.value = true;
-  } catch {
-    loadError.value = true;
+  } catch (cause) {
+    loadError.value = cause;
   }
 }
 

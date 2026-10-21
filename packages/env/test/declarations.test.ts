@@ -164,6 +164,25 @@ describe("env declarations", () => {
     expect(() => createRuntimeRegistry({ appName: env({ schema: proxy }) })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
+  it("rejects cyclic static arrays without repeatedly traversing them", () => {
+    let reads = 0
+    const cyclic: unknown[] = []
+    Object.defineProperty(cyclic, 0, { get() { reads++; return cyclic } })
+    expect(() => createRuntimeRegistry({ values: cyclic as never })).toThrow("[vitehub] Env declaration is invalid.")
+    expect(reads).toBe(1)
+  })
+
+  it("allows repeated references to acyclic static arrays", () => {
+    const shared = ["valid", [1, true]]
+    expect(() => createRuntimeRegistry({ values: [shared, shared] })).not.toThrow()
+  })
+
+  it("rejects revoked Proxy runtime declarations with an Env diagnostic", () => {
+    const { proxy, revoke } = Proxy.revocable(env(), {})
+    revoke()
+    expect(() => createRuntimeRegistry({ appName: proxy as never })).toThrow("[vitehub] Env declaration is invalid.")
+  })
+
   it("rejects conflicting optional and required options", () => {
     expect(() => env({
       optional: true,

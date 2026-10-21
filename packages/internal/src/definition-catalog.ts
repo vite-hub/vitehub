@@ -2,7 +2,7 @@ import type { Dirent } from "node:fs"
 import { existsSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
-import { relative, resolve } from "pathe"
+import { basename, dirname, relative, resolve } from "pathe"
 
 import { generatedDirSegments } from "./build/paths.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
@@ -284,6 +284,34 @@ export function discoverDefinitions<TDefinition extends DiscoveredDefinition>(
     feature,
     ...sources.map(source => source.kind === "suffix" ? scanSuffixDefinitions(feature, source) : scanDirectoryDefinitions(feature, source)),
   )
+}
+
+const channelIndexPattern = /^index\.(?:c|m)?[jt]sx?$/i
+
+/**
+ * Lists the Channel modules below each `<server dir>/channels`. A file is one Channel named after its path, without
+ * the extension or a `.channel` suffix. A folder with an `index` module is one Channel named after the folder; its
+ * other files are helpers. Outbound and inbound Channel discovery both read this list, so one folder can be both.
+ */
+export function discoverServerChannelModules(scanDirs: string[]): DiscoveredDefinition[] {
+  const definitions = discoverDefinitions("channel", [
+    createDirectoryDefinitionSource("server-channels", scanDirs, "channels", {
+      normalizeName: (directory, file) => normalizePathDefinitionName(directory, file).replace(/\.channel$/i, ""),
+    }),
+  ])
+  const roots = new Set(scanDirs.map(directory => resolve(directory, "channels")))
+  const folders = definitions
+    .map(definition => resolve(definition.handler))
+    .filter(handler => channelIndexPattern.test(basename(handler)) && !roots.has(dirname(handler)))
+    .map(handler => dirname(handler))
+  return definitions.filter((definition) => {
+    const handler = resolve(definition.handler)
+    return !folders.some((folder) => {
+      if (handler === resolve(folder, basename(handler)) && channelIndexPattern.test(basename(handler))) return false
+      const path = relative(folder, handler)
+      return !!path && !path.startsWith("..")
+    })
+  })
 }
 
 function createImportExpression(registryFile: string, file: string): string {

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5400ms; --scene-delay: 0ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.kv-strip { animation-name: kv-strip; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes kv-strip {
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  33.333% { transform: translateY(-8px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  66.667% { transform: translateY(-16px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  100% { transform: translateY(-24px); }
+}
+</style>
+      <defs>
+        <linearGradient id="vh-kv-fade" x1="0" y1="4" x2="0" y2="36" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#fff" stop-opacity="0" />
+          <stop offset="0.24" stop-color="#fff" />
+          <stop offset="0.76" stop-color="#fff" />
+          <stop offset="1" stop-color="#fff" stop-opacity="0" />
+        </linearGradient>
+        <mask id="vh-kv-window" maskUnits="userSpaceOnUse" x="0" y="4" width="64" height="32">
+          <rect x="0" y="4" width="64" height="32" fill="url(#vh-kv-fade)" />
+        </mask>
+      </defs>
+            <g mask="url(#vh-kv-window)">
+        <g class="a kv-strip">
+            <rect x="6" y="7" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="7" width="24" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="15" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="15" width="16" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="23" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="23" width="20" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="31" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="31" width="24" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="39" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="39" width="16" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="47" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="47" width="20" height="5" rx="1.5" class="soft" />
+            <rect x="6" y="55" width="8" height="5" rx="1.5" class="soft" />
+            <rect x="18" y="55" width="24" height="5" rx="1.5" class="soft" />
+        </g>
+      </g>
+</svg>

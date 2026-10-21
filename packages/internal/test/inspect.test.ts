@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { runInNewContext } from "node:vm"
 
 import { describeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
@@ -11,6 +12,33 @@ import {
 } from "../src/inspect.ts"
 
 describe("inspection contributors", () => {
+  it("ignores inherited plugin metadata", async () => {
+    const inherited = Object.create({
+      vitehub: {
+        inspect: {
+          definitions: [{ kind: "inherited", label: "Inherited", list: () => [] }],
+          providerOutput: [{ description: "inherited", owner: "inherited", path: "/app/inherited.json" }],
+        },
+      },
+    }) as object
+
+    expect(await collectViteHubDefinitionInspectors([inherited])).toEqual([])
+    expect(await collectViteHubProviderOutputEntries([inherited])).toEqual([])
+  })
+
+  it("ignores inherited inspect metadata", async () => {
+    const inheritedInspect = Object.create({
+      inspect: {
+        definitions: [{ kind: "inherited", label: "Inherited", list: () => [] }],
+        providerOutput: [{ description: "inherited", owner: "inherited", path: "/app/inherited.json" }],
+      },
+    })
+    const plugin = { vitehub: inheritedInspect }
+
+    expect(await collectViteHubDefinitionInspectors([plugin])).toEqual([])
+    expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([])
+  })
+
   it("collects object and factory contributors and skips plugins without inspection", async () => {
     const plugins = [
       null,
@@ -67,6 +95,18 @@ describe("redactInspectionValue", () => {
     expect(redactInspectionValue(3)).toBe(3)
     expect(redactInspectionValue(null)).toBe(null)
     expect(redactInspectionValue("queue")).toBe("queue")
+  })
+
+  it("redacts cross-realm dates, maps, and sets", () => {
+    const values = runInNewContext(`({
+      date: new Date("2020-01-01T00:00:00.000Z"),
+      map: new Map([["token", "secret"], ["count", 3]]),
+      set: new Set(["Bearer abc", 2]),
+    })`) as { date: Date, map: Map<string, unknown>, set: Set<unknown> }
+
+    expect(redactInspectionValue(values.date)).toBe("2020-01-01T00:00:00.000Z")
+    expect(redactInspectionValue(values.map)).toEqual({ token: "[redacted]", count: 3 })
+    expect(redactInspectionValue(values.set)).toEqual(["[redacted]", 2])
   })
 })
 

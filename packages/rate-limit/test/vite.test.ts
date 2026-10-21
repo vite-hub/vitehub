@@ -1,10 +1,9 @@
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { getCloudflareRateLimitBindingName } from "../src/integrations/cloudflare.ts"
 import { hubRateLimit } from "../src/vite.ts"
 
@@ -14,11 +13,9 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubRateLimit>) {
+function runBuildEnd(plugin: ReturnType<typeof hubRateLimit>): void {
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubRateLimit owns this callable Vite lifecycle hook in the focused test.
-  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubRateLimit owns this object Vite lifecycle hook in the focused test.
-  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
+  ;(plugin.buildEnd as unknown as () => void)()
 }
 
 async function writeCloudflareDeclaration(root: string): Promise<void> {
@@ -49,10 +46,6 @@ describe("hubRateLimit", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain("setRateLimitRuntimeConfig")
     await expect(readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8")).resolves.toContain('"schemaVersion"')
     await expect(readFile(join(root, "app", ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-  })
-
-  it("serializes shared Provider Output finalization", () => {
-    expect(hubRateLimit().closeBundle).toMatchObject({ order: "post", sequential: true })
   })
 
   it("fails configuration for conflicting policies with the same ID", async () => {
@@ -97,8 +90,8 @@ describe("hubRateLimit", () => {
     const resolvedConfig = { ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [{ name: "nitro:main" }], resolve: { alias: [] } }
     await configResolved(resolvedConfig as never)
     expect(resolvedConfig.nitro.cloudflare.wrangler.ratelimits).toHaveLength(2)
-    await runProviderOutputHooks(plugin)
-    await expect(access(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    runBuildEnd(plugin)
+    await expect(access(join(root, "dist"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("requires a namespace for discovered Nitro Cloudflare Rate Limits", async () => {
@@ -151,32 +144,7 @@ describe("hubRateLimit", () => {
     expect(vercelUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
   })
 
-  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("keeps standalone output without Nitro when hosting is selected by %s", async (environmentVariable) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-plain-cloudflare-"))
-    roots.push(root)
-    await writeCloudflareDeclaration(root)
-    const previousHosting = process.env[environmentVariable]
-    process.env[environmentVariable] = "cloudflare"
-    try {
-      const plugin = hubRateLimit({ namespace: "vite-test" })
-      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
-      const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-      const userConfig = { root }
-
-      config(userConfig, { command: "build" })
-      await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
-      await runProviderOutputHooks(plugin)
-
-      const [appOutput] = await readdir(join(root, "dist"))
-      await expect(readFile(join(root, "dist", appOutput!, "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
-    }
-    finally {
-      if (previousHosting === undefined) delete process.env[environmentVariable]
-      else process.env[environmentVariable] = previousHosting
-    }
-  })
-
-  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("composes and suppresses output for real Nitro hosting selected by %s", async (environmentVariable) => {
+  it.each(["NITRO_PRESET", "SERVER_PRESET", "VITEHUB_HOSTING"])("composes Nitro hosting selected by %s", async (environmentVariable) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-cloudflare-env-"))
     roots.push(root)
     await writeCloudflareDeclaration(root)
@@ -193,30 +161,14 @@ describe("hubRateLimit", () => {
       expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.ratelimits", [
         expect.objectContaining({ name: getCloudflareRateLimitBindingName("upload") }),
       ])
-      await runProviderOutputHooks(plugin)
+      runBuildEnd(plugin)
 
-      await expect(access(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"))).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(access(join(root, "dist"))).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {
       if (previousHosting === undefined) delete process.env[environmentVariable]
       else process.env[environmentVariable] = previousHosting
     }
-  })
-
-  it("keeps standalone output when Cloudflare config has no Nitro plugin", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-plain-cloudflare-config-"))
-    roots.push(root)
-    await writeCloudflareDeclaration(root)
-    const plugin = hubRateLimit({ namespace: "vite-test" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const userConfig = { nitro: { preset: "cloudflare-module" }, root }
-
-    config(userConfig, { command: "build" })
-    await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] } } as never)
-    await runProviderOutputHooks(plugin)
-
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain(getCloudflareRateLimitBindingName("upload"))
   })
 
   it("rejects Nitro Rate Limit declarations generated after config resolution", async () => {
@@ -231,7 +183,7 @@ describe("hubRateLimit", () => {
     await configResolved({ ...userConfig, build: { outDir: "dist" }, command: "build", plugins: [{ name: "nitro:main" }], resolve: { alias: [] } } as never)
     await writeCloudflareDeclaration(root)
 
-    await expect(runProviderOutputHooks(plugin)).rejects.toThrow("changed after config resolution")
+    expect(() => runBuildEnd(plugin)).toThrow("changed after config resolution")
   })
 
   it("registers provider runtime without global request middleware", async () => {
@@ -272,49 +224,6 @@ describe("hubRateLimit", () => {
     expect(installer).toContain('const config = {"provider":"memory"}')
     expect(installer).not.toContain("Registry")
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
-  })
-
-  it("installs the Cloudflare runtime in plain Vite SSR modules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-plain-vite-"))
-    roots.push(root)
-    const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: ".", provider: "cloudflare" })
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
-    const entry = join(root, "server.ts")
-    await writeFile(entry, 'import { requireRateLimit } from "@vite-hub/rate-limit"\nexport async function upload(event) { await requireRateLimit(event, "uploads", { enforcement: "best-effort", limit: 1, window: "1m" }) }\n')
-    await configResolved({
-      build: { outDir: "dist", ssr: "server.ts" },
-      command: "build",
-      plugins: [],
-      resolve: { alias: [] },
-      root,
-    } as never)
-
-    const result = transform('import { requireRateLimit } from "@vite-hub/rate-limit"', entry)
-    expect(result).toContain(`${join(root, ".vitehub", "rate-limit", "cloudflare-runtime.mjs")}"`)
-  })
-
-  it("installs the Cloudflare runtime in every module sharing a Rate Limit", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-shared-plain-vite-"))
-    roots.push(root)
-    const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: ".", provider: "cloudflare" })
-    const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    const transform = plugin.transform as unknown as (code: string, id: string) => string | undefined
-    const entries = [join(root, "first.ts"), join(root, "second.ts")]
-    for (const entry of entries) {
-      await writeFile(entry, 'import { requireRateLimit } from "@vite-hub/rate-limit"\nexport async function upload(event) { await requireRateLimit(event, "uploads", { limit: 1, window: "1m" }) }\n')
-    }
-    await configResolved({
-      build: { outDir: "dist", ssr: "first.ts" },
-      command: "build",
-      plugins: [],
-      resolve: { alias: [] },
-      root,
-    } as never)
-
-    for (const entry of entries) {
-      expect(transform("export {}", entry)).toContain(`${join(root, ".vitehub", "rate-limit", "cloudflare-runtime.mjs")}"`)
-    }
   })
 
   it("uses the configured internal import base", async () => {

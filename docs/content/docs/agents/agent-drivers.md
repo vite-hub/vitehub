@@ -103,7 +103,7 @@ The directory is a complete Codex Home, not a credentials-only store; treat its 
 
 Provider Drivers require a local Node.js host with credentials available to the process. Codex credentials without an explicit resolver must be available to that process. ViteHub resolves an installed `@openai/codex` or `@anthropic-ai/claude-agent-sdk` package without requiring deployment-specific copy scripts. Production self-hosted Node builds on macOS and Linux copy only the build host's native optional package into `.output/server/node_modules`, including the Linux libc variant, so build on the same host type used for deployment. If Codex is absent, ViteHub falls back to `codex` on the host `PATH`. Claude requires the Agent SDK, while a missing native SDK package at runtime retains T3's host `claude` command fallback. ViteHub does not download provider packages during build or startup. Provider Workspaces also require a POSIX host. Each invocation receives a temporary working directory, optional Workspace files, Codex instructions or a literal Claude prompt file, and Capability tools through a private loopback MCP server. Successful write-mode runs commit through Workspace rules; failed and cancelled runs do not write back.
 
-Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one.
+Provider runtime cursors resume a thread while the Agent Definition process remains active. Set `sessionStorePath` to persist those opaque cursors in a local SQLite file across process restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Relative paths resolve from the process working directory. Dedicate each file to one provider Agent Definition on one persistent process host; the store does not coordinate concurrent ownership of one thread across workers. Chat-backed cursors remain partitioned by origin, invoker, and resolved Chat Session, so a new session cannot inherit provider context from an earlier one. If the provider cannot resume the thread, for example because its Codex session files were deleted, ViteHub sends the full message history to the new provider thread and records an `agent.provider.session.resume-failed` trace event.
 
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
@@ -139,6 +139,36 @@ launch: ({ command, providerCommand }) => ({
   command: selectRunnerForProvider(providerCommand),
 })
 ```
+
+### Limit the Codex Home size
+
+Codex keeps every session in its Home: rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, and `.tmp` Git directories. Codex does not remove them, so the Home grows without a limit. Set `retention` to keep it bounded:
+
+```ts [server/agents/review/agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    kind: 'codex',
+    retention: { maxAge: '14d', maxSize: '45%' },
+  },
+})
+```
+
+`maxAge` takes a duration such as `'14d'` and applies to sessions, log rows, and shell snapshots. `maxRecords` keeps the newest sessions. `maxSize` takes bytes, a size such as `'2GB'`, or a percent of the volume that holds the Home, such as `'45%'`. It counts only the Home's own bytes: files, SQLite live pages, and WAL files. Every limit that you set applies. Retention removes, in this order, `.tmp` entries older than 24 hours, data older than `maxAge`, the oldest sessions past `maxRecords`, and then the oldest sessions and hourly log rows together until the Home fits `maxSize`. A removed session also loses its rows in the thread history and state databases. ViteHub runs `PRAGMA incremental_vacuum` on these databases, so the files shrink. It never runs a full `VACUUM` and never removes a database file.
+
+Retention never removes a thread that runs in this process, or a file that changed in the last 10 minutes. Sessions that a resume cursor still references, in memory or in `sessionStorePath`, and the sessions that they were forked from, go last: only when a limit still fails without them. Then the next invocation of that conversation sends the full message history, as for any failed resume. Retention runs in the background on the first Codex invocation in the process, then at most every 10 minutes. It never fails an invocation. It logs one `[vitehub] Codex home retention` line with the report when it removes data or the Home is still above the budget. A lock file, `<home>/.vitehub-retention.lock`, keeps processes apart.
+
+Retention needs a persistent Home: a `credentialProfile`, `providerSettings.homePath`, `CODEX_HOME` in `driver.env` or the process environment, or a gateway with one of these. Plain `credentials` without `credentialProfile` use a temporary Home, so `defineAgent()` rejects `retention` with `AGENT_R1006`. ViteHub does not prune the implicit `~/.codex` and warns once. With `launch`, the app process must reach the Home at the same path, for example on a volume that both containers mount. Otherwise ViteHub warns once and skips it. When Agents in one process share a Home, the strictest value of each limit applies.
+
+Inspect and prune a Home without the app:
+
+```sh
+vitehub agent codex-home status --home /var/lib/app/codex --max-size 45%
+vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-size 45% --session-store .vitehub/provider-sessions.sqlite --dry-run
+```
+
+`prune` uses the same rules and lock file. Without `--dry-run` it removes data. `--json` prints the report.
 
 ### Route model requests through a gateway
 
@@ -235,9 +265,13 @@ export default defineAgent({
 
 The directory is the working copy. ViteHub still materializes Workspace Sources, but it does not start a Workspace session. It does not copy Workspace files into the directory, create a Git baseline, compute a diff, write changes back, or remove the directory. Generated instruction and Skill files are restored after the provider stops. When the directory is a Git repository root, Git ignores the generated files while the provider runs, so provider commits do not include them. Title and progress summary runs ignore `cwd` and use a temporary directory. The application owns the directory's contents, cleanup, and isolation between concurrent invocations. Agent inspection reports whether `cwd` is static or dynamic without resolving it.
 
+### Temporary files
+
+Each invocation that runs on this host gets its own temporary directory. ViteHub sets `TMPDIR`, `TMP`, and `TEMP` to it for the provider, every command that the provider starts, and a `launch` wrapper. Test fixtures, tool caches, and the Node.js compile cache go there instead of the shared host temporary directory. ViteHub removes the directory when the invocation ends, also after a failure, abort, or timeout. If the process stops before that cleanup, a later invocation on the same host removes the directory after it confirms that the owner process stopped. Set `TMPDIR` in `env` to use a different directory; ViteHub does not remove a directory that `env` supplies. A Sandbox invocation uses the temporary directory of the Sandbox.
+
 ### Provision the project toolchain
 
-Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`box.toolchain`](/docs/agents/boxes#provision-nodejs-and-the-package-manager):
+Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`sandbox.toolchain`](/docs/agents/sandboxes#provision-nodejs-and-the-package-manager):
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -253,7 +287,7 @@ export default defineAgent({
 
 After ViteHub prepares the pull request checkout, the Workspace, or `cwd`, it reads the pins from that directory, provisions them on this host under `$XDG_CACHE_HOME/vitehub/toolchains`, and checks `node -v` and the package manager version. The toolchain `bin` directories come before the host `PATH` for the provider process, every command it starts, and Workspace commands. With a pull request mounted below the Workspace root, ViteHub reads the pins from that mount. A launcher from `launch` receives the same `PATH` in its environment, so it must run on this host. Provider CLIs that start through `#!/usr/bin/env node`, such as the npm Codex package, also run on the project's Node.js. Title and progress summary runs do not provision a toolchain.
 
-`status()` does not report `node`, `npm`, `npx`, `pnpm`, `pnpx`, `yarn`, or `yarnpkg` as missing when `toolchain` is set, because the toolchain exists only after an invocation prepares its checkout. With `box`, declare `box.toolchain` instead; the Agent rejects `driver.toolchain` with `AGENT_R0972`.
+`status()` does not report `node`, `npm`, `npx`, `pnpm`, `pnpx`, `yarn`, or `yarnpkg` as missing when `toolchain` is set, because the toolchain exists only after an invocation prepares its checkout. With `sandbox`, declare `sandbox.toolchain` instead; the Agent rejects `driver.toolchain` with `AGENT_R0972`.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
@@ -265,14 +299,15 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 | `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. Requires an explicit `model`. |
 | `reasoningSummary` | Codex-only `"auto"`, `"concise"`, `"detailed"`, or `"none"` override. Requires an explicit `model`. |
 | `model` | Optional provider model id. |
-| `env` | Explicit environment values or an invocation-time resolver. ViteHub resolves it once and otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. |
+| `env` | Explicit environment values or an invocation-time resolver. ViteHub resolves it once and otherwise inherits only standard host paths, locale, and user-directory variables, not arbitrary application secrets. `TMPDIR`, `TMP`, and `TEMP` point to a [temporary directory for the invocation](#temporary-files) unless `env` sets them. |
 | `execution.attachments.maxBytes` | Optional positive per-invocation image attachment budget; defaults to 25 MiB. Inline and application-resolved lazy images share the budget. |
 | `instructions` | Invocation-scoped instructions composed with colocated instructions. |
 | `launch` | Provider command wrapper or invocation-time resolver. Receives the provider executable, working directory, selected environment, and abort signal. |
 | `cwd` | Optional existing directory or invocation-time resolver. The provider runs there without a Workspace session, write-back, or removal. See [Run in an existing directory](#run-in-an-existing-directory). |
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`; defaults to `"ask"`. `"allow-edits-unattended"` keeps the provider edit mode and denies native permission escalation without prompting. Host-bound MCP tools keep their separate authorization. Set `"allow-all"` explicitly to run provider actions without approval. |
 | `providerSettings` | Advanced settings passed to the embedded provider runtime. Explicit settings override the installed Codex executable fallback. |
-| `requirements` | Command names that `status()` checks where the Driver runs. Missing commands are reported in `missingCommands`. |
+| `retention` | Codex-only `{ maxAge, maxRecords, maxSize }` limits for the Codex Home. Requires a persistent Home. See [Limit the Codex Home size](#limit-the-codex-home-size). |
+| `requirements` | Command names that `status()` checks where the Driver runs. Missing commands are reported in `missingCommands`. In a child Agent, a function receives the inherited list: `inherited => [...inherited, 'kubectl']`. |
 | `sessionStorePath` | Optional SQLite file for provider session cursors. Enables thread continuation after a process restart on the same persistent host volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Provisions project-pinned Node.js and package manager for the provider and its commands. See [Provision the project toolchain](#provision-the-project-toolchain). |
 | `output` | Optional structured Agent output contract. |
@@ -280,15 +315,15 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 
 Provider Drivers do not accept model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
 
-## Run a provider Driver in a Box
+## Run a provider Driver in a Sandbox
 
-Set `box` on the Agent Definition to start the provider inside a [Box](/docs/agents/boxes). The Box supplies the working tree, private Home, environment, and boot checks for each invocation:
+Set `sandbox` on the Agent Definition to start the provider inside a [Sandbox](/docs/agents/sandboxes). The Sandbox supplies the working tree, private Home, environment, and boot checks for each invocation:
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  box: {
+  sandbox: {
     runtime: 'trusted-host',
     requires: ['git'],
   },
@@ -296,7 +331,7 @@ export default defineAgent({
 })
 ```
 
-The provider runtime stays in the ViteHub process. Only the provider command runs in the Box. ViteHub adds the provider command to the Box requirements and writes the Driver instructions and Skills to the Box Home. `driver.env` values reach the provider in the Box. With `box`, the Driver rejects `launch`, `credentials`, and `credentialProfile`, and the Agent rejects `workspace`. Put provider credentials in the Box instead. A Box session lasts one invocation, so the provider does not resume a thread from an earlier invocation.
+The provider runtime stays in the ViteHub process. Only the provider command runs in the Sandbox. ViteHub adds the provider command to the Sandbox requirements and writes the Driver instructions and Skills to the Sandbox Home. `driver.env` values reach the provider in the Sandbox. With `sandbox`, the Driver rejects `launch`, `credentials`, and `credentialProfile`, and the Agent rejects `workspace`. Put provider credentials in the Sandbox instead. A Sandbox session lasts one invocation, so the provider does not resume a thread from an earlier invocation.
 
 ### Cloudflare Workers
 
@@ -426,6 +461,19 @@ export default defineAgent({
 State, instructions, and criteria accept JSON values. Root numbers and booleans become text for the `advocaat` Entry contract. Numbers and booleans inside objects or arrays stay native. Score legends retain the original level descriptions.
 
 `driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
+
+Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
+
+| Observation | Attributes |
+| --- | --- |
+| `agent.tool.start` | `tool.input`: the question sent to Jev |
+| `agent.tool.finish` | `tool.output`: the answer. `ask.answer`: the label, score, chance, or boolean. `ask.probabilities`, `ask.confidence`, `ask.model`, `tool.durationMs` |
+| `agent.tool.error` | `tool.error`, `error.status`, `error.requestId` for each question of a failed request |
+| `agent.usage.recorded` | One per Jev request: `usage.model`, `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`, `ask.durationMs` |
+
+Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` in `agent:finish` and `usage.record` on `agent.invocation.finish` sum the token counts of all requests and name the model when every request used the same one. The Console usage and cost table reads this record, as it does for a Codex run. Add [`usage({ pricing })`](/docs/agents/capabilities/usage) to the Agent to price it.
+
+The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`, `ask.batch.index`, `ask.batch.count`, and `ask.batch.size`. The shared state is `input.data` (or the prompt) on `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`. A metadata-only journal keeps `tool.input`, `tool.output`, `input.data`, and `result.output` only when `metadataContent` lists them; the Console journal lists them. No credentials or request headers are recorded.
 
 ### Provider exit evidence
 

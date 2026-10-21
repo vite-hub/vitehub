@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1100ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.ink-line {
+  opacity: 0.85;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.auth-shackle {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+}
+.auth-token { animation-name: auth-token; }
+.auth-shackle { animation-name: auth-shackle; }
+.auth-session { animation-name: auth-session; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes auth-token {
+  0%, 6% { opacity: 0; transform: translateX(0); }
+  10% { opacity: 0.85; transform: translateX(0); }
+  24% { opacity: 0.85; transform: translateX(-14px); }
+  28%, 100% { opacity: 0; transform: translateX(-16px); }
+}
+@keyframes auth-shackle {
+  0%, 26% { transform: translateY(0) rotate(0deg); }
+  36%, 62% { transform: translateY(-3px) rotate(-14deg); }
+  72%, 100% { transform: translateY(0) rotate(0deg); }
+}
+@keyframes auth-session {
+  0%, 32% { opacity: 0.35; }
+  40%, 64% { opacity: 0.8; }
+  76%, 100% { opacity: 0.35; }
+}
+</style>
+      <defs>
+        <clipPath id="vh-auth-shackle">
+          <rect x="0" y="0" width="64" height="18" />
+        </clipPath>
+      </defs>
+            <g clip-path="url(#vh-auth-shackle)">
+        <path d="M10.5 18v-3.5a5.5 5.5 0 0 1 11 0V22" class="ink-line a auth-shackle" />
+      </g>
+      <rect x="6" y="18" width="20" height="15" rx="2.5" class="line" />
+      <circle cx="16" cy="24.5" r="1.75" class="ink" />
+      <path d="M16 26v3" class="ink-line" />
+      <rect x="36" y="22.5" width="14" height="6" rx="3" class="soft a auth-session" />
+      <circle cx="32" cy="24.5" r="2" class="token a auth-token" />
+</svg>

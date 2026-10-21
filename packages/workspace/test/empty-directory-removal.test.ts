@@ -39,6 +39,15 @@ it.each(["memory", "local"] as const)("%s removes only empty directories", async
   expect(Buffer.from((await store.readFile("occupied/keep.md"))!.content).toString()).toBe("keep")
 })
 
+it.each(["memory", "local"] as const)("%s keeps its root when asked to remove an empty root", async (provider) => {
+  const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await localRoot())
+
+  await store.removeEmptyDirectory!("")
+
+  await expect(store.stat("")).resolves.toMatchObject({ path: "", type: "directory" })
+  await expect(store.writeFile("after.txt", { path: "after.txt", content: "still works" })).resolves.toBeUndefined()
+})
+
 it("local directory removal preserves a symlink replacement", async () => {
   const root = await localRoot()
   const store = createLocalWorkspaceStore(root)

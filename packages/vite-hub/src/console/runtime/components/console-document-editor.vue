@@ -198,6 +198,14 @@ async function focusFirstInvalid(): Promise<void> {
 
 // Each field keeps its server issue until someone changes that field.
 let errorSnapshot: Record<string, string> = {};
+watch(newId, (value) => {
+  if (fieldErrors.value[""] && isConsoleDocumentId(value.trim())) {
+    const next = { ...fieldErrors.value };
+    delete next[""];
+    fieldErrors.value = next;
+  }
+});
+
 watch(() => draft.value.data, (data) => {
   if (!errorCount.value) return;
   const next = Object.fromEntries(Object.entries(fieldErrors.value).filter(([path]) => {

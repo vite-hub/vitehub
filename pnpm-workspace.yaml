@@ -9,7 +9,7 @@ catalog:
   "@cloudflare/vitest-plugin": ^1.3.6
   "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
   "@types/proper-lockfile": 4.1.4
-  forges: https://pkg.pr.new/danielroe/forges@43be2a6
+  forges: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
   proper-lockfile: 4.1.2
   remark-gfm: ^4.0.1
   remark-mdc: ^3.11.1
@@ -42,6 +42,7 @@ catalogs:
     "@cloudflare/playwright": ^1.3.6
     playwright-core: ^1.63.0
   chat:
+    "@chat-adapter/teams": 4.41.1
     "@chat-adapter/discord": 4.41.1
     "@chat-adapter/telegram": 4.41.1
     chat: 4.41.1
@@ -50,6 +51,7 @@ catalogs:
     "@libsql/client": ^0.18.0
     drizzle-kit: ^0.31.11
     drizzle-orm: ^0.45.3
+    postgres: ^3.4.9
   effect:
     effect: 4.0.0-rc.112
   esbuild-v27:
@@ -78,6 +80,7 @@ catalogs:
     "@tiptap/extension-document": ^3.31.4
     "@tiptap/extension-image": ^3.31.4
     "@tiptap/extension-table": ^3.31.4
+    "@tiptap/extensions": ^3.31.4
     "@tiptap/markdown": ^3.31.4
     "@tiptap/pm": ^3.31.4
     "@tiptap/starter-kit": ^3.31.4
@@ -114,8 +117,8 @@ catalogs:
     "@aws-sdk/s3-request-presigner": ^3.1146.0
     "@azure/identity": ^4.13.3
     "@azure/storage-blob": ^12.34.0
-    "@google-cloud/storage": ^7.22.0
-    "@googleapis/drive": ^20.2.0
+    "@google-cloud/storage": ^8.4.0
+    "@googleapis/drive": ^26.0.2
     "@microsoft/microsoft-graph-client": ^3.0.7
     "@supabase/storage-js": ^2.117.2
     "@upstash/redis": ^1.39.0
@@ -123,8 +126,8 @@ catalogs:
     aws4fetch: ^1.0.20
     box-typescript-sdk-gen: ^1.19.1
     dropbox: ^10.47.0
-    files-sdk: ^2.6.2
-    google-auth-library: ^10.9.1
+    files-sdk: ^3.1.1
+    google-auth-library: ^11.3.1
     unstorage: 2.0.0-alpha.10
     uploadthing: ^7.7.4
   tooling:
@@ -153,6 +156,7 @@ catalogs:
     "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
     motion-v: ^2.5.2
+    reka-ui: ^2.10.5
     vue: 3.5.43
   unjs:
     defu: ^6.1.7
@@ -206,9 +210,7 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
-  "@netlify/blobs@11.1.3": patches/@netlify__blobs@11.1.3.patch
+  "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
-  "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta: patches/nitro@3.0.260903-beta.patch
-  nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

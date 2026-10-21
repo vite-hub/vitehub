@@ -37,7 +37,7 @@ export interface ProcessAgentHostOptions {
   ) => Promise<void> | void;
 }
 
-export interface ProcessAgentDiagnostic {
+interface ProcessAgentDiagnostic {
   label: string
   status: "neutral" | "ok" | "warning"
   value: string

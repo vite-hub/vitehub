@@ -37,7 +37,10 @@ it.each([
 it("forwards the filesystem subpath through vite-hub", () => {
   const root = resolve(import.meta.dirname, "../../vite-hub")
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
-  expect(manifest.exports["./markdown-template/file"]).toBe("./dist/markdown-template/file.js")
+  expect(manifest.exports["./markdown-template/file"]).toMatchObject({
+    types: "./dist/markdown-template/file.d.ts",
+    import: "./dist/markdown-template/file.js",
+  })
   expect(readFileSync(resolve(root, "src/markdown-template/file.ts"), "utf8").trim())
     .toBe('export * from "@vite-hub/markdown-template/file"')
 })

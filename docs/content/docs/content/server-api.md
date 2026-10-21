@@ -4,6 +4,7 @@ description: Read documents, navigation, and search results, and save, publish, 
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports
@@ -12,12 +13,13 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
 | `documents`, `optional` from `vite-hub/content` | Define an editable document collection and mark a field optional. |
+| `cms` from `vite-hub/content/presets/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS preset](/docs/content/cms-preset). |
 | `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Comark databases, parser and search plugins, and native Comark Sources. |
 
-Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content` and `@vite-hub/content/client` imports.
+Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
 
 ## Runtime API
 
@@ -39,7 +41,7 @@ await content.navigation(['docs'])
 await content.search(['docs'], 'runtime')
 ```
 
-Methods that plugins add, such as SQL queries, stay available on the returned runtime. A collection instance serves its published documents at public paths that follow the Workspace path, so `posts/hello.md` is `/posts/hello`. `get`, `list`, `navigation`, `search`, and `handler` first check the `published` head and refresh collection instances that are behind. Plugin methods read the last refreshed state.
+Methods that plugins add, such as SQL queries, stay available on the returned runtime. A collection instance serves its published documents at public paths that follow the Workspace path, so `posts/hello.md` is `/posts/hello`. `get`, `list`, `navigation`, `search`, and `handler` first check the `published` head and refresh collection instances that are behind. In a [preview request](/docs/content/preview) they read the `draft` head instead. Plugin methods read the last refreshed published state.
 
 ### Cache
 
@@ -74,8 +76,8 @@ export default defineEventHandler(async (event) => {
 | Method | Behavior |
 | --- | --- |
 | `content.collections()` | Every collection in definition order. Each one is the same object `content.collection(name)` returns, with `name`, `path`, `fields`, and `schema`. Empty without `collections`. |
-| `posts.list(options?)` | Lists documents without their body. Returns `{ items, nextCursor, total, facets? }`. Reads `published` unless `ref: 'draft'`. |
-| `posts.get(id, options?)` | Returns one document, or `null`. Reads `published` unless `ref: 'draft'`, or one history revision with `revision`. |
+| `posts.list(options?)` | Lists documents without their body. Returns `{ items, nextCursor, total, facets? }`. Reads `published` unless `ref: 'draft'` or a preview request. |
+| `posts.get(id, options?)` | Returns one document, or `null`. Reads `published` unless `ref: 'draft'` or a preview request, or one history revision with `revision`. |
 | `posts.raw(id, options?)` | Returns the stored file as `{ collection, id, path, text, digest, revision }`, or `null`, without parsing or validating it. Takes the same `ref` or `revision` as `get()`. |
 | `posts.save(id, { data, body }, options?)` | Validates the fields and commits the file to `draft`. Returns the saved document. |
 | `posts.remove(id, options?)` | Deletes the document from `draft`. It stays published until the next `publish()`. |
@@ -108,7 +110,7 @@ const next = page.nextCursor
 
 | Option | Behavior |
 | --- | --- |
-| `ref` | `published` (default) or `draft`. |
+| `ref` | `published` or `draft`. Defaults to `draft` in a [preview request](/docs/content/preview) and `published` otherwise. |
 | `filter` | Field values, matched case-insensitively. An array matches any of its values, and an array field matches when any element matches. A `Date` matches its ISO string. `id` filters by document id. `empty: ['summary']` matches documents without a value. |
 | `search` | Case-insensitive substring over the collection's `search` fields. |
 | `sort` | `{ field, direction? }`. Dates and numbers sort by value, other values as strings. Without `sort`, documents are in id order. |
@@ -224,3 +226,14 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 ### Comark refs
 
 `content.getSource('posts')` is the collection's Comark Source over `published`. `getSource('posts').withRef('draft')` reads the draft. Content accepts only `draft` and `published`.
+
+### Preview
+
+```ts
+await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
+content.preview.disable(event)                       // clears it
+await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie
+content.preview.active()                             // true inside a preview request
+```
+
+A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.

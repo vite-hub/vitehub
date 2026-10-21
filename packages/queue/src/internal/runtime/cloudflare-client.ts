@@ -5,7 +5,7 @@ import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export async function createCloudflareQueueRuntimeClient(options: QueueProviderOptions): Promise<QueueClient> {
   if (options.provider !== "cloudflare") {
-    throw queueErrorDiagnostics.QUEUE_R0003({ message: "[vitehub] Cloudflare Queue runtime received a non-Cloudflare provider." })
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "cloudflare", provider: options.provider })
   }
   return createCloudflareQueueClient(options)
 }

@@ -1,0 +1,437 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
+
+import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
+import { resolveSandbox } from "../src/index.ts";
+import { createVercelRuntime, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
+
+afterEach(() => vi.useRealTimers());
+
+describe("remote Sandbox providers", () => {
+  it.each(["cloudflare", "vercel"] as const)("retries failed %s cleanup without reopening the session", async (provider) => {
+    const cleanup = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("provider cleanup failed"))
+      .mockResolvedValue(undefined);
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    stub.destroy = cleanup;
+    const instance = vercelInstance();
+    instance.stop = cleanup;
+    const runtime = provider === "cloudflare"
+      ? createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) })
+      : createVercelRuntime({ create: async () => instance });
+    const sandbox = await resolveSandbox({ runtime }, {});
+    const session = await sandbox.open();
+
+    await expect(session.close()).rejects.toThrow("provider cleanup failed");
+    await expect(session.exec("probe")).rejects.toThrow("Sandbox session is closed");
+    await expect(session.files.exists("/workspace")).rejects.toThrow("Sandbox session is closed");
+
+    await session.close();
+    await session.close();
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
+    const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
+    const stub = cloudflareStub(async command => ({
+      exitCode: 0, stderr: "", stdout: command.startsWith("find ") ? output : "", success: true,
+    }));
+    const instance = vercelInstance();
+    instance.runCommand = async options => ({
+      async kill() {},
+      async stderr() { return ""; },
+      async stdout() { return options.args?.[1]?.startsWith("find ") ? output : ""; },
+      async wait() { return { exitCode: 0 }; },
+    });
+    const runtime = provider === "cloudflare"
+      ? createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) })
+      : createVercelRuntime({ create: async () => instance });
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    try {
+      await expect(session.files.list("/workspace")).resolves.toEqual([
+        { path: "/workspace/nested", size: undefined, type: "directory" },
+        { path: "/workspace/with\ttab", size: 7, type: "file" },
+      ]);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("resolves a selected Cloudflare runtime through the public Sandbox root", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {}, { requires: ["node", "npm"] });
+
+    expect(sandbox.plan.requirements).toEqual([
+      { command: "node", name: "node" },
+      { command: "npm", name: "npm" },
+    ]);
+    const session = await sandbox.open({ id: "selected-cloudflare" });
+    expect(session.id).toBe("selected-cloudflare");
+    await session.close();
+  });
+
+  it("reports remote requirement output without exposing Sandbox environment values", async () => {
+    const stub = cloudflareStub(async () => ({
+      exitCode: 2,
+      stderr: "",
+      stdout: "credential remote-secret was rejected",
+      success: false,
+    }));
+    const sandbox = await resolveSandbox({
+      env: { ACCESS_TOKEN: "remote-secret" },
+      requires: [{ command: "node", args: ["--version"], timeout: 5_000 }],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+
+    expect(sandbox.plan.requirements).toEqual([
+      { command: "node", name: "node --version", timeout: 5_000 },
+    ]);
+    const failure = await sandbox.open().catch((error: unknown) => error as Error) as Error;
+    expect(failure.message).toContain("exit code 2: credential [redacted] was rejected");
+    expect(failure.message).not.toContain("remote-secret");
+  });
+
+  it("bounds remote requirement checks with their configured timeout", async () => {
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    const sandbox = await resolveSandbox({
+      requires: [{ command: "node", timeout: 20 }],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+
+    await expect(sandbox.open()).rejects.toThrow("timed out after 20ms");
+  });
+
+  it("preserves caller cancellation during remote requirement checks", async () => {
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    const sandbox = await resolveSandbox({
+      requires: ["node"],
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const controller = new AbortController();
+    const reason = new Error("cancel requirement setup");
+
+    const opening = sandbox.open({ signal: controller.signal });
+    controller.abort(reason);
+
+    await expect(opening).rejects.toBe(reason);
+  });
+
+  it("normalizes authority from tagged remote runtimes", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const cloudflare = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const vercel = await resolveSandbox({
+      runtime: { create: async () => vercelInstance(), kind: "vercel" },
+    }, {});
+
+    for (const sandbox of [cloudflare, vercel]) {
+      expect(Object.isFrozen(sandbox.plan)).toBe(true);
+      expect(Object.isFrozen(sandbox.plan.executionAuthority)).toBe(true);
+      expect(Object.isFrozen(sandbox.plan.executionAuthority.filesystem)).toBe(true);
+      const session = await sandbox.open();
+      expect(session.executionAuthority).toBe(sandbox.plan.executionAuthority);
+      await session.close();
+    }
+  });
+
+  it("retries transient Cloudflare transport failures", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const stub = cloudflareStub(async () => {
+      calls++;
+      if (calls === 1) throw new Error("Durable Object reset while container is starting");
+      return { exitCode: 0, stderr: "", stdout: "ready", success: true };
+    });
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+
+    const result = session.exec("probe");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(result).resolves.toMatchObject({ code: 0, stdout: "ready" });
+    expect(calls).toBe(2);
+    await session.close();
+  });
+
+  it("bounds Cloudflare operations with a deadline", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const stub = cloudflareStub(async () => {
+      calls++;
+      return await new Promise<never>(() => {});
+    });
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+
+    const result = session.exec("probe");
+    const rejection = expect(result).rejects.toThrow("exec timed out after 180000ms");
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(calls).toBe(1);
+    await session.close();
+  });
+
+  it("honors caller Cloudflare execution timeouts beyond the transport default", async () => {
+    vi.useFakeTimers();
+    let receivedTimeout: number | undefined;
+    const stub = cloudflareStub(async (_command, options) => {
+      receivedTimeout = options?.timeout;
+      await new Promise(resolve => setTimeout(resolve, 200_000));
+      return { exitCode: 0, stderr: "", stdout: "complete", success: true };
+    });
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    const settled = vi.fn();
+
+    const result = session.exec("long-analysis", [], { timeout: 600_000 });
+    void result.then(value => settled({ value }), error => settled({ error }));
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await expect(result).resolves.toMatchObject({ code: 0, stdout: "complete" });
+    expect(receivedTimeout).toBe(600_000);
+    await session.close();
+  });
+
+  it("rejects Cloudflare cancellation without waiting for cleanup", async () => {
+    let finishCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    stub.destroy = async () => await cleanup;
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    const controller = new AbortController();
+
+    const result = session.exec("probe", [], { signal: controller.signal });
+    controller.abort(new Error("cancel exec"));
+
+    await expect(result).rejects.toThrow("cancel exec");
+    const closed = vi.fn();
+    const closing = session.close().then(closed);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(closed).not.toHaveBeenCalled();
+    finishCleanup();
+    await closing;
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  it("passes cancellation through Vercel provisioning", async () => {
+    const controller = new AbortController();
+    let received: AbortSignal | undefined;
+    const sandbox = await resolveSandbox({
+      runtime: createVercelRuntime({
+        async create(options) {
+          received = options.signal;
+          return await new Promise<VercelSandboxInstance>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true }));
+        },
+      }),
+    }, {});
+
+    const opened = sandbox.open({ signal: controller.signal });
+    await vi.waitFor(() => expect(received).toBe(controller.signal));
+    controller.abort(new Error("cancel provisioning"));
+    await expect(opened).rejects.toThrow("cancel provisioning");
+    expect(received).toBe(controller.signal);
+  });
+
+  it("preserves initialization and cleanup failures", async () => {
+    const instance = vercelInstance();
+    instance.stop = async () => {
+      throw new Error("provider cleanup failed");
+    };
+    const sandbox = await resolveSandbox({
+      runtime: createVercelRuntime({ create: async () => instance }),
+    }, {});
+
+    let failure: unknown;
+    try {
+      await sandbox.open({
+        async initialize() {
+          throw new Error("initialization failed");
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: "initialization failed" }),
+      expect.objectContaining({ message: "provider cleanup failed" }),
+    ]);
+    expect((failure as AggregateError).message).toContain("initialization failed");
+    expect((failure as AggregateError).message).toContain("provider cleanup failed");
+  });
+
+  it.each([
+    [undefined, "unrestricted"],
+    ["allow-all" as const, "unrestricted"],
+    ["deny-all" as const, "none"],
+    [{ allow: ["api.example.com"] }, "restricted"],
+    [{ allow: ["*"] }, "unrestricted"],
+    [{ allow: { "*": [] } }, "unrestricted"],
+    [{ allow: ["*"], subnets: { deny: ["10.0.0.0/8"] } }, "restricted"],
+    [{}, "unknown"],
+    [{ allow: [] }, "unknown"],
+    [{ subnets: {} }, "unknown"],
+    [{ subnets: { deny: ["10.0.0.0/8"] } }, "restricted"],
+  ])("declares Vercel network authority for %j", async (networkPolicy, network) => {
+    const sandbox = await resolveSandbox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        ...(networkPolicy === undefined ? {} : { networkPolicy }),
+      }),
+    }, {});
+
+    expect(sandbox.plan.executionAuthority).toMatchObject({
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "microvm",
+      network,
+      processes: "arbitrary",
+    });
+  });
+
+  it("does not infer unrestricted network access from an inherited wildcard", async () => {
+    const allow = Object.create({ "*": [] }) as Record<string, readonly unknown[]>;
+    const sandbox = await resolveSandbox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        networkPolicy: { allow },
+      }),
+    }, {});
+
+    expect(sandbox.plan.executionAuthority.network).toBe("unknown");
+  });
+
+  it.each([
+    Object.create({ allow: ["*"] }) as Exclude<VercelSandboxNetworkPolicy, string>,
+    Object.create({ subnets: { deny: ["10.0.0.0/8"] } }) as Exclude<VercelSandboxNetworkPolicy, string>,
+    { allow: Object.setPrototypeOf(Object.assign([], { length: 1 }), { 0: "*" }) },
+    { allow: Object.assign([], { length: 1 }) },
+    { subnets: { allow: Object.assign([], { length: 1 }) } },
+    { subnets: { deny: Object.assign([], { length: 1 }) } },
+  ])("does not infer Vercel network authority from inherited policy members", async networkPolicy => {
+    const sandbox = await resolveSandbox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        networkPolicy,
+      }),
+    }, {});
+
+    expect(sandbox.plan.executionAuthority.network).toBe("unknown");
+  });
+
+  it("keeps Cloudflare network authority explicit when the namespace policy is opaque", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({
+      runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }),
+    }, {});
+
+    expect(sandbox.plan.executionAuthority).toMatchObject({
+      filesystem: { access: "read-write", scope: "sandbox" },
+      isolation: "container",
+      network: "unknown",
+      processes: "arbitrary",
+    });
+  });
+
+  it("does not advertise undeclared Vercel ports", async () => {
+    const instance = vercelInstance();
+    const sandbox = await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await sandbox.open();
+
+    expect(session.ports).toBeUndefined();
+    await session.close();
+  });
+
+  it("distinguishes missing Vercel files from filesystem failures", async () => {
+    const missing = Object.assign(new Error("missing"), { code: "ENOENT" });
+    let accessFailure = missing;
+    let readFailure = missing;
+    const access = vi.fn(async () => { throw accessFailure; });
+    const instance = vercelInstance();
+    instance.fs = {
+      access,
+      async mkdir() {},
+      async readFile() { throw readFailure; },
+      async readdir() { return []; },
+      async rename() {},
+      async rm() {},
+      async stat() { throw missing; },
+      async writeFile() {},
+    };
+    const sandbox = await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await sandbox.open();
+
+    await expect(session.files.exists("/workspace/missing.txt")).resolves.toBe(false);
+    await expect(session.files.read("/workspace/missing.txt")).resolves.toBeNull();
+
+    const deniedAccess = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    accessFailure = deniedAccess;
+    await expect(session.files.exists("/workspace/private.txt")).rejects.toBe(deniedAccess);
+
+    const deniedRead = Object.assign(new Error("read denied"), { code: "EACCES" });
+    readFailure = deniedRead;
+    const accessCalls = access.mock.calls.length;
+    await expect(session.files.read("/workspace/private.txt")).rejects.toBe(deniedRead);
+    expect(access).toHaveBeenCalledTimes(accessCalls);
+    await session.close();
+  });
+
+  it("recognizes cross-realm missing Vercel files", async () => {
+    const missing = runInNewContext("Object.assign(new Error('missing'), { code: 'ENOENT' })") as Error & { code: string };
+    const instance = vercelInstance();
+    instance.fs = {
+      async access() { throw missing; },
+      async mkdir() {},
+      async readFile() { throw missing; },
+      async readdir() { return []; },
+      async rename() {},
+      async rm() {},
+      async stat() { throw missing; },
+      async writeFile() {},
+    };
+    const sandbox = await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await sandbox.open();
+
+    await expect(session.files.exists("/workspace/missing.txt")).resolves.toBe(false);
+    await expect(session.files.read("/workspace/missing.txt")).resolves.toBeNull();
+    await session.close();
+  });
+});
+
+function namespace(stub: CloudflareSandboxStub) {
+  return { get: () => stub, idFromName: (name: string) => name };
+}
+
+function cloudflareStub(exec: CloudflareSandboxStub["exec"]): CloudflareSandboxStub {
+  return {
+    async destroy() {},
+    async exec(command, options) {
+      if (command.startsWith("rm -rf -- "))
+        return { exitCode: 0, stderr: "", stdout: "", success: true };
+      if (command.startsWith("test -e "))
+        return { exitCode: 1, stderr: "", stdout: "", success: false };
+      return await exec(command, options);
+    },
+    async mkdir() { return { success: true }; },
+    async readFile() { return { content: "", success: false }; },
+    async writeFile() { return { success: true }; },
+  };
+}
+
+function vercelInstance(): VercelSandboxInstance {
+  return {
+    domain: port => `https://sandbox-${port}.example.com`,
+    async mkDir() {},
+    async readFileToBuffer() { return null; },
+    async runCommand() {
+      return { async kill() {}, async stderr() { return ""; }, async stdout() { return ""; }, async wait() { return { exitCode: 0 }; } };
+    },
+    async stop() {},
+    async writeFiles() {},
+  };
+}

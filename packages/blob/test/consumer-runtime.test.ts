@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
-import { probePrivateVercelFunction } from "./private-vercel-probe.ts"
+import { probePrivateVercelBlobRuntime } from "./private-vercel-probe.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
@@ -137,7 +137,7 @@ describe("hosted Blob consumer runtime", () => {
         for (const name of awsRuntimePackages) expect(consumerManifest.dependencies).not.toHaveProperty(name)
         await run("pnpm", ["run", "build"], appDir)
 
-        await probePrivateVercelFunction(appDir)
+        await probePrivateVercelBlobRuntime(appDir)
 
         await cp(
           join(cloudflareFixtureRoot, "vite.config.ts"),
@@ -180,9 +180,6 @@ describe("hosted Blob consumer runtime", () => {
           `if (!url.searchParams.get("X-Amz-Signature")) throw new Error("Missing R2 signature")`,
         ].join("\n")
         await run("node", ["--input-type=module", "--eval", cloudflareSignProbe], appDir)
-        await expect(
-          readFile(join(appDir, ".vercel/output/functions/__server.func/index.mjs"), "utf8"),
-        ).resolves.toContain("createBlobVercelServer")
       } finally {
         await rm(root, { force: true, recursive: true })
       }

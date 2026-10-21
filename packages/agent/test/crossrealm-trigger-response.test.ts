@@ -1,19 +1,19 @@
 import { runInNewContext } from "node:vm"
+import { Response as ForeignFetchResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
-import { isResponse } from "../src/internal/response.ts"
-import { isUIMessageStreamResponse } from "../src/stream-output.ts"
+import { registerResponseConstructor, isResponse } from "../src/internal/response.ts"
+import { isUIMessageStreamResponse, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationResult } from "../src/trigger-runtime.ts"
 
 const HostResponse = Response
+registerResponseConstructor(ForeignFetchResponse)
 
 function foreignResponse(body = "foreign", init?: ResponseInit): Response {
-  // Node VM contexts have no Fetch globals. Supply the host Fetch implementation,
-  // then give the consuming realm a different constructor, as runtime loaders do.
-  const response = runInNewContext("new Response(body, init)", { Response: HostResponse, body, init })
+  const response = new ForeignFetchResponse(body, init)
   vi.stubGlobal("Response", class extends HostResponse {})
   expect(response).not.toBeInstanceOf(Response)
-  return response
+  return response as unknown as Response
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -36,10 +36,16 @@ describe("agent trigger cross realm responses", () => {
     expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
   })
 
-  it("recognizes foreign UI message stream responses", () => {
-    expect(isUIMessageStreamResponse(foreignResponse("data: [DONE]\n\n", {
+  it("recognizes and parses UI responses with an inherited global Response prototype", async () => {
+    const response = foreignResponse('data: {"type":"text-delta","delta":"foreign"}\n\ndata: [DONE]\n\n', {
       headers: { "x-vercel-ai-ui-message-stream": "v1" },
-    }))).toBe(true)
+    })
+    expect(isUIMessageStreamResponse(response)).toBe(true)
+    expect(normalizeUIMessageStreamResponse(response)).toBe(response)
+    if (!isUIMessageStreamResponse(response)) throw new Error("Expected UI response")
+    const chunks = []
+    for await (const chunk of uiMessageStreamFromResponse(response)) chunks.push(chunk)
+    expect(chunks).toEqual([{ type: "text-delta", delta: "foreign" }])
   })
 
   it("rejects a complete structural impostor", () => {
@@ -70,6 +76,20 @@ describe("agent trigger cross realm responses", () => {
 
   it("rejects inherited Response prototypes without internal response state", () => {
     expect(isResponse(Object.create(HostResponse.prototype))).toBe(false)
+  })
+
+  it("accepts subclasses of a registered foreign Response implementation", () => {
+    class SubResponse extends ForeignFetchResponse {}
+    const response = new SubResponse("subclass")
+    expect(isResponse(response)).toBe(true)
+  })
+
+  it("rejects objects fabricated from a registered Response prototype", () => {
+    const impostor = Object.create(ForeignFetchResponse.prototype, {
+      headers: { value: {} },
+      _bodyFactory: { value: () => null },
+    })
+    expect(isResponse(impostor)).toBe(false)
   })
 
   it("contains hostile inspection and does not read user response properties", () => {

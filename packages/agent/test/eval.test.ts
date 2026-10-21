@@ -77,6 +77,8 @@ vi.mock("ai", () => ({
   jsonSchema: vi.fn(schema => schema),
   isStepCount: vi.fn(count => ({ count })),
   Output: { object: vi.fn(({ schema }) => ({ schema })) },
+  // This SDK double executes fixture responses without invoking a language model.
+  wrapLanguageModel: ({ model }: { model: unknown }) => model,
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)
@@ -222,6 +224,20 @@ describe("agent eval", () => {
     const agent = defineAgent({ driver: { model: {} as never }, workspace: {} })
     defineEval({ agent: factory ? async () => agent : agent, name: "explicit", workspace: "explicit", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
     await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
+      __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: expect.stringMatching(/packages[/\\]agent[/\\]test$/) } },
+    })
+  })
+
+  it("infers the Eval Source root for an owned Workspace with an inherited name", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const workspace = { mode: "read" as const }
+    Object.setPrototypeOf(workspace, { name: "inherited" })
+    const agent = defineAgent({ driver: { model: {} as never }, workspace })
+    defineEval({ agent, name: "owned", workspace: "owned", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+
     expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
       __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: expect.stringMatching(/packages[/\\]agent[/\\]test$/) } },
     })
