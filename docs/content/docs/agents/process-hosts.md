@@ -157,8 +157,9 @@ ViteHub:
      the budget post a restart notice with the `HOST_RESTARTED` error, and the
      next process retries each message once.
    - `agent.process-host` and `agent.process-hosts` close
-     [process hosts](#recover-and-drain), and `schedule` closes the Schedule
-     Process Runtime.
+     [process hosts](#recover-and-drain), `agent.preparation` stops Workspace
+     preparation, `agent.discord-gateway` stops the Discord Gateway, and
+     `schedule` closes the Schedule Process Runtime.
 2. Lets the server close HTTP and waits up to 10 seconds for Nitro's `close` hooks.
 3. Logs a short summary and exits once with code 0.
 

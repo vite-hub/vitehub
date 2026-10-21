@@ -1899,9 +1899,9 @@ describe("agent Vite plugin", () => {
         expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" })]),
       )
       const gatewayPlugin = await readFile(join(root, ".vitehub/agent/discord-gateway-plugin.ts"), "utf8")
-      expect(gatewayPlugin).toContain("const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
-      expect(gatewayPlugin).toContain("nodeProcess?.prependOnceListener(signal, stopDiscordGateways)")
-      expect(gatewayPlugin).toContain("nitroApp.hooks.hook('close', stopDiscordGateways)")
+      expect(gatewayPlugin).toContain('import { onShutdown } from "@vite-hub/agent/server/internal"')
+      expect(gatewayPlugin).toContain("onShutdown(nitroApp, 'agent.discord-gateway', () => stopDiscordGateways())")
+      expect(gatewayPlugin).not.toContain("SIGTERM")
       await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(webhookRoute).toContain("export function startDiscordGateways()")

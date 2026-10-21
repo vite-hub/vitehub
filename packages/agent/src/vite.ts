@@ -2251,9 +2251,10 @@ async function writeAgentWebhookRouteHandler(
     ].join("\n"), "utf8")
     await writeFile(join(root, generatedAgentPreparationPlugin), [
       `import { preparation } from "./preparation"`,
+      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       `export default function(nitroApp) {`,
       `  void preparation.start()`,
-      `  nitroApp.hooks.hook("close", () => preparation.stop())`,
+      `  onShutdown(nitroApp, "agent.preparation", () => preparation.stop())`,
       `}`,
     ].join("\n"), "utf8")
     await writeFile(join(root, generatedAgentPreparationHandler), options.libsqlState
@@ -2296,18 +2297,15 @@ async function writeAgentWebhookRouteHandler(
   if (options.processDiscordGateway) {
     await writeFile(gatewayPluginPath, [
       `import { startDiscordGateways } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       "",
       "export default function viteHubDiscordGatewayPlugin(nitroApp) {",
       "  const stop = startDiscordGateways()",
       "  let stopping",
-      "  const nodeProcess = typeof process === 'object' && process?.release?.name === 'node' ? process : undefined",
-      "  const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))",
       "  function stopDiscordGateways() {",
-      "    for (const signal of shutdownSignals) nodeProcess?.off(signal, stopDiscordGateways)",
       "    return stopping ||= stop()",
       "  }",
-      "  for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, stopDiscordGateways)",
-      "  nitroApp.hooks.hook('close', stopDiscordGateways)",
+      "  onShutdown(nitroApp, 'agent.discord-gateway', () => stopDiscordGateways())",
       "}",
       "",
     ].join("\n"), "utf8")

@@ -219,8 +219,11 @@ finally {
         TEST: undefined,
         VITEHUB_QUEUE_PROOF: proofPath,
       },
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
+    let stdout = ""
+    child.stdout!.setEncoding("utf8")
+    child.stdout!.on("data", chunk => (stdout += chunk))
     let stderr = ""
     child.stderr!.setEncoding("utf8")
     child.stderr!.on("data", chunk => (stderr += chunk))
@@ -251,8 +254,13 @@ finally {
     ])
 
     expect(listeners).toMatchObject({ sigterm: expect.any(Array) })
-    expect(listeners.sigterm.slice(0, 2)).toEqual(["shutdownWebhookQueues", "listener"])
+    // ViteHub keeps its single stop listener while the server listener is held until drains settle.
+    expect(listeners.sigterm).toContain("stop")
+    expect(listeners.sigterm).not.toContain("shutdownWebhookQueues")
     expect(exit).toEqual([0, null])
+    expect(stdout).toContain('"event":"shutdown.draining"')
+    expect(stdout).toContain('"event":"shutdown.drained"')
+    expect(stdout).toContain('"event":"shutdown.exited"')
     await expect(readFile(proofPath, "utf8")).resolves.toContain("aborted:true")
 
     // The restarted server resumes the re-queued delivery without an inbound request.
