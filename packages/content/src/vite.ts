@@ -153,11 +153,15 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     api: { resolveCmsPreset },
     vitehub: {
       async workspaces(context: WorkspaceContributionContext) {
+        // Nuxt invokes contribution factories with its Vite root while the
+        // ViteHub project-root metadata is not always available. Keep the
+        // contribution pass usable for packed consumers in that case.
+        const projectRoot = context.projectRoot ?? context.rootDir
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
-        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
-        const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
+        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
+        const plan = await resolveCmsPreset({ databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
+        const module = resolve(projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
           await rm(module, { force: true })
           return []
