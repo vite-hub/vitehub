@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { H3Event } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
@@ -228,10 +229,10 @@ describe("Console Schedule runs", () => {
     const body = JSON.stringify({ name: "sync" })
     const key = await resolveViteHubDispatchKey(env)
     const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "worker", body, key: key!, operation: "schedule.run" }) }
-    const response = await scheduleRunRoute({
-      context: { cloudflare: { env } },
-      req: new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }),
-    })
+    const response = await scheduleRunRoute(new H3Event(
+      new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }),
+      { cloudflare: { env } },
+    ))
 
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
