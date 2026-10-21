@@ -1,5 +1,6 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { deriveAuthSecret } from "./secret.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -57,6 +58,13 @@ function stripViteHubOptions(
   } as AuthBetterAuthRuntimeOptions
 }
 
+/** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
+function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown): AuthBetterAuthRuntimeOptions {
+  if (options.secret || options.secrets) return options
+  const secret = deriveAuthSecret(event)
+  return secret ? { ...options, secret } : options
+}
+
 /** Resolves one coherent option snapshot before projecting it for Better Auth or host callers. */
 export function resolveAuthOptions(
   definition: AuthDefinition,
@@ -108,7 +116,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return stripViteHubOptions(resolveSnapshot()) },
+    get providerOptions() { return withDerivedSecret(stripViteHubOptions(resolveSnapshot()), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

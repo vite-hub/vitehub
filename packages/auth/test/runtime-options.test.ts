@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
@@ -113,5 +115,54 @@ describe("Auth option resolution", () => {
     const resolved = resolveAuthOptions(definition, { request, env })
     expect(resolved.requestRuntimeOptions.secret).toBe(expectedSecret)
     expect(order).toEqual(expectedOrder)
+  })
+})
+
+describe("Better Auth secret from VITEHUB_SECRET", () => {
+  const root = "r".repeat(16) + "o".repeat(16) + "ot-secret"
+  const definition = defineAuth({ appName: "ViteHub" })
+
+  beforeEach(() => {
+    for (const name of ["VITEHUB_SECRET", "NUXT_APP_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) vi.stubEnv(name, undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("derives the secret that deriveSecret('vitehub:auth') returns", async () => {
+    vi.stubEnv("VITEHUB_SECRET", root)
+    const { secret } = resolveAuthOptions(definition).providerOptions
+    expect(secret).toBe(await deriveViteHubSecret(root, "vitehub:auth"))
+    expect(secret).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it("reads NUXT_APP_SECRET and Cloudflare bindings of the event", async () => {
+    vi.stubEnv("NUXT_APP_SECRET", root)
+    expect(resolveAuthOptions(definition).providerOptions.secret).toBe(await deriveViteHubSecret(root, "vitehub:auth"))
+    vi.stubEnv("NUXT_APP_SECRET", undefined)
+
+    const other = `${root}-cloudflare`
+    const event = { req: new Request("https://app.example.com/api/auth"), context: { cloudflare: { env: { VITEHUB_SECRET: other } } } }
+    const resolved = resolveAuthOptions(definition, { request: event.req, event })
+    expect(resolved.providerOptions.secret).toBe(await deriveViteHubSecret(other, "vitehub:auth"))
+  })
+
+  it("keeps an explicit secret, secrets, or Better Auth environment secret", () => {
+    vi.stubEnv("VITEHUB_SECRET", root)
+    expect(resolveAuthOptions(definition, { runtimeOptions: { secret: "explicit" } }).providerOptions.secret).toBe("explicit")
+    const secrets = [{ version: 1, value: "rotated" }]
+    expect(resolveAuthOptions(definition, { runtimeOptions: { secrets } }).providerOptions).not.toHaveProperty("secret")
+    for (const name of ["BETTER_AUTH_SECRET", "BETTER_AUTH_SECRETS", "AUTH_SECRET"]) {
+      vi.stubEnv(name, "1:from-better-auth-env")
+      expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
+      vi.stubEnv(name, undefined)
+    }
+  })
+
+  it("leaves the secret to Better Auth without a root secret, and rejects a short one", () => {
+    expect(resolveAuthOptions(definition).providerOptions).not.toHaveProperty("secret")
+    vi.stubEnv("VITEHUB_SECRET", "short")
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_R0016" }))
   })
 })
