@@ -63,7 +63,9 @@ describe("managed Rate Limit guard", () => {
 
   it("requires a key when the request has no client address", async () => {
     await expect(requireRateLimit(requestEvent(), "background-uploads", { limit: 1, window: "1m" }))
-      .rejects.toThrow("could not determine a request key")
+      .rejects.toThrow("`requireRateLimit()` could not determine a request key")
+    await expect(checkRateLimit(requestEvent(), "background-checks", { limit: 1, window: "1m" }))
+      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
   })
 
   it("isolates budgets by stable ID", async () => {

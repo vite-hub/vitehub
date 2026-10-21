@@ -68,7 +68,7 @@ async function consumeRateLimit(
   const { provider } = getRateLimitRuntimeConfig()
   const key = options.key ?? getRequestKey(event, provider)
   if (!key) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: "[vitehub] Rate Limit could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.` })
   }
   const limiter = provider === "cloudflare"
     ? getCloudflareRateLimiter(event, id, policy)
