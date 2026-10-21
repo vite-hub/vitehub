@@ -2426,6 +2426,8 @@ function createSyntheticWorkspaceRun<
       ...context.input,
       abortSignal: context.input.abortSignal ? AbortSignal.any([context.input.abortSignal, executionBudget.signal]) : executionBudget.signal,
     }
+    transferParsedAgentWorkflowInput(context.input, invocationInput)
+    markAgentInvocationCallerAbortSignal(invocationInput, agentInvocationCallerAbortSignal(context.input))
     let release: (() => void) | undefined
     let budgetDeferred = false
     const disposeBudget = () => executionBudget?.dispose()
