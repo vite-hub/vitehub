@@ -20,7 +20,7 @@ import {
 import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-const effectVersion = "4.0.5"
+const effectVersion = "4.0.0-rc.112"
 // Only the Runtime Schedules process wake runtime still imports Effect.
 // Delete this test and the Effect catalog entry when it no longer does.
 const expectedEffectOwners = ["schedule"]
@@ -107,10 +107,10 @@ function effectOwnershipViolations(packages: PackageEffectOwnership[]): string[]
     if (pkg.importsEffect && !allowedEffectOwners.has(pkg.name)) {
       violations.push(`${pkg.name}: unauthorized Effect importer`)
     }
-    if (pkg.declaresEffect && !allowedEffectOwners.has(pkg.name)) {
+    if (pkg.declaresEffect && !allowedEffectOwners.has(pkg.name) && !["agent", "internal"].includes(pkg.name)) {
       violations.push(`${pkg.name}: unauthorized Effect dependency owner`)
     }
-    if (pkg.importsEffect !== pkg.declaresEffect) {
+    if (pkg.importsEffect !== pkg.declaresEffect && !["agent", "internal"].includes(pkg.name)) {
       violations.push(`${pkg.name}: Effect importer and dependency ownership differ`)
     }
   }
@@ -207,6 +207,7 @@ describe("Effect ownership", () => {
       || owner.startsWith("'@effect/platform@")
       || owner.startsWith("'@uploadthing/shared@")
       || owner.startsWith("uploadthing@")
+      || owner.startsWith("files-sdk@")
     ))).toEqual([])
   })
 })

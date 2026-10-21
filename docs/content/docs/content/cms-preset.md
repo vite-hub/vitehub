@@ -15,7 +15,7 @@ The `cms` preset stores [document collections](/docs/content/configure#document-
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import cms from '@vite-hub/content/presets/cms'
 import { z } from 'zod'
 
 export const content = defineContent({

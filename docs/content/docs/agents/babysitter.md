@@ -28,7 +28,7 @@ Select the preset in a discovered Agent. The repository filter is required: the 
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { babysitter } from 'vite-hub/agent/presets/babysitter'
+import { babysitter } from 'vite-hub/presets/babysitter'
 
 export default defineAgent({
   extends: babysitter,
