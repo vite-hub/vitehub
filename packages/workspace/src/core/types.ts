@@ -568,7 +568,6 @@ export interface WorkspaceSourceRequestExecutionInput {
   /** Abort a controlled request when its owning Shell invocation ends. */
   signal?: AbortSignal
   method: WorkspaceSourceRequestMethod
-  signal?: AbortSignal
   url: string
 }
 

@@ -10,6 +10,7 @@ icon: i-lucide-circle-alert
 
 - A project has one Content file. More than one `content.ts` (or `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`) across server directories fails route generation with `SOURCE_B0007`. The file must export `content`, or generation fails with `SOURCE_B0008`.
 - Define either `source` or `sources`. Passing both throws.
+- `plugins` takes Comark Content plugins. A Comark parse plugin there throws `CONTENT_R0006`; pass it in `markdown.plugins`.
 - `collections` requires `workspace` or `extends: cms`, and `extends` cannot be combined with `workspace`. Every collection comes from `documents()`, and a collection name cannot match a Source name. Violations throw `CONTENT_R0006`.
 - `documents()` paths are relative globs that use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. Every field is a Standard Schema validator.
 - `defineContent()` uses `AsyncLocalStorage` from `node:async_hooks`. The runtime must provide it.

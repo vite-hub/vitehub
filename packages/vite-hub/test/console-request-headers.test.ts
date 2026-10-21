@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { describe, expect, it } from "vitest"
 
 import { consoleRequest } from "../src/console/runtime/server/access.ts"
@@ -20,6 +22,13 @@ describe("Console request header reconstruction", () => {
     expect(request.headers.get("authorization")).toBe("Bearer token")
     expect(request.headers.get("origin")).toBe("https://console.example")
     expect(request.headers.get("host")).toBe("console.example")
+  })
+
+  it("copies headers from a Headers-like object created in another realm", () => {
+    const headers = runInNewContext("({ get: name => name === 'authorization' ? 'Bearer token' : null })")
+    const request = consoleRequest({ req: { headers, url: "/_vitehub/console" } })
+
+    expect(request.headers.get("authorization")).toBe("Bearer token")
   })
 
   it("keeps an empty higher-precedence header instead of falling back", () => {

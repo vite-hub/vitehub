@@ -13,7 +13,6 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_CONFLICT"
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
-  | "CONSOLE_AUTHORIZE_REQUIRED"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_NOT_FOUND"
@@ -73,7 +72,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_DEVELOPMENT_ONLY: code(
       "console: true is development-only. It works only on the development server.",
-      "For production, set console: { auth: \"app\" }, console: { auth: { ... }, authorize }, or console: { auth: false, authorize } for host-managed access.",
+      "For production, set console: { auth: \"app\" } or console: { auth: { ... }, authorize }.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
@@ -86,12 +85,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONSOLE_AUTH_NOT_CONFIGURED: code(
       "Console Auth is not configured.",
       "Add a ViteHub Auth Definition, or set the Cloudflare Access team domain and audience.",
-      `${consoleGuide}#protect-the-console-route`,
-      "docs",
-    ),
-    CONSOLE_AUTHORIZE_REQUIRED: code(
-      "Console access requires console.authorize.",
-      "Set console.authorize to defineConsoleAuthorize(() => true) in a server authorization function.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),

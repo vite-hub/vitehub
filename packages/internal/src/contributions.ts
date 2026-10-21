@@ -88,7 +88,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isThenable(value: Record<string, unknown>): value is Record<string, unknown> & PromiseLike<unknown> {
-  return value.then instanceof Function
+  return typeof value.then === "function"
 }
 
 async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unknown>): Promise<void> {
@@ -104,6 +104,17 @@ async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unkno
     return
   }
   plugins.push(value)
+}
+
+/**
+ * Flattens Vite plugin options as `collectContributions` reads them: nested arrays and promised options become one
+ * list of plugin objects, and falsy entries are dropped. A plugin that filters itself out of `context.plugins` must
+ * filter this list, because `vitehub()` nests its plugins in an array.
+ */
+export async function flattenPluginOptions(plugins: readonly unknown[] | undefined): Promise<object[]> {
+  const flattened: object[] = []
+  await flattenPlugins(plugins ?? [], flattened, new Set())
+  return flattened
 }
 
 function readModule(value: string): string {
@@ -156,14 +167,18 @@ export async function collectContributions(
     const fail: (reason: string) => never = (reason) => {
       throw options.invalid(`[vitehub] Plugin ${JSON.stringify(contributor)} contributed an invalid ${options.kind}: ${reason}`)
     }
-    const entries: unknown = source instanceof Function ? await Reflect.apply(source, undefined, [options.context]) : source
-    if (entries === undefined && source instanceof Function) continue
+    const callable = typeof source === "function"
+    const entries: unknown = callable ? await Reflect.apply(source, undefined, [options.context]) : source
+    if (entries === undefined && callable) continue
     if (!Array.isArray(entries)) fail(`\`vitehub.${options.key}\` must be an array or a function that returns one.`)
 
     const list: readonly unknown[] = entries
     for (const entry of list) {
       const contribution = readContribution(entry, contributor, options, fail)
-      const identity = JSON.stringify(contribution)
+      // Plugin and reason identify the provenance, not the Definition itself. Equivalent Definitions from
+      // composed plugin instances are one contribution; differing Definitions with one name remain a conflict.
+      const { plugin: _plugin, reason: _reason, ...definitionIdentity } = contribution
+      const identity = JSON.stringify(definitionIdentity)
       const existing = collected.get(contribution.name)
       if (existing?.identity === identity) continue
       if (existing) {
