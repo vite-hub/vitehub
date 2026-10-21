@@ -71,6 +71,8 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
 
+`auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
+
 The `authorization` argument is a frozen `{ request, session, user }` object. Only the guard creates it. A caller cannot pass its own value to the returned handler.
 
 ### Authorize access routes
