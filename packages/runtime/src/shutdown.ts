@@ -182,13 +182,19 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       // The host installs one stop listener after the ViteHub plugins. Keep that
       // first handoff listener for the delayed close; later listeners belong to
       // applications or integrations and must retain their normal ordering.
-      let handedOff = false
-      for (const listener of runtime.listeners(signal)) {
-        if (typeof listener !== "function" || listener === stop || existing.get(signal)?.has(listener)) continue
-        if (handedOff) continue
-        handedOff = true
+      const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
+        typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
+      // srvx's listener is named `shutdown` and closes the server. Keep this explicit
+      // identification whenever available. The fallback preserves compatibility with hosts
+      // that expose an anonymous stop callback: when an application listener was already
+      // present, the host callback is appended after it; otherwise it is the first callback.
+      const server = candidates.find(listener => {
+        const source = Function.prototype.toString.call(listener)
+        return listener.name === "shutdown" || /(?:closeServer|server)/i.test(listener.name) || /(?:closeServer|server|globalThis\.process)\.(?:close|on)\s*\(/.test(source)
+      }) ?? candidates[0]
+      if (server) {
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
-        const handler = listener as (signal: ShutdownSignal) => void
+        const handler = server as (signal: ShutdownSignal) => void
         runtime.off(signal, handler)
         serverListeners.push([signal, handler])
       }
