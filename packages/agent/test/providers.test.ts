@@ -665,6 +665,8 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
+      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "serve",
         createResolver: () => async (id) => `/app/node_modules/${id}`,
@@ -673,7 +675,7 @@ describe("agent Vite plugin", () => {
       })
 
       const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
-
+      const registry = await transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
 
       expect(registry).toContain("defineScheduledAgentTarget")
       expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
@@ -706,12 +708,15 @@ describe("agent Vite plugin", () => {
       const filteredConfigResolvedHook: unknown = filteredPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for filtered plugins.
       const filteredConfigResolved = filteredConfigResolvedHook as typeof configResolved
+      // SAFETY: The filtered plugin exposes the same transform hook contract.
+      const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
         createResolver: () => async (id) => (id === "vite-hub/email/server" || id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
+      const filteredRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
       expect(filteredRegistry).not.toContain("vite-hub/_internal/blob")

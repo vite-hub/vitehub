@@ -1346,7 +1346,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0870: dynamicError,
     AGENT_R0871: dynamicError,
     AGENT_B0002: dynamicError,
-    // AGENT_B0003 and AGENT_B0004 are retired with Runtime Schedule targets. Do not reuse them.
+    AGENT_B0003: dynamicError,
+    AGENT_B0004: dynamicError,
     AGENT_B0005: dynamicError,
     AGENT_B0006: dynamicError,
     AGENT_B0007: dynamicError,

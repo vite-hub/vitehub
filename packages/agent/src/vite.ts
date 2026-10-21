@@ -123,10 +123,17 @@ const generatedAgentProcessHostsHealth = "agent/process-hosts-health.ts"
 const generatedAgentInvocationsDevHandler = "agent/invocations-dev-handler.ts"
 const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = "agent/email-runtime.js"
+const generatedAgentScheduleRegistry = "agent/schedule-registry.js"
 const generatedAgentRegistry = "agent/registry.mjs"
 const generatedAgentRegistryCatalog = "agent/registry-agents.mjs"
 const agentRegistryId = "#vitehub/agent/registry"
 const netlifyAgentFunctionName = "vitehub-agent"
+const generatedScheduleRuntimeRegistrySuffix = "/.vitehub/nitro/schedule/runtime-registry.js"
+const scheduleRegistryId = "#vitehub/schedule/registry"
+const resolvedScheduleRegistryId = `\0${scheduleRegistryId}`
+const resolvedScheduleTargetsId = "\0#vitehub/schedule/targets"
+const scheduleRuntimeImport = "@vite-hub/schedule/runtime"
+const scheduleVitePluginName = "@vite-hub/schedule/vite"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
@@ -182,6 +189,7 @@ interface InternalAgentModuleOptions extends AgentModuleOptions {
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
+  scheduleRuntimeImport?: string
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
@@ -192,6 +200,9 @@ interface AgentGeneratedImportOptions {
   denoCronImport?: string
   providerImportAliases?: Record<string, string>
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
+  schedule?: boolean
+  scheduleRegistryImport?: string
+  scheduleRuntimeImport?: string
   workflowImportBase?: string
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
