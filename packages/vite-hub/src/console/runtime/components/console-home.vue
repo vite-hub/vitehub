@@ -235,10 +235,10 @@ onBeforeUnmount(() => request++);
                 <div class="vitehub-console__overview-label">
                   <h2 id="console-home-continue">Continue</h2>
                   <button
-                    v-if="agentsEnabled"
+                    v-if="lastSectionDetails"
                     type="button"
                     class="vitehub-console__overview-link"
-                    @click="openSection(consoleSectionDetails.agents.routeName)"
+                    @click="lastSectionDetails && openSection(lastSectionDetails.routeName)"
                   >
                     <span class="flex items-center justify-between gap-3">
                       <span class="vitehub-console__overview-icon size-9">
@@ -393,18 +393,6 @@ onBeforeUnmount(() => request++);
                     </span>
                   </a>
                 </div>
-                <ul class="vitehub-console__overview-list">
-                  <li v-for="guide in consoleGuides" :key="guide.href">
-                    <a class="vitehub-console__overview-row" :href="guide.href" rel="noreferrer" target="_blank">
-                      <span class="vitehub-console__overview-icon">
-                        <UIcon :name="guide.icon" class="size-3.5" />
-                      </span>
-                      <span class="vitehub-console__overview-name">{{ guide.label }}</span>
-                      <span class="vitehub-console__overview-description">{{ guide.description }}</span>
-                      <UIcon name="i-lucide-arrow-up-right" class="vitehub-console__overview-meta size-3.5" />
-                    </a>
-                  </li>
-                </ul>
               </section>
             </template>
           </div>

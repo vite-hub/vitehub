@@ -127,4 +127,13 @@ export const consoleIcons: readonly string[] = [
   "lucide:wrap-text",
   "lucide:wrench",
   "lucide:x",
+  "ph:arrow-up-right-light",
+  "ph:arrows-clockwise-light",
+  "ph:clock-counter-clockwise-light",
+  "ph:cloud-slash-light",
+  "ph:key-light",
+  "ph:lock-simple-light",
+  "ph:plugs-connected-light",
+  "ph:sign-in-light",
+  "ph:tray-light",
 ]

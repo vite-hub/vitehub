@@ -71,7 +71,7 @@ const emit = defineEmits<{
         class="h-[calc(100%-3.25rem)] min-h-0"
         icon="i-lucide-cloud-off"
         title="Could not load session details"
-        :description="props.error"
+        :error="props.error"
         :actions="[
           {
             label: 'Try again',
