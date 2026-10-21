@@ -24,6 +24,8 @@ export interface ConsoleMediaRequest {
   multiple?: boolean
   /** Accepted content types of a reference field, such as `["image/*"]`. */
   accept?: readonly string[]
+  /** Blob store required by a reference field. The picker may only edit the served store. */
+  store?: string
 }
 
 /** The stored form of a picked file, as a Blob reference field keeps it. */

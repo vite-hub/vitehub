@@ -17,7 +17,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
-import { runConsoleMediaAction, uploadConsoleMedia } from "./media.ts"
+import { maximumConsoleMediaRequestBytes, runConsoleMediaAction, uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -40,6 +40,7 @@ const maximumConsoleRpcRequestBytes = 64 * 1_024
 const maximumConsoleRpcRequestBytesByMethod: Readonly<Record<string, number>> = {
   [consoleRpcMethods.agentInvocations]: consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes,
   [consoleRpcMethods.documents]: maximumConsoleDocumentRequestBytes + maximumConsoleRpcRequestBytes,
+  [consoleRpcMethods.media]: maximumConsoleMediaRequestBytes + maximumConsoleRpcRequestBytes,
 }
 
 const responseHeaders = {

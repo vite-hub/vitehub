@@ -17,6 +17,7 @@ const props = defineProps<{
   inputId: string;
   kind: "file" | "image";
   label: string;
+  store?: string;
 }>();
 
 const model = defineModel<unknown>();
@@ -65,7 +66,7 @@ async function choose(): Promise<void> {
   if (!picker || props.disabled) return;
   choosing.value = true;
   try {
-    const [item] = await picker.pick({ accept: props.accept ?? (props.kind === "image" ? ["image/*"] : undefined), files: [], kind: props.kind, multiple: false });
+    const [item] = await picker.pick({ accept: props.accept ?? (props.kind === "image" ? ["image/*"] : undefined), files: [], kind: props.kind, multiple: false, store: props.store });
     const picked = item?.reference;
     if (!picked) return;
     const value: Record<string, unknown> = { pathname: picked.pathname };

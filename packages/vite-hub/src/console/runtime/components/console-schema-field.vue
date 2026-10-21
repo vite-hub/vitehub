@@ -207,7 +207,7 @@ function updateJson(value: string): void {
 const blob = computed(() => {
   const hint = record(props.field.schema["x-vitehub-blob"]);
   const accept = Array.isArray(hint.accept) ? hint.accept.filter(entry => String(entry) === entry) : undefined;
-  return { accept, kind: hint.kind === "image" ? "image" as const : "file" as const };
+  return { accept, kind: hint.kind === "image" ? "image" as const : "file" as const, store: String(hint.store) === hint.store ? hint.store : undefined };
 });
 
 // A nested object reads as one line, such as `Ada · https://vitehub.dev`, and expands in place.
@@ -383,6 +383,7 @@ function updateChild(name: string, value: unknown): void {
       :input-id="inputId"
       :kind="blob.kind"
       :accept="blob.accept"
+      :store="blob.store"
       :label="field.label"
       :disabled="disabled"
     />

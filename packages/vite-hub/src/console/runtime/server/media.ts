@@ -101,7 +101,26 @@ function textList(value: unknown, name: string): string[] {
 
 /** `posts/2026/` → `posts/2026`. */
 function folderPath(value: string): string {
-  return value.replace(/^\/+|\/+$/g, "")
+  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")
+}
+
+function mediaPath(value: unknown, name: string): string {
+  const raw = folderPath(text(value, name))
+  const segments: string[] = []
+  for (const segment of raw.split("/")) {
+    if (!segment || segment === ".") continue
+    if (segment === "..") {
+      if (!segments.length) throw failure(400, "MEDIA_INPUT", `${name} must be a canonical media pathname.`)
+      segments.pop()
+    }
+    else segments.push(segment)
+  }
+  const path = segments.join("/")
+  if (!path) {
+    throw failure(400, "MEDIA_INPUT", `${name} must be a canonical media pathname.`)
+  }
+  if (isReservedPath(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  return path
 }
 
 function baseName(pathname: string): string {
@@ -156,9 +175,7 @@ function isHiddenFolder(folder: string): boolean {
 
 /** Pathnames under `_vitehub/` or a hidden root folder, which the library never shows. */
 function isReservedPath(pathname: string): boolean {
-  const slash = pathname.indexOf("/")
-  if (slash === -1) return false
-  const root = pathname.slice(0, slash).toLowerCase()
+  const root = pathname.split("/", 1)[0]!.toLowerCase()
   return root === "_vitehub" || hiddenRootFolders.has(root)
 }
 
@@ -235,8 +252,22 @@ async function freePathname(storage: BlobStorage, folder: string, name: string):
   throw failure(409, "BLOB_CONFLICT", `Too many files named ${name} in this folder.`)
 }
 
+const uploadLocks = new WeakMap<object, Map<string, Promise<void>>>()
+async function withUploadLock<T>(storage: BlobStorage, folder: string, task: () => Promise<T>): Promise<T> {
+  let locks = uploadLocks.get(storage)
+  if (!locks) uploadLocks.set(storage, locks = new Map())
+  const previous = locks.get(folder) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  locks.set(folder, current)
+  await previous
+  try { return await task() }
+  finally { release(); if (locks.get(folder) === current) locks.delete(folder) }
+}
+
 async function list(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaListing> {
-  const folder = folderPath(optionalText(input.folder, "folder") ?? "")
+  const rawFolder = folderPath(optionalText(input.folder, "folder") ?? "")
+  const folder = rawFolder ? mediaPath(rawFolder, "folder") : ""
   const search = optionalText(input.search, "search")?.trim().toLowerCase()
   const type = optionalText(input.type, "type")
   if (type && !["image", "video", "audio", "document", "other"].includes(type)) throw failure(400, "MEDIA_INPUT", "type must be image, video, audio, document, or other.")
@@ -278,14 +309,14 @@ async function list(context: MediaContext, input: Record<string, unknown>): Prom
 }
 
 async function get(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
-  const record = await blobCall(() => context.storage.media.get(text(input.pathname, "pathname")))
+  const record = await blobCall(() => context.storage.media.get(mediaPath(input.pathname, "pathname")))
   if (!record) throw failure(404, "BLOB_NOT_FOUND", "This file no longer exists.")
   return mediaFile(record)
 }
 
 async function update(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
   requireAccess(context, "write")
-  const pathname = text(input.pathname, "pathname")
+  const pathname = mediaPath(input.pathname, "pathname")
   const patch: MediaUpdate = {}
   for (const key of ["alt", "caption"] as const) {
     const value = input[key]
@@ -315,7 +346,7 @@ async function update(context: MediaContext, input: Record<string, unknown>): Pr
 
 async function removeCropReplacement(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaFile> {
   requireAccess(context, "write")
-  return mediaFile(await blobCall(() => context.storage.media.replaceCrop(text(input.pathname, "pathname"), text(input.crop, "crop"), null)))
+  return mediaFile(await blobCall(() => context.storage.media.replaceCrop(mediaPath(input.pathname, "pathname"), text(input.crop, "crop"), null)))
 }
 
 interface BulkFailure {
@@ -335,9 +366,10 @@ async function move(context: MediaContext, input: Record<string, unknown>): Prom
   }
   const moves = input.moves.map((entry: unknown) => {
     if (!isRecord(entry)) throw failure(400, "MEDIA_INPUT", "Each move must be { from, to }.")
-    const from = text(entry.from, "from")
+    const from = mediaPath(entry.from, "from")
     const target = text(entry.to, "to")
-    return { from, to: joinPath(folderPath(parentFolder(target)), fileName(target)) }
+    const to = joinPath(folderPath(parentFolder(target)), fileName(target))
+    return { from, to: mediaPath(to, "to") }
   })
   const moved: ConsoleMediaFile[] = []
   const failed: BulkFailure[] = []
@@ -356,7 +388,8 @@ async function remove(context: MediaContext, input: Record<string, unknown>): Pr
   requireAccess(context, "manage")
   const removed: string[] = []
   const failed: BulkFailure[] = []
-  for (const pathname of textList(input.pathnames, "pathnames")) {
+  for (const raw of textList(input.pathnames, "pathnames")) {
+    const pathname = mediaPath(raw, "pathname")
     try {
       await blobCall(() => context.storage.media.remove(pathname))
       removed.push(pathname)
@@ -370,30 +403,31 @@ async function remove(context: MediaContext, input: Record<string, unknown>): Pr
 
 async function createFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ path: string }> {
   requireAccess(context, "write")
-  const parent = folderPath(optionalText(input.parent, "parent") ?? "")
+  const rawParent = folderPath(optionalText(input.parent, "parent") ?? "")
+  const parent = rawParent ? mediaPath(rawParent, "parent") : ""
   const name = consoleMediaName(text(input.name, "name"))
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
   const path = joinPath(parent, name)
-  if (isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  if (isReservedPath(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
   await blobCall(() => context.storage.media.createFolder(path))
   return { path }
 }
 
 async function moveFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ moved: number, path: string }> {
   requireAccess(context, "manage")
-  const from = folderPath(text(input.from, "from"))
+  const from = mediaPath(input.from, "from")
   const segments = folderPath(text(input.to, "to")).split("/")
   const name = consoleMediaName(segments.pop() ?? "")
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
-  const path = joinPath(segments.join("/"), name)
-  if (isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  const path = mediaPath(joinPath(segments.join("/"), name), "to")
+  if (isReservedPath(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
   const result = await blobCall(() => context.storage.media.moveFolder(from, path))
   return { ...result, path }
 }
 
 async function removeFolder(context: MediaContext, input: Record<string, unknown>): Promise<{ removed: number }> {
   requireAccess(context, "manage")
-  return await blobCall(() => context.storage.media.removeFolder(folderPath(text(input.path, "path")), { force: input.force === true }))
+  return await blobCall(() => context.storage.media.removeFolder(mediaPath(input.path, "path"), { force: input.force === true }))
 }
 
 async function usage(section: string, access: ConsoleAccess, input: Record<string, unknown>): Promise<unknown> {
@@ -476,13 +510,15 @@ export async function uploadConsoleMedia(request: Request, section: string, acce
   const pathname = form.get("pathname")
   if (String(crop) === crop && crop) {
     if (String(pathname) !== pathname || !pathname) throw failure(400, "MEDIA_INPUT", "A crop replacement needs the pathname of the original.")
-    const record = await blobCall(() => context.storage.media.replaceCrop(pathname, crop, file))
+    const record = await blobCall(() => context.storage.media.replaceCrop(mediaPath(pathname, "pathname"), crop, file))
     return { duplicate: false, file: mediaFile(record) }
   }
   const folderValue = form.get("folder")
-  const folder = folderPath(String(folderValue) === folderValue ? folderValue : "")
-  if (isHiddenFolder(folder)) throw failure(400, "MEDIA_INPUT", "This folder is reserved for ViteHub.")
-  const target = await freePathname(context.storage, folder, fileName(file.name || "file"))
-  const record = await blobCall(() => context.storage.media.put(target, file, { dedupe: true, ...(file.type ? { contentType: file.type } : {}) }))
-  return { duplicate: record.pathname !== target, file: mediaFile(record) }
+  const rawFolder = folderPath(String(folderValue) === folderValue ? folderValue : "")
+  const folder = rawFolder ? mediaPath(rawFolder, "folder") : ""
+  return await withUploadLock(context.storage, folder, async () => {
+    const target = await freePathname(context.storage, folder, fileName(file.name || "file"))
+    const record = await blobCall(() => context.storage.media.put(target, file, { dedupe: true, ...(file.type ? { contentType: file.type } : {}) }))
+    return { duplicate: record.pathname !== target, file: mediaFile(record) }
+  })
 }
