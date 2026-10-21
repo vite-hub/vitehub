@@ -93,6 +93,14 @@ describe("viteHubTaskPlugin", () => {
     expect((await runConfigHook(optedOut, { experimental: { tasks: false } })).config.nitro).toEqual({ experimental: { tasks: false } })
   })
 
+  it("enables the endpoint for tasks declared in Nitro config", async () => {
+    const empty = await project({})
+    expect((await runConfigHook(empty, { tasks: { seed: { handler: "/tmp/seed.ts" } } })).config.nitro).toEqual({
+      experimental: { tasks: true },
+      tasks: { seed: { handler: "/tmp/seed.ts" } },
+    })
+  })
+
   it("adds the dev-only Nitro handler in serve mode and lists tasks for inspection", async () => {
     const root = await project({ "server/tasks/seed.ts": "" })
     const { config, plugin } = await runConfigHook(root, undefined, "serve")
@@ -106,6 +114,20 @@ describe("viteHubTaskPlugin", () => {
 })
 
 describe("vitehub task", () => {
+  it("includes metadata declared by the task handler", async () => {
+    const request = new Request("http://localhost", {
+      body: JSON.stringify({ operation: "list" }),
+      headers: { [taskDevHeader]: taskDevHeaderValue, [taskDevTokenServerHeader]: "test-server", ["x-vitehub-dev-token"]: "test-task-token", "content-type": "application/json" },
+      method: "POST",
+    })
+    const response = await handleTaskDevRequest(request, {
+      rootDir,
+      tasks: { seed: { resolve: async () => ({ meta: { description: "Seed rows" } }) } },
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ tasks: [{ description: "Seed rows", name: "seed" }] })
+  })
+
   it("lists tasks", async () => {
     const result = context()
     const fetch = devServer({ tasks: [{ description: "Add one demo note", name: "db:seed" }, { name: "notes" }] })

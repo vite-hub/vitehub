@@ -45,7 +45,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function addNitroTasks(value: unknown, definitions: ReturnType<typeof discoverTaskDefinitions>): Record<string, unknown> | undefined {
   const nitro = isRecord(value) ? { ...value } : {}
   const experimental = isRecord(nitro.experimental) ? nitro.experimental : {}
-  if (experimental.tasks === false || (!definitions.length && experimental.tasks !== true)) return
+  const declaredTasks = isRecord(nitro.tasks) && Object.keys(nitro.tasks).length > 0
+  if (experimental.tasks === false || (!definitions.length && !declaredTasks && experimental.tasks !== true)) return
   nitro.experimental = { ...experimental, tasks: true }
   const tasks = isRecord(nitro.tasks) ? { ...nitro.tasks } : {}
   for (const definition of definitions) {

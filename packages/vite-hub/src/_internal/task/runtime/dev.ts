@@ -9,7 +9,10 @@ import { taskDevHeader, taskDevHeaderValue, taskDevTokenNamespace, taskDevTokenS
 import type { TaskDevListResult, TaskDevRequestBody, TaskDevRunResult } from "../../../task/dev.ts"
 
 /** Shape of the `tasks` export of Nitro's `#nitro/virtual/tasks` module. */
-export type NitroTaskRegistry = Record<string, { meta?: { description?: string } }>
+export type NitroTaskRegistry = Record<string, {
+  meta?: { description?: string }
+  resolve?: () => Promise<{ meta?: { description?: string } }>
+}>
 
 export interface TaskDevRequestOptions {
   /** Vite root. The private token file of each dev server is scoped to it. */
@@ -66,11 +69,11 @@ export async function handleTaskDevRequest(request: Request, options: TaskDevReq
   const body = await readBody(request)
   if (!body) return failure("TASK_DEV_INVALID_REQUEST", "The Task Dev request body is invalid.", 400)
   if (body.operation === "list") {
-    const result: TaskDevListResult = {
-      tasks: Object.entries(options.tasks)
-        .map(([name, task]) => task.meta?.description ? { description: task.meta.description, name } : { name })
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    }
+    const tasks = await Promise.all(Object.entries(options.tasks).map(async ([name, task]) => {
+      const description = task.meta?.description ?? (task.resolve ? (await task.resolve()).meta?.description : undefined)
+      return description ? { description, name } : { name }
+    }))
+    const result: TaskDevListResult = { tasks: tasks.sort((left, right) => left.name.localeCompare(right.name)) }
     return json(result)
   }
   if (!Object.hasOwn(options.tasks, body.name)) {
