@@ -179,8 +179,14 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
   // ViteHub holds them until the drains settle, so HTTP stays up for the drain.
   setTimeout(() => {
     for (const signal of signals) {
+      // The host installs one stop listener after the ViteHub plugins. Keep that
+      // first handoff listener for the delayed close; later listeners belong to
+      // applications or integrations and must retain their normal ordering.
+      let handedOff = false
       for (const listener of runtime.listeners(signal)) {
         if (typeof listener !== "function" || listener === stop || existing.get(signal)?.has(listener)) continue
+        if (handedOff) continue
+        handedOff = true
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
         const handler = listener as (signal: ShutdownSignal) => void
         runtime.off(signal, handler)
@@ -215,7 +221,7 @@ export function onShutdown(app: ShutdownApp, name: string, drain: ShutdownDrain,
   if (runtime && !state.trap) {
     // Node, Bun, and Deno report a Node release. Cloudflare Workers can polyfill `process`,
     // but they own the isolate lifecycle and do not allow timers during startup.
-    if (runtime.release?.name === "node" && globalThis.navigator?.userAgent !== "Cloudflare-Workers") installSignalTrap(app, runtime, state)
+    if ((runtime.release?.name === "node" || runtime.release?.name === "bun") && globalThis.navigator?.userAgent !== "Cloudflare-Workers") installSignalTrap(app, runtime, state)
     else state.trap = "skipped"
   }
 }

@@ -63,17 +63,21 @@ describe("onShutdown", () => {
       order.push("server")
       await close()
     })
+    const applicationSignal = vi.fn()
     emitter.on("SIGTERM", closeServer)
+    emitter.on("SIGTERM", applicationSignal)
     await nextTimer()
 
     expect(shutdownState(runtime)).toMatchObject({ signals: true, status: "running", trap: "installed" })
     expect(emitter.listeners("SIGTERM")).toContain(prior)
     expect(emitter.listeners("SIGTERM")).not.toContain(closeServer)
+    expect(emitter.listeners("SIGTERM")).toContain(applicationSignal)
 
     emitter.emit("SIGTERM", "SIGTERM")
     emitter.emit("SIGTERM", "SIGTERM")
     await nextTimer()
     expect(order).toEqual(["chat start", "queue start"])
+    expect(applicationSignal).toHaveBeenCalledWith("SIGTERM")
     expect(budgets).toEqual([45_000, 45_000])
     expect(closeServer).not.toHaveBeenCalled()
 
