@@ -346,6 +346,15 @@ function resolveOpaqueValue(module: ScannedModule, expression: Expression | unde
   return resolveOpaqueValue(module, readModuleDeclaration(module, value.name), new Set([...seen, value.name]))
 }
 
+function isStaticUndefinedReference(module: ScannedModule, expression: Expression | undefined, seen = new Set<string>()): boolean {
+  if (!expression) return false
+  const value = unwrapExpression(expression)
+  if (isStaticUndefined(value)) return true
+  if (value.type !== "Identifier" || seen.has(value.name)) return false
+  seen.add(value.name)
+  return isStaticUndefinedReference(module, readModuleDeclaration(module, value.name), seen)
+}
+
 /**
  * Whether an opaque Cloudflare value sets its own D1 resource (`databaseId` or `databaseName`). Undefined when the
  * source cannot prove it either way.
@@ -364,10 +373,16 @@ function readOpaqueResourceOwnership(module: ScannedModule, expression: Expressi
   // is proven key-free.
   if (hasId === undefined || hasName === undefined) return
   if (!hasId && !hasName) return false
-  const id = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseId", new Set(seen)))
-  const name = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseName", new Set(seen)))
+  const idExpression = readOpaquePropertyExpression(module, value, "databaseId", new Set(seen))
+  const nameExpression = readOpaquePropertyExpression(module, value, "databaseName", new Set(seen))
+  const id = resolveOpaqueValue(module, idExpression)
+  const name = resolveOpaqueValue(module, nameExpression)
+  // `resolveOpaqueValue` uses null for a statically explicit undefined. Treat that
+  // sentinel as omitted so ownership matches the runtime `value !== undefined` merge.
+  const idOwned = hasId && id !== undefined && (id !== null || !isStaticUndefinedReference(module, idExpression))
+  const nameOwned = hasName && name !== undefined && (name !== null || !isStaticUndefinedReference(module, nameExpression))
   if ((hasId && id === undefined) || (hasName && name === undefined)) return
-  return (hasId && id !== undefined) || (hasName && name !== undefined)
+  return idOwned || nameOwned
 }
 
 /** Whether an opaque Cloudflare value selects D1 HTTP. Undefined when the source cannot prove it either way. */
