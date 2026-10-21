@@ -8603,7 +8603,7 @@ async function executeAgentInvocation<
       throw error
     }
     finally {
-      executionBudget.dispose()
+      executionBudget?.dispose()
     }
   }
   if (!release) {
@@ -8623,7 +8623,7 @@ async function executeAgentInvocation<
         throw error
       }
       finally {
-        executionBudget.dispose()
+        executionBudget?.dispose()
       }
     }
   }
@@ -8662,7 +8662,7 @@ async function executeAgentInvocation<
       throw error
     }
     finally {
-      executionBudget.dispose()
+      executionBudget?.dispose()
     }
   }
 }
