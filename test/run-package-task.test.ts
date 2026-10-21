@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -58,7 +58,53 @@ async function runFixture(packages: string[], env: NodeJS.ProcessEnv = {}) {
   }
 }
 
+async function runAffected(changedFiles: string[], args: string[] = ["--list"]) {
+  const workspace = await tempFile("workspace")
+  await cp(fixtureRoot, workspace, { recursive: true })
+  const git = (...gitArgs: string[]) => execFileAsync("git", ["-c", "user.name=CI", "-c", "user.email=ci@example.com", ...gitArgs], { cwd: workspace })
+  await git("init", "--quiet", "--initial-branch=main")
+  await git("add", ".")
+  await git("commit", "--quiet", "-m", "base")
+  for (const file of changedFiles) {
+    await mkdir(join(workspace, file, ".."), { recursive: true })
+    await writeFile(join(workspace, file), "changed\n")
+  }
+  await git("add", ".")
+  await git("commit", "--quiet", "-m", "change")
+  const result = await execFileAsync(process.execPath, [runner, "test", "--workspace", workspace, "--affected", "HEAD~1", ...args], {
+    cwd: workspace,
+    timeout: 45_000,
+  })
+  return result.stdout.trim()
+}
+
 describe("package task runner", { timeout: 60_000 }, () => {
+  it.each([
+    {
+      files: ["packages/core/src/index.ts"],
+      packages: "@fixture/app,@fixture/core,@vite-hub/env,@vite-hub/markdown-template",
+    },
+    { files: ["packages/left/src/index.ts"], packages: "@fixture/app,@vite-hub/env" },
+    { files: ["packages/other/README.md", "docs/guide.md"], packages: "@vite-hub/runtime" },
+    { files: ["docs/guide.md", ".github/workflows/ci.yml", "test/contracts.test.ts", "AGENTS.md"], packages: "" },
+    {
+      files: ["pnpm-lock.yaml"],
+      packages: "@fixture/app,@fixture/core,@fixture/interrupt,@fixture/serial-a,@fixture/serial-b,@vite-hub/env,@vite-hub/markdown-template,@vite-hub/runtime",
+    },
+  ])("selects the packages that $files change, with their dependents", async ({ files, packages }) => {
+    expect(await runAffected(files)).toBe(packages)
+  })
+
+  it("keeps a shard selection when it selects changed packages", async () => {
+    expect(await runAffected(["packages/core/src/index.ts"], ["--exclude", "@fixture/app", "--list"]))
+      .toBe("@fixture/core,@vite-hub/env,@vite-hub/markdown-template")
+    expect(await runAffected(["packages/core/src/index.ts"], ["--packages", "@vite-hub/runtime", "--list"])).toBe("")
+  })
+
+  it("passes without running a package when no package changed", async () => {
+    expect(await runAffected(["docs/guide.md"], [])).toBe("No package changed since HEAD~1 defines test.")
+  })
+
   it.each([
     { args: ["nonexistent-task"], code: 1, message: "No workspace packages define task: nonexistent-task" },
     { args: ["test", "--packages", ", ,"], code: 2, message: "--packages must name at least one package" },
