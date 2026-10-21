@@ -12,7 +12,7 @@ import {
 
 import type { HTTPEvent } from "h3"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
-import type { RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
+import type { RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const guardOptionKeys = new Set([...rateLimitPolicyKeys, "key"])
@@ -44,19 +44,24 @@ function getCloudflareRateLimiter(event: RateLimitRequestEvent, name: string, po
   })
 }
 
-export async function requireRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<void> {
+async function consumeRateLimit(
+  event: RateLimitRequestEvent,
+  name: string,
+  options: RequireRateLimitOptions,
+  guard: "checkRateLimit" | "requireRateLimit",
+): Promise<RateLimitDecision> {
   const id = typeof name === "string" ? name.trim() : ""
   if (!id) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0010({ message: "`requireRateLimit()` requires a non-empty stable ID." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0010({ message: `\`${guard}()\` requires a non-empty stable ID.` })
   }
   const unknownKey = options && typeof options === "object" && !Array.isArray(options)
     ? Object.keys(options).find(key => !guardOptionKeys.has(key))
     : undefined
   if (unknownKey) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0011({ message: `\`requireRateLimit()\` does not support the "${unknownKey}" option.` })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0011({ message: `\`${guard}()\` does not support the "${unknownKey}" option.` })
   }
   if (options?.key !== undefined && (typeof options.key !== "string" || options.key.length === 0)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0012({ message: "`requireRateLimit()` key must be a non-empty string." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0012({ message: `\`${guard}()\` key must be a non-empty string.` })
   }
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
@@ -68,7 +73,20 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
   const limiter = provider === "cloudflare"
     ? getCloudflareRateLimiter(event, id, policy)
     : getMemoryRateLimiter(id, policy)
-  const decision = await limiter.consume({ key })
+  return await limiter.consume({ key })
+}
+
+/**
+ * Consumes one request from a managed Rate Limit and returns the decision instead of throwing. Use it when a limited
+ * request still gets an answer, such as a cheaper fallback. `reason` is `limited` or `unavailable` when not allowed.
+ * Shares counters, discovery, and Provider Output with `requireRateLimit()`. Invalid options still throw.
+ */
+export async function checkRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<RateLimitDecision> {
+  return await consumeRateLimit(event, name, options, "checkRateLimit")
+}
+
+export async function requireRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<void> {
+  const decision = await consumeRateLimit(event, name, options, "requireRateLimit")
   if (decision.allowed) return
 
   if (decision.reason === "unavailable") {

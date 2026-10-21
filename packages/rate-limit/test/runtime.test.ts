@@ -1,7 +1,7 @@
 import { mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
+import { checkRateLimit, peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
 import { getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
 import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
 
@@ -206,5 +206,50 @@ describe("managed Rate Limit guard", () => {
       limit: 1,
       window: "1m",
     })).rejects.toThrow("was not found on the request event")
+  })
+})
+
+describe("non-throwing Rate Limit check", () => {
+  it("consumes a token and returns the decision instead of throwing", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    const event = requestEvent("192.0.2.30")
+    const policy = { limit: 2, window: "1m" } as const
+
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, limit: 2, remaining: 1 })
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({ allowed: true, remaining: 0 })
+    await expect(checkRateLimit(event, "previews", policy)).resolves.toMatchObject({
+      allowed: false,
+      reason: "limited",
+      retryAfter: 30,
+    })
+  })
+
+  it("shares counters with requireRateLimit() and peekRateLimit()", async () => {
+    const event = requestEvent("192.0.2.31")
+    const policy = { key: "user", limit: 2, window: "1m" } as const
+
+    await checkRateLimit(event, "shared", policy)
+    await requireRateLimit(event, "shared", policy)
+    await expect(peekRateLimit("shared", "user")).resolves.toMatchObject({ counters: [{ used: 2 }] })
+    await expect(requireRateLimit(event, "shared", policy)).rejects.toMatchObject({ status: 429 })
+    await expect(checkRateLimit(event, "shared", policy)).resolves.toMatchObject({ allowed: false, reason: "limited" })
+  })
+
+  it("reports provider unavailability as a decision", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const cause = new Error("provider unavailable")
+    const event = cloudflareEvent("unavailable-previews", { limit: async () => { throw cause } })
+
+    const closed = await checkRateLimit(event, "unavailable-previews", { failure: "deny", key: "user", limit: 1, window: "1m" })
+    expect(closed).toMatchObject({ allowed: false, reason: "unavailable" })
+    expect(closed.cause).toBeDefined()
+    await expect(checkRateLimit(event, "unavailable-previews", { failure: "allow", key: "user", limit: 1, window: "1m" }))
+      .resolves.toMatchObject({ allowed: true, reason: "unavailable" })
+  })
+
+  it("still throws for invalid options", async () => {
+    const event = requestEvent("192.0.2.32")
+    await expect(checkRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("`checkRateLimit()` requires a non-empty stable ID")
+    await expect(checkRateLimit(event, "previews", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
   })
 })
