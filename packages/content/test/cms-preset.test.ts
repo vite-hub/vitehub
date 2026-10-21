@@ -225,29 +225,29 @@ describe("hubContent()", () => {
   it("contributes the Workspace module and the history tables", async () => {
     const root = await project(presetContent)
     const plugin = hubContent({ imports: { blob: "vite-hub/blob" } })
-    const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, rootDir: root })
+    const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     const module = join(root, ".vitehub/content/workspace.mjs")
-    expect(workspaces).toEqual([{ export: "contentWorkspace", module, name: "content" }])
+    expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
     const generated = await readFile(module, "utf8")
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
     expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }])
   })
 
   it("adds the default Database Definition when the app has none, and removes it once the app defines one", async () => {
     const root = await project(presetContent, {})
     const plugin = hubContent({ imports: { databaseDefinition: "vite-hub/database" } })
     const definition = join(root, ".vitehub/content/database.ts")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([
       { definition, name: "default", reason: "\"server/content.ts\" uses the Content cms preset and the app has no Database Definition. Add server/databases/config.ts to define this Database yourself." },
-      { database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" },
+      { database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." },
     ])
     const generated = await readFile(definition, "utf8")
     expect(generated).toContain("import { defineDatabase } from \"vite-hub/database\"")
     expect(generated).toContain("export default defineDatabase({ schema: {} })")
 
     await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: {} })\n")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }])
     await expect(readFile(definition)).rejects.toThrow()
   })
 
@@ -264,8 +264,8 @@ describe("hubContent()", () => {
     const root = await project("export const content = {}\n")
     await writeProjectFile(root, ".vitehub/content/workspace.mjs", "stale")
     const plugin = hubContent()
-    expect(await plugin.vitehub.workspaces({ projectRoot: root, rootDir: root })).toEqual([])
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.workspaces({ projectRoot: root, root })).toEqual([])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"))).rejects.toThrow()
     await expect((plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(resolvedConfig(root, []))).resolves.toBeUndefined()
   })
@@ -282,12 +282,22 @@ describe("hubContent()", () => {
       .resolves.toBeUndefined()
   })
 
+  it("skips its own plugin when vitehub() nests it in context.plugins", async () => {
+    const root = await project("export const content = {}\n")
+    const plugin = hubContent()
+    // vitehub() returns an array, so the Content plugin sits one level down in the app's plugin list. Collecting the
+    // Database contributions of that list must not call this plugin's hooks again.
+    const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
+    expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, root })).toEqual([])
+    expect(await plugin.vitehub.databases({ plugins, projectRoot: root, root, rootDir: root })).toEqual([])
+  })
+
   it("fails discovery when the Database choice is ambiguous", async () => {
     const root = await project(presetContent, {
       "server/databases/blog/config.ts": "export default defineDatabase({ name: 'blog', schema: {} })\n",
       "server/databases/audit/config.ts": "export default defineDatabase({ name: 'audit', schema: {} })\n",
     })
-    await expect(hubContent().vitehub.workspaces({ projectRoot: root, rootDir: root }))
+    await expect(hubContent().vitehub.workspaces({ projectRoot: root, root }))
       .rejects.toThrow("Choose one with extends: [cms, { database: \"audit\" }].")
   })
 })

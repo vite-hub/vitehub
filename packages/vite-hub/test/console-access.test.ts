@@ -1,14 +1,13 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { runInNewContext } from "node:vm"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
 import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
-import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
@@ -23,6 +22,7 @@ import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -83,98 +83,53 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
-  it("accepts an authorize callback created in another runtime realm", async () => {
-    const authorize = runInNewContext("({ request }) => request.url.includes('vitehub.local')")
-    expect(defineConsoleAuthorize(authorize as never)).toBe(authorize)
-    const { handler, result } = await run({ mode: "host-managed", authorize })
-    expect(handler).toHaveBeenCalledOnce()
-    expect(result).toEqual({ mode: "host-managed", sections: "all" })
-  })
-  it("invokes a host-managed authorize callback once", async () => {
-    const authorize = vi.fn(() => ({ sections: ["kv"] as const }))
-    const { handler, result } = await run({ mode: "host-managed", authorize })
-    expect(authorize).toHaveBeenCalledOnce()
-    expect(handler).toHaveBeenCalledOnce()
-    expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
-  })
-  it("rejects local access when process lacks an explicit development environment", async () => {
-    vi.stubGlobal("process", {})
-    const { handler, result } = await run({ mode: "local" })
-    expect(handler).not.toHaveBeenCalled()
-    await expect(rejection(result)).resolves.toMatchObject({ status: 403 })
-  })
-  it("accepts sections returned from another runtime realm", async () => {
-    const authorize = runInNewContext("() => ({ sections: ['kv'] })")
-    const { handler, result } = await run({ mode: "host-managed", authorize })
-    expect(handler).toHaveBeenCalledOnce()
-    expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
-  })
-  it("returns a custom Response created in another runtime realm", async () => {
-    const window = new Window()
-    try {
-      const response = new window.Response("Sign in at the host.", { status: 401, headers: { "x-host-auth": "required" } })
-      expect(response).not.toBeInstanceOf(Response)
-      const authorize = runInNewContext("() => response", { response })
-      const { handler, result } = await run({ mode: "host-managed", authorize })
-      expect(handler).not.toHaveBeenCalled()
-      expect(result).toBeInstanceOf(Response)
-      expect(result).toMatchObject({ status: 401 })
-      if (!(result instanceof Response)) throw new TypeError("Expected a Response")
-      expect(result.headers.get("x-host-auth")).toBe("required")
-      await expect(result.text()).resolves.toBe("Sign in at the host.")
-      installConsoleAccess({ mode: "host-managed", authorize: runInNewContext("() => response", { response: new window.Response(null, { status: 401 }) }) })
-      await expect(consoleConnectionsActor(event())).resolves.toMatchObject({ status: 401 })
-    }
-    finally {
-      await window.happyDOM.close()
-    }
-  })
-  it("accepts a compatible Response with an own clone method", async () => {
-    const window = new Window()
-    try {
-      const response = new window.Response("Sign in at the host.", { status: 401 })
-      const foreignClone = response.clone.bind(response)
-      Object.defineProperty(response, "clone", { value: () => foreignClone() })
-      const { handler, result } = await run({ mode: "host-managed", authorize: () => response })
-      expect(handler).not.toHaveBeenCalled()
-      expect(result).toBeInstanceOf(Response)
-      if (!(result instanceof Response)) throw new TypeError("Expected a Response")
-      await expect(result.text()).resolves.toBe("Sign in at the host.")
-    }
-    finally {
-      await window.happyDOM.close()
-    }
-  })
-  it.each([
-    "({ [Symbol.toStringTag]: 'Response' })",
-    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null })",
-    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null, clone() { return { [Symbol.toStringTag]: 'Response' } } })",
-    "Object.assign(Object.create({ clone() { return { [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null } } }), { [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null })",
-    "(() => { const proto = { get [Symbol.toStringTag]() { return 'Response' }, clone() { return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) } }; Object.defineProperty(proto, 'constructor', { value: { prototype: proto } }); return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) })()",
-    "(() => { const proto = {}; class FakeResponse { constructor() { return Object.create(proto) } clone() { return Object.create(proto) } }; Object.defineProperty(proto, 'constructor', { value: FakeResponse }); Object.defineProperty(proto, Symbol.toStringTag, { get: () => 'Response' }); for (const name of ['arrayBuffer', 'blob', 'formData', 'json', 'text']) proto[name] = () => Promise.resolve(); for (const name of ['body', 'bodyUsed', 'headers', 'status', 'statusText', 'type', 'url', 'redirected', 'ok']) Object.defineProperty(proto, name, { get: () => name === 'body' ? null : name === 'status' ? 401 : name === 'statusText' ? '' : name === 'headers' ? [] : name === 'ok' ? true : false }); Object.defineProperty(FakeResponse, 'prototype', { value: proto, writable: false, configurable: false }); return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) })()",
-    "(() => { const proto = {}; function FakeResponse() { return Object.create(proto) }; Object.defineProperty(proto, 'constructor', { value: FakeResponse }); Object.defineProperty(proto, Symbol.toStringTag, { get: () => 'Response' }); for (const name of ['arrayBuffer', 'blob', 'formData', 'json', 'text']) proto[name] = () => Promise.resolve(); for (const name of ['body', 'bodyUsed', 'headers', 'status', 'statusText', 'type', 'url', 'redirected', 'ok']) Object.defineProperty(proto, name, { get: () => name === 'body' ? null : name === 'status' ? 401 : name === 'statusText' ? '' : name === 'headers' ? [] : name === 'ok' ? true : false }); Object.defineProperty(FakeResponse, 'prototype', { value: proto, writable: false, configurable: false }); for (const name of ['error', 'json', 'redirect']) FakeResponse[name] = () => Object.create(proto); return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) })()",
-    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: {} })",
-    "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [['invalid header', 'value']], body: null })",
-  ])("rejects malformed Response fields: %s", async source => {
-    const response = runInNewContext(source)
-    const { handler, result } = await run({ mode: "host-managed", authorize: () => response })
-    expect(handler).not.toHaveBeenCalled()
-    await expect(rejection(result)).resolves.toMatchObject({ status: 403 })
-  })
-  it("rejects unknown legacy access and exposure values", () => {
-    expect(() => resolveConsoleOptions({ auth: false, access: "authz" })).toThrow(/console\.access/)
-    expect(() => resolveConsoleOptions({ auth: false, exposure: "prod" })).toThrow(/console\.exposure/)
+  it("requires console.auth instead of the removed access and exposure keys", () => {
+    expect(() => resolveConsoleOptions({ access: "auth" })).toThrow(/console\.auth is required/)
+    expect(() => resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toThrow(/console\.auth is required/)
   })
 
-  it("rejects conflicting legacy access and exposure settings", () => {
-    expect(() => resolveConsoleOptions({ access: "open", exposure: "host-managed" })).toThrow(/cannot be combined/)
+  it("accepts access callbacks created in another runtime realm", async () => {
+    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
+    const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    await expect(withConsoleAccess(handler, { anySection: true })(event({ "x-role": "admin" }))).resolves.toBe("open")
   })
 
-  it("keeps legacy host-managed exposure out of app-auth validation", () => {
-    expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
-      auth: false,
-      exposure: "host-managed",
-    })
+  it("accepts section results created in another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ sections: ['content'] })") as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess((_event, access) => access.sections, { section: "content" })(event())
+
+    expect(result).toEqual(["content"])
+  })
+
+  it("accepts a dynamic route scope created in another runtime realm", async () => {
+    const section = runInNewContext("() => 'content'") as () => "content"
+
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content"] }) })
+    await expect(withConsoleAccess(() => "allowed", { section })(event())).resolves.toBe("allowed")
+  })
+
+  it("sends a Response of this runtime that a callback from another realm returns", async () => {
+    const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
+  })
+
+  it("sends a Response subclass of this runtime", async () => {
+    class CustomResponse extends Response {}
+
+    installConsoleAccess({ mode: "open", authorize: () => new CustomResponse("Subclass response.", { status: 202 }) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 202 })
+    await expect((result as Response).text()).resolves.toBe("Subclass response.")
   })
 
   it("fails closed when no policy is installed", async () => {
@@ -184,7 +139,17 @@ describe("Console access policies", () => {
   })
 
   it("keeps the local development Console open and fails closed in production", async () => {
-    vi.stubEnv("NODE_ENV", "development")
+    vi.stubGlobal("process", undefined)
+    const absentProcess = await run({ mode: "local" })
+    expect(absentProcess.handler).not.toHaveBeenCalled()
+    await expect(rejection(absentProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
+
+    vi.stubGlobal("process", {})
+    const partialProcess = await run({ mode: "local" })
+    expect(partialProcess.handler).not.toHaveBeenCalled()
+    await expect(rejection(partialProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
+
+    vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
     const allowed = await run({ mode: "local" })
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
