@@ -4,6 +4,7 @@ description: Require managed Rate Limits, read limiter decisions, and build dire
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Require a managed rate limit

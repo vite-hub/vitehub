@@ -25,6 +25,13 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
+| `vite-hub/agent/process-host` | Persistent Node process host integration for Agent presets. |
+| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/sandbox-task` | Sandbox Task definition and runner helpers. |
+| `vite-hub/sandbox/ssh` | Sandbox SSH connection helpers. |
+| `vite-hub/source/files` | Source file collection helpers. |
+| `vite-hub/content/presets/cms` | Content CMS preset. |
+| `vite-hub/console/ui` | Console UI view types and helpers. |
 | `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
 | `vite-hub/agent/evlog/posthog` | Optional Node.js PostHog event, Error Tracking and log exporter. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
@@ -38,7 +45,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
-| `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, claims, and [explicit waits](/docs/reference/github-inbox-waits). |
+| `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, claims, and [explicit waits](/docs/agents/babysitter). |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a discovered ViteHub Database. |
@@ -214,7 +221,7 @@ for libraries, focused integrations, and advanced composition.
 | --- | --- |
 | `vite-hub` | Canonical application import for `vitehub()`. |
 | `vite-hub/nuxt` | Register the framework Nuxt module and carry Vite integration configuration into Nitro. |
-| `vite-hub/doctor` | ViteHub [Doctor rules](/docs/reference/doctor-rules) for Vite Doctor. `vitehub()` and `vite-hub/nuxt` register it. |
+| `vite-hub/doctor` | ViteHub [Doctor rules](/docs/reference/errors-diagnostics) for Vite Doctor. `vitehub()` and `vite-hub/nuxt` register it. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |

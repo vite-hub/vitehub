@@ -2,7 +2,8 @@
 title: Process a welcome job with Queue
 description: Submit a welcome job to Cloudflare Queues and verify its delivery.
 layout: tutorial
-navigation.title: Get started
+navigation.title: Tutorial
+navigation.group: Learn
 navigation.order: 2
 icon: i-lucide-rocket
 ---

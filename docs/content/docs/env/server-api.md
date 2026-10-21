@@ -4,6 +4,7 @@ description: Read Public Env and Server Env, load provider-backed values, and in
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

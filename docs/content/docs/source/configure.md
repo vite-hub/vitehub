@@ -4,6 +4,7 @@ description: Configure built-in Source loaders, cache policy, and custom loader 
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 Configure the built-in loaders, or define a custom loader with `defineSource()`.
