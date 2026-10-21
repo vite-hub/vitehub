@@ -222,6 +222,11 @@ export function defineContent<
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
+  for (const plugin of options.plugins ?? []) {
+    if (isComarkParsePlugin(plugin)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${JSON.stringify(plugin.name)} is a Comark parse plugin, and defineContent({ plugins }) takes only Comark Content plugins. Pass it in defineContent({ markdown: { plugins } }).` })
+    }
+  }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
     if (!isDocumentsDefinition(definition)) {
@@ -465,6 +470,12 @@ export function defineContentHandler(
       ? content.preview.run(event, dispatch)
       : dispatch())
   }) as ContentHandler
+}
+
+// Every Comark Content plugin field is optional, so a parse plugin type-checks in `plugins`, but Content never runs it there.
+function isComarkParsePlugin(plugin: unknown): plugin is { name?: unknown } {
+  if (typeof plugin !== "object" || plugin === null || "setup" in plugin) return false
+  return "pre" in plugin || "post" in plugin || "markdownItPlugins" in plugin
 }
 
 function isRequestLike(value: unknown): value is Request {
