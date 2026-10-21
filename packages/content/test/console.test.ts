@@ -384,14 +384,17 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await actions.save({ collection: "posts", id: "launch", data: { title: "Launch" }, body: "Text\n", ifDigest: launch.digest }, editor)
     await actions.save({ collection: "posts", id: "gallery", data: { title: "Gallery", gallery: ["heroes/launch.jpg"] }, body: "", ifDigest: null }, editor)
     await actions.save({ collection: "notes", id: "body", data: { title: "In the body" }, body: "![Launch](heroes/launch.jpg \"Launch image\")\n", ifDigest: null }, editor)
+    await actions.save({ collection: "notes", id: "balanced", data: { title: "Balanced" }, body: "![Launch](heroes/launch.jpg (mobile (wide)))\n", ifDigest: null }, editor)
+    await actions.save({ collection: "notes", id: "near", data: { title: "Near match" }, body: "![Launch](heroes/launch.jpg.bak)\n", ifDigest: null }, editor)
     const found = await actions.references({ pathnames: ["heroes/launch.jpg", "unused.png"] }, editor)
     expect(found.references["unused.png"]).toEqual([])
     expect(found.references["heroes/launch.jpg"]).toEqual(expect.arrayContaining([
       { collection: "posts", id: "launch", title: "Launch", refs: ["published"] },
       { collection: "posts", id: "gallery", title: "Gallery", refs: ["draft"] },
       { collection: "notes", id: "body", title: "In the body", refs: ["draft"] },
+      { collection: "notes", id: "balanced", title: "Balanced", refs: ["draft"] },
     ]))
-    expect(found.references["heroes/launch.jpg"]).toHaveLength(3)
+    expect(found.references["heroes/launch.jpg"]).toHaveLength(4)
     // Only collections the user may read.
     const scoped = await actions.references({ pathnames: ["heroes/launch.jpg"] }, writer)
     expect(scoped.references["heroes/launch.jpg"]!.map(reference => reference.collection)).toEqual(["posts", "posts"])

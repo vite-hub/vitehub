@@ -221,6 +221,61 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
   for (const entry of Object.values(value)) usesPathname(entry, pathnames, found)
 }
 
+/** Check one Markdown link/image destination without confusing balanced parentheses with a title. */
+function markdownUsesPathname(body: string, pathname: string): boolean {
+  for (let start = body.indexOf("]("); start !== -1; start = body.indexOf("](", start + 2)) {
+    let index = start + 2
+    while (/\s/.test(body[index] ?? "")) index++
+    let destination = ""
+    if (body[index] === "<") {
+      index++
+      while (index < body.length) {
+        const character = body[index++]
+        if (character === "\\") { index++; continue }
+        if (character === ">") break
+        destination += character
+      }
+    }
+    else {
+      let depth = 0
+      while (index < body.length) {
+        const character = body[index]
+        if (character === "\\") { destination += character; index += 2; continue }
+        if (character === "(") { depth++; destination += character; index++; continue }
+        if (character === ")") {
+          if (!depth) break
+          depth--; destination += character; index++; continue
+        }
+        if (/\s/.test(character) && !depth) break
+        destination += character
+        index++
+      }
+    }
+    const exact = destination === pathname || destination.startsWith(`${pathname}?`) || destination.startsWith(`${pathname}#`)
+    while (/\s/.test(body[index] ?? "")) index++
+    if (body[index] === '"' || body[index] === "'") {
+      const quote = body[index++]
+      while (index < body.length) {
+        if (body[index] === "\\") { index += 2; continue }
+        if (body[index++] === quote) break
+      }
+      while (/\s/.test(body[index] ?? "")) index++
+    }
+    else if (body[index] === "(") {
+      let depth = 0
+      do {
+        const character = body[index++]
+        if (character === "\\") { index++; continue }
+        if (character === "(") depth++
+        else if (character === ")") depth--
+      } while (index < body.length && depth)
+      while (/\s/.test(body[index] ?? "")) index++
+    }
+    if (exact && body[index] === ")") return true
+  }
+  return false
+}
+
 /**
  * Create the Console document actions for the `content` export of `server/content.ts`. Every action checks
  * `content.can()` with the signed-in Console user before it calls the trusted runtime method.
@@ -646,10 +701,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             if (collection.format !== "markdown") continue
             for (const pathname of pathnames) {
               const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
-              const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-              const destination = new RegExp(`\\]\\(\\s*(?:<${escaped}(?:[?#][^\\s>)]*)?>|${escaped}(?:[?#][^\\s)>]*)?)\\s*(?:"[^"]*"|'[^']*'|\\([^)]*\\))?\\s*\\)`)
               for (const item of page.items) {
-                if (typeof item.data.body === "string" && destination.test(item.data.body)) add(pathname, item)
+                if (typeof item.data.body === "string" && markdownUsesPathname(item.data.body, pathname)) add(pathname, item)
               }
             }
           }
