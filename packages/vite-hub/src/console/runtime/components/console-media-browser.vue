@@ -156,7 +156,13 @@ function open(path: string): void {
 function thumbnail(file: ConsoleMediaFile, size = 256): string | undefined {
   const url = file.url ?? consoleMediaUrl(served.value, file.pathname);
   if (!url || consoleMediaType(file.contentType) !== "image") return undefined;
-  return consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, { fit: "cover", height: size, version: file.updatedAt, width: size }) : url;
+  return consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
+    // Keep the source uncropped when a focal point is set; CSS then applies the same focal-aware crop as the serve route.
+    fit: file.focal ? "inside" : "cover",
+    height: size,
+    version: file.updatedAt,
+    width: size,
+  }) : url;
 }
 
 /** Thumbnails fade in once decoded, over the dominant color, instead of painting line by line. */

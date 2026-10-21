@@ -77,7 +77,12 @@ if (hasMedia) {
       const file = await mediaClient.value.get(reference.pathname).catch(() => undefined);
       if (!file) return undefined;
       const url = file.url ?? consoleMediaUrl(mediaInfo.value?.served, file.pathname);
-      const thumbnail = url && consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, { fit: "cover", height: 96, version: file.updatedAt, width: 96 }) : url;
+      const thumbnail = url && consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
+        fit: file.focal ? "inside" : "cover",
+        height: 96,
+        version: file.updatedAt,
+        width: 96,
+      }) : url;
       return { ...(file.alt ? { alt: file.alt } : {}), ...(file.color ? { color: file.color } : {}), ...(file.focal ? { focal: file.focal } : {}), ...(file.width ? { width: file.width } : {}), ...(file.height ? { height: file.height } : {}), ...(thumbnail ? { thumbnail } : {}) };
     },
     async updateAlt(reference, alt) {

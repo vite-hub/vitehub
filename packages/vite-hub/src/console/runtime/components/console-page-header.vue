@@ -27,7 +27,7 @@ withDefaults(defineProps<{
     </template>
     <template #title>
       <span class="flex min-w-0 items-center gap-2">
-        <template v-for="item in trail" :key="item.label">
+        <template v-for="item in trail" :key="`${item.label}:${JSON.stringify(item.to)}`">
           <RouterLink
             :to="item.to"
             class="hidden max-w-48 shrink-0 truncate rounded-sm text-sm font-normal text-muted hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 sm:inline"

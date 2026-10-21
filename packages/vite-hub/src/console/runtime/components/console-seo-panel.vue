@@ -110,7 +110,7 @@ watch(descriptionBox, (element, previous) => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 const placeholderRows = computed(() => {
-  const fallback = props.fallbacks.description ?? "";
+  const fallback = props.fallbacks.description || "Search engines pick text from the page";
   if (text(values.value.description) || !fallback || !descriptionWidth.value) return 1;
   // Geist averages a little over half its size per character. The padding and the counter take about 84px.
   const perRow = Math.max(12, Math.floor((descriptionWidth.value - 84) / (descriptionFont.value * 0.54)));
