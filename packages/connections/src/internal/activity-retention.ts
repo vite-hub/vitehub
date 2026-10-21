@@ -17,7 +17,7 @@ export function resolveActivityRetention(value: ConnectionActivityRetention | fa
   }
   for (const [name, limit] of Object.entries(retention)) {
     if (!Number.isSafeInteger(limit) || limit < 1) {
-      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ problem: "type" })
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_CONFIG({ name, problem: "activity-retention" })
     }
   }
   return retention

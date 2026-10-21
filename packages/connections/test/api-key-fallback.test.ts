@@ -97,7 +97,7 @@ describe("API key fallback", () => {
     expect(await test.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
     expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
     const error = await test.runtime.client("executor", {}).fetch(URL_ITEMS).catch((cause: unknown) => cause)
-    expect(error).toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_INVALID_PROVIDER", why: "The fallback key of Connection \"executor\" must contain 1 to 8192 visible ASCII characters." })
     expect(String(error)).not.toContain("has space")
     expect(test.keys).toEqual([])
   })
