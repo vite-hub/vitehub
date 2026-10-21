@@ -231,23 +231,23 @@ describe("hubContent()", () => {
     const generated = await readFile(module, "utf8")
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
     expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }])
   })
 
   it("adds the default Database Definition when the app has none, and removes it once the app defines one", async () => {
     const root = await project(presetContent, {})
     const plugin = hubContent({ imports: { databaseDefinition: "vite-hub/database" } })
     const definition = join(root, ".vitehub/content/database.ts")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([
       { definition, name: "default", reason: "\"server/content.ts\" uses the Content cms preset and the app has no Database Definition. Add server/databases/config.ts to define this Database yourself." },
-      { database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" },
+      { database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." },
     ])
     const generated = await readFile(definition, "utf8")
     expect(generated).toContain("import { defineDatabase } from \"vite-hub/database\"")
     expect(generated).toContain("export default defineDatabase({ schema: {} })")
 
     await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: {} })\n")
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([{ database: "default", export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }])
     await expect(readFile(definition)).rejects.toThrow()
   })
 
@@ -265,7 +265,7 @@ describe("hubContent()", () => {
     await writeProjectFile(root, ".vitehub/content/workspace.mjs", "stale")
     const plugin = hubContent()
     expect(await plugin.vitehub.workspaces({ projectRoot: root, rootDir: root })).toEqual([])
-    expect(await plugin.vitehub.databases({ rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"))).rejects.toThrow()
     await expect((plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(resolvedConfig(root, []))).resolves.toBeUndefined()
   })

@@ -50,7 +50,7 @@ export interface ContentVitePluginOptions {
 
 export interface ContentVitePluginAPI {
   /** The resources that the `cms` preset uses, or undefined when `server/content.ts` does not select it. */
-  resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined>
+  resolveCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined>
 }
 
 export type ContentVitePlugin = Plugin & {
@@ -131,9 +131,9 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
 
-  async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
+  async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
-    const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs })
+    const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs?.slice() })
     if (!file) return
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return
@@ -156,7 +156,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
         // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
+        const contributed = await collectDatabaseContributions(otherPlugins, { root: databaseRoot, rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
         const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
@@ -175,7 +175,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
-        const entries: DatabaseContributionEntry[] = [{ database: plan.database, export: "workspaceHistorySchema", module: imports.blobDatabase }]
+        const entries: DatabaseContributionEntry[] = [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]
         if (plan.databaseReason !== "preset") return entries
         await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
         return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]

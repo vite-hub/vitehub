@@ -28,7 +28,7 @@ import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { DBProvider } from "./internal/vite-build.ts"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
-import type { CollectedDatabaseContribution, DatabaseContributingPlugin } from "./contributions.ts"
+import type { CollectedDatabaseContributions, DatabaseContributingPlugin } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -40,11 +40,15 @@ export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./in
 export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
 export type {
   CollectedDatabaseContribution,
+  CollectedDatabaseContributions,
+  CollectedDatabaseDefinitionContribution,
   DatabaseContributingPlugin,
   DatabaseContribution,
   DatabaseContributionContext,
+  DatabaseContributionEntry,
   DatabaseContributionFactory,
   DatabaseContributionFields,
+  DatabaseDefinitionContribution,
   DefaultDatabaseResolution,
   ResolvedDatabaseContribution,
 } from "./contributions.ts"
@@ -61,6 +65,8 @@ const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
+  /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
+  getProjectRoot: () => string
   isEnabled: () => boolean
   refresh: () => Promise<ResolvedDBViteConfig | undefined>
 }
@@ -223,7 +229,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
-  let contributions: CollectedDatabaseContribution[] = []
+  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
   let contributionFiles = new Set<string>()
   let contributionDependencyFiles = new Set<string>()
   let contributionDirectories = new Set<string>()
@@ -327,6 +333,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     enforce: "pre",
     api: {
       getConfig: () => runtimeConfig,
+      getProjectRoot: databaseRoot,
       isEnabled: () => resolvedOptions() !== false,
       refresh: () => refreshRuntimeConfig(),
     },
@@ -344,7 +351,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const db = resolvedOptions()
         if (db === false) return
         const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
-        const provision = [createDatabaseProvisionStep(databaseRoot, db)]
+        const provision = [createDatabaseProvisionStep(databaseRoot, db, () => ({ contributions, serverDirs: databaseServerDirs() }))]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
       inspect: () => {
@@ -372,10 +379,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
-        ? []
-        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, serverDirs: databaseServerDirs() })
+        ? { definitions: [], tables: [] }
+        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
-      contributionFiles = new Set(contributions.flatMap(contribution => {
+      contributionFiles = new Set(contributions.tables.flatMap(contribution => {
         try {
           return [normalize(require.resolve(contribution.definition.module))]
         }

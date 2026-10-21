@@ -26,7 +26,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -169,7 +169,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
       let closed = false
-      let contributions: CollectedDatabaseContribution[] = []
+      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
       const contributionWatchers = new Map<string, FSWatcher>()
@@ -186,7 +186,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
           }
-          for (const contribution of contributions) {
+          for (const contribution of contributions.tables) {
             try {
               const { module } = contribution.definition
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
@@ -252,6 +252,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
           projectRoot: root,
           root: resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root),
+          rootDir: root,
           serverDirs,
         })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
@@ -362,7 +363,7 @@ async function installNitroLocalDatabaseRuntime(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
-  contributions: readonly CollectedDatabaseContribution[] = [],
+  contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined

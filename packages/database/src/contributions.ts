@@ -1,8 +1,11 @@
+import { isAbsolute } from "pathe"
+
 import { collectContributions, describeContribution } from "@vite-hub/internal/contributions"
+import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { CollectedContribution, ContributingPlugin, Contribution, ContributionContext, ContributionFactory } from "@vite-hub/internal/contributions"
+import type { CollectedContribution, Contribution, ContributionContext } from "@vite-hub/internal/contributions"
 import type { DatabaseDialect } from "./types.ts"
 
 const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
@@ -23,16 +26,63 @@ export interface DatabaseContributionFields {
  */
 export type DatabaseContribution = Contribution & DatabaseContributionFields
 
-/** Roots that ViteHub passes to contribution factories. `root` is the Vite root. */
-export type DatabaseContributionContext = ContributionContext
+/**
+ * A Database Definition that another package adds from its Vite plugin, for example because the application has no
+ * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
+ * them, so adding that Definition later continues the same history.
+ */
+export interface DatabaseDefinitionContribution {
+  /** Database name. The application must not define a Database with this name. */
+  name: string
+  /** Absolute path of a module whose default export is `defineDatabase({ schema })`. */
+  definition: string
+  /** Why the package adds the Database. `vitehub inspect` shows it. */
+  reason?: string
+}
 
-export type DatabaseContributionFactory = ContributionFactory<DatabaseContribution>
+/** One entry of `vitehub.databases`: tables for a Database, or a whole Database Definition. */
+export type DatabaseContributionEntry = DatabaseContribution | DatabaseDefinitionContribution
 
-/** A Vite plugin that contributes Database tables through `vitehub.databases`. */
-export type DatabaseContributingPlugin = ContributingPlugin<"databases", DatabaseContribution>
+/**
+ * Roots that ViteHub passes to contribution factories. `root` is the Vite root, `rootDir` is the root that Database
+ * Definitions are discovered from, and `plugins` lets a factory inspect the contributions of other plugins.
+ */
+export interface DatabaseContributionContext extends ContributionContext {
+  rootDir: string
+  plugins?: readonly unknown[]
+}
+
+/**
+ * Returns the contributions of a plugin. It runs once per discovery pass, so it must be idempotent and must not depend
+ * on the order of Vite config hooks.
+ */
+export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>
+  | readonly DatabaseContributionEntry[]
+  | undefined
+  | Promise<readonly DatabaseContributionEntry[] | undefined>
+
+/** A Vite plugin that contributes Database tables or Database Definitions through `vitehub.databases`. */
+export interface DatabaseContributingPlugin {
+  name?: string
+  vitehub?: { databases?: readonly DatabaseContributionEntry[] | DatabaseContributionFactory }
+}
+
+/** A validated Database Definition contribution with the name of the plugin that contributed it. */
+export interface CollectedDatabaseDefinitionContribution extends DatabaseDefinitionContribution {
+  plugin: string
+}
 
 /** A validated contribution with its export resolved and the name of the plugin that contributed it. */
 export type CollectedDatabaseContribution = CollectedContribution & DatabaseContributionFields
+
+/** Everything that Vite plugins contribute to the Database primitive. */
+export interface CollectedDatabaseContributions {
+  /** Database Definitions, sorted by name. */
+  definitions: CollectedDatabaseDefinitionContribution[]
+  /** Tables for Databases that the application or a contributed Definition defines, sorted by name. */
+  tables: CollectedDatabaseContribution[]
+}
 
 /** A contribution whose target Database is resolved. */
 export interface ResolvedDatabaseContribution extends CollectedDatabaseContribution {
@@ -81,22 +131,104 @@ export function describeDatabaseContribution(contribution: CollectedDatabaseCont
   return `${JSON.stringify(contribution.name)} (${describeContribution(contribution)})`
 }
 
+function isThenable(value: Record<string, unknown>): value is Record<string, unknown> & PromiseLike<unknown> {
+  return value.then instanceof Function
+}
+
+async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unknown>): Promise<void> {
+  if (Array.isArray(value)) {
+    for (const item of value) await flattenPlugins(item, plugins, seen)
+    return
+  }
+  if (!isPlainObject(value) || seen.has(value)) return
+  seen.add(value)
+  // Vite accepts promised plugin options. The `config` hook sees them unresolved.
+  if (isThenable(value)) {
+    await flattenPlugins(await value, plugins, seen)
+    return
+  }
+  plugins.push(value)
+}
+
+const definitionNamePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
+
+function readDefinitionContribution(entry: Record<string, unknown>, plugin: string): CollectedDatabaseDefinitionContribution {
+  const fail = (reason: string) => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Plugin ${JSON.stringify(plugin)} contributed an invalid Database Definition: ${reason}` })
+  const { definition, name, reason } = entry
+  if (String(name) !== name || !definitionNamePattern.test(name)) {
+    throw fail("`name` must be a Database name of letters, numbers, dots, underscores, dashes, and slashes.")
+  }
+  if (String(definition) !== definition || !definition || !isAbsolute(definition)) {
+    throw fail(`Database ${JSON.stringify(name)} needs \`definition\`, the absolute path of its Definition module.`)
+  }
+  if (reason !== undefined && (String(reason) !== reason || !reason)) throw fail(`\`reason\` of Database ${JSON.stringify(name)} must be a non-empty string.`)
+  if (Object.hasOwn(entry, "database") || Object.hasOwn(entry, "dialect")) {
+    throw fail(`Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with the \`database\` or \`dialect\` of a table contribution. Contribute them as two entries.`)
+  }
+  return { definition, name, plugin, ...(reason === undefined ? {} : { reason }) }
+}
+
+function describeDefinitionContribution(contribution: CollectedDatabaseDefinitionContribution): string {
+  return `${contribution.definition} (contributed by plugin ${JSON.stringify(contribution.plugin)})`
+}
+
 /**
- * Collects `vitehub.databases` contributions from Vite plugins. Invalid entries and two
- * contributions with one name fail with `DATABASE_INVALID_CONTRIBUTION`.
+ * Collects `vitehub.databases` contributions from Vite plugins. An entry whose `definition` is a path string adds a
+ * Database Definition; an entry with `definition: { module, export? }` adds tables. Invalid entries and two table
+ * contributions with one name fail with `DATABASE_INVALID_CONTRIBUTION`. Two different Database Definitions with one
+ * name fail with `DATABASE_DUPLICATE_DEFINITION`. One plugin that is registered twice adds its entries once.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
   context: DatabaseContributionContext,
-): Promise<CollectedDatabaseContribution[]> {
-  return await collectContributions(plugins, {
-    context,
+): Promise<CollectedDatabaseContributions> {
+  const candidates: object[] = []
+  await flattenPlugins(plugins ?? [], candidates, new Set())
+  // Factories see the flat plugin list, so they can read sibling plugins without unwrapping Vite plugin options.
+  const factoryContext: DatabaseContributionContext = { ...context, plugins: candidates }
+  const definitions = new Map<string, CollectedDatabaseDefinitionContribution>()
+  const tablePlugins: object[] = []
+  for (const candidate of candidates) {
+    if (!Object.hasOwn(candidate, "vitehub")) continue
+    const metadata: unknown = Reflect.get(candidate, "vitehub")
+    if (!isPlainObject(metadata) || !Object.hasOwn(metadata, "databases")) continue
+    const source = metadata.databases
+    const pluginName: unknown = Reflect.get(candidate, "name")
+    const plugin = String(pluginName) === pluginName && pluginName ? pluginName : "unnamed plugin"
+    // Run each factory once, then route Definition entries here and table entries to the shared collector.
+    const entries: unknown = source instanceof Function ? await Reflect.apply(source, undefined, [factoryContext]) : source
+    if (entries === undefined && source instanceof Function) continue
+    if (!Array.isArray(entries)) {
+      tablePlugins.push({ name: plugin, vitehub: { databases: entries } })
+      continue
+    }
+    const tables: unknown[] = []
+    for (const entry of entries as readonly unknown[]) {
+      if (!isPlainObject(entry) || String(entry.definition) !== entry.definition) {
+        tables.push(entry)
+        continue
+      }
+      const contribution = readDefinitionContribution(entry, plugin)
+      const existing = definitions.get(contribution.name)
+      if (existing && existing.definition !== contribution.definition) {
+        throw databaseErrorDiagnostics.DATABASE_DUPLICATE_DEFINITION({ database: contribution.name, files: [describeDefinitionContribution(existing), describeDefinitionContribution(contribution)] })
+      }
+      if (!existing) definitions.set(contribution.name, contribution)
+    }
+    tablePlugins.push({ name: plugin, vitehub: { databases: tables } })
+  }
+  const tables = await collectContributions(tablePlugins, {
+    context: factoryContext,
     duplicate: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
     fields: readDatabaseFields,
     invalid: problem => databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem }),
     key: "databases",
     kind: "Database tables",
   })
+  return {
+    definitions: [...definitions.values()].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+    tables,
+  }
 }
 
 /**
