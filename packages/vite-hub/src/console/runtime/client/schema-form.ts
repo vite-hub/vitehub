@@ -7,7 +7,6 @@ export interface ConsoleFieldIssue {
   message: string
   path: Array<string | number>
 }
-
 /** Groups field issues by the dotted path of the form field they belong to, such as `author.name` or `tags`. */
 export function groupConsoleFieldIssues(issues: readonly ConsoleFieldIssue[]): Record<string, string[]> {
   const grouped: Record<string, string[]> = {}
@@ -260,4 +259,3 @@ export function consoleFieldValueIssue(field: ConsoleSchemaField, value: unknown
   }
   return undefined
 }
-
