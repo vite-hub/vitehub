@@ -37,6 +37,12 @@
       "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./collections": {
+      "types": "./dist/collections.d.ts",
+      "import": "./dist/collections.js",
+      "require": "./dist/collections.js",
+      "default": "./dist/collections.js"
+    },
     "./presets/cms": {
       "types": "./dist/presets/cms.d.ts",
       "import": "./dist/presets/cms.js",
@@ -59,10 +65,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "yaml": "catalog:tooling"
@@ -71,7 +75,9 @@
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@valibot/to-json-schema": "catalog:runtime",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "comark-content": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
@@ -83,10 +89,18 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "comark-content": "catalog:markdown",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vite-hub/database": {
+      "optional": true
+    },
+    "@vite-hub/workspace": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

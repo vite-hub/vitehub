@@ -17,7 +17,8 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { defineContent, documents, optional } from "../src/index.ts"
+import { documents, optional } from "../src/collections.ts"
+import { defineContent } from "../src/index.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ContentAuthorize, ContentDocument } from "../src/index.ts"
