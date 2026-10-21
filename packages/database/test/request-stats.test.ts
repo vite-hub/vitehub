@@ -150,4 +150,17 @@ describe("database request stats", () => {
     expect(run).toHaveBeenCalledTimes(2)
     expect(set.mock.calls[0]![0]).toMatchObject({ database: { calls: 2 } })
   })
+
+  it("counts a callable postgres.js tagged-template query", async () => {
+    const run = vi.fn()
+    const client = Object.assign((..._args: unknown[]) => ({
+      then(resolve: (value: unknown) => void) { run(); resolve([]) },
+    }), { unsafe: () => undefined })
+    const postgres = trackPostgresClient(client)
+    const { event, set } = requestWithLogger()
+    await runWithDatabaseRequestStats(event, async () => { await postgres`select 1` })
+    expect(run).toHaveBeenCalledOnce()
+    expect(set.mock.calls[0]![0]).toMatchObject({ database: { calls: 1 } })
+  })
+
 })

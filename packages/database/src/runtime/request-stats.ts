@@ -151,6 +151,9 @@ function trackPostgresQuery<TQuery extends object>(query: TQuery): TQuery {
 /** A postgres.js client, or a transaction's client, that counts every query for the active request. */
 export function trackPostgresClient<TClient extends object>(client: TClient): TClient {
   return new Proxy(client, {
+    apply(target, thisArg, args) {
+      return trackPostgresQuery(Reflect.apply(target, thisArg, args))
+    },
     get(target, property) {
       const value: unknown = Reflect.get(target, property, target)
       if (typeof value !== "function") return value

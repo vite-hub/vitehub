@@ -83,7 +83,7 @@ interface DBCliContributingPlugin {
 interface DatabaseNitroHost {
   hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
   options: {
-    cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown } }
+    cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown, compatibility_flags?: unknown } }
     handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>
     output: { serverDir: string }
     preset?: string
@@ -326,6 +326,12 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   function installNitroRequestStats() {
     if (!nitroOptions || !runtimeConfig) return
     const handler = resolve(databaseRoot(), NITRO_REQUEST_STATS_MIDDLEWARE)
+    if (getHostingProvider(nitroOptions.preset) === "cloudflare") {
+      const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
+      const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+      if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
+      wrangler.compatibility_flags = flags
+    }
     mkdirSync(dirname(handler), { recursive: true })
     writeFileSync(handler, renderNitroRequestStatsMiddleware())
     const handlers = nitroOptions.handlers ??= []
