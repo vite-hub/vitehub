@@ -55,7 +55,10 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
   return prepared.restore((await renderMarkdown(tree, {
     components: {
-      Binding: async (node, state, parent) => state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true),
+      Binding: async (node, state, parent) => {
+        rejectLinkDestinationBinding(node, parent)
+        return state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true)
+      },
       If: async (node, state, parent) => {
         const { branches, after } = conditionalBranches(node)
         const selected = branches.find(branch => branch[0] === "else"
@@ -141,6 +144,38 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       },
     },
   })).trim())
+}
+
+/**
+ * Comark does not parse `[label]({{ data.url }})` as a link. It keeps the brackets as text around the binding, and the
+ * output shows the escaped brackets and a bare URL. Reject that form and name the attribute syntax.
+ */
+function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined): void {
+  if (!parent) return
+  const siblings = parent.slice(2)
+  const index = siblings.indexOf(node)
+  const before = siblings[index - 1]
+  const after = siblings[index + 1]
+  if (index < 1 || typeof before !== "string" || typeof after !== "string") return
+  const destination = before.match(/\]\(\s*$/)
+  if (!destination || !/^(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?\s*\)/.test(after)) return
+  // Element siblings, such as emphasis in the label, cannot contain the label brackets.
+  const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
+  const label = labelStart(text.slice(0, text.length - destination[0].length + 1))
+  // Images and partial destinations keep their existing behavior.
+  if (label === undefined || text[label - 1] === "!") return
+  const path = String(node[1][":value"])
+  throw diagnostics.MARKDOWN_TEMPLATE_R0033({ message: `[vitehub] Markdown template binding "{{ ${path} }}" cannot be a Markdown link destination. Use [label](){:href="${path}"}.` })
+}
+
+/** Returns the index of the `[` that opens the label which ends at the last `]` of `text`. */
+function labelStart(text: string): number | undefined {
+  let depth = 0
+  for (let index = text.length - 1; index >= 0; index--) {
+    if (text[index] === "]") depth++
+    else if (text[index] === "[" && --depth === 0) return index
+  }
+  return undefined
 }
 
 function rejectBoundEventHandlers(source: Record<string, unknown>): void {
