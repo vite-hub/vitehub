@@ -5232,7 +5232,6 @@ function agentInvocationScope<
             id: journal.id,
             // The trace ID before the journal derives the stored ID from it, so a child derives the same stored ID.
             get traceId() { return journal.context.trace?.id },
-            get contextTraceId() { return invocation.context.trace?.id },
           },
         }
       : {}),

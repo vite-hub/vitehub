@@ -9,7 +9,6 @@ export interface AgentInvocationScope {
   readonly journal?: {
     readonly id: string
     readonly traceId: string | undefined
-    readonly contextTraceId?: string | undefined
   }
   readonly runId?: string
   /** Records an event in the trace of the Invocation. */
@@ -35,7 +34,7 @@ export function activeAgentInvocationScope(): AgentInvocationScope | undefined {
 /** The trace that an Invocation without its own trace joins when it starts inside the active Invocation. */
 export function parentInvocationTrace(): { id: string, parentId: string } | undefined {
   const journal = activeAgentInvocationScope()?.journal
-  const traceId = journal?.traceId ?? journal?.contextTraceId
+  const traceId = journal?.traceId
   return journal && traceId ? { id: traceId, parentId: journal.id } : undefined
 }
 
