@@ -2066,6 +2066,8 @@ describe("agent Vite plugin", () => {
             resolve: {
               alias: agentProviderOutputAliases([
                 { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
+                // Since #2493 the Netlify function also imports the host database capability.
+                { find: "@vite-hub/database/drizzle", replacement: resolve(import.meta.dirname, "../../database/src/drizzle.ts") },
               ]),
             },
             root,
