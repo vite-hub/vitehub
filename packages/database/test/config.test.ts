@@ -146,7 +146,7 @@ describe("discoverDatabaseDefinitions", () => {
       "let database = defineDatabase({ name: 'analytics', schema: {} })",
       "export default database",
       "",
-    ].join("\\n"))
+    ].join("\n"))
 
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([expect.objectContaining({ handler: file, name: "analytics" })])
   })
@@ -420,7 +420,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_BINDING_CONFLICT" }))
   })
 
   it("recognizes a configured Definition Cloudflare property after an undefined one", async () => {
@@ -471,8 +471,8 @@ describe("resolveDBViteConfig", () => {
     await writeDefinition(rootDir, "server/databases/foo_bar/config.ts", "accounts", { cloudflare })
 
     expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({
-      code: "DATABASE_C0008",
-      message: expect.stringContaining('resolve to the same Cloudflare D1 binding "DB_FOO_BAR"'),
+      code: "DATABASE_BINDING_CONFLICT",
+      message: expect.stringContaining('use the same Cloudflare D1 binding "DB_FOO_BAR"'),
     }))
   })
 
@@ -524,7 +524,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("does not check opaque HTTP-only references as native D1 bindings", async () => {
@@ -616,7 +616,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_BINDING_CONFLICT" }))
   })
 
   it("preserves opaque HTTP state across spreads without an HTTP key", async () => {
@@ -663,7 +663,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("checks opaque explicit bindings without an integration binding", async () => {
@@ -679,7 +679,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("unwraps chained parenthesized TypeScript assertions for opaque bindings", async () => {
@@ -695,7 +695,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("unwraps parenthesized satisfies expressions for opaque bindings", async () => {
@@ -711,7 +711,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it.each([
@@ -740,7 +740,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("ignores commented opaque declarations when checking ownership", async () => {
@@ -757,7 +757,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
-      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+      .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
   it("resolves exported opaque declarations", async () => {
