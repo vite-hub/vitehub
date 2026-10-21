@@ -110,6 +110,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/env": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
