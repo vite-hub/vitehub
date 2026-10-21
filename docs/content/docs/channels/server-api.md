@@ -4,6 +4,7 @@ description: Send messages through a named Channel and read the delivery receipt
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Send from an H3 or Nitro handler

@@ -3,7 +3,7 @@
 title: Read your first environment value
 description: Declare a safe application name and read it from the generated Public Env module.
 layout: tutorial
-navigation.title: Get started
+navigation.title: Tutorial
 navigation.order: 2
 icon: i-lucide-rocket
 ---

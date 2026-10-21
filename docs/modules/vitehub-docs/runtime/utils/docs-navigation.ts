@@ -83,7 +83,29 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
   }
 
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));}
+  return [...groups].map(([label, pages]) => ({ label, pages }));
+}
+
+export type DocsSectionSelectItem = {
+  type?: "label";
+  label: string;
+  value?: string;
+  icon?: string | null;
+  to?: string;
+};
+
+/** Grouped items for the product select: one label row per category, then its sections. */
+export function getDocsSectionSelectItems(sections: DocsSection[]): DocsSectionSelectItem[][] {
+  return getDocsCatalog(sections).map(group => [
+    { type: "label", label: group.category },
+    ...group.sections.map(section => ({
+      label: section.title,
+      value: section.id,
+      icon: section.icon,
+      to: section.path,
+    })),
+  ]);
+}
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */
 export function getDocsRelatedSections(sections: DocsSection[], section: DocsSection) {

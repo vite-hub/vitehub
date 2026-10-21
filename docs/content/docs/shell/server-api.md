@@ -4,6 +4,7 @@ description: Import Shell APIs, use Shell sessions, analyze commands, and read S
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
+navigation.group: Build
 ---
 
 ## Public imports

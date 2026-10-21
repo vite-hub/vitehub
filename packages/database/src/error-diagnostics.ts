@@ -188,7 +188,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
     },
-    DATABASE_C0001: dynamicError, DATABASE_C0002: dynamicError, DATABASE_C0003: dynamicError, DATABASE_C0004: dynamicError, DATABASE_C0005: dynamicError, DATABASE_C0006: dynamicError, DATABASE_C0008: dynamicError, DATABASE_C0009: dynamicError,
+    DATABASE_C0004: dynamicError, DATABASE_C0005: dynamicError, DATABASE_C0006: dynamicError,
     DATABASE_R0001: dynamicError, DATABASE_R0002: dynamicError, DATABASE_R0003: dynamicError, DATABASE_R0004: dynamicError, DATABASE_R0005: dynamicError, DATABASE_R0006: dynamicError, DATABASE_R0007: dynamicError, DATABASE_R0008: dynamicError, DATABASE_R0009: dynamicError, DATABASE_R0010: dynamicError, DATABASE_R0011: dynamicError, DATABASE_R0012: dynamicError, DATABASE_R0013: dynamicError, DATABASE_R0014: dynamicError, DATABASE_R0015: dynamicError, DATABASE_R0016: dynamicError,
     DATABASE_B0001: dynamicError, DATABASE_B0002: dynamicError, DATABASE_B0003: dynamicError, DATABASE_B0004: dynamicError, DATABASE_B0005: dynamicError, DATABASE_B0006: dynamicError, DATABASE_B0007: dynamicError, DATABASE_B0008: dynamicError, DATABASE_B0009: dynamicError, DATABASE_B0010: dynamicError,
     DATABASE_B0012: dynamicError,

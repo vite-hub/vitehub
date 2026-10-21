@@ -4,6 +4,7 @@ description: Set Database integration options and define Default and Named Datab
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Configure the Vite Integration

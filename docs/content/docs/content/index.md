@@ -24,7 +24,7 @@ icon: i-lucide-file-text
 
   ```ts [Collections]
   import { defineContent, documents } from 'vite-hub/content'
-  import cms from 'vite-hub/content/presets/cms'
+  import cms from '@vite-hub/content/presets/cms'
   import { z } from 'zod'
 
   export const content = defineContent({
@@ -100,4 +100,14 @@ icon: i-lucide-file-text
   :::product-feature-item{title="Templates stay typed" icon="i-lucide-file-code-2" to="/docs/content/server-api"}
   Render Markdown and data with one server-side content import.
   :::
+::
+
+::agent-only{skill="content"}
+Use Content to parse, query, search, and serve Markdown or other Source content through Comark. It is for application content, not arbitrary code execution.
+
+Read [Get started](https://vitehub.dev/raw/docs/content/get-started.md). Use [Server API](https://vitehub.dev/raw/docs/content/server-api.md) for queries and routes.
+
+Keep content definitions and Source access explicit. Validate front matter and route parameters before using a result in a response.
+
+Prove one local content query, one filtered or paginated query, and one served response. Include missing and malformed content cases.
 ::

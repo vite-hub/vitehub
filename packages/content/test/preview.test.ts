@@ -16,7 +16,8 @@ import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
 
-import { contentPreviewCookieName, defineContent, defineContentHandler, defineContentPreviewPlugin, documents } from "../src/index.ts"
+import { documents } from "../src/collections.ts"
+import { contentPreviewCookieName, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []

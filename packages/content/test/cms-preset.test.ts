@@ -14,7 +14,8 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "../src/cms-build.ts"
-import { defineContent, documents } from "../src/index.ts"
+import { documents } from "../src/collections.ts"
+import { defineContent } from "../src/index.ts"
 import cms from "../src/presets/cms.ts"
 import { hubContent, usesCmsPreset } from "../src/vite.ts"
 
@@ -279,6 +280,16 @@ describe("hubContent()", () => {
       .rejects.toThrow("it stores files in Blob store \"default\", which is not configured. Blob stores: \"media\". Choose one with extends: [cms, { blob: \"media\" }] or add the store to vitehub({ blob }).")
     await expect(configResolved(resolvedConfig(root, [{ name: "@vite-hub/workspace/vite" }, { name: "@vite-hub/database/vite" }, blobPlugin({ store: {} })])))
       .resolves.toBeUndefined()
+  })
+
+  it("skips its own plugin when vitehub() nests it in context.plugins", async () => {
+    const root = await project("export const content = {}\n")
+    const plugin = hubContent()
+    // vitehub() returns an array, so the Content plugin sits one level down in the app's plugin list. Collecting the
+    // Database contributions of that list must not call this plugin's hooks again.
+    const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
+    expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.databases({ plugins, rootDir: root })).toEqual([])
   })
 
   it("fails discovery when the Database choice is ambiguous", async () => {

@@ -4,6 +4,7 @@ description: Define read-only Sources and editable document collections with def
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
+navigation.group: Build
 ---
 
 ## Definition options
@@ -18,8 +19,9 @@ icon: i-lucide-sliders-horizontal
 | `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
-| `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. |
-| Other Comark options | `cache`, `hooks`, `markdown`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
+| `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
+| `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
+| Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
 
 Plugin options are evaluated when the runtime is created. Recreate or rebuild the runtime to change them.
 
@@ -48,7 +50,7 @@ Collections need a Workspace with retained history. The [CMS preset](/docs/conte
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import cms from '@vite-hub/content/presets/cms'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -65,7 +67,7 @@ To use a Workspace you define yourself, pass its name as `workspace` instead of 
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import cms from '@vite-hub/content/presets/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
