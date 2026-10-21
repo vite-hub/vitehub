@@ -269,6 +269,9 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         const [read, write, publish] = await Promise.all((["read", "write", "publish"] as const).map(action =>
           content.can({ user: context.user, collection: collection.name, action })))
         if (!read) continue
+        // A singleton's fixed document can have a stricter policy than collection discovery.
+        // Do not expose its metadata when that document is not readable.
+        if (collection.kind === "singleton" && !await content.can({ user: context.user, collection: collection.name, action: "read", id: collection.id })) continue
         const schema = json(collection.schema)
         const entry: ViteHubConsoleDocumentCollection = {
           name: collection.name,
