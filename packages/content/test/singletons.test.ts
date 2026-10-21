@@ -18,7 +18,7 @@ import { defineContent, documents, singleton } from "../src/index.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 import { contentConsoleSection } from "../src/vite.ts"
 
-import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentFormat, ContentSingleton } from "../src/index.ts"
+import type { AnyContentCollection, ContentAuthorizeContext, ContentDocument, ContentDocumentStatus, ContentFormat, ContentSingleton } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -55,7 +55,7 @@ const settingsFields = {
   theme: z.object({ accent: z.string(), dark: z.boolean().default(false) }).optional(),
 }
 
-async function setup(path = "settings.json") {
+async function setup(path = "settings.json", authorize: (context: ContentAuthorizeContext) => boolean = () => true) {
   const workspace = await historyWorkspace()
   const content = defineContent({
     workspace,
@@ -64,7 +64,7 @@ async function setup(path = "settings.json") {
       authors: documents({ path: "authors/*.yaml", fields: { name: z.string(), links: z.array(z.object({ label: z.string(), url: z.url() })).default([]) } }),
       posts: documents({ path: "posts/*.md", fields: { title: z.string(), author: z.object({ name: z.string(), url: z.url().optional() }).optional() } }),
     },
-    authorize: () => true,
+    authorize,
     logger: false,
   })
   cleanup.push(() => content.dispose())
@@ -272,6 +272,17 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
     const page = await actions.list({ collection: "settings" }, editor)
     expect(page).toMatchObject({ total: 1, states: { draft: 1 }, changes: [{ id: "settings", digest: saved.digest }] })
     await expect(actions.publish({ collection: "settings", expect: [{ id: "settings", digest: saved.digest }] }, editor)).resolves.toMatchObject({ documents: [{ change: "add" }] })
+  })
+
+  it("hides singleton metadata when its document is not readable", async () => {
+    const { content } = await setup("settings.json", ({ id }) => id !== "settings")
+    const actions = createContentConsoleActions({ content })
+    await expect(actions.collections(editor)).resolves.not.toContainEqual(expect.objectContaining({ name: "settings" }))
+  })
+
+  it("rejects an empty generic singleton id", async () => {
+    const { settings } = await setup()
+    await expect(settings.status("")).rejects.toThrow()
   })
 
   it("keeps the Content section for collections defined with singleton()", async () => {

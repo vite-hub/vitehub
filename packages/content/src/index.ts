@@ -258,7 +258,10 @@ export function defineContent<
     const historySource = documentsRuntime!.comarkSource(name)
     // Comark parses Markdown by default. JSON and YAML collections get their parser first, so a configured plugin still wins.
     const format = definition.format === "json" ? json() : definition.format === "yaml" ? yaml() : undefined
-    const plugins = format ? [format, ...sharedOptions.plugins ?? []] : sharedOptions.plugins
+    const configuredPlugins = sharedOptions.plugins ?? []
+    const plugins = format && !configuredPlugins.some(plugin => plugin.name === format.name)
+      ? [format, ...configuredPlugins]
+      : configuredPlugins
     const instance = createContentInstance(name, historySource, { ...sharedOptions, plugins, basePath: "/api/content" })
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })

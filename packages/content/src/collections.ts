@@ -954,7 +954,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         remove: ((first?: string | ContentWriteOptions, second?: ContentWriteOptions) => isId(first) ? remove(first, second) : remove(id, first)) as ContentSingleton["remove"],
         restore: ((first: string, second?: string | ContentWriteOptions, third?: ContentWriteOptions) =>
           isId(second) ? restore(first, second, third) : restore(id, first, second)) as ContentSingleton["restore"],
-        status: (documentId?: string) => status(documentId ?? id),
+        status: (documentId?: string) => status(documentId === undefined ? id : documentId),
       }
       collection = singleton
     }
