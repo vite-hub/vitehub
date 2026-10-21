@@ -1,3 +1,4 @@
+import { H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
@@ -428,6 +429,25 @@ describe("identity and authorization", () => {
       ...extra,
     })
   }
+
+  it("passes the H3 event of the request to identify() and authorize()", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const events: unknown[] = []
+    const server = createTestServer(secured(memory, {
+      authorize: ({ event }) => { events.push(event) },
+      identify: ({ event, request }) => {
+        events.push(event)
+        expect(event.req).toBe(request)
+        return { id: "ana" }
+      },
+    }))
+    const socket = await server.connect("page")
+    await settle()
+    expect(events.length).toBeGreaterThanOrEqual(2)
+    for (const event of events) expect(event).toBeInstanceOf(H3Event)
+    socket.close()
+    await settle()
+  })
 
   it("uses identify() for presence and save attribution instead of the app session", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
