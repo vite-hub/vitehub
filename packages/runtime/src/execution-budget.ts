@@ -48,14 +48,16 @@ export class ExecutionBudgetExceededError extends Error {
 
 export interface ExecutionBudget {
   readonly signal: AbortSignal
+  cancel(reason?: unknown): void
   child(options?: ExecutionBudgetOptions): ExecutionBudget
   consume(counter: ExecutionBudgetCounter, amount?: number): void
+  /** Release timers and abort listeners owned by this budget and its children. */
+  dispose(): void
   recordInputBytes(amount: number): void
   recordOutputBytes(amount: number): void
   recordRetry(): void
   recordToolCall(inputBytes?: number): void
   snapshot(): ExecutionBudgetSnapshot
-  dispose(): void
 }
 
 interface BudgetState {
@@ -63,6 +65,58 @@ interface BudgetState {
   readonly sharedController: AbortController
   readonly limits: ExecutionBudgetLimits
   readonly usage: ExecutionBudgetUsage
+  readonly node: BudgetNode
+}
+
+interface BudgetNode {
+  readonly cleanups: Set<() => void>
+  readonly children: Set<BudgetNode>
+  readonly parent?: BudgetNode
+  disposed: boolean
+}
+
+function createBudgetNode(parent?: BudgetNode): BudgetNode {
+  const node: BudgetNode = {
+    cleanups: new Set(),
+    children: new Set(),
+    ...(parent ? { parent } : {}),
+    // A child created after its parent was released must not acquire fresh
+    // timers or listeners. Its cleanup registration below runs immediately.
+    disposed: parent?.disposed ?? false,
+  }
+  if (!parent?.disposed) parent?.children.add(node)
+  return node
+}
+
+function registerBudgetCleanup(node: BudgetNode, cleanup: () => void): void {
+  if (node.disposed) {
+    cleanup()
+    return
+  }
+  node.cleanups.add(cleanup)
+}
+
+function disposeBudgetNode(node: BudgetNode): void {
+  if (node.disposed) return
+  node.disposed = true
+  for (const child of [...node.children]) disposeBudgetNode(child)
+  node.children.clear()
+  for (const cleanup of [...node.cleanups]) cleanup()
+  node.cleanups.clear()
+  node.parent?.children.delete(node)
+}
+
+/** Listen once and release the listener when the budget aborts, is exhausted elsewhere, or is disposed. */
+function listenUntilReleased(signal: AbortSignal, onAbort: () => void, node: BudgetNode, releaseSignals: AbortSignal[]): void {
+  if (node.disposed) return
+  signal.addEventListener("abort", onAbort, { once: true })
+  const release = () => signal.removeEventListener("abort", onAbort)
+  for (const releaseSignal of releaseSignals) {
+    if (releaseSignal === signal) continue
+    releaseSignal.addEventListener("abort", release, { once: true })
+    registerBudgetCleanup(node, () => releaseSignal.removeEventListener("abort", release))
+  }
+  registerBudgetCleanup(node, release)
 }
 
 export function createExecutionBudget(options: ExecutionBudgetOptions = {}): ExecutionBudget {
@@ -73,27 +127,24 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
     sharedController: new AbortController(),
     limits,
     usage: { inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 },
+    node: createBudgetNode(),
   }
   const abortFromExternal = () => controller.abort(options.signal?.reason)
   if (options.signal) {
     if (options.signal.aborted) abortFromExternal()
-    else {
-      options.signal.addEventListener("abort", abortFromExternal, { once: true })
-      const removeExternalListener = () => options.signal?.removeEventListener("abort", abortFromExternal)
-      controller.signal.addEventListener("abort", removeExternalListener, { once: true })
-      state.sharedController.signal.addEventListener("abort", removeExternalListener, { once: true })
-    }
+    else listenUntilReleased(options.signal, abortFromExternal, state.node, [controller.signal, state.sharedController.signal])
   }
-  if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt, state.sharedController.signal)
-  return createBudget(state, limits, controller, options.signal)
+  if (limits.deadlineAt !== undefined) scheduleDeadline(controller, limits.deadlineAt, state.node, state.sharedController.signal)
+  return createBudget(state, limits, controller, state.node, options.signal)
 }
 
-function scheduleDeadline(controller: AbortController, deadlineAt: number, sharedSignal?: AbortSignal) {
+function scheduleDeadline(controller: AbortController, deadlineAt: number, node: BudgetNode, sharedSignal: AbortSignal): void {
+  if (node.disposed) return
   let timer: ReturnType<typeof setTimeout> | undefined
   const schedule = () => {
-    if (controller.signal.aborted) return
+    if (node.disposed || controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
-    if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
+    if (remaining <= 0) controller.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
     else {
       timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
       if (typeof timer === "object" && timer !== null && "unref" in timer && typeof timer.unref === "function") timer.unref()
@@ -101,17 +152,16 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, share
   }
   const clear = () => clearTimeout(timer)
   controller.signal.addEventListener("abort", clear, { once: true })
-  sharedSignal?.addEventListener("abort", clear, { once: true })
+  sharedSignal.addEventListener("abort", clear, { once: true })
+  registerBudgetCleanup(node, () => {
+    clear()
+    controller.signal.removeEventListener("abort", clear)
+    sharedSignal.removeEventListener("abort", clear)
+  })
   schedule()
 }
 
-function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, externalSignal?: AbortSignal): ExecutionBudget {
-  let disposed = false
-  const dispose = () => {
-    if (disposed) return
-    disposed = true
-    controller.abort()
-  }
+function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode, externalSignal?: AbortSignal): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
@@ -142,41 +192,37 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
 
   return {
     signal: AbortSignal.any([controller.signal, state.sharedController.signal]),
+    cancel(reason) {
+      controller.abort(reason)
+    },
+    dispose() {
+      disposeBudgetNode(node)
+    },
     child(options = {}) {
       const childLimits = normalizeLimits(options)
       const childController = new AbortController()
+      const childNode = createBudgetNode(node)
       const abortChild = (reason?: unknown) => childController.abort(reason)
-      const abortParent = () => abortChild(state.controller.signal.reason)
-      const abortShared = () => abortChild(state.sharedController.signal.reason)
-      if (state.sharedController.signal.aborted) abortShared()
-      else if (state.controller.signal.aborted) abortParent()
+      const releaseSignals = [childController.signal, state.sharedController.signal]
+      if (state.sharedController.signal.aborted) abortChild(state.sharedController.signal.reason)
+      else if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
       else {
-        state.controller.signal.addEventListener("abort", abortParent, { once: true })
-        state.sharedController.signal.addEventListener("abort", abortShared, { once: true })
-        childController.signal.addEventListener("abort", () => {
-          state.controller.signal.removeEventListener("abort", abortParent)
-          state.sharedController.signal.removeEventListener("abort", abortShared)
-        }, { once: true })
+        listenUntilReleased(state.controller.signal, () => abortChild(state.controller.signal.reason), childNode, releaseSignals)
+        listenUntilReleased(state.sharedController.signal, () => abortChild(state.sharedController.signal.reason), childNode, releaseSignals)
       }
       if (options.signal) {
-        const abortExternal = () => abortChild(options.signal?.reason)
-        if (options.signal.aborted) abortExternal()
-        else if (!childController.signal.aborted) {
-          options.signal.addEventListener("abort", abortExternal, { once: true })
-          const removeExternalListener = () => options.signal?.removeEventListener("abort", abortExternal)
-          childController.signal.addEventListener("abort", removeExternalListener, { once: true })
-          state.sharedController.signal.addEventListener("abort", removeExternalListener, { once: true })
-        }
+        if (options.signal.aborted) abortChild(options.signal.reason)
+        else if (!childController.signal.aborted) listenUntilReleased(options.signal, () => abortChild(options.signal?.reason), childNode, releaseSignals)
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
-      if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, state.sharedController.signal)
+      if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, childNode, state.sharedController.signal)
       return createBudget(state, {
         deadlineAt,
         maxInputBytes: minDefined(limits.maxInputBytes, childLimits.maxInputBytes),
         maxOutputBytes: minDefined(limits.maxOutputBytes, childLimits.maxOutputBytes),
         maxRetries: minDefined(limits.maxRetries, childLimits.maxRetries),
         maxToolCalls: minDefined(limits.maxToolCalls, childLimits.maxToolCalls),
-      }, childController, options.signal)
+      }, childController, childNode, options.signal)
     },
     consume(counter, amount = 1) {
       consume(counter, amount)
@@ -215,7 +261,6 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         usage: { ...state.usage },
       }
     },
-    dispose,
   }
 }
 
