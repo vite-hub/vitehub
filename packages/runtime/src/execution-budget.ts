@@ -168,7 +168,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     const sharedReason = state.sharedController.signal.reason
     if (state.controller.signal.aborted && !(stateReason instanceof ExecutionBudgetExceededError)) state.controller.signal.throwIfAborted()
     if (controller.signal.aborted && !(controllerReason instanceof ExecutionBudgetExceededError)) controller.signal.throwIfAborted()
-    if (externalSignal?.aborted && !(externalSignal.reason instanceof ExecutionBudgetExceededError)) externalSignal.throwIfAborted()
+    // A child created after its parent was disposed is inert: it must not
+    // observe a caller signal that was supplied after disposal.
+    if (!node.disposed && externalSignal?.aborted && !(externalSignal.reason instanceof ExecutionBudgetExceededError)) externalSignal.throwIfAborted()
     if (state.sharedController.signal.aborted) {
       if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
       state.sharedController.signal.throwIfAborted()

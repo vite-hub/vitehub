@@ -140,6 +140,7 @@ describe("ExecutionBudget", () => {
 
       external.abort(new Error("late cancellation"))
       expect(child.signal.aborted).toBe(false)
+      expect(() => child.recordToolCall()).not.toThrow()
     }
     finally {
       vi.useRealTimers()

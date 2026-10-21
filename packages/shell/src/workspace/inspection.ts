@@ -116,9 +116,21 @@ async function withInspectionTimeout(timeout: number, callerSignal: AbortSignal 
   const signal = callerSignal ? AbortSignal.any([callerSignal, controller.signal]) : controller.signal
   if (!Number.isFinite(timeout) || timeout < 0) return await run(signal)
   let timer: ReturnType<typeof setTimeout> | undefined
+  let removeCallerAbortListener: (() => void) | undefined
   try {
+    const callerCancellation = callerSignal
+      ? new Promise<never>((_, reject) => {
+        const rejectOnAbort = () => reject(callerSignal.reason)
+        if (callerSignal.aborted) rejectOnAbort()
+        else {
+          callerSignal.addEventListener("abort", rejectOnAbort, { once: true })
+          removeCallerAbortListener = () => callerSignal.removeEventListener("abort", rejectOnAbort)
+        }
+      })
+      : undefined
     return await Promise.race([
       run(signal),
+      ...(callerCancellation ? [callerCancellation] : []),
       new Promise<ShellObservation>((resolve) => {
         timer = setTimeout(() => {
           resolve({ command, cwd, event: "command_timed_out", exitCode: null, stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`, stdout: "", timedOut: true, workspaceGuardrail: { kind: "timeout" } })
@@ -130,6 +142,7 @@ async function withInspectionTimeout(timeout: number, callerSignal: AbortSignal 
   }
   finally {
     if (timer) clearTimeout(timer)
+    removeCallerAbortListener?.()
   }
 }
 
