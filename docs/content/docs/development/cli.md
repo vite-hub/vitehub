@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `box`, and the CLI includes the built-in `inspect` and `provision` namespaces. `box` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `task`, and the CLI includes the built-in `inspect` and `provision` namespaces.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -47,10 +47,11 @@ Available namespaces:
   email       Inspect and preview development Email messages.
   schedule    Run Static Schedule Definitions and inspect or control Runtime Schedules.
   workflow    Start and inspect Workflow runs in development.
+  task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
+  sandbox     Serve an authenticated SSH runner or check its readiness.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
-  box         Serve and check an SSH Box runner. Does not load the project config.
 ```
 
 ## Commands
@@ -58,9 +59,9 @@ Available namespaces:
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
+| `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
-| `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console. |
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
@@ -71,7 +72,6 @@ Available namespaces:
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
-| `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
@@ -85,21 +85,21 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
-| `vitehub schedule list` | Available | Schedule Package | List Runtime Schedules with enabled state, next due time, and last run. |
-| `vitehub schedule get` | Available | Schedule Package | Show one Runtime Schedule. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with a signed dispatch. |
-| `vitehub schedule run-runtime` | Available | Schedule Package | Run one Runtime Schedule now in the development runtime. |
-| `vitehub schedule enable` | Available | Schedule Package | Enable one Runtime Schedule. |
-| `vitehub schedule disable` | Available | Schedule Package | Disable one Runtime Schedule. |
-| `vitehub box check` | Available | Box Package | Start the provider Driver through the SSH runner and report readiness. |
-| `vitehub box serve` | Available | Box Package | Serve authenticated SSH commands from this machine. |
+| `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the running app registers. |
+| `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
+| `vitehub sandbox check` | Available | ViteHub runtime | Check an authenticated SSH runner. |
+| `vitehub sandbox serve` | Available | ViteHub runtime | Serve authenticated SSH commands from this machine. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
 | `vitehub workflow get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
 | `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow signal by hook token. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
+| `vitehub workspace history` | Available | Workspace Package | Inspect Workspace history. |
+| `vitehub workspace refs` | Available | Workspace Package | Inspect Workspace refs. |
+| `vitehub workspace show` | Available | Workspace Package | Inspect one Workspace. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
@@ -361,6 +361,55 @@ Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with
 
 The commands use a guarded dev endpoint that `hubKv()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the KV storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
 
+
+## Run app tasks
+
+A task is a [Nitro task](https://nitro.build/docs/tasks): one file in `server/tasks/` that default-exports `defineTask()`. Use tasks for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file with Nitro and enables Nitro tasks, so you do not set `nitro.serverDir` or `nitro.experimental.tasks`. The task name is the path with `/` replaced by `:`, so `server/tasks/db/seed.ts` is `db:seed`.
+
+```ts [server/tasks/db/seed.ts]
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { defineTask } from 'vite-hub/task'
+
+export default defineTask({
+  meta: { description: 'Add one demo note' },
+  async run({ payload }) {
+    const { db, schema } = useDatabase('default')
+    const title = typeof payload.title === 'string' ? payload.title : 'Hello'
+    const [note] = await db.insert(schema.notes).values({ title }).returning()
+    return { result: note }
+  },
+})
+```
+
+Start the app's Vite Development Server, then run the task from another terminal. The task runs in the Nitro runtime of that server, so `useDatabase()`, `kv`, `blob`, and `env` resolve the same bindings as a request.
+
+```bash [Terminal]
+pnpm vitehub task list
+pnpm vitehub task run db:seed --title "First note"
+pnpm vitehub task run db:seed --payload '{"title":"First note","count":3}' --json
+```
+
+```txt [Output]
+NAME     DESCRIPTION
+db:seed  Add one demo note
+Task db:seed finished in 14 ms.
+{
+  "id": 1,
+  "title": "First note"
+}
+```
+
+- `--<key> <value>` and `--<key>=<value>` set `payload.<key>` to a string. A `--<key>` option without a value sets it to `true`.
+- `--payload <json>` sets the whole payload from a JSON object. `--<key>` options replace its keys.
+- `--json`, `--url <url>`, `--server <url>`, and `--timeout <ms>` are command options, so they never become payload keys. Put such a key in `--payload`.
+- The command prints the `result` field that `run()` returns. A task that throws makes the command exit with status 1. The error message goes to stderr, or into `{ "error": { "code", "message" } }` with `--json`, and the dev server log shows the stack.
+- Nitro runs at most one instance of a task name at a time in one server. A second run of the same task while the first is active gets the result of the first run.
+
+`vitehub inspect definitions --kind task` lists the files in `server/tasks/` without a running server. `task list` asks the running app, so it also shows tasks that `nitro.tasks` declares in the Vite config.
+
+The commands use a guarded dev endpoint and a private token, like `vitehub schedule`. Only the Vite + Nitro Development Server registers the endpoint. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt. Deployed runtimes do not expose the endpoint, and there is no command that runs a task on a deployment. To run a task on a deployment, call `runTask()` from `vite-hub/task` in an authenticated route, or use a [Schedule](/docs/schedule) with `manual: true`.
+
+Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `nitro.tasks` already declares keeps its handler and description.
 
 ## Run a Schedule on demand
 
