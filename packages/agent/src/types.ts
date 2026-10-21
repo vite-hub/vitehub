@@ -3173,7 +3173,6 @@ export interface AgentAdapterRunContext<
   executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string
