@@ -164,6 +164,8 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       ])
       state.status = "exited"
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.exited", signal, timestamp: new Date().toISOString() }))
+      // Let piped stdout flush before the explicit exit.
+      await new Promise<void>(resolve => setImmediate(resolve))
       runtime.exit(0)
     })().catch((error: unknown) => {
       console.error("[vitehub] Shutdown failed.", error)
