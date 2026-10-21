@@ -256,13 +256,22 @@ function dataSchema(collections: readonly ContentCollectionHandle[]): JsonSchema
 }
 
 /** Entries of `content_publish` and `content_schedule`: reviewed drafts, pinned by digest. */
-function documentsSchema(names: readonly string[], singletons: boolean, description: string): JsonSchema {
+function conditionalRequired(collections: readonly ContentCollectionHandle[], field: "id" | "body", required: (collection: ContentCollectionHandle) => boolean): JsonSchema[] {
+  return collections.filter(required).map(collection => ({
+    if: { properties: { collection: { const: collection.name } } },
+    then: { required: [field] },
+  }))
+}
+
+function documentsSchema(collections: readonly ContentCollectionHandle[], description: string): JsonSchema {
+  const names = collections.map(collection => collection.name)
   return {
     description,
     items: {
       additionalProperties: false,
-      properties: { collection: collectionSchema(names), digest: digestSchema, id: idSchema(singletons) },
-      required: singletons ? ["collection", "digest"] : ["collection", "id", "digest"],
+      properties: { collection: collectionSchema(names), digest: digestSchema, id: idSchema(true) },
+      required: ["collection", "digest"],
+      allOf: conditionalRequired(collections, "id", collection => collection.kind !== "singleton"),
       type: "object",
     },
     minItems: 1,
@@ -428,7 +437,6 @@ function contentTools(
   if (!scoped.length) return {}
   const names = scoped.map(collection => collection.name)
   const singletons = scoped.some(collection => collection.kind === "singleton")
-  const markdownOnly = scoped.every(collection => collection.format === "markdown")
 
   // Resolve the Actor's Auth user once per Invocation.
   let user: Promise<ContentCapabilityUser | null> | undefined
@@ -633,7 +641,8 @@ function contentTools(
       inputSchema: {
         additionalProperties: false,
         properties: { collection: collectionSchema(names), id: idSchema(singletons), ref: refSchema },
-        required: singletons ? ["collection"] : ["collection", "id"],
+        required: ["collection"],
+        allOf: conditionalRequired(scoped, "id", collection => collection.kind !== "singleton"),
         type: "object",
       },
       metadata: metadata("get"),
@@ -734,9 +743,7 @@ function contentTools(
         additionalProperties: false,
         properties: {
           body: {
-            description: markdownOnly
-              ? "Markdown body after the frontmatter. Send the full body."
-              : "Markdown body after the frontmatter. Send the full body for a Markdown collection. Omit it for a JSON or YAML collection.",
+            description: "Markdown body after the frontmatter. Send the full body for a Markdown collection. Omit it for a JSON or YAML collection.",
             type: "string",
           },
           collection: collectionSchema(names),
@@ -747,7 +754,11 @@ function contentTools(
             description: "Digest of the draft you edited, or null to create a new document.",
           },
         },
-        required: ["collection", ...(singletons ? [] : ["id"]), "data", ...(markdownOnly ? ["body"] : []), "ifDigest"],
+        required: ["collection", "data", "ifDigest"],
+        allOf: [
+          ...conditionalRequired(scoped, "id", collection => collection.kind !== "singleton"),
+          ...conditionalRequired(scoped, "body", collection => collection.format === "markdown"),
+        ],
         type: "object",
       },
       metadata: metadata("save"),
@@ -775,7 +786,7 @@ function contentTools(
       inputSchema: {
         additionalProperties: false,
         properties: {
-          documents: documentsSchema(names, singletons, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published."),
+          documents: documentsSchema(scoped, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published."),
         },
         required: ["documents"],
         type: "object",
@@ -811,7 +822,7 @@ function contentTools(
         additionalProperties: false,
         properties: {
           at: { description: "When to publish: an ISO timestamp with a time zone, such as 2026-10-20T09:00:00+02:00. It must be in the future.", minLength: 1, type: "string" },
-          documents: documentsSchema(names, singletons, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published."),
+          documents: documentsSchema(scoped, "The reviewed drafts to publish. The approver sees these digests, and only these versions are published."),
           message: { description: "Message of the publish revision.", type: "string" },
         },
         required: ["at", "documents"],
