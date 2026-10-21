@@ -148,6 +148,11 @@ describe("Babysitter check waits", () => {
     expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(false);
     // A queued check without a start time still runs.
     expect(checksStillRunning(await parked(s => { s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued", app: { id: 5 } } } }), now)).toBe(true);
+    // An app-less check run must remain distinct from a same-name commit status.
+    expect(checksStillRunning(await parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued" } };
+      s.statuses = { ci: { context: "ci", sha: head, state: "success" } };
+    }), now)).toBe(true);
     expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 

@@ -116,7 +116,10 @@ function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
 function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
   const latest = new Map<string, GitHubEvidence>();
   for (const signal of currentCheckSignals(s)) {
-    const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
+    // Keep check runs separate from commit statuses. GitHub can report both
+    // with the same name and no app, but they represent different evidence.
+    const kind = signal.head_sha !== undefined ? "check" : "status";
+    const key = `${kind}\0${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
     const previous = latest.get(key);
     if (!previous || Number(signal.id ?? 0) >= Number(previous.id ?? 0)) latest.set(key, signal);
   }
