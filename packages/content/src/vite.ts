@@ -16,7 +16,6 @@ import {
   usesCmsPresetSync,
 } from "./cms-build.ts"
 
-import { collectDatabaseContributions } from "@vite-hub/database/vite"
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -155,6 +154,8 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       async workspaces(context: WorkspaceContributionContext) {
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
+        // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
+        const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const contributed = await collectDatabaseContributions(otherPlugins, { rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
         const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
@@ -168,6 +169,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       async databases(context: DatabaseContributionContext) {
         const root = projectRoot ?? context.rootDir
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+        const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const contributed = await collectDatabaseContributions(otherPlugins, context)
         const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
