@@ -74,6 +74,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/channels/vite", { "vite": "both" }],
   ["@vite-hub/connections/vite", { "vite": "declaration" }],
   ["@vite-hub/database/vite", { "vite": "declaration" }],
+  // The config entry reaches Vite through the shared build helpers at runtime.
+  ["@vite-hub/database/config", { "vite": "runtime" }],
   ["@vite-hub/database/runtime/postgres", { "postgres": "runtime" }],
   ["@vite-hub/kv/vite", { "vite": "declaration" }],
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
