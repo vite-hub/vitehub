@@ -138,7 +138,10 @@ export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
     const timestamp = Date.parse(String(signal.started_at ?? signal.created_at ?? ""));
     // External commit statuses often have no timestamp. They cannot prove a
     // currently running check, so they must not defer a pass forever.
-    return Number.isFinite(timestamp) && timestamp >= now - stuckCheckMs;
+    // Check runs are different: a queued run without timestamps is still an
+    // active gate, while timestamp-less commit statuses are only snapshots.
+    if (!Number.isFinite(timestamp)) return signal.app !== undefined;
+    return timestamp >= now - stuckCheckMs;
   });
 }
 

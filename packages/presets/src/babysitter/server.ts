@@ -1690,6 +1690,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     // Workspace setup and a custom launch can outlive another
                     // owner's quota failure. Recheck before starting the provider.
                     if (await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
+                    await assertLease();
                     return launch;
                   } }),
                 },
@@ -1740,6 +1741,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     const recorded = await pullRequestInbox.recordModelPass(inboxClaim, dailyPassExemptionUsed === humanFeedbackExemption ? undefined : dailyPassExemptionUsed);
                     if (!recorded || !await pullRequestInbox.isClaimCurrent(inboxClaim)) throw new DOMException("Provider dispatch lost its inbox lease.", "AbortError");
                   }
+                  // Keep the ownership fence immediately before entering the
+                  // provider runtime; setup and admission may have taken time.
+                  await assertLease();
                   modelDispatched = true;
                   return await runAgent(
                     agent,
