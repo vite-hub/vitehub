@@ -143,8 +143,8 @@ function pluginNames(plugins: PluginOption[]): string[] {
 
 /** Names of the plugins that Vite keeps for an app without `server/content.ts`. */
 function appliedPluginNames(plugins: PluginOption[]): string[] {
-  // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
-  return (plugins as Plugin[]).filter(plugin => plugin.apply === undefined
+  // SAFETY: vitehub() returns concrete plugins, and the included Nitro plugins as one nested list.
+  return (plugins.flat() as Plugin[]).filter(plugin => !isIncludedNitroPlugin(plugin)).filter(plugin => plugin.apply === undefined
     || (plugin.apply instanceof Function ? plugin.apply({ root: "/vitehub-test-app-without-content" }, { command: "build", mode: "production" }) : plugin.apply === "build"))
     .map(plugin => plugin.name)
 }
