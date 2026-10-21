@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { discoverContentDefinition } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
@@ -109,6 +110,14 @@ function databaseDiscoveryRoot(plugins: readonly unknown[] | undefined, fallback
   return fallback
 }
 
+/**
+ * The other plugins of the app. `vitehub()` nests the Content plugin in an array, and the Database contributions that
+ * the hooks collect would call the hook again through that nested copy, so flatten first.
+ */
+async function pluginsWithoutContent(plugins: readonly unknown[] | undefined): Promise<object[]> {
+  return (await flattenPluginOptions(plugins)).filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+}
+
 /** Store names of the Blob plugin, or false when Blob is off. */
 function blobStoreNames(plugin: Plugin | undefined): string[] | false {
   if (!plugin) return false
@@ -152,7 +161,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     api: { resolveCmsPreset },
     vitehub: {
       async workspaces(context: WorkspaceContributionContext) {
-        const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+        const otherPlugins = await pluginsWithoutContent(context.plugins)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
         // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
@@ -168,9 +177,9 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       },
       async databases(context: DatabaseContributionContext) {
         const root = projectRoot ?? context.rootDir
-        const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+        const otherPlugins = await pluginsWithoutContent(context.plugins)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, context)
+        const contributed = await collectDatabaseContributions(otherPlugins, { ...context, plugins: otherPlugins })
         const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
