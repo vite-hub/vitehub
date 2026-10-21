@@ -466,6 +466,7 @@ export async function resumeAgentChannelDeliveryPayload(
 }
 
 export function agentChannelDeliveryTracker(context: AgentRuntimeContext): AgentChannelDeliveryTracker | undefined {
+  if (context === undefined || context === null) return undefined
   const runtimeContext: unknown = context
   // SAFETY: withAgentChannelDelivery installs this private tracker property on Agent runtime contexts.
   return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryTrackerKey]?: AgentChannelDeliveryTracker })[agentChannelDeliveryTrackerKey]
