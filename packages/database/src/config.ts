@@ -242,7 +242,7 @@ function readDefinitionCloudflareResource(expression: Expression | undefined, fi
   return resource
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, value?: CloudflareD1BindingConfig } {
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, readReplication?: "opaque", value?: CloudflareD1BindingConfig } {
   const definitionBody = readDefinitionObjectBody(file)
   const definitionEntries = readObjectEntries(definitionBody)
   const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
@@ -262,6 +262,11 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     return { resource }
   }
   if (body === undefined) return { resource }
+  const readReplication = readObjectPropertyValue(body, "readReplication")
+  const readReplicationProjection = readReplication !== undefined
+    && !(readReplication.type === "Literal" && typeof readReplication.value === "boolean")
+    ? "opaque" as const
+    : undefined
   const httpExpression = readObjectPropertyValue(body, "http")
   const httpBody = objectLiteral(httpExpression)
   const http = httpExpression?.type === "Literal" && httpExpression.value === true
@@ -283,6 +288,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
     resource,
+    ...(readReplicationProjection ? { readReplication: readReplicationProjection } : {}),
     ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
   }
 }
@@ -679,7 +685,10 @@ export function resolveDBViteConfig(
       continue
     }
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
+    const projection: CloudflareD1Projection = {
+      resource: definitionCloudflare.resource,
+      ...(definitionCloudflare.readReplication ? { readReplication: definitionCloudflare.readReplication } : {}),
+    }
     cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
     if (cloudflare) {

@@ -47,7 +47,7 @@ export function usesD1ReadReplication(config: ResolvedDBViteConfig) {
     // the request scope for native D1 unless the option is known to be false;
     // HTTP-backed D1 does not use the Sessions API.
     return cloudflare !== undefined && cloudflare.http === undefined
-      && (cloudflare.readReplication === true || projection?.resource === "opaque")
+      && (cloudflare.readReplication === true || projection?.resource === "opaque" || projection?.readReplication === "opaque")
   })
 }
 

@@ -177,6 +177,8 @@ export interface RuntimeDrizzleDatabaseConfig {
 export interface CloudflareD1Projection {
   binding?: string
   provisionedId?: string
+  /** A non-literal Definition value may enable read replication at runtime. */
+  readReplication?: "opaque"
   resource: "configured" | "inherited" | "opaque"
 }
 
