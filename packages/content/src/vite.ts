@@ -153,7 +153,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     vitehub: {
       async workspaces(context: WorkspaceContributionContext) {
         const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
-        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.rootDir)
+        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.root)
         // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const contributed = await collectDatabaseContributions(otherPlugins, { root: databaseRoot, rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
@@ -164,7 +164,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
           return []
         }
         await writeFileIfChanged(module, renderCmsWorkspaceModule(plan, imports))
-        return [{ export: cmsWorkspaceExport, module, name: plan.workspace }]
+        return [{ definition: { export: cmsWorkspaceExport, module }, name: plan.workspace, reason: "Stores the documents of the Content cms preset." }]
       },
       async databases(context: DatabaseContributionContext) {
         const root = projectRoot ?? context.rootDir

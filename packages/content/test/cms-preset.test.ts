@@ -225,9 +225,9 @@ describe("hubContent()", () => {
   it("contributes the Workspace module and the history tables", async () => {
     const root = await project(presetContent)
     const plugin = hubContent({ imports: { blob: "vite-hub/blob" } })
-    const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, rootDir: root })
+    const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     const module = join(root, ".vitehub/content/workspace.mjs")
-    expect(workspaces).toEqual([{ export: "contentWorkspace", module, name: "content" }])
+    expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
     const generated = await readFile(module, "utf8")
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
     expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
@@ -264,7 +264,7 @@ describe("hubContent()", () => {
     const root = await project("export const content = {}\n")
     await writeProjectFile(root, ".vitehub/content/workspace.mjs", "stale")
     const plugin = hubContent()
-    expect(await plugin.vitehub.workspaces({ projectRoot: root, rootDir: root })).toEqual([])
+    expect(await plugin.vitehub.workspaces({ projectRoot: root, root })).toEqual([])
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"))).rejects.toThrow()
     await expect((plugin.configResolved as (config: ResolvedConfig) => Promise<void>)(resolvedConfig(root, []))).resolves.toBeUndefined()
@@ -287,7 +287,7 @@ describe("hubContent()", () => {
       "server/databases/blog/config.ts": "export default defineDatabase({ name: 'blog', schema: {} })\n",
       "server/databases/audit/config.ts": "export default defineDatabase({ name: 'audit', schema: {} })\n",
     })
-    await expect(hubContent().vitehub.workspaces({ projectRoot: root, rootDir: root }))
+    await expect(hubContent().vitehub.workspaces({ projectRoot: root, root }))
       .rejects.toThrow("Choose one with extends: [cms, { database: \"audit\" }].")
   })
 })
