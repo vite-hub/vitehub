@@ -197,14 +197,10 @@ onBeforeUnmount(() => request++);
             <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-12"
-              color="error"
-              variant="subtle"
               icon="i-lucide-cloud-off"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
-              ]"
+              :error="error"
+              :retry="loadSections"
             />
 
             <template v-else>
@@ -336,7 +332,7 @@ onBeforeUnmount(() => request++);
                       <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
                   </li>
-                  <span
+                  <li
                     v-for="filler in group.fillers"
                     :key="filler.index"
                     class="vitehub-console__overview-filler hidden"
