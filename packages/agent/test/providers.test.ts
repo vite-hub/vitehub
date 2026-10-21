@@ -3200,6 +3200,9 @@ export default defineAgent({
   })
 })
 
+// #2652: a string errorFallbackText applies to INTERNAL errors only. A timeout posts the TIMEOUT public error text.
+const timeoutFallbackText = "I ran out of time before I could finish this. Please try a narrower request."
+
 describe("server helpers", () => {
   it("registers workspace agents for app-owned routes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
@@ -7375,7 +7378,7 @@ describe("server helpers", () => {
       handler(
         new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
-            update_id: 46,
+            update_id: 946,
             message: {
               chat: { id: 456, type: "private" },
               date: 1781092800,
@@ -7387,7 +7390,7 @@ describe("server helpers", () => {
                 mime_type: "text/plain",
               },
               from: { first_name: "Maxi", id: 123, username: "maxi" },
-              message_id: 1014,
+              message_id: 1914,
             },
           }),
           method: "POST",
@@ -10227,12 +10230,10 @@ describe("server helpers", () => {
       })
       expect(steeredInputs).toHaveLength(1)
       const inFlightDuplicate = await handler(request("delivery-2"), "github", options)
-      await expect(inFlightDuplicate.json()).resolves.toEqual({
-        accepted: false,
-        duplicate: true,
-        ok: true,
-        steered: true,
-      })
+      // #2625: while the first admission of delivery-2 runs, its stored inbox request answers the duplicate.
+      expect(inFlightDuplicate.status).toBe(202)
+      expect(inFlightDuplicate.headers.get("x-vitehub-webhook-duplicate")).toBe("1")
+      await expect(inFlightDuplicate.json()).resolves.toEqual({ accepted: true, deferred: true, ok: true })
       expect(steeredInputs).toHaveLength(1)
 
       releaseSteer()
@@ -11887,7 +11888,8 @@ describe("server helpers", () => {
     })
 
     try {
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 5_000 })
       if (stateKind === "shared resolver") expect(resolver).toHaveBeenCalled()
       expect(statusesAtRun).toEqual({ "orphaned": "failed", [resumedId]: "running", "other-agent": "running" })
       await expect(invocations.get("orphaned")).resolves.toMatchObject({
@@ -11945,6 +11947,8 @@ describe("server helpers", () => {
     })
 
     try {
+      // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(899_000)
       expect(complete).not.toHaveBeenCalled()
@@ -12030,6 +12034,8 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
     try {
+      // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await vi.advanceTimersByTimeAsync(1_000)
       if (deadline > setupMs) {
         await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
         await vi.advanceTimersByTimeAsync(replayStartedAt + deadline - Date.now() - 1_000)
@@ -12092,6 +12098,8 @@ describe("server helpers", () => {
     })
 
     try {
+      // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       await vi.advanceTimersByTimeAsync(900_000)
       const scheduled = vi.fn()
@@ -12200,7 +12208,8 @@ describe("server helpers", () => {
     })
 
     try {
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 5_000 })
     } finally {
       await stop()
       await state.disconnect()
@@ -12263,7 +12272,8 @@ describe("server helpers", () => {
         scope: "webhook:review%3Atriage:github:removed-registration:",
         webhookId: "removed-registration",
       })
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 2_000 })
+      // The next discovery finds the scope within 1 s, and #2646 waits another retry interval before its first drain.
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { timeout: 4_000 })
       expect(claim).not.toHaveBeenCalledWith("webhook:review%3Atriage%3Achild:github:github:")
     } finally {
       await stop()
@@ -20364,7 +20374,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(chatWebhookRequest(91_114), "telegram")
+    const response = await handler(chatWebhookRequest(91_800), "telegram")
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", {
@@ -20404,7 +20414,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
 
-    const response = await handler(chatWebhookRequest(91_115), "telegram")
+    const response = await handler(chatWebhookRequest(91_801), "telegram")
 
     expect(response.status).toBe(200)
     expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Planning the lookup." })
@@ -20693,7 +20703,7 @@ describe("server helpers", () => {
         message: "Chat invocation timed out after 28000ms.",
       })
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please send the photo again.")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", timeoutFallbackText)
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
       progressEdit.resolve(undefined)
       await withDeadline(progressEditSettled.promise, 3_000, "Progress edit did not settle.")
@@ -21570,7 +21580,7 @@ describe("server helpers", () => {
       expect(adapter.editMessage).toHaveBeenNthCalledWith(1, "telegram:456", "sent-1", {
         markdown: "Final reply",
       })
-      expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", "Please try again.")
+      expect(adapter.editMessage).toHaveBeenNthCalledWith(2, "telegram:456", "sent-1", timeoutFallbackText)
     } finally {
       consoleError.mockRestore()
       vi.useRealTimers()
@@ -21621,7 +21631,7 @@ describe("server helpers", () => {
       })
       expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
       expect(adapter.editMessage).not.toHaveBeenCalled()
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", timeoutFallbackText)
       await vi.advanceTimersByTimeAsync(1_000)
       expect(adapter.postMessage).toHaveBeenCalledTimes(2)
     } finally {
@@ -21773,9 +21783,9 @@ describe("server helpers", () => {
       })
       expect(invocationAbortSignal?.aborted).toBe(true)
       if (delivery === "manual") {
-        expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+        expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", timeoutFallbackText)
       } else {
-        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", timeoutFallbackText)
       }
     } finally {
       consoleError.mockRestore()
@@ -21835,7 +21845,7 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: `Chat invocation timed out after ${invocationTimeout}ms.`,
       })
-      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", timeoutFallbackText)
     } finally {
       consoleError.mockRestore()
       vi.useRealTimers()
@@ -21907,7 +21917,7 @@ describe("server helpers", () => {
           message: `Chat invocation timed out after ${invocationTimeout}ms.`,
         }),
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", timeoutFallbackText)
     } finally {
       consoleError.mockRestore()
       vi.useRealTimers()
@@ -21961,7 +21971,7 @@ describe("server helpers", () => {
       })
       await vi.waitFor(
         () => {
-          expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", "Please try again.")
+          expect(adapter.postMessage).toHaveBeenCalledWith("telegram:457", timeoutFallbackText)
         },
         { interval: 0 },
       )
@@ -22019,7 +22029,7 @@ describe("server helpers", () => {
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", timeoutFallbackText)
 
       await vi.advanceTimersByTimeAsync(2_000)
       expect(adapter.postMessage).not.toHaveBeenCalledWith("telegram:456", "late finish message")
@@ -22093,7 +22103,7 @@ describe("server helpers", () => {
       })
       expect(iteratorReturn).toHaveBeenCalledOnce()
       expect(adapter.postMessage).toHaveBeenCalledTimes(2)
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", timeoutFallbackText)
     } finally {
       consoleError.mockRestore()
       vi.useRealTimers()
