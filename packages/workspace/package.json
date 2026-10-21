@@ -191,7 +191,8 @@
     "valibot": "catalog:runtime",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/database": "workspace:*"
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
