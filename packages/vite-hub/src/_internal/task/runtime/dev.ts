@@ -70,7 +70,15 @@ export async function handleTaskDevRequest(request: Request, options: TaskDevReq
   if (!body) return failure("TASK_DEV_INVALID_REQUEST", "The Task Dev request body is invalid.", 400)
   if (body.operation === "list") {
     const tasks = await Promise.all(Object.entries(options.tasks).map(async ([name, task]) => {
-      const description = task.meta?.description ?? (task.resolve ? (await task.resolve()).meta?.description : undefined)
+      let description = task.meta?.description
+      if (description === undefined && task.resolve) {
+        try {
+          description = (await task.resolve()).meta?.description
+        }
+        catch {
+          // A broken lazy module must not hide the other registered tasks.
+        }
+      }
       return description ? { description, name } : { name }
     }))
     const result: TaskDevListResult = { tasks: tasks.sort((left, right) => left.name.localeCompare(right.name)) }

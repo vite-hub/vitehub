@@ -128,6 +128,23 @@ describe("vitehub task", () => {
     await expect(response.json()).resolves.toEqual({ tasks: [{ description: "Seed rows", name: "seed" }] })
   })
 
+  it("keeps listing tasks when lazy metadata resolution fails", async () => {
+    const request = new Request("http://localhost", {
+      body: JSON.stringify({ operation: "list" }),
+      headers: { [taskDevHeader]: taskDevHeaderValue, [taskDevTokenServerHeader]: "test-server", ["x-vitehub-dev-token"]: "test-task-token", "content-type": "application/json" },
+      method: "POST",
+    })
+    const response = await handleTaskDevRequest(request, {
+      rootDir,
+      tasks: {
+        broken: { resolve: async () => { throw new Error("cannot load task") } },
+        healthy: { meta: { description: "Healthy task" } },
+      },
+    })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ tasks: [{ name: "broken" }, { description: "Healthy task", name: "healthy" }] })
+  })
+
   it("lists tasks", async () => {
     const result = context()
     const fetch = devServer({ tasks: [{ description: "Add one demo note", name: "db:seed" }, { name: "notes" }] })
