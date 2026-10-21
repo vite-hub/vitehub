@@ -305,6 +305,7 @@ export default defineConfig({
       "src/console/runtime/server/client.get.ts",
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
+      "src/console/runtime/server/documents.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
       "src/console/runtime/server/rpc.ts",
       "src/console/runtime/server/invocation.get.ts",
