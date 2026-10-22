@@ -111,6 +111,12 @@ export default defineNuxtConfig({
   },
   css: ["~/assets/main.css"],
   vite: {
+    build: {
+      rollupOptions: {
+        // Shiki loads this binary at runtime; Rolldown otherwise parses it as an ES module.
+        external: [/node_modules[\\/]shiki[\\/]dist[\\/]onig\\.wasm$/],
+      },
+    },
     resolve: {
       alias: {
         debug: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)),

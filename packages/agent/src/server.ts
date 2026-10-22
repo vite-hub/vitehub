@@ -102,3 +102,6 @@ export type { AgentHealthDiagnostic, AgentHealthOptions, AgentHealthReport } fro
 
 export { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector, registerAgentHostWorkspaceInspector } from "./server/host-workspace.ts"
 export type { AgentHostWorkspaceInspector } from "./server/host-workspace.ts"
+
+// Generated host routes import these helpers through the installed Agent package.
+export { defineEventHandler, getQuery, getRouterParam } from "h3"

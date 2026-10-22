@@ -40,9 +40,10 @@ export function agentHostRoutes(options: {
         const moduleImport = exportName === 'default'
           ? `import inspect from ${JSON.stringify(entry)}`
           : `import { ${exportName} as inspect } from ${JSON.stringify(entry)}`
+        const h3Import = '@vite-hub/agent/server'
         const body = kind === 'health'
-          ? `import { defineEventHandler } from 'h3'\n${moduleImport}\nexport default defineEventHandler(() => inspect())\n`
-          : `import { defineEventHandler, getQuery, getRouterParam } from 'h3'\n${moduleImport}\nexport default defineEventHandler(event => { const path = getQuery(event).path; return inspect(getRouterParam(event, 'id') || '', typeof path === 'string' ? path : undefined) })\n`
+          ? `import { defineEventHandler } from '${h3Import}'\n${moduleImport}\nexport default defineEventHandler(() => inspect())\n`
+          : `import { defineEventHandler, getQuery, getRouterParam } from '${h3Import}'\n${moduleImport}\nexport default defineEventHandler(event => { const path = getQuery(event).path; return inspect(getRouterParam(event, 'id') || '', typeof path === 'string' ? path : undefined) })\n`
         await mkdir(directory, { recursive: true })
         await writeFile(handler, body)
         handlers.push({ route, handler, method: 'GET' }, { route, handler, method: 'HEAD' })

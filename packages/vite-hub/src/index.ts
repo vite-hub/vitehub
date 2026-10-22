@@ -978,7 +978,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   // evlog records request errors only when it is enabled. Keep the fallback logger
   // when observability is configured with evlog explicitly disabled.
-  if (!options.observability || options.observability.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (plan.preset !== "deno" && (!options.observability || options.observability.evlog?.enabled === false)) plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
