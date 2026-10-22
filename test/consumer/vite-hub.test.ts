@@ -341,14 +341,22 @@ async function assertEffectMsgpackFallback(appDir: string) {
   })
 }
 
+// Agent bundles @t3tools/provider-runtime, which is published only on pkg.pr.new (#2480). The packed Agent must load
+// its provider entry from its own files and must not name the runtime as an installable dependency.
 async function assertProviderRuntimeLoads(appDir: string) {
   const script = [
+    "import { readFileSync } from \"node:fs\"",
     "import { createRequire } from \"node:module\"",
+    "import { dirname, join } from \"node:path\"",
     "import { pathToFileURL } from \"node:url\"",
     "const viteHubRequire = createRequire(import.meta.resolve(\"vite-hub/package.json\"))",
     "const agentPackage = viteHubRequire.resolve(\"@vite-hub/agent/package.json\")",
-    "const runtime = await import(import.meta.resolve(\"@t3tools/provider-runtime\", pathToFileURL(agentPackage)))",
-    "if (typeof runtime.createProviderRuntime !== \"function\") throw new Error(\"provider runtime did not load\")",
+    "const manifest = JSON.parse(readFileSync(agentPackage, \"utf8\"))",
+    "const sections = [manifest.dependencies, manifest.optionalDependencies, manifest.peerDependencies]",
+    "if (sections.some(section => section && \"@t3tools/provider-runtime\" in section)) throw new Error(\"Agent must bundle the provider runtime\")",
+    "const entry = join(dirname(agentPackage), manifest.imports[\"#vitehub/agent/provider-agent\"].default)",
+    "const providerAgent = await import(pathToFileURL(entry).href)",
+    "if (typeof providerAgent.createProviderAgentAdapter !== \"function\") throw new Error(\"provider runtime did not load\")",
   ].join("\n")
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
@@ -561,7 +569,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            nitro: "3.0.260603-beta",
+            // Match the exact Nitro peer that ViteHub packages publish from the unjs catalog.
+            nitro: "3.0.260903-beta",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
@@ -578,7 +587,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           })
         `, "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
-          "nitro>h3": "2.0.1-rc.25",
+          "nitro>h3": "2.0.1-rc.33",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
@@ -625,9 +634,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            h3: "2.0.1-rc.26",
-            nitro: "3.0.260610-beta",
-            nuxt: "npm:nuxt-nightly@5.0.0-29774482.33d37e65",
+            h3: "2.0.1-rc.33",
+            nitro: "3.0.260903-beta",
+            nuxt: "npm:nuxt-nightly@5.0.0-2610221052-8c52432",
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -642,7 +651,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          "nitro>h3": "2.0.1-rc.26",
+          "nitro>h3": "2.0.1-rc.33",
           rolldown: "1.2.4",
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
@@ -684,9 +693,12 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vitehub: { agent: false, cache: true, kv: true, preset: "node" },
           }
         `),
-        // No import: the module auto-imports \`kv\` in server code.
+        // No \`kv\` import: the module auto-imports \`kv\` in server code. Nuxt 5 does not auto-import
+        // Nitro 3's \`defineCachedHandler\`, so the route imports it from Nitro.
         writeFile(join(appDir, "server/api/visits.get.ts"), `
-          export default defineCachedEventHandler(async () => {
+          import { defineCachedHandler } from "nitro/cache"
+
+          export default defineCachedHandler(async () => {
             const [readError, visits] = await kv.get("visits")
             if (readError) throw readError
             const next = Number(visits ?? 0) + 1
@@ -697,9 +709,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            h3: "2.0.1-rc.26",
-            nitro: "3.0.260610-beta",
-            nuxt: "npm:nuxt-nightly@5.0.0-29774482.33d37e65",
+            h3: "2.0.1-rc.33",
+            nitro: "3.0.260903-beta",
+            nuxt: "npm:nuxt-nightly@5.0.0-2610221052-8c52432",
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -714,7 +726,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          "nitro>h3": "2.0.1-rc.26",
+          "nitro>h3": "2.0.1-rc.33",
           rolldown: "1.2.4",
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
@@ -817,9 +829,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            h3: "2.0.1-rc.26",
-            nitro: "3.0.260610-beta",
-            nuxt: "npm:nuxt-nightly@5.0.0-29774482.33d37e65",
+            h3: "2.0.1-rc.33",
+            nitro: "3.0.260903-beta",
+            nuxt: "npm:nuxt-nightly@5.0.0-2610221052-8c52432",
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -842,7 +854,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n', "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          "nitro>h3": "2.0.1-rc.26",
+          "nitro>h3": "2.0.1-rc.33",
           rolldown: "1.2.4",
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
@@ -1069,6 +1081,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
+        // Workspace depends on Forge for its source credentials.
+        "@vite-hub/forge",
         "@vite-hub/sandbox",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",

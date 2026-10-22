@@ -382,7 +382,10 @@ export default defineEventHandler(async () => {
 `, "utf8")
     const config = await resolveConfig({
       root,
-      plugins: [vitehub({
+      // This test builds with Nitro alone, without the Vite resolver that bundles generated plugins into the server.
+      // Nitro leaves the generated error log plugin external, so `deno check` follows its `vite-hub/runtime` import
+      // into the workspace sources instead of the artifact. The plugin does not affect native package uploads.
+      plugins: flattenPlugins([vitehub({
         preset: "deno",
         agent: false,
         blob: false,
@@ -392,7 +395,7 @@ export default defineEventHandler(async () => {
         rateLimit: false,
         workflow: false,
         workspace: false,
-      })],
+      })]).filter(plugin => plugin.name !== "vite-hub/error-log"),
     }, "build")
     const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro>[0] }).nitro
     expect(nitroConfig).toBeDefined()

@@ -62,6 +62,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/ui/nuxt", { "vue": "declaration" }],
+  // The Console renders its panels with @json-render/vue, which imports Vue.
+  ["vite-hub/console/ui", { "vue": "both" }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
   ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
@@ -73,7 +75,11 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // Vite types, so both contract paths must be exercised with the peer.
   ["@vite-hub/channels/vite", { "vite": "both" }],
   ["@vite-hub/connections/vite", { "vite": "declaration" }],
-  ["@vite-hub/database/vite", { "vite": "declaration" }],
+  // These entries parse modules with Vite's oxc parser through the shared
+  // build scanner (`@vite-hub/internal/build/scan-module`), so they import
+  // Vite at runtime as well as in their declarations.
+  ["@vite-hub/database/vite", { "vite": "both" }],
+  ["@vite-hub/database/nuxt", { "vite": "both" }],
   // The config entry reaches Vite through the shared build helpers at runtime.
   ["@vite-hub/database/config", { "vite": "runtime" }],
   ["@vite-hub/database/runtime/postgres", { "postgres": "runtime" }],
@@ -81,8 +87,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
   ["@vite-hub/sandbox-task/vite", { "vite": "declaration" }],
-  ["@vite-hub/schedule/vite", { "vite": "declaration" }],
-  ["@vite-hub/workflow/vite", { "vite": "declaration" }],
+  ["@vite-hub/schedule/vite", { "vite": "both" }],
+  ["@vite-hub/schedule/nuxt", { "vite": "both" }],
+  ["@vite-hub/workflow/vite", { "vite": "both" }],
   ["@vite-hub/workspace/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/runtime/kv", { "@vite-hub/kv": "runtime" }],
 ])
