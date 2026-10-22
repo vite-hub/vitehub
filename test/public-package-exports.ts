@@ -40,6 +40,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
+  // The editor renders through comark-tiptap, which needs Tiptap at runtime and in its declarations.
+  ["@vite-hub/content/editor", { "comark": "runtime", "comark-tiptap": "both", "@tiptap/core": "both", "@vite-hub/realtime": "declaration" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],

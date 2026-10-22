@@ -19,7 +19,9 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// Tiptap packages that the Content editor's comark-tiptap renderer needs as peers.
+const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
+const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "comark-tiptap", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -526,8 +528,12 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    ...Object.fromEntries(await Promise.all(contentEditorPeers.map(async name =>
+      [name, await installedVersion(join(repoRoot, "packages/content/node_modules", name, "package.json"))] as const))),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    comark: await installedVersion(join(repoRoot, "packages/content/node_modules/comark/package.json")),
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
+    "comark-tiptap": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-tiptap/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
