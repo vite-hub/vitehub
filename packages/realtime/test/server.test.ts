@@ -13,6 +13,7 @@ import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeR
 import { realtimeMarkdownEditor } from "../src/editor.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, messageAwareness, readAwarenessClientIds } from "../src/protocol.ts"
+import { nativeSqlCarrier } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
   assertAuthOrigin: vi.fn(),
@@ -64,32 +65,6 @@ const yDocToMarkdown = async (document: Y.Doc) => (await readRealtimeYDoc(realti
 
 function workspaceFacade(fs: Record<string, unknown>, capabilities = { conditionalWrites: true }) {
   return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
-}
-
-function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
-  function SqlStorage() {}
-  const sql = Object.create(null) as Record<string, unknown>
-  const prototype = {
-    // Use a native constructor in the carrier shape. The production detector
-    // treats the constructor as part of the platform object contract.
-    constructor: SqlStorage,
-    exec,
-    get databaseSize() {
-      return 1
-    },
-  }
-  SqlStorage.prototype = prototype
-  Object.setPrototypeOf(sql, prototype)
-  Object.defineProperty(prototype, "databaseSize", {
-    configurable: true,
-    get: new Proxy(Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!, {
-      apply(_target, thisArg) {
-        if (thisArg === sql) return 1
-        throw new TypeError("Illegal invocation")
-      },
-    }),
-  })
-  return sql
 }
 
 function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
@@ -565,10 +540,18 @@ describe("realtime server handler", () => {
     response.crossws.open(peer)
 
     const text = "x".repeat(64 * 1024)
-    for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
-      const before = Y.encodeStateVector(client)
-      client.getMap("edits").set(`key-${index}`, text)
-      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+    // The rate limit refills with wall time. A slow runner spent long enough on each 64 KiB update to refill it,
+    // so nothing was held back. One frozen instant makes the burst arrive at once.
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+    try {
+      for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
+        const before = Y.encodeStateVector(client)
+        client.getMap("edits").set(`key-${index}`, text)
+        response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+      }
+    }
+    finally {
+      now.mockRestore()
     }
 
     expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")

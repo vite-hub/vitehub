@@ -65,7 +65,7 @@ function isRequest(value: unknown): value is Request {
         if (prototype !== value
           && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
         if (prototype === Request.prototype) return false
-        const terminalConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        const terminalConstructor: unknown = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof terminalConstructor === "function"
           && terminalConstructor.name === "Object"
           && terminalConstructor.prototype === prototype) reachedObjectPrototype = true

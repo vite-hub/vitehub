@@ -482,7 +482,7 @@ describe("calls", () => {
     await connect(test, { expires_in: 1 })
     test.provider.tokenResponses.push({ body: { error }, status })
     const client = test.runtime.client("mail", {})
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", status })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: expect.stringContaining(`with ${status}`) })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     test.provider.valid = new Set(["access-after-outage"])
     test.provider.tokenResponses.push({ body: { access_token: "access-after-outage", expires_in: 3600 } })
@@ -611,7 +611,7 @@ describe("calls", () => {
     test.provider.valid = new Set()
     test.provider.tokenResponses.push({ body: { access_token: "access-2", expires_in: 3600 } })
     const error = await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
-    expect(error).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", status: 401 })
+    expect(error).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", why: expect.stringContaining("with 401") })
     const activity = await test.runtime.activity({ name: "mail" })
     const serialized = JSON.stringify({ activity, error, message: (error as Error).message, stack: (error as Error).stack })
     for (const secret of [ACCESS_TOKEN, "access-2", REFRESH_TOKEN, CLIENT_SECRET]) expect(serialized).not.toContain(secret)
@@ -807,8 +807,10 @@ describe("approvals", () => {
     }
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) })
-    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
-    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
+    // A disconnected or revoked Connection is not connected. One without a usable grant must be connected again.
+    const code = status === "disconnected" || status === "revoked" ? "CONNECTIONS_NOT_CONNECTED" : "CONNECTIONS_NEEDS_RECONNECT"
+    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code })
+    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code })
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([])
     expect(test.provider.calls).toHaveLength(calls)
     await connect(test)
