@@ -270,6 +270,12 @@ function isDeepStrictEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true
   if (!left || !right || typeof left !== "object" || typeof right !== "object") return false
   if (Array.isArray(left) !== Array.isArray(right)) return false
+  const prototype = Object.getPrototypeOf(left)
+  if (prototype !== Object.getPrototypeOf(right)) return false
+  if (left instanceof Date) return right instanceof Date && Object.is(left.getTime(), right.getTime())
+  // Maps, RegExps, and class instances keep their state outside enumerable keys. Report them as changed, so a changed
+  // value cannot skip materialization.
+  if (!Array.isArray(left) && prototype !== Object.prototype && prototype !== null) return false
   if (Array.isArray(left)) {
     return left.length === (right as unknown[]).length
       && left.every((value, index) => isDeepStrictEqual(value, (right as unknown[])[index]))
