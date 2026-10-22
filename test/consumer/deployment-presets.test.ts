@@ -285,7 +285,9 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).toContain('requireRateLimit(event, "image-upload"')
     expect(emittedSource).toContain('bindingPrefix = "RATE_LIMIT"')
     expect(emittedSource).not.toContain("@vercel/functions")
-    expect(emittedSource).not.toContain("@vercel/queue")
+    // Provider-specific diagnostics may mention the Vercel SDK, but the
+    // Cloudflare bundle must not import its runtime implementation.
+    expect(emittedSource).not.toMatch(/(?:from|import\()\s*["']@vercel\/queue["']/)
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
     if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
