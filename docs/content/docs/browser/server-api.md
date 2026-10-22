@@ -1,6 +1,6 @@
 ---
 title: Browser server API
-description: Define, run, and control browser operations from server code.
+description: Define, run, and control browser operations from server code, keep a page session open, and hand off a live session.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2

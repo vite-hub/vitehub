@@ -1,6 +1,6 @@
 ---
 title: Shell limits and errors
-description: Shell policy limits and production checks.
+description: Know the Shell call budget, background process, and command allowlist limits, and check Shell before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

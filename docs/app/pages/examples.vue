@@ -1,9 +1,33 @@
 <script setup lang="ts">
+import { examples } from "~/data/examples";
+
 useSeoMeta({
   title: "Projects and templates",
   ogTitle: "Projects and templates · ViteHub",
-  description: "Explore open source ViteHub projects and starter templates.",
+  description: "Explore open source ViteHub projects to read real application code, or start your own app from a published GitHub template.",
 });
+
+const catalogs = [
+  {
+    kind: "project",
+    title: "Projects",
+    to: "/projects",
+    icon: "i-ph-git-branch-light",
+    label: "Browse projects",
+    description: "Complete open source applications. Read the source to see how the packages fit together in a real app.",
+  },
+  {
+    kind: "template",
+    title: "Templates",
+    to: "/templates",
+    icon: "i-ph-squares-four-light",
+    label: "Browse templates",
+    description: "Working apps that you copy into your own GitHub account. Each template names the file to open first.",
+  },
+] as const;
+
+const publishedByKind = (kind: "project" | "template") =>
+  examples.filter((example) => example.kind === kind && example.status === "published");
 </script>
 
 <template>
@@ -16,18 +40,23 @@ useSeoMeta({
     </header>
 
     <div class="mt-10 grid gap-px border border-default bg-[var(--ui-border)] sm:grid-cols-2">
-      <NuxtLink to="/projects" class="group bg-default p-6 transition-colors hover:bg-muted/30">
-        <UIcon name="i-ph-git-branch-light" class="size-6 text-muted group-hover:text-highlighted" />
-        <h2 class="mt-4 text-xl font-semibold text-highlighted">Projects</h2>
-        <p class="mt-2 text-sm leading-6 text-muted">Read source code and inspect running applications.</p>
-        <span class="mt-6 inline-flex text-sm font-medium text-highlighted underline underline-offset-4">Browse projects</span>
-      </NuxtLink>
-      <NuxtLink to="/templates" class="group bg-default p-6 transition-colors hover:bg-muted/30">
-        <UIcon name="i-ph-squares-four-light" class="size-6 text-muted group-hover:text-highlighted" />
-        <h2 class="mt-4 text-xl font-semibold text-highlighted">Templates</h2>
-        <p class="mt-2 text-sm leading-6 text-muted">Copy a working app and make it yours.</p>
-        <span class="mt-6 inline-flex text-sm font-medium text-highlighted underline underline-offset-4">Browse templates</span>
-      </NuxtLink>
+      <section v-for="catalog in catalogs" :key="catalog.kind" class="flex flex-col bg-default p-6">
+        <UIcon :name="catalog.icon" class="size-6 text-muted" />
+        <h2 class="mt-4 text-xl font-semibold text-highlighted">{{ catalog.title }}</h2>
+        <p class="mt-2 text-sm leading-6 text-muted">{{ catalog.description }}</p>
+
+        <ul class="mt-6 flex-1 space-y-4">
+          <li v-for="example in publishedByKind(catalog.kind)" :key="example.slug">
+            <h3 class="text-sm font-semibold text-highlighted">{{ example.name }}</h3>
+            <p class="mt-1 text-sm leading-6 text-muted">{{ example.description }}</p>
+            <p class="mt-1 text-xs leading-5 text-dimmed">Built with {{ example.builtWith.join(", ") }}</p>
+          </li>
+        </ul>
+
+        <NuxtLink :to="catalog.to" class="mt-6 inline-flex text-sm font-medium text-highlighted underline underline-offset-4">
+          {{ catalog.label }}
+        </NuxtLink>
+      </section>
     </div>
   </main>
 </template>

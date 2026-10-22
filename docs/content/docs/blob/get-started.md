@@ -1,6 +1,6 @@
 ---
 title: Store your first Blob object
-description: Write a local text file to Blob and inspect its stored metadata.
+description: Install Blob, write a text file to a local object store from a server route, and check its path, content type, and size.
 navigation.title: Get started
 layout: tutorial
 navigation.order: 2

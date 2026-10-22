@@ -1,6 +1,6 @@
 ---
 title: Official capabilities
-description: Choose an official Capability by what the Agent needs to do.
+description: Choose an official Capability by what the Agent needs to do, such as Blob, Browser, Email, MCP, Sandbox, or Channel delivery.
 navigation.title: Official capabilities
 navigation.order: 102
 navigation.group: Capabilities
