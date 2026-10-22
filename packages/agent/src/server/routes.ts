@@ -2030,16 +2030,15 @@ async function executeQueuedWebhookDelivery(
       if (!trigger && (saved.task !== undefined || saved.requiresPrepare)) {
         throw agentDiagnostics.AGENT_R0779({ message: `[vitehub] Persisted webhook registration "${delivery.webhookId}" no longer exists.` })
       }
-      const taskKey = trigger ? queuedWebhookTaskKey(trigger, saved, invocation?.run) : undefined
-      const task = trigger && taskKey !== undefined
-        ? queuedWebhookTask(trigger, { ...saved, task: taskKey }, { validateOwnership: saved.task !== undefined || saved.agentName !== undefined })
-        : undefined
+      // The row runs what admission accepted. A row without a stored task key runs the host Agent;
+      // `run.origin` only selects the task `failed` handler for it (see queuedWebhookTaskKey).
+      const task = trigger ? queuedWebhookTask(trigger, saved) : undefined
       if (trigger && invocation) {
         accepted = {
           ...(task?.agent ? { agent: task.agent } : {}),
           input: invocation.input,
           ...(invocation.run ? { run: invocation.run } : {}),
-          ...(taskKey !== undefined ? { task: taskKey } : {}),
+          ...(saved.task !== undefined ? { task: saved.task } : {}),
           trigger,
         }
       }

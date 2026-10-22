@@ -3,7 +3,7 @@
 title: Run your first Shell command
 description: Search a read-only Workspace with Just Bash and inspect the command output.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

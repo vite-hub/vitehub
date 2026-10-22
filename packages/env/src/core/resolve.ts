@@ -8,6 +8,7 @@ import { runtimeValueSchema } from "./declarations.ts"
 import { envValueTypeName, parseEnvValue } from "./values.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
+import { Diagnostic } from "nostics"
 import { envSourceFailed, invalidEnvDeclaration, isAbortError, missingRequiredEnv } from "./errors.ts"
 
 import type {
@@ -198,7 +199,7 @@ export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | un
     return registry
   }
   catch (error) {
-    if (isViteHubError(error)) throw error
+    if (isClassifiedError(error)) throw error
     throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
 }
@@ -374,11 +375,18 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     }))
   }
   catch (error) {
-    if (isViteHubError(error)) {
+    if (isClassifiedError(error)) {
       throw error
     }
     throw invalidEnvDeclaration(path, `Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
+}
+
+// Env errors and diagnostics, such as an invalid default, already name the
+// declaration. Only unexpected errors, such as a revoked Proxy, are reported
+// as an invalid declaration.
+function isClassifiedError(error: unknown): boolean {
+  return isViteHubError(error) || error instanceof Diagnostic
 }
 
 function setOwnValue(record: Record<string, unknown>, key: string, value: unknown): void {

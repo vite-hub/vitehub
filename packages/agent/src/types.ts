@@ -1418,12 +1418,20 @@ export interface AgentCapabilityWorkspaceContribution {
   sources?: Record<string, WorkspaceSourceInput>
 }
 
+export interface AgentCapabilityWorkspaceContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentCapabilityContext<TRuntimeConfig, Name> {
+  /** Workspace paths that the Invocation's Driver materializes. */
+  workspaceMaterializationPaths?: readonly string[]
+}
+
 export type AgentCapabilityWorkspaceContributionResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > =
   | AgentCapabilityWorkspaceContribution
-  | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityWorkspaceContribution | false | null | undefined>)
+  | ((context: AgentCapabilityWorkspaceContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityWorkspaceContribution | false | null | undefined>)
 
 export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
@@ -3231,7 +3239,6 @@ export interface AgentAdapterRunContext<
   executionBudgetActive?: boolean
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

@@ -4,7 +4,6 @@ description: Call a Connection from server code, read its activity, and manage C
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports

@@ -17,25 +17,27 @@ function snapshot(conclusion = "success"): Snapshot {
   };
 }
 
-function reader(responses: { files?: string[][]; compare?: unknown; activity?: unknown; baseFailures?: number }): BaseFreshnessReader & { paths: string[] } {
+function reader(responses: { files?: string[][]; compare?: { ahead: number; files?: unknown[] }; activity?: unknown; baseFailures?: number }): BaseFreshnessReader & { paths: string[] } {
   const paths: string[] = [];
   return {
     paths,
     async rest(path) {
       paths.push(path);
-      if (path.endsWith("/actions/runs/77")) return ["2026-10-18T10:00:00Z"];
-      if (path.includes("/files?")) return responses.files ?? [];
+      if (path.includes("/files?")) return (responses.files ?? []).map(([filename, previous_filename]) => ({ filename, previous_filename }));
+      if (path.includes("/check-runs?")) return Array.from({ length: responses.baseFailures ?? 0 }, () => ({ conclusion: "failure" }));
       return [];
     },
-    async page(path, projection) {
+    async page(path) {
       paths.push(path);
-      if (path.includes("/activity?")) {
-        // The push must be at least two minutes older than the run start.
-        expect(projection).toContain(String(Math.floor((Date.parse("2026-10-18T10:00:00Z") - 120_000) / 1000)));
-        return responses.activity ?? tested;
+      if (path.endsWith("/actions/runs/77")) return { created_at: "2026-10-18T10:00:00Z" };
+      // The push must be at least two minutes older than the run start.
+      if (path.includes("/activity?")) return responses.activity ?? [
+        { timestamp: "2026-10-18T09:59:00Z", after: "e".repeat(40) },
+        { timestamp: "2026-10-18T09:58:00Z", after: tested },
+      ];
+      if (path.includes("/compare/")) {
+        return responses.compare && { ahead_by: responses.compare.ahead, files: responses.compare.files?.map(file => typeof file === "string" ? { filename: file } : file) };
       }
-      if (path.includes("/compare/")) return responses.compare;
-      if (path.includes("/check-runs?")) return responses.baseFailures ?? 0;
       return undefined;
     },
   };
@@ -47,7 +49,7 @@ describe("Babysitter base freshness", () => {
   it("returns the files that both the PR and the base changed after the checks ran", async () => {
     const read = reader({ files: [["src/a.ts", null as unknown as string], ["src/b.ts", "src/old-b.ts"]], compare: { ahead: 2, files: ["src/old-b.ts", "README.md", null] } });
     expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/old-b.ts"]);
-    expect(read.paths).toContain(`repos/acme/app/compare/${tested}...main?per_page=300`);
+    expect(read.paths).toContain(`repos/acme/app/compare/${tested}...main?per_page=100`);
   });
 
   it("finds no overlap when the base did not move", async () => {
@@ -64,10 +66,10 @@ describe("Babysitter base freshness", () => {
 
   it("treats an empty pull-request metadata array as ambiguous", async () => {
     const read = reader({ files: [["src/a.ts"]] });
-    const originalRest = read.rest;
-    read.rest = async (path, projection, requestSignal) => {
-      if (path.endsWith("/actions/runs/77")) return [{ created_at: "2026-10-18T10:00:00Z", pull_requests: [] }];
-      return originalRest(path, projection, requestSignal);
+    const originalPage = read.page;
+    read.page = async (path, requestSignal) => {
+      if (path.endsWith("/actions/runs/77")) return { created_at: "2026-10-18T10:00:00Z", pull_requests: [] };
+      return originalPage(path, requestSignal);
     };
     expect(await staleBaseOverlap(read, snapshot(), live, signal)).toEqual(["src/a.ts"]);
     expect(read.paths.some((path) => path.includes("/activity?"))).toBe(false);

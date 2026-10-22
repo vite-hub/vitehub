@@ -2,6 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime } from "../src/runtime/state.ts"
@@ -63,6 +64,28 @@ describe("Process Schedule Runtime", () => {
         status: "succeeded",
       }),
     ])
+  })
+
+  it("evaluates a Static Schedule cron in its declared time zone", async () => {
+    const handlers = { madrid: vi.fn(), utc: vi.fn() }
+    // 08:00 in Madrid is 06:00Z in summer (CEST) and 07:00Z in winter (CET).
+    for (const now of ["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z", "2026-07-15T08:00:00.000Z"]) {
+      const scheduleRunStore = createMemoryScheduleRunStore()
+      const controller = await installProcessScheduleRuntime({
+        catchUpMs: 0,
+        now: () => new Date(now),
+        registry: {
+          madrid: async () => defineSchedule({ cron: "0 8 * * *", handler: handlers.madrid, timeZone: "Europe/Madrid" }),
+          utc: async () => defineSchedule({ cron: "0 8 * * *", handler: handlers.utc }),
+        },
+        scheduleRunStore,
+      })
+      await vi.waitFor(async () => expect(await scheduleRunStore.listRuns()).toEqual([expect.objectContaining({ status: "succeeded" })]))
+      await controller.close()
+    }
+
+    expect(handlers.madrid.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual(["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z"])
+    expect(handlers.utc.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual(["2026-07-15T08:00:00.000Z"])
   })
 
   it("catches up a Static Schedule minute that no process checked during a restart", async () => {

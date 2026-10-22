@@ -101,8 +101,6 @@ describe("hubBlob", () => {
       sibling.capture(context, catalog)
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
       ;(plugin.buildStart as unknown as (this: unknown) => void).call(context)
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
-      ;(plugin.buildEnd as unknown as (this: unknown, error?: Error) => void).call(context)
 
       const generation = sibling.get(context)
       expect(getProviderRuntimeModule(catalog, "blob", provider, generation)).toBe(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"))
@@ -123,8 +121,6 @@ describe("hubBlob", () => {
       const context = { environment: {} }
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
       ;(plugin.buildStart as unknown as (this: unknown) => void).call(context)
-      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
-      ;(plugin.buildEnd as unknown as (this: unknown, error?: Error) => void).call(context)
 
       expect(getProviderRuntimeModule(useProviderOutputCatalog(resolvedConfig), "blob", "vercel")).toBeUndefined()
     }

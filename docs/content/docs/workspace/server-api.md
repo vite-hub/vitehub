@@ -4,7 +4,6 @@ description: Read, write, diff, snapshot, sync, and run sessions on a Workspace 
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 Use these imports and methods to work with a Workspace from server code.
