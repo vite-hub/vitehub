@@ -86,6 +86,10 @@ icon: i-lucide-file-text
   Add the full-text search plugin. It keeps its search index in SQLite.
   :::
 
+  :::product-feature-item{title="URLs, head tags, and a sitemap" icon="i-lucide-search-check" to="/docs/content/seo"}
+  `seo()` fields, `contentHead()` for any framework, and generated `/sitemap.xml` and `/robots.txt`.
+  :::
+
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
   `createContentClient()` reads the `/api/content` route that ViteHub adds for you.
   :::

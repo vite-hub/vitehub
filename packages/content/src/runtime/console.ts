@@ -232,6 +232,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       revision: document.revision,
       updatedAt: document.updatedAt,
     }
+    if (document.url !== undefined) result.url = document.url
     const current = state ?? await stateOf(collection, document.id)
     if (current) result.state = current
     return result
@@ -268,8 +269,9 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     async collections(context) {
       const collections: ViteHubConsoleDocumentCollection[] = []
       for (const collection of content.collections()) {
+        const id = collection.kind === "singleton" ? collection.id : undefined
         const [read, write, publish] = await Promise.all((["read", "write", "publish"] as const).map(action =>
-          content.can({ user: context.user, collection: collection.name, action })))
+          content.can({ user: context.user, collection: collection.name, action, ...(id === undefined ? {} : { id }) })))
         if (!read) continue
         // A singleton's fixed document can have a stricter policy than collection discovery.
         // Do not expose its metadata when that document is not readable.

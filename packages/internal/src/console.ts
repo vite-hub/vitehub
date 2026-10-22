@@ -304,6 +304,8 @@ export interface ViteHubConsoleDocument {
   /** When the document last changed on the draft, as an ISO timestamp, or null when the owner cannot tell. */
   updatedAt: string | null
   state?: ViteHubConsoleDocumentState
+  /** Public URL path of the document, such as `/blog/hello`, when the owner maps documents to pages. */
+  url?: string | null
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */

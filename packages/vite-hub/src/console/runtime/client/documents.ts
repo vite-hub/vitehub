@@ -50,6 +50,8 @@ export interface ConsoleDocument {
   revision: string
   state?: ConsoleDocumentState
   updatedAt: string | null
+  /** Public URL path, such as `/blog/hello`, when the collection maps documents to pages. */
+  url?: string | null
 }
 
 /** One stored file as written, frontmatter included. */
@@ -700,4 +702,78 @@ export function consoleDocumentText(version: { body: string, data: Record<string
   // Compare bodies by content, not by a trailing newline that the rich editor drops.
   const body = version.body.endsWith("\n") ? version.body : `${version.body}\n`
   return `${fields ? `---\n${fields}---\n\n` : ""}${body}`
+}
+
+// SEO
+
+/** The `x-vitehub-seo` hint of a `seo()` field: lengths that search results and social cards show. */
+export interface ConsoleSeoHint {
+  description: { min: number, recommended: number }
+  title: { recommended: number }
+}
+
+export interface ConsoleSeoFallbacks {
+  description?: string
+  image?: unknown
+  title?: string
+  /** Document URL path, such as `/blog/hello`. */
+  url?: string
+}
+
+/** The name and hint of the collection's `seo()` field, found by its `x-vitehub-seo` keyword. */
+export function consoleSeoField(schema: Record<string, unknown>): { hint: ConsoleSeoHint, name: string, schema: Record<string, unknown> } | undefined {
+  for (const [name, value] of Object.entries(record(schema.properties) ?? {})) {
+    const property = record(value)
+    const hint = record(property?.["x-vitehub-seo"])
+    if (!property || !hint) continue
+    const number = (value: unknown, fallback: number) => (Number.isFinite(value) ? Number(value) : fallback)
+    const title = record(hint.title) ?? {}
+    const description = record(hint.description) ?? {}
+    return {
+      hint: {
+        description: { min: number(description.min, 50), recommended: number(description.recommended, 160) },
+        title: { recommended: number(title.recommended, 60) },
+      },
+      name,
+      schema: property,
+    }
+  }
+}
+
+function firstText(data: Record<string, unknown>, fields: readonly string[]): string | undefined {
+  for (const field of fields) {
+    const value = data[field]
+    if (String(value) === value && value.trim()) return value.trim()
+  }
+}
+
+/** What `contentHead()` falls back to when an SEO value is empty: the document title, then its description or summary. */
+export function consoleSeoFallbacks(data: Record<string, unknown>, titleField: string | undefined, url: string | null | undefined): ConsoleSeoFallbacks {
+  const fallbacks: ConsoleSeoFallbacks = {}
+  const title = firstText(data, titleField ? [titleField, "title", "name"] : ["title", "name"])
+  const description = firstText(data, ["description", "summary", "excerpt"])
+  if (title) fallbacks.title = title
+  if (description) fallbacks.description = description
+  if (url) fallbacks.url = url
+  return fallbacks
+}
+
+/**
+ * A URL the Console can show for an image value: a URL as is, or the Blob serve route for a `{ pathname }` reference.
+ * The serve route answers only with `blob: { serve: true }`, so the preview falls back to a placeholder.
+ */
+export function consoleImageUrl(image: unknown): string | undefined {
+  if (String(image) === image && image.trim()) return image
+  const reference = record(image)
+  const pathname = reference?.pathname
+  if (String(pathname) !== pathname || !pathname) return
+  return `/api/_vitehub/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`
+}
+
+/** Text cut to a length on a word boundary with an ellipsis, as search results show it. */
+export function consoleTruncate(value: string, length: number): string {
+  if (value.length <= length) return value
+  const cut = value.slice(0, length + 1)
+  const space = cut.lastIndexOf(" ")
+  return `${(space > length * 0.6 ? cut.slice(0, space) : value.slice(0, length)).trimEnd()}…`
 }
