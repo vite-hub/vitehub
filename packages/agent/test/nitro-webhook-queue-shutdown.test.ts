@@ -14,18 +14,24 @@ import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
-const packedPackages = ["agent", "sandbox", "env", "forge", "markdown-template", "rate-limit", "runtime", "source", "workflow", "workspace"] as const
+const packedPackages = ["agent", "env", "forge", "markdown-template", "rate-limit", "runtime", "sandbox", "source", "workflow", "workspace"] as const
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
   const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
-  await execFileAsync(command, commandArgs, {
-    cwd,
-    env: { ...process.env, CI: "true" },
-    killSignal: "SIGKILL",
-    timeout: 60_000,
-  })
+  try {
+    await execFileAsync(command, commandArgs, {
+      cwd,
+      env: { ...process.env, CI: "true" },
+      killSignal: "SIGKILL",
+      timeout: 60_000,
+    })
+  }
+  catch (error) {
+    const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr) : String(error)
+    throw new Error(`Command failed: ${command} ${commandArgs.join(" ")}\n${detail}`, { cause: error })
+  }
 }
 
 async function availablePort(): Promise<number> {
@@ -206,8 +212,7 @@ finally {
     ])
     expect(unownedListeners.sigterm).not.toContain("shutdown")
     child.kill("SIGTERM")
-    // The queue does not own shutdown here, but the Agent drain (#2513) still drains and exits cleanly.
-    await expect(unownedExited).resolves.toEqual([0, null])
+    await expect(unownedExited).resolves.toEqual([null, "SIGTERM"])
     child = undefined
 
     const port = await availablePort()
@@ -220,8 +225,11 @@ finally {
         TEST: undefined,
         VITEHUB_QUEUE_PROOF: proofPath,
       },
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     })
+    let stdout = ""
+    child.stdout!.setEncoding("utf8")
+    child.stdout!.on("data", chunk => (stdout += chunk))
     let stderr = ""
     child.stderr!.setEncoding("utf8")
     child.stderr!.on("data", chunk => (stderr += chunk))
@@ -252,8 +260,13 @@ finally {
     ])
 
     expect(listeners).toMatchObject({ sigterm: expect.any(Array) })
-    expect(listeners.sigterm.slice(0, 2)).toEqual(["shutdownWebhookQueues", "listener"])
+    // ViteHub keeps its single stop listener while the server listener is held until drains settle.
+    expect(listeners.sigterm).toContain("stop")
+    expect(listeners.sigterm).not.toContain("shutdownWebhookQueues")
     expect(exit).toEqual([0, null])
+    expect(stdout).toContain('"event":"shutdown.draining"')
+    expect(stdout).toContain('"event":"shutdown.drained"')
+    expect(stdout).toContain('"event":"shutdown.exited"')
     await expect(readFile(proofPath, "utf8")).resolves.toContain("aborted:true")
 
     // The restarted server resumes the re-queued delivery without an inbound request.

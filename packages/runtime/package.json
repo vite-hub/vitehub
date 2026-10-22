@@ -67,6 +67,12 @@
       "require": "./dist/node.js",
       "default": "./dist/node.js"
     },
+    "./shutdown": {
+      "types": "./dist/shutdown.d.ts",
+      "import": "./dist/shutdown.js",
+      "require": "./dist/shutdown.js",
+      "default": "./dist/shutdown.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
