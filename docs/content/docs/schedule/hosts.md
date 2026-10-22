@@ -6,6 +6,10 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
+## Failed runs
+
+When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule "<name>" failed (cron "<cron>").` with the error message, stack, `status`, and `cause` chain. Other schedules on the same cron still finish. The run then rejects with the error, or with an `AggregateError` when more than one schedule failed, so the host marks the cron invocation as failed. ViteHub does not retry a failed run. The next cron tick runs the schedule again.
+
 ## Provider output
 
 | Mode | Output | Nuance |

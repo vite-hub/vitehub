@@ -7,9 +7,10 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
+  RealtimeAuthorizeContext,
   RealtimeCheckpoint,
   RealtimeDefinition,
   RealtimeDocumentAdapter,
@@ -58,6 +59,7 @@ import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -504,7 +506,7 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
   return user
 }
 
-async function identify(request: Request, event: unknown, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
+async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
   if (definition.identify) {
     const origin = request.headers.get("origin")
     // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
@@ -529,7 +531,7 @@ async function identify(request: Request, event: unknown, definitionName: string
 
 async function allows(
   definition: RealtimeDefinition,
-  context: { definition: string, documentId: string | null, event: unknown, mode: "read" | "write", request: Request, user: RealtimeUser | null },
+  context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
   if (!definition.authorize) return true
   return (await definition.authorize(context)) !== false
@@ -559,29 +561,46 @@ export interface RealtimeDurableObjectNamespace {
   idFromName(name: string): unknown
 }
 
+/**
+ * Accepts the namespace that holds Realtime rooms, and nothing that only inherits `get` and `idFromName` from an
+ * arbitrary prototype. Workerd's binding owns no methods: they belong to its `DurableObjectNamespace` class prototype,
+ * and Workers have no global `DurableObjectNamespace` to compare with. Any other namespace, such as a test double,
+ * must own both methods.
+ */
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false
-  const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
-  const callable = (method: unknown) => {
-    if (typeof method !== "function") return false
-    try { return Function.prototype.toString.call(method) !== "function () { [native code] }" } catch { return false }
-  }
+  const methods = (target: object) => ["get", "idFromName"].map(name => Object.getOwnPropertyDescriptor(target, name))
+  const callable = (method: PropertyDescriptor | undefined) => !!method && !method.get && typeof method.value === "function"
+    && Function.prototype.toString.call(method.value) !== "function () { [native code] }"
   try {
-    if (typeof constructor === "function") {
-      if (!(value instanceof constructor)) return false
-      const get = Object.getOwnPropertyDescriptor(value, "get")
-      const id = Object.getOwnPropertyDescriptor(value, "idFromName")
-      return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
-    }
-    const get = Object.getOwnPropertyDescriptor(value, "get")
-    const id = Object.getOwnPropertyDescriptor(value, "idFromName")
-    return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
-  } catch { return false }
+    const own = methods(value)
+    if (own.every(callable)) return true
+    const prototype: unknown = Object.getPrototypeOf(value)
+    if (own.some(Boolean) || prototype === null || typeof prototype !== "object" || Object.getPrototypeOf(prototype) !== Object.prototype) return false
+    return Object.prototype.toString.call(value) === "[object DurableObjectNamespace]" && methods(prototype).every(callable)
+  }
+  catch { return false }
 }
 
 export interface RealtimeRefreshOptions {
-  /** On Cloudflare, the `$DurableObject` binding. Without it, only rooms of this process refresh. */
+  /**
+   * On Cloudflare, the `$DurableObject` binding that holds the rooms. Defaults to the binding of the running Worker.
+   * Without one, the rooms of this process refresh.
+   */
   durableObjects?: RealtimeDurableObjectNamespace
+}
+
+/** The `$DurableObject` binding of the running Worker. Nitro's Cloudflare entry stores each request's bindings in `globalThis.__env__`. */
+function workerDurableObjects(): RealtimeDurableObjectNamespace | undefined {
+  try {
+    // The internal runtime resolves the active request's AsyncLocalStorage scope before
+    // falling back to Nitro's ambient __env__ binding.
+    const binding = getActiveCloudflareBinding<unknown>("$DurableObject")
+    return isRealtimeDurableObjectNamespace(binding) ? binding : undefined
+  }
+  catch {
+    return undefined
+  }
 }
 
 /**
@@ -591,6 +610,8 @@ export interface RealtimeRefreshOptions {
  * whether a room re-seeded. It never throws: a failed refresh leaves the next save to find the change.
  */
 export async function refreshRealtimeDocument(definition: string, documentId: string, options: RealtimeRefreshOptions = {}): Promise<boolean> {
+  const binding = options.durableObjects ?? workerDurableObjects()
+  if (binding) return await refreshDurableRoom(binding, definition, documentId)
   let reseeded = false
   for (const reference of localRefreshers()) {
     const refresh = reference.deref()
@@ -605,8 +626,14 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
       // The next save of that room finds the change.
     }
   }
-  const binding = options.durableObjects
-  if (!binding) return reseeded
+  return reseeded
+}
+
+/**
+ * On Cloudflare the rooms belong to the Durable Object, even when it shares an isolate with the Worker that calls this.
+ * Only the Durable Object may refresh them: from the Worker's request, a room's sockets cannot receive the reset.
+ */
+async function refreshDurableRoom(binding: RealtimeDurableObjectNamespace, definition: string, documentId: string): Promise<boolean> {
   try {
     const room = documentId.split("/").map(encodeURIComponent).join("/")
     const response = await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
@@ -614,10 +641,10 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
       { method: "POST", headers: { [internalRefreshHeader]: "1" } },
     ))
     const result: unknown = response.ok ? await response.json() : undefined
-    return reseeded || (result instanceof Object && "reseeded" in result && result.reseeded === true)
+    return result instanceof Object && "reseeded" in result && result.reseeded === true
   }
   catch {
-    return reseeded
+    return false
   }
 }
 
@@ -1242,7 +1269,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return { ...saved, digest: saved.digest, snapshot }
   }
 
-  async function requestContext(event: { context: Record<string, unknown>, req: Request }) {
+  async function requestContext(event: H3Event) {
     const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
     const resolved = resolveRealtimeDefinition(definition)

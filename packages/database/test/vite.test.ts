@@ -238,6 +238,62 @@ describe("hubDb", () => {
     expect(getActiveCloudflareRequestScope()).toBeDefined()
   })
 
+  it("installs request scope middleware for D1 read replication without Postgres", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "readReplication: true," })
+    const options: { cloudflare?: { wrangler?: { d1_databases?: unknown } }, handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>, output: { serverDir: string }, preset: string } = {
+      output: { serverDir: join(rootDir, ".output", "server") },
+      preset: "cloudflare-module",
+    }
+    const plugin = hubDb()
+    plugin.nitro.setup({ hooks: { hook: () => {} }, options })
+
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+  })
+
+  it("keeps request scope middleware for opaque D1 read replication", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "const notes = sqliteTable('notes', { title: text('title') })",
+      "const cloudflare = { readReplication: process.env.READ_REPLICATION === 'true' }",
+      "export default defineDatabase({ name: 'default', cloudflare: { ...cloudflare }, schema: { notes } })",
+      "",
+    ].join("\n"))
+    const options: { handlers?: Array<{ handler: string, middleware?: boolean }>, output: { serverDir: string }, preset: string } = {
+      output: { serverDir: join(rootDir, ".output", "server") },
+      preset: "cloudflare-module",
+    }
+    const plugin = hubDb()
+    plugin.nitro.setup({ hooks: { hook: () => {} }, options })
+
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+  })
+
+  it("keeps request scope middleware when a configured D1 readReplication is dynamic", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", {
+      cloudflare: "databaseName: 'app', readReplication: process.env.READ_REPLICATION === 'true',",
+    })
+    const options: { handlers?: Array<{ handler: string, middleware?: boolean }>, output: { serverDir: string }, preset: string } = {
+      output: { serverDir: join(rootDir, ".output", "server") },
+      preset: "cloudflare-module",
+    }
+    const plugin = hubDb()
+    plugin.nitro.setup({ hooks: { hook: () => {} }, options })
+
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+  })
+
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
     const rootDir = await createTempProject()
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")

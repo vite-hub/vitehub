@@ -460,7 +460,14 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON values. Root numbers and booleans become text for the `advocaat` Entry contract. Numbers and booleans inside objects or arrays stay native. Score legends retain the original level descriptions.
 
-`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing TypeSafe API key fail the Invocation with a diagnostic. The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
+`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing API key fail the Invocation with a diagnostic before any request. With `typesafeEnv({ provider: 'vercel' })`, the key is `AI_GATEWAY_API_KEY`. On Vercel, `VERCEL_OIDC_TOKEN` also works.
+
+Jev questions do not change state, so ViteHub retries a failed request up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. Other failures stop the Invocation at once:
+
+| Code | When | `status` | Also on the error |
+| --- | --- | --- | --- |
+| `AGENT_R1009` | The provider rejected the key with 401 or 403. The key is missing, expired, or not allowed. The `fix` names the variable to set. | `503` | `providerStatus`, `requestId`, `cause` |
+| `AGENT_R1010` | The provider still failed after three attempts. | `502` | `providerStatus`, `requestId`, `cause` | The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
 
 Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
 

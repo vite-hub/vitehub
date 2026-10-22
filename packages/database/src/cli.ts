@@ -6,10 +6,14 @@ import { pathToFileURL } from "node:url"
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { MigrationPlan } from "./internal/migration-plan.ts"
 
 import { dirname, isAbsolute, relative, resolve } from "pathe"
 
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+
 import { resolveConfigValue } from "./config-value.ts"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
@@ -53,15 +57,24 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
 
 function writeMigrateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
-    "Usage: vitehub db migrate",
+    "Usage: vitehub db migrate [--dry-run] [--allow-data-loss]",
     "",
-    "Refreshes ViteHub database artifacts and applies Drizzle migrations.",
+    "Refreshes ViteHub database artifacts and applies pending Drizzle migrations.",
+    "It first reads the applied migrations from the database. It refuses pending",
+    "migrations that drop tables or columns or delete rows.",
+    "",
+    "Options:",
+    "  --dry-run          Print the pending migrations and their SQL. Change nothing.",
+    "  --allow-data-loss  Apply migrations that lose data. Skips the check.",
+    "  -h, --help         Show this help.",
     "",
   ].join("\n"))
 }
 
+const migrateFlags = new Set(["--allow-data-loss", "--dry-run"])
+
 function forwardDrizzleArgs(args: string[]) {
-  return args.filter(arg => arg !== "-h" && arg !== "--help")
+  return args.filter(arg => arg !== "-h" && arg !== "--help" && !migrateFlags.has(arg))
 }
 
 function toConfigPath(rootDir: string, file: string): string {
@@ -112,10 +125,59 @@ async function runDrizzleKit(
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
+  const dryRun = feature === "migrate" && args.includes("--dry-run")
+  const allowDataLoss = args.includes("--allow-data-loss")
+  if (feature === "migrate" && (dryRun || !allowDataLoss)) {
+    // Check every Database before the first one changes, so a refusal leaves all of them as they were.
+    let exitCode = 0
+    for (const { database } of runs) {
+      exitCode = Math.max(exitCode, await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun }))
+    }
+    if (dryRun) context.stdout.write("[vitehub] Dry run. No changes were made.\n")
+    if (exitCode !== 0 || dryRun) return exitCode
+  }
   for (const { configFile, database } of runs) {
     if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
     if (result !== 0) return result
+  }
+  return 0
+}
+
+function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
+  const count = plan.pending.length
+  const lines = [`[vitehub] Database "${plan.database}" (${plan.target}): ${count ? `${count} pending ${count === 1 ? "migration" : "migrations"}.` : "no pending migrations."}`]
+  for (const migration of plan.pending) {
+    lines.push("", `  ${migration.name}`)
+    for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
+    for (const loss of migration.dataLoss) lines.push(`    ! Data loss: ${loss.reason}.`)
+  }
+  context.stdout.write(`${lines.join("\n")}\n`)
+}
+
+/** Reads the pending migrations before `migrate` and refuses the ones that lose data. Returns the exit code. */
+async function checkPendingMigrations(
+  database: ResolvedDrizzleDatabaseConfig | undefined,
+  projectRoot: string,
+  context: ViteHubCliContext,
+  { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
+): Promise<number> {
+  // Keep the database driver and migration inspector out of config-time imports.
+  // The CLI contributor is loaded while Vite resolves the project config.
+  const { readMigrationPlan } = await import("./internal/migration-plan.ts")
+  const [error, plan] = database
+    ? await readMigrationPlan(database, { env: context.env ?? process.env, projectRoot })
+    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
+  if (error) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.\n")
+    return 1
+  }
+  if (dryRun) writeMigrationPlan(plan, context)
+  const losses = plan.pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
+  if (losses.length && !allowDataLoss) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: plan.database, statements: losses }))}\n`)
+    return 1
   }
   return 0
 }
@@ -195,7 +257,7 @@ export function createDbCliContributor(
   }
   if (options?.migrate !== false) {
     features.push({
-      description: "Apply database migrations.",
+      description: "Apply database migrations. Refuses migrations that lose data.",
       name: "migrate",
       run: async (args, context) => {
         if (args.includes("-h") || args.includes("--help")) {
@@ -204,7 +266,7 @@ export function createDbCliContributor(
         }
         return await runDrizzleKit("migrate", args, context, getConfig)
       },
-      usage: "vitehub db migrate",
+      usage: "vitehub db migrate [--dry-run] [--allow-data-loss]",
     })
   }
 

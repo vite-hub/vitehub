@@ -24,6 +24,7 @@ const cloudflareBridgeState = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
 vi.mock("@vite-hub/database/runtime/state", () => ({
+  runWithDatabaseRequest: (_event: unknown, next: () => unknown) => next(),
   runWithActiveCloudflareEnv: (env: Record<string, unknown>, callback: () => unknown) => {
     cloudflareBridgeState.scopedEnv = env
     try {

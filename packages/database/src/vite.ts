@@ -16,7 +16,7 @@ import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
@@ -159,11 +159,11 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
     "  const env = event?.env ?? event?.req?.runtime?.cloudflare?.env ?? event?.context?.cloudflare?.env ?? event?.context?._platform?.cloudflare?.env ?? globalThis.__env__",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "  setActiveCloudflareEnv(env)",
     "}",
     "",
@@ -248,6 +248,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     return resolved?.database ?? options
   }
 
+  function integrationReadReplication() {
+    const database = resolvedOptions()
+    return database && database.driver === "d1" ? database.readReplication : undefined
+  }
+
   function databaseRoot() {
     const database = resolvedOptions()
     return resolve(resolved?.root ?? process.cwd(), database && "projectRoot" in database ? database.projectRoot ?? "." : ".")
@@ -314,7 +319,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   // Workers reuse the env object across requests. This middleware gives each request its own scope,
   // so the Postgres runtime creates one client per request.
   function installNitroPostgresRequestScope() {
-    if (!nitroOptions || !runtimeConfig || !usesPostgres(runtimeConfig) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
+    if (!nitroOptions || !runtimeConfig || !(usesPostgres(runtimeConfig) || usesD1ReadReplication(runtimeConfig)) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
     const handler = resolve(databaseRoot(), NITRO_REQUEST_SCOPE_MIDDLEWARE)
     mkdirSync(dirname(handler), { recursive: true })
     writeFileSync(handler, renderNitroRequestScopeMiddleware())
@@ -391,6 +396,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               implicitDefault: true,
               plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
+              readReplication: integrationReadReplication(),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
               viteRoot: resolved?.root,

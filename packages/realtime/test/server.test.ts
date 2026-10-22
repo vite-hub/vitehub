@@ -504,24 +504,32 @@ describe("realtime server handler", () => {
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
     const client = new Y.Doc()
     response.crossws.open(peer)
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
 
-    const edit = (key: string) => {
-      const before = Y.encodeStateVector(client)
-      client.getMap("edits").set(key, true)
-      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+    try {
+      const edit = (key: string) => {
+        const before = Y.encodeStateVector(client)
+        client.getMap("edits").set(key, true)
+        response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+      }
+      // A burst of 40 updates, such as fast typing, is applied at once.
+      for (let index = 0; index < 40; index++) edit(`key-${index}`)
+      const applied = peer.publish.mock.calls.length
+      expect(applied).toBeGreaterThan(0)
+      // Holding a key keeps sending: the next ones wait instead of closing the peer.
+      for (let index = 0; index < 5; index++) edit(`held-${index}`)
+      expect(peer.publish.mock.calls.length).toBe(applied)
+      now.mockRestore()
+
+      await new Promise(resolve => setTimeout(resolve, 80))
+
+      expect(peer.close).not.toHaveBeenCalled()
+      // The five held updates reach the room as one.
+      expect(peer.publish.mock.calls.length).toBe(applied + 1)
     }
-    // A burst of 40 updates, such as fast typing, is applied at once.
-    for (let index = 0; index < 40; index++) edit(`key-${index}`)
-    const applied = peer.publish.mock.calls.length
-    expect(applied).toBeGreaterThan(0)
-    // Holding a key keeps sending: the next ones wait instead of closing the peer.
-    for (let index = 0; index < 5; index++) edit(`held-${index}`)
-    expect(peer.publish.mock.calls.length).toBe(applied)
-    await new Promise(resolve => setTimeout(resolve, 80))
-
-    expect(peer.close).not.toHaveBeenCalled()
-    // The five held updates reach the room as one.
-    expect(peer.publish.mock.calls.length).toBe(applied + 1)
+    finally {
+      now.mockRestore()
+    }
     client.destroy()
   })
 

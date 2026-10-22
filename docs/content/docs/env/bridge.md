@@ -132,7 +132,7 @@ const token = env.githubToken.unseal()
 | `createDatabaseEnvStore` from `vite-hub/env/database` | Store encrypted values, grants, and activity in a SQLite Drizzle database. |
 | `createEnvAuthenticator` from `vite-hub/env/auth` | Turn a request into an `EnvAccessContext` from a Better Auth session or a verified Agent session. It is the only way to get a user, Agent token, or administrator context. |
 | `createEnvBridgeHandler` from `vite-hub/env/http` | Handle management requests on a server route. The Console uses it through the generated Server Env module. |
-| `importSealKey`, `seal`, `unseal`, `sealKeyId` from `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages that store sealed values. |
+| `importSealKey`, `seal`, `unseal`, `sealKeyId` from `vite-hub/env/seal` or `@vite-hub/env/seal` | AES-GCM helpers in the database store format, for owner packages that store sealed values. |
 
 Types such as `EnvAccessContext`, `EnvPermission`, `EnvGrant`, `EnvActivity`, `EnvSecretStore`, and `EnvAccessStore` come from `vite-hub/env/bridge`. Each `vite-hub/env/<subpath>` import is also available as `@vite-hub/env/<subpath>`.
 
