@@ -3,7 +3,7 @@ import { runViteHubCliEntrypoint } from "@vite-hub/cli"
 import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { isAgentCliEnabled } from "./internal/runtime-feature-guard.ts"
-import { secretCliFeatures } from "@vite-hub/env"
+import { secretCliFeatures } from "@vite-hub/env/cli"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
