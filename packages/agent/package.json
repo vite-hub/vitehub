@@ -271,8 +271,7 @@
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
-    "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",
@@ -297,7 +296,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
-    "eve": "0.72.1",
+    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -306,8 +305,8 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0",
+    "evlog": "^2.32.0",
+    "posthog-node": "^5.56.2",
     "@t3tools/provider-runtime": "catalog:",
     "forges": "catalog:"
   },
@@ -333,9 +332,10 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "eve": "0.46.1 || 0.72.1",
+    "eve": "0.80.1",
     "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0"
+    "posthog-node": "^5.55.0",
+    "@vite-hub/connections": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@agntn/web": {
@@ -390,6 +390,9 @@
       "optional": true
     },
     "posthog-node": {
+      "optional": true
+    },
+    "@vite-hub/connections": {
       "optional": true
     }
   },
