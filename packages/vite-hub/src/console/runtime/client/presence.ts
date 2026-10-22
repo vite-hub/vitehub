@@ -12,7 +12,7 @@ interface PageEvents {
 }
 
 // The Console helpers compile without DOM types, so the page is read through the few members presence uses.
-// SAFETY: The Console runs in a browser, where `window` and `document` have these members.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The Console runs in a browser, where `window` and `document` have these members.
 const page = globalThis as unknown as PageEvents & { document: PageEvents & { visibilityState: string } }
 
 function hidden(): boolean {

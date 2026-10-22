@@ -35,8 +35,8 @@ export type ContentSessionsTable = SQLiteTableWithColumns<{
  * One row per editor session on one document: who has it open, whether they view or edit it, and how long that holds.
  * Times are milliseconds since the epoch from the Database clock, so every host agrees on expiry.
  */
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 // SAFETY: ContentSessionsTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 const contentSessions = sqliteTable("vitehub_content_sessions", {
   workspace: text("workspace").notNull(),
   collection: text("collection").notNull(),

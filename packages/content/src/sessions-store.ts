@@ -156,11 +156,12 @@ export function createSessionStore(database: Database, workspace: string, timeou
       }
       // Rows long past expiry carry nothing; drop them while the batch already writes.
       statements.push(database.delete(table).where(and(eq(table.workspace, workspace), lt(table.expiresAt, sql`${now} - 3600000`))))
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Drizzle types a batch as a tuple of its statements; this one is built at runtime from the same table.
       const results = await database.batch([
         ...statements,
         database.select(selection).from(table).where(and(document(key), gt(table.expiresAt, now))),
       ] as unknown as Parameters<Database["batch"]>[0])
-      // SAFETY: The last statement of the batch is the select above.
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: The last statement of the batch is the select above.
       return results.at(-1) as unknown as SessionRow[]
     },
 
