@@ -148,6 +148,16 @@ describe("hubAuth", () => {
     expect(ambientTypes).not.toContain("from \"@vite-hub/auth/server\"")
   })
 
+  it("registers the Auth Definition type in the generated declarations", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+
+    await resolvePluginConfig(hubAuth(), root)
+
+    const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
+    expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
+  })
+
   it("connects the virtual Auth server helper to ViteHub Env when available", async () => {
     const root = await createTempProject()
     await writeAuth(root)
