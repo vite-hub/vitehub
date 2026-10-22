@@ -18,6 +18,7 @@ catalog:
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
+linkWorkspacePackages: true
 
 catalogs:
   ai:
@@ -42,10 +43,10 @@ catalogs:
     "@cloudflare/playwright": ^1.3.6
     playwright-core: ^1.63.0
   chat:
-    "@chat-adapter/teams": 4.41.1
-    "@chat-adapter/discord": 4.41.1
-    "@chat-adapter/telegram": 4.41.1
-    chat: 4.41.1
+    "@chat-adapter/discord": 4.43.0
+    "@chat-adapter/teams": 4.43.0
+    "@chat-adapter/telegram": 4.43.0
+    chat: 4.43.0
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.18.0
@@ -210,5 +211,7 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
+  "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta: patches/nitro@3.0.260903-beta.patch
+  nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch
