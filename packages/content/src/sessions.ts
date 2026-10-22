@@ -26,8 +26,11 @@ export interface ContentSession {
   /** The token of the tab or client that reported it. */
   session: string
   user: { id: string, name: string | null, image: string | null }
-  /** `edit` while it holds the edit lease, or reported editing in a collection without leases. Otherwise `view`. */
-  kind: "view" | "edit"
+  /**
+   * `edit` while it holds the edit lease, or reported editing in a collection without leases. `live` for a Realtime room
+   * that holds the lease for everyone in it; its `user.name` lists them, such as `Ana, Ben`. Otherwise `view`.
+   */
+  kind: "view" | "edit" | "live"
   /** When it started editing, as an ISO timestamp. Null while it views. */
   since: string | null
   /** Its last report. */
@@ -44,7 +47,10 @@ export interface ContentDocumentSessions {
   id: string
   /** Whether the calling session may edit: it holds the lease, or the collection has no leases and it reported `edit`. */
   editing: boolean
-  /** The session that holds the edit lease, or null. Always null in a collection with `editing: { lease: false }`. */
+  /**
+   * The session that holds the edit lease, or null. Always null in a collection with `editing: { lease: false }`. A
+   * `live` holder is a Realtime room: join it instead of taking over.
+   */
   holder: ContentSession | null
   /** Every live session of the document, the caller included: editors first, then by last report. */
   sessions: ContentSession[]
@@ -73,6 +79,11 @@ export interface ContentSessionReportOptions extends ContentSessionOptions {
 export interface ContentSessionAcquireOptions extends ContentSessionOptions {
   /** Take the lease from the session that holds it. Its holder keeps viewing and its saves fail with `CONTENT_LEASE_HELD`. */
   takeover?: boolean
+  /**
+   * `live` takes the lease for a Realtime room, which holds it for everyone editing in the room. Content live editing
+   * passes it; editors in the room do not. Defaults to `edit`.
+   */
+  kind?: "edit" | "live"
 }
 
 export interface ContentSessionReleaseOptions {
@@ -209,15 +220,15 @@ export function createContentSessions(options: {
   }
 
   function view(row: SessionRow, lease: boolean): ContentSession {
-    const leaseLive = row.kind === "edit" && row.expiresAt > row.now && row.lastInputAt !== null && row.lastInputAt > row.now - contentSessionTimeouts.idle
-    const kind = row.kind === "edit" && (!lease || leaseLive) ? "edit" : "view"
+    const leaseLive = row.kind !== "view" && row.expiresAt > row.now && row.lastInputAt !== null && row.lastInputAt > row.now - contentSessionTimeouts.idle
+    const kind = row.kind !== "view" && (!lease || leaseLive) ? row.kind : "view"
     return {
       collection: row.collection,
       id: row.document,
       session: row.session,
       user: { id: row.userId, name: row.userName, image: row.userImage },
       kind,
-      since: kind === "edit" ? iso(row.acquiredAt ?? row.renewedAt) : null,
+      since: kind !== "view" ? iso(row.acquiredAt ?? row.renewedAt) : null,
       seenAt: iso(row.renewedAt)!,
       expiresAt: iso(row.expiresAt)!,
       inputAt: iso(row.lastInputAt),
@@ -225,7 +236,8 @@ export function createContentSessions(options: {
   }
 
   function ordered(sessions: ContentSession[]): ContentSession[] {
-    return sessions.sort((left, right) => (left.kind === right.kind ? 0 : left.kind === "edit" ? -1 : 1) || right.seenAt.localeCompare(left.seenAt) || left.session.localeCompare(right.session))
+    const rank = (session: ContentSession) => session.kind === "view" ? 1 : 0
+    return sessions.sort((left, right) => rank(left) - rank(right) || right.seenAt.localeCompare(left.seenAt) || left.session.localeCompare(right.session))
   }
 
   /** Read `(collection, id, options)` or a singleton's `(collection, options)`. */
@@ -240,6 +252,11 @@ export function createContentSessions(options: {
     const session = readSession(input)
     const user = readUser(Reflect.get(Object(input), "user"))
     let kind: ReportInput["kind"] = "edit"
+    if (mode === "acquire") {
+      const requested: unknown = Reflect.get(Object(input), "kind")
+      if (requested !== undefined && requested !== "edit" && requested !== "live") throw invalid("content.sessions.acquire() kind must be 'edit' or 'live'.")
+      if (requested === "live") kind = "live"
+    }
     if (mode === "report") {
       const requested: unknown = Reflect.get(Object(input), "kind")
       if (requested !== "view" && requested !== "edit") throw invalid("content.sessions.report() requires kind: 'view' or 'edit'.")
@@ -258,11 +275,11 @@ export function createContentSessions(options: {
     }))
     const all = ordered(rows.map(row => view(row, collection.lease)))
     const self = all.find(entry => entry.session === session)
-    const holder = collection.lease ? all.find(entry => entry.kind === "edit") ?? null : null
+    const holder = collection.lease ? all.find(entry => entry.kind !== "view") ?? null : null
     return {
       collection: collection.name,
       id,
-      editing: self?.kind === "edit",
+      editing: self !== undefined && self.kind !== "view",
       holder,
       sessions: all,
       lease: collection.lease,
@@ -335,7 +352,8 @@ export function createContentSessions(options: {
 /** The `CONTENT_LEASE_HELD` error of a write that another session's lease blocks. */
 export function contentLeaseHeld(collection: string, id: string, holder: ContentSession): ViteHubError {
   const name = holder.user.name ?? holder.user.id
-  return new ViteHubError("CONTENT_LEASE_HELD", `[vitehub] ${name} is editing Content document ${JSON.stringify(`${collection}/${id}`)}. Wait for the lease to end, or pass lease: 'override' to write anyway.`, {
-    details: { collection, id, holder: { user: { ...holder.user }, since: holder.since, expiresAt: holder.expiresAt } },
+  const who = holder.kind === "live" ? `A live session (${name})` : name
+  return new ViteHubError("CONTENT_LEASE_HELD", `[vitehub] ${who} is editing Content document ${JSON.stringify(`${collection}/${id}`)}. Wait for the lease to end, or pass lease: 'override' to write anyway.`, {
+    details: { collection, id, holder: { kind: holder.kind, user: { ...holder.user }, since: holder.since, expiresAt: holder.expiresAt } },
   })
 }

@@ -49,11 +49,23 @@
       "require": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./editor": {
+      "types": "./dist/editor.d.ts",
+      "import": "./dist/editor.js",
+      "require": "./dist/editor.js",
+      "default": "./dist/editor.js"
+    },
     "./presets/cms": {
       "types": "./dist/presets/cms.d.ts",
       "import": "./dist/presets/cms.js",
       "require": "./dist/presets/cms.js",
       "default": "./dist/presets/cms.js"
+    },
+    "./realtime": {
+      "types": "./dist/realtime.d.ts",
+      "import": "./dist/realtime.js",
+      "require": "./dist/realtime.js",
+      "default": "./dist/realtime.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
@@ -87,11 +99,20 @@
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -102,17 +123,53 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-code-block": {
+      "optional": true
+    },
+    "@tiptap/extension-image": {
+      "optional": true
+    },
+    "@tiptap/extension-table": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
     "@vite-hub/database": {
       "optional": true
     },
+    "@vite-hub/realtime": {
+      "optional": true
+    },
     "@vite-hub/workspace": {
+      "optional": true
+    },
+    "comark": {
+      "optional": true
+    },
+    "comark-tiptap": {
       "optional": true
     },
     "drizzle-orm": {

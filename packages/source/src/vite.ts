@@ -979,6 +979,8 @@ export interface ContentEntryFeatures {
   sitemap: boolean
   /** `seo: { robots }` that is not literally false. */
   robots: boolean
+  /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
+  live: boolean
 }
 
 type AstNode = Record<string, unknown> & { type?: unknown }
@@ -1014,7 +1016,7 @@ function unwrapAst(node: unknown): unknown {
  * `sitemap` or `robots` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { collections: true, sitemap: false, robots: false }
+  const maybe: ContentEntryFeatures = { collections: true, sitemap: false, robots: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -1085,13 +1087,14 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { collections: false, sitemap: false, robots: false }
+  if (argument === undefined) return { collections: false, sitemap: false, robots: false, live: true }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { collections: true, sitemap: true, robots: true }
+  if (!options) return { collections: true, sitemap: true, robots: true, live: true }
 
-  const features: ContentEntryFeatures = { collections: false, sitemap: false, robots: false }
+  const live = unwrapAst(options.get("live"))
+  const features: ContentEntryFeatures = { collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -1117,7 +1120,7 @@ export async function inspectContentEntry(file: string): Promise<ContentEntryFea
   }
   catch {
     // The runtime reports the syntax error.
-    return { collections: true, sitemap: false, robots: false }
+    return { collections: true, sitemap: false, robots: false, live: true }
   }
 }
 

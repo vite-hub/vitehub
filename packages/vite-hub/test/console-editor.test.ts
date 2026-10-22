@@ -1,11 +1,11 @@
-import { parseMarkdown } from "comark"
+import { contentMarkdownLossOf } from "@vite-hub/content/editor"
 import { describe, expect, it } from "vitest"
 
 import {
   consoleComponentDefaults,
+  consoleComponentRecord,
   consoleEditorComponents,
   consoleHeadingSlug,
-  consoleMarkdownLoss,
   consoleSlashGroups,
   splitConsoleFrontmatter,
 } from "../src/console/runtime/client/editor.ts"
@@ -45,11 +45,15 @@ describe("Console body editor menus", () => {
     expect(consoleHeadingSlug("Getting started, fast!")).toBe("getting-started-fast")
   })
 
-  it("tells formatting changes from Markdown the rich editor would drop", async () => {
-    const stored = await parseMarkdown("Intro.\n\n::note\nHello\n::\n\n* one\n* two\n\n_em_\n")
-    const formatted = await parseMarkdown("Intro.\n\n::note\nHello\n::\n\n- one\n- two\n\n*em*\n")
-    const dropped = await parseMarkdown("Intro.\n\nHello\n\n- one\n- two\n\n*em*\n")
-    expect(consoleMarkdownLoss(stored.nodes, formatted.nodes)).toBeUndefined()
-    expect(consoleMarkdownLoss(stored.nodes, dropped.nodes)).toEqual(["note"])
+  it("tells formatting changes from Markdown the rich editor would drop, with Content's check", async () => {
+    const stored = "Intro.\n\n::note\nHello\n::\n\n* one\n* two\n\n_em_\n"
+    expect(await contentMarkdownLossOf(stored, "Intro.\n\n::note\nHello\n::\n\n- one\n- two\n\n*em*\n")).toBeUndefined()
+    expect(await contentMarkdownLossOf(stored, "Intro.\n\nHello\n\n- one\n- two\n\n*em*\n")).toMatchObject({ lost: ["note"] })
+  })
+
+  it("keeps an alert without a type editable: the declared default is form, not loss", async () => {
+    const components = consoleComponentRecord([alert, badge])
+    expect(components).toEqual({ alert: { kind: "block", props: { type: { default: "info", type: "string" } } }, badge: { kind: "inline", props: {} } })
+    expect(await contentMarkdownLossOf("::alert\nCareful.\n::\n", "::alert{type=\"info\"}\nCareful.\n::\n", { components })).toBeUndefined()
   })
 })

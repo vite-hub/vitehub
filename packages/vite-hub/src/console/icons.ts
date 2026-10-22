@@ -151,6 +151,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:upload",
   "lucide:user-round",
   "lucide:user-round-pen",
+  "lucide:users",
   "lucide:wifi-off",
   "lucide:wrap-text",
   "lucide:wrench",

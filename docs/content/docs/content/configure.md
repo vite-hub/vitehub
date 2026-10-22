@@ -18,6 +18,7 @@ icon: i-lucide-sliders-horizontal
 | `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
 | `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |

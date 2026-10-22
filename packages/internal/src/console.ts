@@ -220,6 +220,12 @@ export interface ViteHubConsoleDocumentSetup {
   /** Present when no user can read anything because the owner has no access policy. */
   access?: ViteHubConsoleDocumentHint
   /**
+   * Live co-editing. `definition` names the Realtime Definition whose rooms are `<collection>/<id>`; the editor joins
+   * the room of a Markdown document instead of taking the edit lease. `unavailable` names why the owner wanted live
+   * editing and the host cannot run it, such as a host without a Realtime authority. Absent when live editing is off.
+   */
+  live?: { definition: string } | { unavailable: string }
+  /**
    * Present when nothing runs scheduled publishes. The editor disables Schedule, and overdue schedules name the fix.
    */
   schedule?: ViteHubConsoleDocumentHint
@@ -523,8 +529,12 @@ export interface ViteHubConsoleDocumentSession {
   collection: string
   id: string
   user: ViteHubConsoleDocumentSessionUser
-  /** `edit` while it holds the edit lease, or edits a collection without leases. Otherwise `view`. */
-  kind: "view" | "edit"
+  /**
+   * `edit` while it holds the edit lease, or edits a collection without leases. `live` for a live Realtime room that
+   * holds the lease for everyone in it: `user.name` lists them, such as `Ana, Ben`, and others join instead of taking
+   * over. Otherwise `view`.
+   */
+  kind: "view" | "edit" | "live"
   /** When it started editing, as an ISO timestamp. Null while it views. */
   since: string | null
   /** True for the tab that sent the request. */
@@ -615,7 +625,8 @@ export interface ViteHubConsoleDocumentActions {
    * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`.
    */
   save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
-  remove(input: { collection: string, id: string, ifDigest: string, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
+  /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
+  remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**
    * Publishes exactly the reviewed drafts. When a draft digest no longer matches, it publishes nothing and fails with
    * `WORKSPACE_CONFLICT` and `details.documents`: `{ id, expected, actual }` for each document that changed.
@@ -629,7 +640,7 @@ export interface ViteHubConsoleDocumentActions {
   /** Cancels a pending schedule, or dismisses a failed one. */
   unschedule(input: { collection: string, schedule: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
-  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** Report, take, or release this tab's session on one document, and read who else has it open. */
   session(input: ViteHubConsoleDocumentSessionInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPresence>
   /** Every open tab on a document the user may read, in every collection or in one `collection`. `session` marks this tab as `self`. */

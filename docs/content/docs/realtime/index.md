@@ -139,6 +139,10 @@ icon: i-lucide-radio
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
   On Node, one server process holds every room. On Cloudflare, each document gets its own Durable Object.
   :::
+
+  :::product-feature-item{title="Content documents edit live in the Console" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
+  With Realtime enabled, Content adds a `content` definition: carets, field focus, and drafts that save themselves.
+  :::
 ::
 
 ::agent-only{skill="realtime"}

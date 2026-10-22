@@ -180,8 +180,8 @@ export interface ConsoleDocumentSessionUser {
 export interface ConsoleDocumentSession {
   collection: string
   id: string
-  /** `edit` while it holds the edit lease. */
-  kind: "edit" | "view"
+  /** `edit` while it holds the edit lease. `live` for a live room that holds it for everyone in it; `user.name` lists them. */
+  kind: "edit" | "live" | "view"
   /** True for this tab. */
   self: boolean
   /** When it started editing, as an ISO timestamp. */
@@ -247,8 +247,9 @@ export interface ConsoleDocumentsClient {
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
   raw(collection: string, id: string, revision?: string): Promise<ConsoleRawDocument | null>
-  remove(collection: string, id: string, ifDigest: string, session?: string): Promise<null>
-  restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string): Promise<ConsoleDocument>
+  /** `live` says the tab edits in the live room of the document, which holds the lease for it. */
+  remove(collection: string, id: string, ifDigest: string, session?: string, live?: boolean): Promise<null>
+  restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
   /** `session` is this tab's token, so its own edit lease does not block the save. */
   save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }): Promise<ConsoleDocument>
@@ -281,13 +282,13 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
     save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }) =>
       call("save", { collection, id, ...input }),
-    remove: (collection: string, id: string, ifDigest: string, session?: string) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}) }),
+    remove: (collection: string, id: string, ifDigest: string, session?: string, live?: boolean) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
       call("publish", { collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
     revisions: (collection: string, id: string, cursor?: string) =>
       call("revisions", cursor ? { collection, cursor, id } : { collection, id }),
-    restore: (collection: string, id: string, revision: string, ifDigest: string | null, session?: string) =>
-      call("restore", { collection, id, ifDigest, revision, ...(session ? { session } : {}) }),
+    restore: (collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean) =>
+      call("restore", { collection, id, ifDigest, revision, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     schedule: (collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
       call("schedule", { at, collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
     unschedule: (collection: string, schedule: string) => call("unschedule", { collection, schedule }),

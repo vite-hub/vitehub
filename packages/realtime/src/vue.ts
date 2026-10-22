@@ -16,6 +16,9 @@ import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
+
+/** Reads a room document as Markdown and fields with the editor codec, such as the `previous` document of a reset. */
+export { readRealtimeYDoc } from "./document.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,

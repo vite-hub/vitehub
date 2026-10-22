@@ -1,3 +1,6 @@
+import { contentEditorComponents } from "@vite-hub/content/editor"
+
+import type { DocumentComponent } from "@vite-hub/content"
 import type { ConsoleDocumentComponent } from "../definitions"
 
 /**
@@ -25,12 +28,18 @@ export interface ConsoleSlashLabel {
 
 export type ConsoleSlashGroup = Array<ConsoleSlashLabel | ConsoleSlashItem>
 
-/** Node names that ComarkKit already uses. A collection component with one of these names would replace a built-in node. */
-const reservedNodeNames = new Set(["blockquote", "comment", "doc", "heading", "image", "paragraph", "picture", "table", "template", "text"])
+/** The collection components keyed by tag, as Content declares them, for the codec that Content owns. */
+export function consoleComponentRecord(components: readonly ConsoleDocumentComponent[] | undefined): Record<string, DocumentComponent> {
+  return Object.fromEntries((components ?? []).map(component => [component.name, { kind: component.kind, props: component.props }]))
+}
 
-/** The collection components the editor can register: valid Comark tags that do not shadow a built-in node. */
+/**
+ * The collection components the editor can register: the ones Content's `contentEditorComponents()` keeps, so the
+ * Console and the server codec of a live room have the same schema.
+ */
 export function consoleEditorComponents(components: readonly ConsoleDocumentComponent[] | undefined): ConsoleDocumentComponent[] {
-  return (components ?? []).filter(component => /^[a-z][a-z0-9-]*$/.test(component.name) && !reservedNodeNames.has(component.name))
+  const kept = new Set(contentEditorComponents(consoleComponentRecord(components), definition => definition.name))
+  return (components ?? []).filter(component => kept.has(component.name))
 }
 
 /** Default attributes of a new component: each prop's declared default. */
@@ -99,28 +108,4 @@ export function splitConsoleFrontmatter(text: string): { body: string, frontmatt
 /** A heading anchor such as `getting-started`, for links to a section of the body. */
 export function consoleHeadingSlug(text: string): string {
   return text.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-}
-
-/**
- * Compares the Comark AST of a body as stored with the AST of what the rich editor writes back for it. Formatting
- * choices such as `*` or `-` bullets parse the same, so any difference means the editor would drop or change content,
- * such as a component that the collection does not declare. Returns undefined when nothing is lost, else the element
- * tags that disappear (possibly none, when content changes shape without losing a tag).
- */
-export function consoleMarkdownLoss(stored: readonly unknown[], written: readonly unknown[]): string[] | undefined {
-  if (JSON.stringify(stored) === JSON.stringify(written)) return undefined
-  const kept = new Set<string>()
-  collectTags(written, kept)
-  const all = new Set<string>()
-  collectTags(stored, all)
-  return [...all].filter(tag => !kept.has(tag))
-}
-
-function collectTags(nodes: readonly unknown[], tags: Set<string>): void {
-  for (const node of nodes) {
-    if (!Array.isArray(node)) continue
-    const [tag, , ...children] = node
-    if (String(tag) === tag) tags.add(tag)
-    collectTags(children, tags)
-  }
 }

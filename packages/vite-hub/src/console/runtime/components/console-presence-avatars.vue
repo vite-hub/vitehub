@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleInitials } from "../client/presence";
+import { consoleInitials, consoleLiveLabel } from "../client/presence";
 
 import type { ConsoleDocumentSession, ConsoleDocumentSessionUser } from "../client/documents";
 
 /**
  * Who else has a document open, as overlapping avatars: the first three, then `+N`. Editors come first. In a header each
- * avatar says `Ana · Editing` or `Ana · Viewing`; in a list row one avatar says `Ana is editing`.
+ * avatar says `Ana · Editing` or `Ana · Viewing`; in a list row one avatar says `Ana is editing`. A live room shows as
+ * one avatar that says `Live session: Ana, Ben`.
  */
 const props = withDefaults(defineProps<{
   sessions: readonly ConsoleDocumentSession[];
@@ -26,7 +27,8 @@ const people = computed(() => {
     const known = byUser.get(session.user.id);
     if (!known || (known.kind === "view" && session.kind === "edit")) byUser.set(session.user.id, session);
   }
-  return [...byUser.values()].sort((left, right) => (left.kind === right.kind ? 0 : left.kind === "edit" ? -1 : 1));
+  const rank = (session: ConsoleDocumentSession) => (session.kind === "live" ? 0 : session.kind === "edit" ? 1 : 2);
+  return [...byUser.values()].sort((left, right) => rank(left) - rank(right));
 });
 const shown = computed(() => people.value.slice(0, props.variant === "row" ? 1 : 3));
 const hidden = computed(() => people.value.slice(shown.value.length));
@@ -36,6 +38,7 @@ function nameOf(session: ConsoleDocumentSession): string {
 }
 
 function describe(session: ConsoleDocumentSession): string {
+  if (session.kind === "live") return consoleLiveLabel(session);
   const name = nameOf(session);
   const own = name === "You";
   if (props.variant === "row") {
@@ -56,7 +59,8 @@ const label = computed(() => people.value.map(describe).join(", "));
         :class="[index ? '-ms-1.5' : '', session.kind === 'view' ? 'opacity-60' : '']"
         :style="{ zIndex: shown.length - index }"
       >
-        <UAvatar :src="session.user.image" :text="consoleInitials(session.user.name)" :alt="session.user.name" :size="variant === 'row' ? '2xs' : 'xs'" />
+        <UAvatar v-if="session.kind === 'live'" icon="i-lucide-users" :alt="describe(session)" :size="variant === 'row' ? '2xs' : 'xs'" />
+        <UAvatar v-else :src="session.user.image" :text="consoleInitials(session.user.name)" :alt="session.user.name" :size="variant === 'row' ? '2xs' : 'xs'" />
       </span>
     </UTooltip>
     <UTooltip v-if="hidden.length" :text="hidden.map(describe).join(', ')" :content="{ side: 'bottom' }">

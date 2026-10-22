@@ -262,6 +262,12 @@ export type DefineContentOptions<
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
   /**
+   * Live co-editing of Markdown documents through Realtime. `auto` (default) turns it on when Realtime is enabled and
+   * the host has a room authority, such as a Node server or Cloudflare Durable Objects; the room then holds the edit
+   * lease for everyone in it. Other hosts, and `false`, keep one editor at a time.
+   */
+  live?: "auto" | false
+  /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
    */
@@ -311,6 +317,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
+  /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
+  readonly live: "auto" | false
   /**
    * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
    * as the Console show no collections.
@@ -351,7 +359,10 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", ...sharedOptions } = options
+  if (live !== "auto" && live !== false) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
+  }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
@@ -386,6 +397,7 @@ export function defineContent<
         // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
+        live,
       })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
@@ -485,6 +497,7 @@ export function defineContent<
   const documentsApi = {
     preview,
     seo,
+    live,
     hasPolicy: authorize !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],

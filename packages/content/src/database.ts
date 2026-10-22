@@ -20,7 +20,7 @@ export type ContentSessionsTable = SQLiteTableWithColumns<{
     userId: SessionColumn<string, true>
     userName: SessionColumn<string, false>
     userImage: SessionColumn<string, false>
-    kind: SessionColumn<"view" | "edit", true>
+    kind: SessionColumn<"view" | "edit" | "live", true>
     acquiredAt: SessionColumn<number, false>
     renewedAt: SessionColumn<number, true>
     expiresAt: SessionColumn<number, true>
@@ -46,8 +46,11 @@ const contentSessions = sqliteTable("vitehub_content_sessions", {
   userId: text("user_id").notNull(),
   userName: text("user_name"),
   userImage: text("user_image"),
-  /** `edit` while the session holds the edit lease of the document, otherwise `view`. */
-  kind: text("kind", { enum: ["view", "edit"] }).notNull(),
+  /**
+   * `edit` while the session holds the edit lease of the document, `live` while a Realtime room holds it for everyone
+   * in the room, otherwise `view`. SQLite stores it as text without a check, so `live` needs no migration.
+   */
+  kind: text("kind", { enum: ["view", "edit", "live"] }).notNull(),
   /** When the session took the edit lease. Null while it views. */
   acquiredAt: integer("acquired_at"),
   /** The last report of the session. */

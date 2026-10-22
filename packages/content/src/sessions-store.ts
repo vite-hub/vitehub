@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, ne, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, lt, ne, sql } from "drizzle-orm"
 
 import { contentSessionsSchema } from "./database.ts"
 
@@ -35,7 +35,7 @@ export interface SessionRow {
   userId: string
   userName: string | null
   userImage: string | null
-  kind: "view" | "edit"
+  kind: "view" | "edit" | "live"
   acquiredAt: number | null
   renewedAt: number
   expiresAt: number
@@ -46,8 +46,11 @@ export interface SessionRow {
 
 export interface ReportInput extends SessionKey {
   user: SessionUserRow
-  /** `view` drops a lease the session holds. `edit` renews it, or, with `claim`, takes it when it is free. */
-  kind: "view" | "edit"
+  /**
+   * `view` drops a lease the session holds. `edit` renews it, or, with `claim`, takes it when it is free. `live` does
+   * the same for a Realtime room that holds the lease for everyone in it.
+   */
+  kind: "view" | "edit" | "live"
   input: boolean
   /** Whether the collection uses leases. Without, `edit` is a presence label only. */
   lease: boolean
@@ -83,13 +86,13 @@ export function createSessionStore(database: Database, workspace: string, timeou
   const document = (key: Pick<SessionKey, "collection" | "document">) =>
     and(eq(table.workspace, workspace), eq(table.collection, key.collection), eq(table.document, key.document))
   const mine = (key: SessionKey) => and(document(key), eq(table.session, key.session))
-  /** A lease that blocks others: an edit row that has not expired and had input in the idle window. */
-  const liveLease = sql`${table.kind} = 'edit' and ${table.expiresAt} > ${now} and ${table.lastInputAt} > ${now} - ${timeouts.idle}`
+  /** A lease that blocks others: an edit or live row that has not expired and had input in the idle window. */
+  const liveLease = sql`${table.kind} in ('edit', 'live') and ${table.expiresAt} > ${now} and ${table.lastInputAt} > ${now} - ${timeouts.idle}`
   /** Another session of the document holds a live lease. The alias keeps the subquery apart from the updated row. */
   const otherHolds = (key: SessionKey) => sql`exists (
     select 1 from ${table} as other
     where other.workspace = ${workspace} and other.collection = ${key.collection} and other.document = ${key.document}
-      and other.session <> ${key.session} and other.kind = 'edit'
+      and other.session <> ${key.session} and other.kind in ('edit', 'live')
       and other.expires_at > ${now} and other.last_input_at > ${now} - ${timeouts.idle}
   )`
 
@@ -100,7 +103,7 @@ export function createSessionStore(database: Database, workspace: string, timeou
       const statements: unknown[] = []
       if (input.lease) {
         // A lease that expired or went idle is gone: the session views until it claims again.
-        statements.push(database.update(table).set({ kind: "view", acquiredAt: null }).where(and(mine(key), eq(table.kind, "edit"), sql`not (${liveLease})`)))
+        statements.push(database.update(table).set({ kind: "view", acquiredAt: null }).where(and(mine(key), inArray(table.kind, ["edit", "live"]), sql`not (${liveLease})`)))
       }
       statements.push(database.insert(table).values({
           workspace,
@@ -111,7 +114,7 @@ export function createSessionStore(database: Database, workspace: string, timeou
           userName: input.user.name,
           userImage: input.user.image,
           kind: input.lease ? "view" : input.kind,
-          acquiredAt: !input.lease && input.kind === "edit" ? now : null,
+          acquiredAt: !input.lease && input.kind !== "view" ? now : null,
           renewedAt: now,
           expiresAt: presenceUntil,
           lastInputAt: input.input ? now : null,
@@ -126,29 +129,29 @@ export function createSessionStore(database: Database, workspace: string, timeou
             ...(input.kind === "view" || !input.lease
               ? {
                   kind: input.kind,
-                  acquiredAt: input.kind === "edit" ? sql`coalesce(${table.acquiredAt}, excluded.renewed_at)` : null,
+                  acquiredAt: input.kind !== "view" ? sql`coalesce(${table.acquiredAt}, excluded.renewed_at)` : null,
                   expiresAt: sql`excluded.expires_at`,
                 }
               : { expiresAt: sql`max(${table.expiresAt}, excluded.expires_at)` }),
           },
         }))
-      if (input.lease && input.kind === "edit") {
+      if (input.lease && input.kind !== "view") {
         if (input.takeover) {
           // The former holders keep viewing; their next report shows who holds the lease now.
           statements.push(database.update(table).set({ kind: "view", acquiredAt: null, expiresAt: sql`min(${table.expiresAt}, ${presenceUntil})` })
-            .where(and(document(key), ne(table.session, key.session), eq(table.kind, "edit"))))
+            .where(and(document(key), ne(table.session, key.session), inArray(table.kind, ["edit", "live"]))))
         }
         if (input.claim) {
           // One conditional statement: of two sessions that claim at once, exactly one finds no other holder.
           statements.push(database.update(table).set({
-            kind: "edit",
+            kind: input.kind,
             acquiredAt: sql`case when ${liveLease} then ${table.acquiredAt} else ${now} end`,
             expiresAt: sql`${now} + ${timeouts.lease}`,
             lastInputAt: now,
           }).where(and(mine(key), input.takeover ? undefined : sql`not ${otherHolds(key)}`)))
         }
         else {
-          statements.push(database.update(table).set({ expiresAt: sql`${now} + ${timeouts.lease}` }).where(and(mine(key), eq(table.kind, "edit"))))
+          statements.push(database.update(table).set({ expiresAt: sql`${now} + ${timeouts.lease}` }).where(and(mine(key), inArray(table.kind, ["edit", "live"]))))
         }
       }
       // Rows long past expiry carry nothing; drop them while the batch already writes.
