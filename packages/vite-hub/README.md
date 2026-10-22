@@ -93,7 +93,37 @@ A successful build proves that ViteHub discovered the configured definitions and
 
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, Vite virtual module IDs, or `vite-hub/_internal/*`. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).
 
+Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
+
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report internal imports, server-only imports in client code, and unchecked KV and Blob results. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
+
+## Run tasks
+
+A task is a [Nitro task](https://nitro.build/docs/tasks) in `server/tasks/`. Use it for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file with Nitro, so the app does not set `nitro.serverDir` or `nitro.experimental.tasks`.
+
+```ts
+// server/tasks/db/seed.ts
+import { useDatabase } from "vite-hub/database/drizzle";
+import { defineTask } from "vite-hub/task";
+
+export default defineTask({
+  meta: { description: "Add one demo note" },
+  async run({ payload }) {
+    const { db, schema } = useDatabase("default");
+    const [note] = await db.insert(schema.notes).values({ title: String(payload.title ?? "Hello") }).returning();
+    return { result: note };
+  },
+});
+```
+
+Start `vite dev`, then run the task from another terminal. The task runs in the dev server's Nitro runtime, with the same bindings as a request.
+
+```sh
+pnpm vitehub task list
+pnpm vitehub task run db:seed --title "First note"
+```
+
+`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
 
 ## Configure TypeScript
 
