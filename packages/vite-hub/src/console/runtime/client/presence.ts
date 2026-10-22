@@ -336,18 +336,6 @@ export function consoleClockTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-/** The people of a live room as session rows, so the presence avatars show them as editing. */
-export function consoleLiveSessions(collection: string, id: string, people: ReadonlyArray<{ id: string, image?: string, name: string }>): ConsoleDocumentSession[] {
-  return people.map(person => ({
-    collection,
-    id,
-    kind: "edit",
-    self: false,
-    since: null,
-    user: person.image ? { id: person.id, image: person.image, name: person.name } : { id: person.id, name: person.name },
-  }))
-}
-
 /** The names in a live session row, such as `Ana, Ben`. */
 export function consoleLiveNames(session: Pick<ConsoleDocumentSession, "user">): string[] {
   return session.user.name.split(",").map(name => name.trim()).filter(Boolean)
