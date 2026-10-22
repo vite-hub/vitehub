@@ -118,7 +118,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     const url = new URL(`https://example.com/api/_vitehub/realtime/docs/${path}`)
     for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value)
     const value = new Request(url, init) as Request & { runtime?: unknown }
-    if (options.durable) value.runtime = { cloudflare: { context: { storage: { sql: options.durable } } } }
+    if (options.durable) value.runtime = { cloudflare: { context: { storage: { sql: options.durable.carrier } } } }
     return value
   }
 
@@ -239,6 +239,33 @@ export function paragraphs(doc: Y.Doc): string[] {
   return doc.getXmlFragment("body").toArray().map(node => (node as Y.XmlElement).toArray().map(child => (child as Y.XmlText).toString()).join(""))
 }
 
+/** A carrier with the shape and receiver brand of workerd's native SqlStorage, which Cloudflare storage requires since #2410. */
+export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
+  function SqlStorage() {}
+  const sql = Object.create(null) as Record<string, unknown>
+  const prototype = {
+    // Use a native constructor in the carrier shape. The production detector
+    // treats the constructor as part of the platform object contract.
+    constructor: SqlStorage,
+    exec,
+    get databaseSize() {
+      return 1
+    },
+  }
+  SqlStorage.prototype = prototype
+  Object.setPrototypeOf(sql, prototype)
+  Object.defineProperty(prototype, "databaseSize", {
+    configurable: true,
+    get: new Proxy(Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!, {
+      apply(_target, thisArg) {
+        if (thisArg === sql) return 1
+        throw new TypeError("Illegal invocation")
+      },
+    }),
+  })
+  return sql
+}
+
 /** Minimal Durable Object SQLite surface for the statements the Realtime room issues. */
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
@@ -250,6 +277,14 @@ export class FakeSql {
   constructor(options: { intermediateJournal?: boolean } = {}) {
     this.intermediateJournal = options.intermediateJournal ?? false
   }
+
+  /** The native SqlStorage carrier of this database, the `storage.sql` that a Durable Object request carries. */
+  get carrier(): Record<string, unknown> {
+    this.nativeCarrier ??= nativeSqlCarrier(this.exec)
+    return this.nativeCarrier
+  }
+
+  private nativeCarrier: Record<string, unknown> | undefined
 
   exec = vi.fn((query: string, ...bindings: unknown[]) => {
     const rows = (value: Array<Record<string, unknown>>) => ({ toArray: () => value })

@@ -62,7 +62,7 @@ it("gives an Agent only the Connection access of its own Agent Definition", asyn
   const test = await fixture()
   try {
     const tools = await test.tools(test.runtime, "other")
-    await expect(execute(tools.gmail_search, { max: 5, query: "in:inbox" })).rejects.toMatchObject({ code: "CONNECTION_DENIED" })
+    await expect(execute(tools.gmail_search, { max: 5, query: "in:inbox" })).rejects.toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.requests.some(request => request.url.pathname.endsWith("/messages"))).toBe(false)
     expect(await test.runtime.activity({ name: "google" })).toContainEqual(expect.objectContaining({ actor: { id: "other", kind: "agent" }, outcome: "denied" }))
   }
@@ -106,7 +106,7 @@ it("denies a Gmail read before calling the provider and records the denial", asy
   const test = await fixture({ read: false, write: [], approve: false })
   try {
     const tools = await test.tools()
-    await expect(execute(tools.gmail_read, { id: "m1" })).rejects.toMatchObject({ code: "CONNECTION_DENIED" })
+    await expect(execute(tools.gmail_read, { id: "m1" })).rejects.toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.requests).toHaveLength(1)
     expect(await test.runtime.activity({ name: "google" })).toContainEqual(expect.objectContaining({ operation: "gmail.users.messages.get", outcome: "denied" }))
   }
@@ -117,12 +117,12 @@ it("persists a draft approval and executes it once through Connections", async (
   const test = await fixture({ read: true, write: ["gmail.users.drafts.create"], approve: true })
   try {
     const tools = await test.tools()
-    await expect(execute(tools.gmail_draft, { body: "Thanks", subject: "Hello", to: ["owner@example.com"] })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+    await expect(execute(tools.gmail_draft, { body: "Thanks", subject: "Hello", to: ["owner@example.com"] })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     expect(test.requests).toHaveLength(1)
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(approval).toMatchObject({ action: "gmail.users.drafts.create", actor: "agent:labeller", invocationId: "invocation-1" })
     expect(await test.runtime.approve({ actor: "user:owner", id: approval!.id })).toMatchObject({ approval: { status: "executed" }, result: { id: "d1" } })
-    await expect(test.runtime.approve({ id: approval!.id })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.approve({ id: approval!.id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     expect(test.requests.filter(request => request.url.pathname.endsWith("/drafts"))).toHaveLength(1)
   }
   finally { test.close() }

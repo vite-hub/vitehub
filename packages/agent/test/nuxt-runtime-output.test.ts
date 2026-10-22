@@ -20,6 +20,7 @@ const packedPackages = [
   "agent",
   "sandbox",
   "env",
+  "forge",
   "markdown-template",
   "rate-limit",
   "runtime",

@@ -32,17 +32,54 @@ export function agentResultKind(result: unknown): string {
   return runtimeType(result)
 }
 
+interface PrototypeWalk {
+  chain: object[]
+  complete: boolean
+}
+
+const maxPrototypeChainLength = 100
+// Set while one usage record is built, so each object's prototype chain is read once.
+let activePrototypeWalks: WeakMap<object, PrototypeWalk> | undefined
+
+/**
+ * Yields `value` and then its prototypes, at most 100 objects and without cycles.
+ * While `usageRecordFromStreamChunk()` runs, every lookup on the same object shares one walk,
+ * so a provider proxy that answers each prototype read with a fresh object stays bounded.
+ */
+function* boundedPrototypeChain(value: object): Generator<object, void, undefined> {
+  let walk = activePrototypeWalks?.get(value)
+  if (!walk) {
+    walk = { chain: [value], complete: false }
+    activePrototypeWalks?.set(value, walk)
+  }
+  for (let index = 0; ; index++) {
+    if (index >= walk.chain.length) {
+      if (walk.complete || walk.chain.length >= maxPrototypeChainLength) return
+      let next: object | null
+      try {
+        next = Object.getPrototypeOf(walk.chain[index - 1]!)
+      }
+      catch {
+        // Provider result proxies may reject prototype inspection.
+        walk.complete = true
+        return
+      }
+      if (!next || walk.chain.includes(next)) {
+        walk.complete = true
+        return
+      }
+      walk.chain.push(next)
+    }
+    yield walk.chain[index]!
+  }
+}
+
 function resultPropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   if (!isRuntimeObject(value)) return
-  const seen = new Set<object>()
-  const maxPrototypeHops = 100
-  let owner: object | null = value
   try {
-    for (let hop = 0; owner && hop < maxPrototypeHops && !seen.has(owner); hop++) {
-      seen.add(owner)
+    for (const owner of boundedPrototypeChain(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(owner, key)
       if (descriptor) return descriptor
-      owner = Object.getPrototypeOf(owner)
     }
   }
   catch {
@@ -258,11 +295,8 @@ function readableRecordValue<T extends object, K extends keyof T>(record: T, key
 function readableRecordValue(record: unknown, key: string): unknown
 function readableRecordValue(record: unknown, key: string): unknown {
   if (!isRecord(record)) return
-  const visited = new WeakSet<object>()
-  let source: object | null = record
-  for (let hops = 0; source && source !== Object.prototype && hops < 100; hops++) {
-    if (visited.has(source)) return
-    visited.add(source)
+  for (const source of boundedPrototypeChain(record)) {
+    if (source === Object.prototype) return
     let descriptor: PropertyDescriptor | undefined
     try {
       descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -278,12 +312,6 @@ function readableRecordValue(record: unknown, key: string): unknown {
       catch {
         return
       }
-    }
-    try {
-      source = Object.getPrototypeOf(source)
-    }
-    catch {
-      return
     }
   }
 }
@@ -572,6 +600,17 @@ function withFallbackUsageMetadata(
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
+  if (activePrototypeWalks) return usageRecordFromStreamChunkOnce(chunk, fallbackMetadataSource, run)
+  activePrototypeWalks = new WeakMap()
+  try {
+    return usageRecordFromStreamChunkOnce(chunk, fallbackMetadataSource, run)
+  }
+  finally {
+    activePrototypeWalks = undefined
+  }
+}
+
+function usageRecordFromStreamChunkOnce(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
   const type = String(readableRecordValue(chunk, "type") || "")
   const usageRecord = readableRecordValue(chunk, "usageRecord")
@@ -793,7 +832,7 @@ export function toAgentStreamEvent(
     const crossRealmError = crossRealmStreamError(error)
     const errorMessage = crossRealmError
       ? crossRealmError.message
-      : safeStreamErrorString(error)
+      : unbrandedSameRealmErrorMessage(error) ?? safeStreamErrorString(error)
     const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
     if (crossRealmError) Object.defineProperty(event, agentStreamErrorSymbol, { value: crossRealmError.value })
     return event
@@ -874,6 +913,33 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     if (!branded) return
     const message = Reflect.get(error, "message")
     return { message: message === undefined ? "" : String(message), value: error }
+  }
+  catch {
+    return
+  }
+}
+
+function hasNativeErrorBrandCheck(): boolean {
+  try {
+    if (hasRuntimeType(Reflect.get(Error, "isError"), "function")) return true
+    const processValue: unknown = Reflect.get(globalThis, "process")
+    return Boolean(processValue && typeof processValue === "object"
+      && hasRuntimeType(Reflect.get(processValue, "getBuiltinModule"), "function"))
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * The message of an Error of this realm when no native brand check exists and cloning failed.
+ * The event shows the message but does not carry the Error, because nothing proves its brand.
+ */
+function unbrandedSameRealmErrorMessage(error: unknown): string | undefined {
+  if (!(error instanceof Error) || hasNativeErrorBrandCheck()) return
+  try {
+    const message = Reflect.get(error, "message")
+    return message === undefined ? "" : String(message)
   }
   catch {
     return
