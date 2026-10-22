@@ -3,6 +3,8 @@ import { resolve } from "node:path"
 import { usesCmsPreset } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
+import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
+
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 interface CmsPresetFeatureOptions {
@@ -47,8 +49,17 @@ function selectsCmsPreset(config: CmsPresetConfig): boolean {
   return usesCmsPreset({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
+/**
+ * The nested list of Nitro plugins that `vitehub()` includes. Both cases build the same Nitro, so the list stays one
+ * unit: its plugins keep the `apply` that steps aside for an app's own `nitro()`, and Nuxt can still find and drop them.
+ */
+function isIncludedNitroList(option: unknown): option is Plugin[] {
+  return Array.isArray(option) && option.length > 0 && option.every(item => isPluginObject(item) && isIncludedNitroPlugin(item))
+}
+
 function flattenPluginOptions(option: unknown, plugins: unknown[]): unknown[] {
-  if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
+  if (isIncludedNitroList(option)) plugins.push(option)
+  else if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
   else if (option) plugins.push(option)
   return plugins
 }
@@ -138,11 +149,17 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   const flushCms = (until?: Plugin) => {
     while (cmsIndex < cmsPlugins.length && cmsPlugins[cmsIndex] !== until) {
       const option = cmsPlugins[cmsIndex++]
+      // The plain list's Nitro serves both cases.
+      if (isIncludedNitroList(option)) continue
       if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selectsCmsPreset))
     }
     if (until) cmsIndex++
   }
   for (const option of plain) {
+    if (isIncludedNitroList(option)) {
+      merged.push(option)
+      continue
+    }
     const cms = isPluginObject(option) ? pairs.get(option) : undefined
     if (!cms || !isPluginObject(option)) {
       merged.push(applyWhen(option, config => !selectsCmsPreset(config)))

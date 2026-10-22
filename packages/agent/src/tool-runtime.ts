@@ -271,10 +271,13 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
 
     // Reuse the underlying executor when a tool was prepared under another
     // budget. The active Invocation owns accounting for this execution.
-    const execute = budgetWrappedExecutors.get(tool) ?? tool.execute
+    // SAFETY: The wrapper forwards the caller's arguments as they are, as the other tool wrappers do.
+    const execute = budgetWrappedExecutors.get(tool) ?? (tool as { execute: (...args: unknown[]) => unknown }).execute
     const ownedBudget = executionBudgetHandledBy(tool)
     const policyOwner = agentToolPolicyOwners.get(tool)
-    const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
+    const wrappedExecute = async (input: unknown, ...args: unknown[]) => {
+      // SAFETY: Tool executors receive the AI SDK execution options as their second argument.
+      const executionContext = args[0] as AgentToolExecutionContext | undefined
       // Approval requests are probes. Charge the call when the policy-protected
       // execution actually succeeds, including the later approved execution.
       if (policyOwner) {
@@ -285,7 +288,8 @@ export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools:
         return await execute.call(tool, input, { ...executionContext, [executionBudgetOverride]: budget })
       }
       budget.recordToolCall()
-      return await execute.call(tool, input, executionContext)
+      // Forward the caller's arguments as they are, like the other tool wrappers.
+      return await execute.call(tool, input, ...args)
     }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     const wrappedTool = copyToolWithOverrides(tool, { execute: wrappedExecute })

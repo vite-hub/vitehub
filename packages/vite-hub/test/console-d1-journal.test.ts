@@ -42,7 +42,7 @@ describe("Console D1 journal", () => {
     if (!invocations) throw new Error("Expected the Console journal fallback.")
     const context = { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }
     const journalDatabase = consoleRuntime.resolve(context).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     expectTypeOf<typeof schema.invocations.$inferInsert["search"]>().toEqualTypeOf<string>()
     expectTypeOf<typeof schema.invocations.$inferInsert["summary"]>().toEqualTypeOf<NonNullable<typeof schema.invocations.$inferInsert["summary"]>>()
@@ -91,7 +91,7 @@ describe("Console D1 journal", () => {
     const invocations = installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)
     expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)).toBe(invocations)
     const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     const recent = new Date().toISOString()
     const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
@@ -119,7 +119,7 @@ describe("Console D1 journal", () => {
       env: async () => ({ JOURNAL: active }),
     })
     const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     const record = {
       agentName: "binding-test",
@@ -270,7 +270,7 @@ describe("Console D1 journal", () => {
     const index = getConsoleUsageIndex(invocations)
     if (!index) throw new Error("Expected a D1 usage index.")
     const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     const now = new Date().toISOString()
     const observation = (totalTokens: number) => ({
@@ -341,7 +341,7 @@ describe("Console D1 journal", () => {
       env: () => ({ JOURNAL: binding }),
     })
     const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     const record = { id: "null-batch-results", traceId: "null-batch-trace", status: "completed" as const, createdAt: "2026-09-30T00:00:00.000Z", updatedAt: "2026-09-30T00:00:00.000Z", observations: [] }
     const values = { id: record.id, status: record.status, search: "", summary: record, record }
@@ -360,7 +360,7 @@ describe("Console D1 journal", () => {
     const env = vi.fn(() => ({ JOURNAL: database }))
     installConsoleInvocations("/console-d1-transaction", undefined, undefined, undefined, { binding: "JOURNAL", env })
     const journalDatabase = consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocations
-    if (journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!("driver" in journalDatabase) || journalDatabase.driver !== "d1") throw new Error("Expected the D1 Console database.")
     const { db, schema } = journalDatabase
     const callback = vi.fn(async (transaction: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
       await transaction.update(schema.invocations).set({ agentName: "uncommitted" })

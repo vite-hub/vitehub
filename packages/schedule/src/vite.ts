@@ -138,7 +138,7 @@ interface WorkflowVitePlugin extends Plugin {
   }
 }
 
-type ViteConfigWithNitro = UserConfig & {
+type ViteConfigWithNitro = Omit<UserConfig, "nitro"> & {
   nitro?: NitroConfig
 }
 
@@ -665,7 +665,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         } as InternalScheduleNitroConfigOptions)
         if (nitro) {
           // SAFETY: Nitro integrations attach their generated config to the resolved Vite config at runtime.
-          const configWithNitro = config as ResolvedConfig & { nitro?: NitroConfig }
+          const configWithNitro = config as Omit<ResolvedConfig, "nitro"> & { nitro?: NitroConfig }
           configWithNitro.nitro = config.command === "serve"
             ? await addNitroScheduleDevHandler(nitro, roots, devServerId, internalOptions.importBase)
             : nitro

@@ -285,7 +285,7 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.0",
+    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",

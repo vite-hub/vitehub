@@ -84,14 +84,12 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
 
 function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleRecord {
   const field = (label: string) => summary.fields.find(entry => entry.label === label)?.value
-  const target = field("Kind") === "Runtime target"
   const cron = field("Cron")
   const timeZone = field("Time zone")
   return {
     cells: {
       manual: field("Manual") === "Enabled" ? "Yes" : "No",
       schedule: summary.name,
-      target: target ? summary.name : "-",
       timing: !cron ? "-" : timeZone === "UTC" ? cron : `${cron} (${timeZone})`,
     },
     fields: [

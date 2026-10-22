@@ -4,7 +4,7 @@ interface TeamsThread { conversationId: string, serviceUrl: string }
 
 const store = vi.hoisted(() => new Map<string, unknown>())
 
-vi.mock("@vite-hub/kv", () => ({
+const kvModule = vi.hoisted(() => ({
   kv: {
     get: async (key: string) => [null, store.get(key) ?? null],
     set: async (key: string, value: unknown) => {
@@ -13,6 +13,9 @@ vi.mock("@vite-hub/kv", () => ({
     },
   },
 }))
+
+// teams.connector() loads the optional @vite-hub/kv through this helper.
+vi.mock("../src/internal/optional-kv.ts", () => ({ importOptionalKV: async () => kvModule }))
 
 function encode(thread: TeamsThread): string {
   return `teams:${Buffer.from(thread.conversationId).toString("base64url")}:${Buffer.from(thread.serviceUrl).toString("base64url")}`

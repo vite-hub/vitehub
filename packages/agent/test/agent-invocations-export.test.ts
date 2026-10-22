@@ -46,7 +46,9 @@ function invocationEndpoint(records: Summary[], observations: Record<string, Obs
       details.push(id)
       return Response.json({ invocation: records.find(record => record.id === id), observations: observations[id] ?? [] })
     }
-    return Response.json({ invocations: records.filter(record => record.status === url.searchParams.get("status")) })
+    // The CLI asks for every status in one request with repeated status parameters (#2600).
+    const statuses = url.searchParams.getAll("status")
+    return Response.json({ invocations: records.filter(record => statuses.includes(record.status)) })
   })
   // SAFETY: The mock implements the fetch call shape that the CLI uses.
   return { details, fetch: fetch as unknown as typeof globalThis.fetch }
