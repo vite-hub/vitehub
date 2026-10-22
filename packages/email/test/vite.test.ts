@@ -205,6 +205,7 @@ describe("hubEmail", () => {
         rollupConfig: { external: ["cloudflare:workers", "cloudflare:email"] },
       },
     })
+    expect((cloudflareConfig.nitro as Record<string, unknown>).modules).toEqual([plugin.nitro])
 
     await resolvePlugin(plugin, root)
     const source = await loadConfiguredDefinition(plugin)

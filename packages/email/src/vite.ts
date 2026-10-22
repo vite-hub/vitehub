@@ -460,6 +460,16 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })
   }
 
+  const nitroModule: EmailVitePlugin["nitro"] = {
+    name: "@vite-hub/email/cloudflare-binding",
+    setup(nitro) {
+      // Nitro runs module hooks after the Cloudflare preset hook that writes `wrangler.json`.
+      nitro.hooks.hook("compiled", async () => {
+        if (addedEmailBinding) await removeDuplicateEmailBinding(nitro.options.output.serverDir)
+      })
+    },
+  }
+
   return {
     name: EMAIL_VITE_PLUGIN_NAME,
     enforce: "pre",
@@ -467,15 +477,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       getDefinition: () => definition,
       prepareTypes,
     },
-    nitro: {
-      name: "@vite-hub/email/cloudflare-binding",
-      setup(nitro) {
-        // Nitro runs module hooks after the Cloudflare preset hook that writes `wrangler.json`.
-        nitro.hooks.hook("compiled", async () => {
-          if (addedEmailBinding) await removeDuplicateEmailBinding(nitro.options.output.serverDir)
-        })
-      },
-    },
+    nitro: nitroModule,
     vitehub: {
       cli: async () => {
         const { createEmailCliContributor } = await import(/* @vite-ignore */ "./cli.js")
@@ -508,6 +510,16 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
+      if (isRecord(configRecord.nitro)) {
+        const modules = Array.isArray(configRecord.nitro.modules)
+          ? configRecord.nitro.modules
+          : configRecord.nitro.modules
+            ? [configRecord.nitro.modules]
+            : []
+        if (!modules.some(module => module === nitroModule || (isRecord(module) && module.name === nitroModule.name))) {
+          configRecord.nitro.modules = [...modules, nitroModule]
+        }
+      }
       if (command === "serve") {
         configRecord.nitro = await addNitroEmailDevHandler(configRecord.nitro, projectRoot, importBase, outbox !== undefined, outboxRuntimeId)
       }
