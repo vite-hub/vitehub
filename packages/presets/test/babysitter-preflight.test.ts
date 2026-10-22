@@ -19,7 +19,7 @@ describe("Babysitter host prerequisites", () => {
     expect(command).toHaveBeenCalledTimes(2);
     clock.mockReturnValue(301001);
     expect((await check()).pause).toBeUndefined();
-    expect(command).toHaveBeenCalledTimes(2);
+    expect(command).toHaveBeenCalledTimes(4);
   });
 
   it("does not require an installer when installation is disabled", async () => {

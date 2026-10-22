@@ -4,7 +4,6 @@ description: Configure Blob Stores, the opt-in serve route, and provider options
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Store configuration

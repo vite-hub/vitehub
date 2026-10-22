@@ -20,11 +20,19 @@ export async function forgeBlob(provider: ForgeProvider, repo: RepoRef, sha: str
     { signal: options.signal },
   )
   if (!isBase64Blob(data)) throw new ForgeResponseError(`GitHub returned a malformed blob ${sha}.`)
-  return new Uint8Array(Buffer.from(data.content, "base64"))
+  return new Uint8Array(Buffer.from(data.content.replace(/\s+/g, ""), "base64"))
 }
 
-function isBase64Blob(value: unknown): value is { content: string, encoding: "base64" } {
-  if (!(value instanceof Object) || !("content" in value) || !("encoding" in value)) return false
+function isBase64Blob(value: unknown): value is { content: string, encoding: "base64", sha: string } {
+  if (!(value instanceof Object) || !("content" in value) || !("encoding" in value) || !("sha" in value)) return false
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
-  return typeof value.content === "string" && value.encoding === "base64"
+  if (typeof value.content !== "string" || value.encoding !== "base64" || typeof value.sha !== "string" || value.sha.length === 0) return false
+  const content = value.content.replace(/\s+/g, "")
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) return false
+  try {
+    return Buffer.from(content, "base64").toString("base64") === content
+  }
+  catch {
+    return false
+  }
 }

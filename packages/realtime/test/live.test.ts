@@ -874,7 +874,7 @@ describe("adapter seams for live documents", () => {
     const server = createTestServer(liveDefinition(memory.adapter, { auth: true, identify: () => null }), { durable: sql })
     const internal = (path: string) => {
       const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
-      Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql } } } } })
+      Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: sql.carrier } } } } })
       return server.handler.fetch(request)
     }
     await expect((await internal("page")).json()).resolves.toEqual({ reseeded: false })
