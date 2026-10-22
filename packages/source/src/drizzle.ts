@@ -94,9 +94,7 @@ function driverType(column: AnySQLiteColumn): "number" | "string" {
 
 function isColumnDriverValue(column: AnySQLiteColumn, type: "number" | "string", value: unknown): boolean {
   const representationMatches =
-    type === "string"
-      ? String(value) === value
-      : (Number(value) === value && Number.isFinite(Number(value))) || (column.dataType === "date" && typeof value === "string")
+    type === "string" ? String(value) === value : Number(value) === value && Number.isFinite(Number(value))
   if (!representationMatches) {
     return false
   }

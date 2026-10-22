@@ -195,7 +195,9 @@ export function useConsoleLiveDocument(options: {
   }
 
   async function save(): Promise<string | null> {
-    return (await realtime.save()).digest
+    const [error, saved] = await realtime.save()
+    if (error) throw error
+    return saved.digest
   }
 
   onBeforeUnmount(() => focus(undefined))

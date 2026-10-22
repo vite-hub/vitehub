@@ -67,14 +67,6 @@ function selectStore(storage: BlobStorage, stores: readonly string[], requested:
   return { name, storage: name === "default" ? storage : storage.store(name) }
 }
 
-/**
- * Whether ViteHub owns the pathname: Blob writes its own records under `_vitehub/`. The Console hides these paths unless
- * the request sets `showVitehub=true`. #2420 moves this check to `@vite-hub/internal/owned-paths`.
- */
-function isVitehubOwnedPath(pathname: string): boolean {
-  return pathname.replace(/^\/+/, "").split("/")[0]?.toLowerCase() === "_vitehub"
-}
-
 function serializeBlob(object: BlobObject): ConsoleBlobObject {
   const serialized: ConsoleBlobObject = {
     customMetadata: { ...object.customMetadata },
