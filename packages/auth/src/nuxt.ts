@@ -18,7 +18,7 @@ export interface AuthNuxtModuleOptions {
 }
 
 type NuxtLike = {
-  hook?: (name: "modules:done" | "nitro:config", handler: ((nitroConfig: Record<string, unknown>) => Promise<void>) | (() => void)) => void
+  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
     plugins?: Array<string | { src: string, order?: number }>
     _layers?: NuxtServerDirOptions["_layers"]
@@ -115,7 +115,9 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     vueBridgeRegistered.add(nuxt)
     // Modules may register plugins after this module. Reassert the bridge once
     // module registration is complete, before Nuxt starts running plugins.
-    nuxt.hook("modules:done", ensureVueRuntimePlugin)
+    ;(nuxt.hook as unknown as (name: "modules:done", handler: () => Promise<void>) => void)("modules:done", async () => {
+      ensureVueRuntimePlugin()
+    })
   }
 
   nuxt.options.imports ??= {}
