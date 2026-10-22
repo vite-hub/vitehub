@@ -236,12 +236,13 @@ describe("colocated Agent instructions", () => {
         },
         driver: { model },
       })
-      if (sourceConfiguration !== "discovered") {
+      if (sourceConfiguration === "explicit") {
         expect(agent.sources?.__vitehubAgentInstructions).toMatchObject({
           materialize: "build",
           path: "instructions.md",
         })
       }
+      if (sourceConfiguration === "override") expect(agent.sources?.__vitehubAgentInstructions).toEqual(explicitInstructions)
       const server = { config: { plugins: [] }, ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
 
       const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
@@ -292,7 +293,8 @@ describe("colocated Agent instructions", () => {
       else expect(sources).not.toHaveProperty("__vitehubAgentInstructions")
       expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ kind: "provider" })
       if (sourceConfiguration === "override") {
-        expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).not.toHaveProperty("instructions")
+        // The normalized Provider Driver always has an `instructions` key; it stays unset here.
+        expect((Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver")) as { instructions?: unknown } | undefined)?.instructions).toBeUndefined()
       }
       else {
         expect(Reflect.get(loaded.default, Symbol.for("vitehub.baseAgentDriver"))).toMatchObject({ instructions: "Support the local invocation.\n" })

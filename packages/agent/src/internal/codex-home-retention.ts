@@ -7,7 +7,7 @@ import { providerNativeThreadId } from "./provider-session-cursor.ts"
 import { retentionBudgetBytes } from "./retention-volume.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
-import type { DatabaseSync } from "node:sqlite"
+import type { DatabaseSync, SQLOutputValue } from "node:sqlite"
 import { formatRetentionPercentage } from "./retention-policy.ts"
 import type { NormalizedRetention, RetentionSizeLimit } from "./retention-policy.ts"
 
@@ -568,7 +568,7 @@ function runInTransaction(db: DatabaseSync, work: () => number): number {
 }
 
 /** Removes rows of the given threads from one Codex database. Returns the IDs whose rows are gone. */
-type DeletedRows = { table: string, columns: string[], rows: unknown[][] }
+type DeletedRows = { table: string, columns: string[], rows: SQLOutputValue[][] }
 
 function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[], transactional = true): { done: string[], rows: number, backup: DeletedRows[] } {
   const statements: { sql: string, params: number }[] = []
@@ -579,7 +579,7 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
     if (columns.has("thread_id")) {
       const names = [...columns]
       const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM ${quoteIdentifier(table)} WHERE thread_id IN (SELECT value FROM json_each(?))`).all(json)
-      backup.push({ table, columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
+      backup.push({ table, columns: names, rows: rows.map(row => names.map(name => row[name])) })
       statements.push({ params: 1, sql: `DELETE FROM ${quoteIdentifier(table)} WHERE thread_id IN (SELECT value FROM json_each(?))` })
     }
   }
@@ -588,12 +588,12 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
     if (edges.has("parent_thread_id") && edges.has("child_thread_id")) {
       const names = [...edges]
       const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM thread_spawn_edges WHERE parent_thread_id IN (SELECT value FROM json_each(?)) OR child_thread_id IN (SELECT value FROM json_each(?))`).all(json, json)
-      backup.push({ table: "thread_spawn_edges", columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
+      backup.push({ table: "thread_spawn_edges", columns: names, rows: rows.map(row => names.map(name => row[name])) })
       statements.push({ params: 2, sql: "DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (SELECT value FROM json_each(?)) OR child_thread_id IN (SELECT value FROM json_each(?))" })
     }
     const names = [...tableColumns(db, "threads")]
     const rows = db.prepare(`SELECT ${names.map(quoteIdentifier).join(", ")} FROM threads WHERE id IN (SELECT value FROM json_each(?))`).all(json)
-    backup.push({ table: "threads", columns: names, rows: rows.map(row => names.map(name => (row as Record<string, unknown>)[name])) })
+    backup.push({ table: "threads", columns: names, rows: rows.map(row => names.map(name => row[name])) })
     statements.push({ params: 1, sql: "DELETE FROM threads WHERE id IN (SELECT value FROM json_each(?))" })
   }
   const done: string[] = []

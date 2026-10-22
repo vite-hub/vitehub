@@ -11,11 +11,15 @@ import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/int
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
 
+// A model Driver stores colocated instructions and Skills as Workspace Sources. A Provider Driver
+// gets them outside the Workspace (#2658), so the Source assertions below use a model Driver.
+const model = {} as never
+
 function checkReconfiguredRoot(decorate: typeof workspaceAgentWithSourceRoot) {
   const preset = defineAgent({
     options: { customRoot: true },
     configure: options => defineAgent({
-      driver: "codex",
+      driver: { model },
       workspace: options.customRoot ? { sourceRootDir: "/configured" } : {},
     }),
   })
@@ -137,7 +141,7 @@ it("keeps generated colocated skills available to derived definitions", async ()
     await runAgent(discoveredInheritedOnly as typeof inheritedOnly, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
     expect(seen).toEqual([Reflect.get(runnable, colocatedAgentSkillsSymbol)])
     expect(seen[0]).toMatchObject({ review: { content: new TextEncoder().encode("Review.") } })
-    const manual = agentWithSkills(defineAgent({ driver: "codex", workspace: {} }), { manual: "Manual.", review: "Manual review." })
+    const manual = agentWithSkills(defineAgent({ driver: { model }, workspace: {} }), { manual: "Manual.", review: "Manual review." })
     const manualDiscovered = decorate(manual, "/manual", undefined, {
       ...encodedSkills,
       "__vitehubAgentSkill:.agents/skills/review/SKILL.md": encodedSkills.review,

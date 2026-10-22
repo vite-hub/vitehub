@@ -85,8 +85,11 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 
 // `vite-hub/source` also forwards `table()` from `@vite-hub/source/drizzle`. The owner root
 // cannot export it because `table()` needs the optional `drizzle-orm` peer.
+// `vite-hub/content` also forwards `documents()` and `optional()` from `@vite-hub/content/collections`,
+// which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
   "@vite-hub/blob/ensure",
+  "@vite-hub/content/collections",
   "@vite-hub/source/drizzle",
   "@vite-hub/workspace/ai",
 ]);
@@ -157,7 +160,7 @@ function sourceForwarderTargets(source: string): string[] | undefined {
   const lines = source
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => line && !line.startsWith("//"));
   if (!lines.length) return;
 
   const targets: string[] = [];
@@ -279,6 +282,7 @@ describe("framework package contract", () => {
       "./console/kv",
       "./console/sections",
       "./console/server",
+      "./console/ui",
       "./doctor",
       "./nuxt",
       "./source/vite",

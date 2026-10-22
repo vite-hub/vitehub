@@ -4,7 +4,6 @@ description: Read sessions, call Better Auth, and guard routes from server and V
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports
