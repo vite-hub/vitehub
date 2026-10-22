@@ -22,6 +22,8 @@ const maxBuffer = 64 * 1024 * 1024
 // Tiptap packages that the Content editor's comark-tiptap renderer needs as peers.
 const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
 const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "comark-tiptap", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// @tiptap/pm publishes only subpaths, so its resolution is probed through one of them.
+const optionalPeerProbes = optionalPeers.map(name => name === "@tiptap/pm" ? "@tiptap/pm/state" : name)
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -979,13 +981,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      await assertResolution(appDir, optionalPeers, false)
+      await assertResolution(appDir, optionalPeerProbes, false)
       await exercisePackagesWithoutOptionalPeers(root, specs)
 
       const optionalPeerSpecs = await addOptionalPeers(appDir)
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
-      await assertResolution(appDir, optionalPeers, true)
+      await assertResolution(appDir, optionalPeerProbes, true)
       for (const optionalPeer of optionalPeers) {
         await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)
       }

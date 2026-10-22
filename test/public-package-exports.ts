@@ -42,6 +42,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // The editor renders through comark-tiptap, which needs Tiptap at runtime and in its declarations.
   ["@vite-hub/content/editor", { "comark": "runtime", "comark-tiptap": "both", "@tiptap/core": "both", "@vite-hub/realtime": "declaration" }],
+  // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
+  ["@vite-hub/content/realtime", { "comark": "runtime", "comark-tiptap": "both", "@tiptap/core": "both", "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
