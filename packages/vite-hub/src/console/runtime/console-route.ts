@@ -20,8 +20,11 @@ export function consoleMountPath(base: string, path: string): string {
   return `${base}${path}`
 }
 
-/** Matches a built-in or contributed Console route name. A host suffix such as `___en` stays outside the match. */
-const consoleRouteNamePattern = /^vitehub-console(?:-[a-z0-9]+)*/
+/**
+ * Matches a built-in or contributed Console route name, including a section page such as `vitehub-console-content--media`.
+ * A host suffix such as `___en` stays outside the match.
+ */
+const consoleRouteNamePattern = /^vitehub-console(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?/
 
 export function encodeAgentRouteParam(name: string): string {
   if (!name || name.trim() !== name || name.length > 512) {

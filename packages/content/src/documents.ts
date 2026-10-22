@@ -1,4 +1,5 @@
 import { isStandardSchema, standardIssuePath, standardJsonSchema, standardJsonSchemaDateOptions } from "@vite-hub/internal/standard-schema"
+import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 import { ViteHubError } from "@vite-hub/runtime"
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
 
@@ -7,7 +8,10 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JsonSchema } from "comark-content"
 
-/** One frontmatter field: any Standard Schema validator, such as Zod, Valibot, ArkType, or a ViteHub Blob `image()`. */
+/**
+ * One frontmatter field: any Standard Schema validator, such as Zod, Valibot, ArkType, or `image()`. Plain Valibot
+ * schemas need no wrapper: Content adds the JSON Schema that forms and tools read.
+ */
 export type ContentField = StandardSchemaV1
 
 /** Frontmatter fields keyed by name. Each value validates one field, so validators from different libraries mix. */
@@ -27,33 +31,176 @@ export type ContentFieldsInput<TFields extends ContentFields> = WithOptionalKeys
   [K in keyof TFields]: StandardSchemaV1.InferInput<TFields[K]>
 }>
 
+/**
+ * How a document file is stored, from its extension:
+ * - `markdown`: YAML frontmatter fields and a Markdown `body` (`.md` and any other extension).
+ * - `json`: one JSON object of fields, no body (`.json`).
+ * - `yaml`: one YAML mapping of fields, no body (`.yaml`, `.yml`).
+ */
+export type ContentFormat = "markdown" | "json" | "yaml"
+
+/**
+ * How a document maps to its public URL: a root-relative pattern such as `/blog/:id`, or a function of the document.
+ * A pattern replaces `:id` with the document id and `:<field>` with a text or number field. A function, or a pattern
+ * whose field has no value, may return null for a document without a page.
+ */
+export type ContentDocumentUrl<TData = Record<string, unknown>> =
+  | string
+  | ((document: { id: string, data: TData }) => string | null | undefined)
+
 export interface DocumentsOptions<TFields extends ContentFields> {
   /**
-   * Workspace glob for the collection's Markdown files, such as `posts/**\/*.md`. The part before the first wildcard is
-   * the collection folder; a document id is the path below it without the extension (`posts/2026/hello.md` → `2026/hello`).
+   * Workspace glob for the collection's files, such as `posts/**\/*.md` or `authors/*.json`. The part before the first
+   * wildcard is the collection folder; a document id is the path below it without the extension
+   * (`posts/2026/hello.md` → `2026/hello`). The extension sets the format: `.json` and `.yaml`/`.yml` store data only.
    */
   path: string
-  /** Frontmatter fields. The Markdown body is always the document `body`. */
+  /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. A Markdown body is always `body`. */
   fields: TFields
+  /**
+   * Display name, such as `Posts`. Pass `{ singular, plural }` when the plural is not the singular plus `s`, such as
+   * `{ singular: 'Person', plural: 'People' }`. Defaults to the collection name in title case.
+   */
+  label?: string | ContentLabel
+  /**
+   * The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`,
+   * `name`, `label`, and `heading` that is a string field, then to the first required string field.
+   */
+  titleField?: keyof TFields & string
   /**
    * Field names that `list({ search })` matches as a case-insensitive substring. Defaults to every string field plus
    * the Markdown body.
    */
   search?: ReadonlyArray<keyof TFields & string | "body" | "id">
+  /**
+   * Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. Editors such as the Console
+   * offer them in their insert menu. Content still stores and returns the Markdown as written.
+   */
+  components?: Record<string, DocumentComponent>
+  /**
+   * The public URL of each document, such as `/blog/:id`. Reads expose it as `document.url`; canonical links, sitemaps,
+   * and previews use it. Omit it for documents without their own page.
+   */
+  url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
+  /**
+   * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
+   * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
+   * presence still shows who is there, and `ifDigest` still guards each save.
+   */
+  editing?: ContentEditingOptions
 }
 
-const documentsDefinition: unique symbol = Symbol.for("vitehub.content.documents")
+/** The display names of a collection: one document, and the collection. */
+export interface ContentLabel {
+  /** Name of one document, such as `Person`. */
+  singular: string
+  /** Name of the collection, such as `People`. */
+  plural: string
+}
 
-/** A document collection definition created by `documents()`. */
-export interface DocumentsDefinition<TFields extends ContentFields = ContentFields> {
-  readonly [documentsDefinition]: true
+/** How sessions of a collection edit documents together. */
+export interface ContentEditingOptions {
+  /** One editor at a time per document. Defaults to true. */
+  lease?: boolean
+}
+
+/** One Comark component that document bodies may use. */
+export interface DocumentComponent {
+  /** `block` wraps Markdown between `::alert` and `::`. `inline` sits inside text, as in `:badge[New]`. Defaults to `block`. */
+  kind?: "block" | "inline"
+  /** Name in insert menus. Defaults to the tag in sentence case, such as `Alert`. */
+  label?: string
+  /** One line that says what the component shows. */
+  description?: string
+  /** Props and how each round-trips through Comark attributes. `default` is what a new component starts with. */
+  props?: Record<string, DocumentComponentProp>
+}
+
+/** How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. */
+export interface DocumentComponentProp {
+  type: "string" | "number" | "boolean" | "json"
+  default?: unknown
+}
+
+export interface SingletonOptions<TFields extends ContentFields> {
+  /**
+   * Workspace path of the one file, such as `settings.json`, `site.yaml`, or `pages/home.md`. The extension sets the
+   * format, and the file name without it is the document id (`settings.json` → `settings`).
+   */
+  path: string
+  /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. */
+  fields: TFields
+  /** Display name, such as `Site settings`. Defaults to the collection name in title case. */
+  label?: string
+  /**
+   * The string field that names the document, such as for SEO fallbacks. Defaults like the `titleField` of
+   * `documents()`. Lists and the dashboard name a singleton by its `label`.
+   */
+  titleField?: keyof TFields & string
+  /** The public URL of the document, such as `/` or `/about`. Omit it for data without a page, such as settings. */
+  url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
+  /**
+   * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
+   * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
+   * presence still shows who is there, and `ifDigest` still guards each save.
+   */
+  editing?: ContentEditingOptions
+}
+
+const collectionDefinition: unique symbol = Symbol.for("vitehub.content.documents")
+
+interface CollectionDefinitionBase<TFields extends ContentFields> {
+  readonly [collectionDefinition]: true
+  /** The collection glob, or the file path of a singleton. */
   readonly path: string
   readonly fields: TFields
+  readonly format: ContentFormat
+  /** How each document maps to its public URL, when it has one. */
+  readonly url?: ContentDocumentUrl<any>
+  /** Whether one session at a time holds the edit lease of a document. */
+  readonly editing: { readonly lease: boolean }
+  /** Display name from `label`, when the definition sets one. */
+  readonly label?: string
+  /** `titleField` from the definition, when it sets one. */
+  readonly titleField?: string
+}
+
+/** A document collection definition created by `documents()`. */
+export interface DocumentsDefinition<TFields extends ContentFields = ContentFields> extends CollectionDefinitionBase<TFields> {
+  readonly kind: "documents"
+  /** Name of one document from `label: { singular }`, when the definition sets one. */
+  readonly singularLabel?: string
   readonly search?: ReadonlyArray<string>
+  readonly components?: Readonly<Record<string, DocumentComponent>>
+}
+
+/** A singleton definition created by `singleton()`: one document at a fixed path, such as site settings. */
+export interface SingletonDefinition<TFields extends ContentFields = ContentFields> extends CollectionDefinitionBase<TFields> {
+  readonly kind: "singleton"
+}
+
+/** Any entry of `defineContent({ collections })`. */
+export type ContentCollectionDefinition<TFields extends ContentFields = ContentFields> = DocumentsDefinition<TFields> | SingletonDefinition<TFields>
+
+/** Check the fields and give plain Valibot schemas the JSON Schema they lack, so forms and tools see their shape. */
+function definitionFields<TFields extends ContentFields>(helper: string, path: string, fields: TFields): TFields {
+  if (Object(fields) !== fields || Array.isArray(fields)) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) requires fields: a record of Standard Schema validators.`)
+  }
+  const checked: Record<string, ContentField> = {}
+  for (const [name, field] of Object.entries(fields)) {
+    if (!isStandardSchema(field)) {
+      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string() or v.string().`)
+    }
+    checked[name] = withValibotJsonSchema(field)
+  }
+  // SAFETY: Each field keeps its validator and types; plain Valibot schemas only gain JSON Schema conversion.
+  return checked as TFields
 }
 
 /**
- * Define an editable collection of Markdown documents with validated frontmatter.
+ * Define an editable collection of documents with validated fields. Markdown files keep fields in YAML frontmatter
+ * above a body; `.json` and `.yaml` files are data only.
  *
  * @example
  * documents({
@@ -64,41 +211,188 @@ export interface DocumentsDefinition<TFields extends ContentFields = ContentFiel
 export function documents<const TFields extends ContentFields>(options: DocumentsOptions<TFields>): DocumentsDefinition<TFields> {
   if (Object(options) !== options) throw invalidDefinition("documents() requires { path, fields }.")
   if (String(options.path) !== options.path || !options.path) throw invalidDefinition("documents() requires a path glob such as 'posts/**/*.md'.")
-  compileDocumentsPath(options.path)
-  if (Object(options.fields) !== options.fields || Array.isArray(options.fields)) {
-    throw invalidDefinition(`documents(${JSON.stringify(options.path)}) requires fields: a record of Standard Schema validators.`)
+  if (!/[*?]/.test(options.path)) {
+    throw invalidDefinition(`documents() path ${JSON.stringify(options.path)} has no wildcard. Use singleton({ path: ${JSON.stringify(options.path)} }) for one document, or a glob such as 'posts/*.md'.`)
   }
-  for (const [name, field] of Object.entries(options.fields)) {
-    if (!isStandardSchema(field)) {
-      throw invalidDefinition(`documents(${JSON.stringify(options.path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string().`)
-    }
-  }
+  const compiled = compileDocumentsPath(options.path)
+  const fields = definitionFields("documents", options.path, options.fields)
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
     throw invalidDefinition(`documents(${JSON.stringify(options.path)}) search must be a list of field names.`)
   }
+  assertUrl("documents", options.path, options.url, options.fields)
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
-    [documentsDefinition]: true,
-    fields: options.fields,
+    [collectionDefinition]: true,
+    kind: "documents",
+    fields,
+    format: compiled.format,
     path: options.path,
+    editing: editingOptions("documents", options.path, options.editing),
   }
   if (options.search) definition.search = [...options.search]
+  if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
+  if (options.url !== undefined) definition.url = options.url
+  const label = labelOption("documents", options.path, options.label, true)
+  if (label?.plural) definition.label = label.plural
+  if (label?.singular) definition.singularLabel = label.singular
+  const titleField = titleFieldOption("documents", options.path, options.titleField, options.fields)
+  if (titleField) definition.titleField = titleField
   return definition
 }
 
-export function isDocumentsDefinition(value: unknown): value is DocumentsDefinition {
-  return value !== null && Object(value) === value && Reflect.get(Object(value), documentsDefinition) === true
+function labelOption(helper: string, path: string, value: unknown, plural: boolean): Partial<ContentLabel> | undefined {
+  if (value === undefined) return
+  const text = (entry: unknown) => String(entry) === entry && entry.trim() ? entry.trim() : undefined
+  if (text(value)) return { plural: text(value) }
+  const singular = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "singular")) : undefined
+  const many = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "plural")) : undefined
+  if (singular && many) return { singular, plural: many }
+  throw invalidDefinition(`${helper}(${JSON.stringify(path)}) label must be a non-empty string${plural ? " or { singular, plural }, such as { singular: 'Person', plural: 'People' }" : ""}.`)
+}
+
+function titleFieldOption(helper: string, path: string, value: unknown, fields: ContentFields): string | undefined {
+  if (value === undefined) return
+  if (String(value) !== value || !Object.hasOwn(fields, value)) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) titleField must name one of its fields, such as 'title'.`)
+  }
+  return value
+}
+
+const componentTag = /^[a-z][a-z0-9-]*$/
+const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json"]
+
+function isComponentPropType(value: unknown): value is DocumentComponentProp["type"] {
+  return componentPropTypes.some(type => type === value)
+}
+
+function documentComponents(path: string, components: unknown): Record<string, DocumentComponent> {
+  const where = `documents(${JSON.stringify(path)}) components`
+  if (Object(components) !== components || Array.isArray(components)) throw invalidDefinition(`${where} must be a record of component definitions keyed by tag, such as { alert: {} }.`)
+  const result: Record<string, DocumentComponent> = {}
+  for (const [tag, value] of Object.entries(Object(components))) {
+    if (!componentTag.test(tag)) throw invalidDefinition(`${where}: ${JSON.stringify(tag)} must be a lowercase Comark tag, such as alert or call-out.`)
+    if (Object(value) !== value || Array.isArray(value)) throw invalidDefinition(`${where}.${tag} must be an object, such as { kind: 'block' }.`)
+    const kind: unknown = Reflect.get(Object(value), "kind")
+    if (kind !== undefined && kind !== "block" && kind !== "inline") throw invalidDefinition(`${where}.${tag}.kind must be 'block' or 'inline'.`)
+    const component: DocumentComponent = { kind: kind === "inline" ? "inline" : "block" }
+    for (const key of ["label", "description"] as const) {
+      const text: unknown = Reflect.get(Object(value), key)
+      if (text === undefined) continue
+      if (String(text) !== text) throw invalidDefinition(`${where}.${tag}.${key} must be a string.`)
+      component[key] = text
+    }
+    const props: unknown = Reflect.get(Object(value), "props")
+    if (props !== undefined) {
+      if (Object(props) !== props || Array.isArray(props)) throw invalidDefinition(`${where}.${tag}.props must be a record such as { type: { type: 'string' } }.`)
+      component.props = {}
+      for (const [name, prop] of Object.entries(Object(props))) {
+        const type: unknown = Reflect.get(Object(prop), "type")
+        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, or json.`)
+        const entry: DocumentComponentProp = { type }
+        const fallback: unknown = Reflect.get(Object(prop), "default")
+        if (fallback !== undefined) entry.default = JSON.parse(JSON.stringify(fallback))
+        component.props[name] = entry
+      }
+    }
+    result[tag] = component
+  }
+  return result
+}
+
+/**
+ * Define a singleton: one editable document at a fixed path, such as site settings. It has the same drafts, publishing,
+ * history, and validation as a `documents()` collection, without a list.
+ *
+ * @example
+ * singleton({
+ *   path: 'settings.json',
+ *   fields: { title: z.string(), description: z.string().optional(), social: z.array(z.url()).default([]) },
+ * })
+ */
+export function singleton<const TFields extends ContentFields>(options: SingletonOptions<TFields>): SingletonDefinition<TFields> {
+  if (Object(options) !== options) throw invalidDefinition("singleton() requires { path, fields }.")
+  if (String(options.path) !== options.path || !options.path) throw invalidDefinition("singleton() requires a file path such as 'settings.json'.")
+  const compiled = compileSingletonPath(options.path)
+  const fields = definitionFields("singleton", options.path, options.fields)
+  assertUrl("singleton", options.path, options.url, options.fields)
+  const definition: { -readonly [K in keyof SingletonDefinition<TFields>]: SingletonDefinition<TFields>[K] } = {
+    [collectionDefinition]: true,
+    kind: "singleton",
+    fields,
+    format: compiled.format,
+    path: compiled.path,
+    editing: editingOptions("singleton", options.path, options.editing),
+  }
+  if (options.url !== undefined) definition.url = options.url
+  const label = labelOption("singleton", options.path, options.label, false)
+  if (label?.plural) definition.label = label.plural
+  const titleField = titleFieldOption("singleton", options.path, options.titleField, options.fields)
+  if (titleField) definition.titleField = titleField
+  return definition
+}
+
+function editingOptions(helper: string, path: string, editing: unknown): { readonly lease: boolean } {
+  if (editing === undefined) return Object.freeze({ lease: true })
+  const lease: unknown = editing !== null && Object(editing) === editing && !Array.isArray(editing) ? Reflect.get(Object(editing), "lease") : null
+  if (lease !== undefined && lease !== true && lease !== false) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) editing must be { lease?: boolean }.`)
+  }
+  return Object.freeze({ lease: lease !== false })
+}
+
+const urlToken = /:([A-Za-z_$][\w$]*)/g
+
+function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields): void {
+  if (url === undefined || url instanceof Function) return
+  if (String(url) !== url || !url.startsWith("/") || url.startsWith("//")) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.`)
+  }
+  for (const [, name] of url.matchAll(urlToken)) {
+    if (name !== "id" && !Object.hasOwn(fields, name!)) {
+      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id nor a field.`)
+    }
+  }
+}
+
+/**
+ * Resolve the public URL of a document from its definition, or null when it has none. Pattern values are encoded per
+ * path segment, so an id such as `2026/hello` keeps its slash.
+ */
+export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, document: { id: string, data: Record<string, unknown> }): string | null {
+  if (url === undefined) return null
+  if (url instanceof Function) {
+    const result: unknown = url({ id: document.id, data: document.data })
+    if (result === null || result === undefined) return null
+    if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
+      throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)
+    }
+    return result
+  }
+  let missing = false
+  const resolved = url.replace(urlToken, (_match, name: string) => {
+    const value = name === "id" ? document.id : document.data[name]
+    if (String(value) !== value && !Number.isFinite(value)) {
+      missing = true
+      return ""
+    }
+    return String(value).split("/").map(encodeURIComponent).join("/")
+  })
+  return missing ? null : resolved
+}
+
+export function isContentCollectionDefinition(value: unknown): value is ContentCollectionDefinition {
+  return value !== null && Object(value) === value && Reflect.get(Object(value), collectionDefinition) === true
 }
 
 // `@vite-hub/content/collections` attaches the Workspace-backed runtime, so the main entry never imports Workspace.
 type ContentCollectionsFactory = (...args: any[]) => any
-const documentsRuntimes = new WeakMap<DocumentsDefinition<any>, ContentCollectionsFactory>()
+const documentsRuntimes = new WeakMap<ContentCollectionDefinition<any>, ContentCollectionsFactory>()
 
-export function withDocumentsRuntime<TDefinition extends DocumentsDefinition<any>>(definition: TDefinition, runtime: ContentCollectionsFactory): TDefinition {
+export function withDocumentsRuntime<TDefinition extends ContentCollectionDefinition<any>>(definition: TDefinition, runtime: ContentCollectionsFactory): TDefinition {
   documentsRuntimes.set(definition, runtime)
   return definition
 }
 
-export function documentsRuntimeOf(definition: DocumentsDefinition<any>): ContentCollectionsFactory | undefined {
+export function documentsRuntimeOf(definition: ContentCollectionDefinition<any>): ContentCollectionsFactory | undefined {
   return documentsRuntimes.get(definition)
 }
 
@@ -109,9 +403,10 @@ export function documentsRuntimeOf(definition: DocumentsDefinition<any>): Conten
  * fields: { cover: optional(image()) }
  */
 export function optional<TSchema extends StandardSchemaV1>(
-  schema: TSchema,
+  input: TSchema,
 ): StandardSchemaV1<StandardSchemaV1.InferInput<TSchema> | undefined, StandardSchemaV1.InferOutput<TSchema> | undefined> & StandardJSONSchemaV1 {
-  if (!isStandardSchema(schema)) throw invalidDefinition("optional() requires a Standard Schema validator.")
+  if (!isStandardSchema(input)) throw invalidDefinition("optional() requires a Standard Schema validator.")
+  const schema = withValibotJsonSchema(input)
   const inner = schema["~standard"]
   const project = (direction: "input" | "output") => (options: StandardJSONSchemaV1.Options) => standardJsonSchema(schema, direction, options.target, options.libraryOptions) ?? {}
   return {
@@ -131,10 +426,11 @@ function invalidDefinition(message: string) {
 // Paths
 
 export interface CompiledDocumentsPath {
-  /** Folder before the first wildcard, with a trailing slash, or "" for the Workspace root. */
+  /** Folder before the first wildcard, or of the single file, with a trailing slash, or "" for the Workspace root. */
   base: string
   /** File extension including the dot, such as `.md`. */
   extension: string
+  format: ContentFormat
   match(path: string): boolean
 }
 
@@ -142,12 +438,25 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.+^${}()|[\]\\]/g, "\\$&")
 }
 
+/** The format a file extension stores. Extensions other than JSON and YAML are Markdown. */
+export function contentFormatOf(extension: string): ContentFormat {
+  const lower = extension.toLowerCase()
+  if (lower === ".json") return "json"
+  if (lower === ".yaml" || lower === ".yml") return "yaml"
+  return "markdown"
+}
+
+function normalizeDefinitionPath(helper: string, path: string, example: string): string {
+  const normalized = path.replace(/^\.?\/+/, "")
+  if (/[{}[\]!()]/.test(normalized) || normalized.split("/").some(segment => !segment || segment === "." || segment === "..")) {
+    throw invalidDefinition(`${helper}() path ${JSON.stringify(path)} must be a relative ${helper === "singleton" ? "file path" : "glob using only *, **, and ?"}, such as '${example}'.`)
+  }
+  return normalized
+}
+
 /** Compile a collection glob. Supports `*`, `**`, and `?`; the last segment must end with `*.<extension>`. */
 export function compileDocumentsPath(glob: string): CompiledDocumentsPath {
-  const normalized = glob.replace(/^\.?\/+/, "")
-  if (/[{}[\]!()]/.test(normalized) || normalized.split("/").some(segment => !segment || segment === "." || segment === "..")) {
-    throw invalidDefinition(`documents() path ${JSON.stringify(glob)} must be a relative glob using only *, **, and ?, such as 'posts/**/*.md'.`)
-  }
+  const normalized = normalizeDefinitionPath("documents", glob, "posts/**/*.md")
   const extension = /\*(\.[\w-]+)$/.exec(normalized)?.[1]
   if (!extension) throw invalidDefinition(`documents() path ${JSON.stringify(glob)} must end with one extension, such as 'posts/**/*.md'.`)
   const segments = normalized.split("/")
@@ -166,7 +475,69 @@ export function compileDocumentsPath(glob: string): CompiledDocumentsPath {
     else pattern += escapeRegExp(char)
   }
   const regex = new RegExp(`^${pattern}$`)
-  return { base, extension, match: path => regex.test(path) }
+  return { base, extension, format: contentFormatOf(extension), match: path => regex.test(path) }
+}
+
+/** Compile the fixed path of a singleton. Its id is the file name without the extension. */
+export function compileSingletonPath(path: string): CompiledDocumentsPath & { path: string, id: string } {
+  const normalized = normalizeDefinitionPath("singleton", path, "settings.json")
+  if (/[*?]/.test(normalized)) {
+    throw invalidDefinition(`singleton() path ${JSON.stringify(path)} must name one file. Use documents({ path: ${JSON.stringify(path)} }) for a collection.`)
+  }
+  const slash = normalized.lastIndexOf("/")
+  const name = normalized.slice(slash + 1)
+  const extension = /[^.](\.[\w-]+)$/.exec(name)?.[1]
+  if (!extension) throw invalidDefinition(`singleton() path ${JSON.stringify(path)} must end with an extension, such as 'settings.json' or 'pages/home.md'.`)
+  return {
+    base: normalized.slice(0, slash + 1),
+    extension,
+    format: contentFormatOf(extension),
+    id: name.slice(0, -extension.length),
+    match: candidate => candidate === normalized,
+    path: normalized,
+  }
+}
+
+/** Whether one glob segment, with `*` and `?`, and another can match the same file or directory name. */
+function segmentsOverlap(left: string, right: string): boolean {
+  const queue: Array<[number, number]> = [[0, 0]]
+  const seen = new Set<string>()
+  while (queue.length) {
+    const [i, j] = queue.shift()!
+    const key = `${i},${j}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (i === left.length && j === right.length) return true
+    // A `*` matches nothing, or one more character of the other side.
+    if (left[i] === "*") queue.push([i + 1, j])
+    if (right[j] === "*") queue.push([i, j + 1])
+    if (i === left.length || j === right.length) continue
+    if (left[i] === "*" && right[j] !== "*") queue.push([i, j + 1])
+    else if (right[j] === "*" && left[i] !== "*") queue.push([i + 1, j])
+    else if (left[i] !== "*" && (left[i] === "?" || right[j] === "?" || left[i] === right[j])) queue.push([i + 1, j + 1])
+  }
+  return false
+}
+
+/**
+ * Whether two collection paths can name the same Workspace file. A `documents()` glob and a `singleton()` file are both
+ * paths of segments; `**` matches any number of segments. `defineContent()` uses it so one file belongs to one collection.
+ */
+export function collectionPathsOverlap(left: Pick<ContentCollectionDefinition, "path">, right: Pick<ContentCollectionDefinition, "path">): boolean {
+  const a = left.path.replace(/^\.?\/+/, "").split("/")
+  const b = right.path.replace(/^\.?\/+/, "").split("/")
+  const seen = new Set<string>()
+  const walk = (i: number, j: number): boolean => {
+    const key = `${i},${j}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    if (i === a.length && j === b.length) return true
+    if (a[i] === "**" && (walk(i + 1, j) || (j < b.length && walk(i, j + 1)))) return true
+    if (b[j] === "**" && (walk(i, j + 1) || (i < a.length && walk(i + 1, j)))) return true
+    if (a[i] === "**" || b[j] === "**") return false
+    return i < a.length && j < b.length && segmentsOverlap(a[i]!, b[j]!) && walk(i + 1, j + 1)
+  }
+  return walk(0, 0)
 }
 
 // Fields
@@ -259,19 +630,16 @@ export function untypedFields(schema: Record<string, unknown>): string[] {
 
 /**
  * Warn once per process for each collection field whose JSON Schema is empty, because forms and tools then get no
- * hint for it. Valibot schemas are the usual cause: they need `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+ * hint for it, such as an async Valibot schema or a library without Standard JSON Schema.
  */
-export function warnUntypedFields(collection: string, fields: ContentFields, schema: Record<string, unknown>): void {
+export function warnUntypedFields(collection: string, schema: Record<string, unknown>): void {
   for (const field of untypedFields(schema)) {
     const key = `${collection}\0${field}`
     if (warnedUntypedFields.has(key)) continue
     warnedUntypedFields.add(key)
-    const fix = fields[field]?.["~standard"].vendor === "valibot"
-      ? "Wrap the Valibot schema in toStandardJsonSchema() from @valibot/to-json-schema"
-      : "Use a validator that has a Standard JSON Schema"
     console.warn(
       `[vitehub] Content collection ${JSON.stringify(collection)} field ${JSON.stringify(field)} has no JSON Schema, so forms and tools get no hint for it. `
-      + `${fix}. See https://vitehub.dev/docs/content/configure#json-schema`,
+      + "Use a synchronous validator that has a Standard JSON Schema, such as Zod or Valibot. See https://vitehub.dev/docs/content/configure#json-schema",
     )
   }
 }
@@ -306,16 +674,49 @@ export function comarkJsonSchema(schema: unknown): JsonSchema {
   return result
 }
 
-// Markdown files
+// Files
 
 export interface ParsedDocumentFile {
   frontmatter: Record<string, unknown>
   body: string
 }
 
-/** Split a Markdown file into YAML frontmatter and body. */
-export function parseDocumentFile(text: string): ParsedDocumentFile | { issues: ContentFieldIssue[] } {
-  const source = text.startsWith("﻿") ? text.slice(1) : text
+/** YAML output that diffs line by line: block mappings and lists, and long strings kept on one line. */
+const yamlOptions = { lineWidth: 0 } as const
+
+function yamlIssue(cause: unknown, what: string): ContentFieldIssue {
+  return { message: `${what} is not valid YAML: ${cause instanceof Error ? cause.message.split("\n")[0] : String(cause)}`, path: [] }
+}
+
+/**
+ * Parse a stored file. Markdown splits YAML frontmatter from the body. JSON and YAML files are one object of fields
+ * with an empty body.
+ */
+export function parseDocumentFile(text: string, format: ContentFormat = "markdown"): ParsedDocumentFile | { issues: ContentFieldIssue[] } {
+  const source = text.startsWith("\uFEFF") ? text.slice(1) : text
+  if (format === "json") {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(source)
+    }
+    catch (cause) {
+      return { issues: [{ message: `The file is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`, path: [] }] }
+    }
+    if (!isPlainRecord(parsed)) return { issues: [{ message: "A JSON document must be one object of field names to values.", path: [] }] }
+    return { frontmatter: parsed, body: "" }
+  }
+  if (format === "yaml") {
+    let parsed: unknown
+    try {
+      parsed = source.trim() ? parseYaml(source) : {}
+    }
+    catch (cause) {
+      return { issues: [yamlIssue(cause, "The file")] }
+    }
+    if (parsed === null || parsed === undefined) parsed = {}
+    if (!isPlainRecord(parsed)) return { issues: [{ message: "A YAML document must be one mapping of field names to values.", path: [] }] }
+    return { frontmatter: parsed, body: "" }
+  }
   const match = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(source)
   if (!match) return { frontmatter: {}, body: source }
   let parsed: unknown
@@ -323,19 +724,48 @@ export function parseDocumentFile(text: string): ParsedDocumentFile | { issues: 
     parsed = match[1]?.trim() ? parseYaml(match[1]) : {}
   }
   catch (cause) {
-    return { issues: [{ message: `Frontmatter is not valid YAML: ${cause instanceof Error ? cause.message.split("\n")[0] : String(cause)}`, path: [] }] }
+    return { issues: [yamlIssue(cause, "Frontmatter")] }
   }
   if (parsed === null || parsed === undefined) parsed = {}
   if (!isPlainRecord(parsed)) return { issues: [{ message: "Frontmatter must be a YAML mapping of field names to values.", path: [] }] }
   return { frontmatter: parsed, body: source.slice(match[0].length).replace(/^\r?\n/, "") }
 }
 
-/** Serialize frontmatter and body. Without fields, the file is the body alone. */
-export function renderDocumentFile(frontmatter: Record<string, unknown>, body: string): string {
+/**
+ * Serialize fields and body in the file's format. Markdown without fields is the body alone. JSON is indented by two
+ * spaces and YAML uses block style, so every field change is its own line in a diff.
+ */
+export function renderDocumentFile(frontmatter: Record<string, unknown>, body: string, format: ContentFormat = "markdown"): string {
+  if (format === "json") return `${JSON.stringify(frontmatter, null, 2)}\n`
+  if (format === "yaml") return stringifyYaml(frontmatter, yamlOptions)
   const keys = Object.keys(frontmatter).length
   // A body that starts with a delimiter needs an empty frontmatter block so it is not read back as frontmatter.
-  if (!keys && !/^(?:﻿)?---/.test(body)) return body
-  return `---\n${keys ? stringifyYaml(frontmatter) : ""}---\n${body ? `\n${body}` : ""}`
+  if (!keys && !/^(?:\uFEFF)?---/.test(body)) return body
+  return `---\n${keys ? stringifyYaml(frontmatter, yamlOptions) : ""}---\n${body ? `\n${body}` : ""}`
+}
+
+/** One document with field issues, for a `CONTENT_INVALID` that names several. */
+export interface ContentInvalidDocument {
+  collection: string
+  id: string
+  path: string
+  issues: ContentFieldIssue[]
+}
+
+/**
+ * A `CONTENT_INVALID` that names every invalid document of a `publish()` or `schedule()`. `details` keep the first
+ * document's `collection`, `id`, `path`, and `issues`, and list all of them in `documents`.
+ */
+export function contentInvalidDocuments(method: "publish" | "schedule", documents: readonly ContentInvalidDocument[]): ViteHubError {
+  const first = documents[0]!
+  const lines = documents.flatMap(document => document.issues.map((issue) => {
+    const where = [issue.field, ...issue.path].filter(segment => segment !== undefined).join(".")
+    return `- ${document.collection}/${document.id}: ${where ? `${where}: ` : ""}${issue.message}`
+  }))
+  const count = documents.length === 1 ? "1 Content document has" : `${documents.length} Content documents have`
+  return new ViteHubError("CONTENT_INVALID", `[vitehub] ${method}() ${method === "publish" ? "published" : "scheduled"} nothing: ${count} invalid fields:\n${lines.join("\n")}`, {
+    details: { collection: first.collection, id: first.id, path: first.path, issues: first.issues, documents: documents.map(document => ({ ...document })) },
+  })
 }
 
 /** A readable `CONTENT_INVALID` error listing every field issue. */

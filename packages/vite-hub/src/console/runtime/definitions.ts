@@ -31,6 +31,84 @@ export interface ConsoleRecord {
 export type ConsoleSectionView =
   | { kind: "definition-catalog", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
+  | { kind: "document-editor", notice: string }
+
+/** What the signed-in user may do with one collection. It mirrors `ViteHubConsoleDocumentAccess`. */
+export interface ConsoleDocumentAccess {
+  read: boolean
+  write: boolean
+  publish: boolean
+}
+
+/** One editable collection. It mirrors `ViteHubConsoleDocumentCollection`. */
+export interface ConsoleDocumentCollection {
+  access: ConsoleDocumentAccess
+  label: string
+  /** Name of one document, such as `Person`. Without it, the Console makes `label` singular. */
+  singularLabel?: string
+  name: string
+  path: string
+  schema: Record<string, unknown>
+  titleField?: string
+  /** Comark components that bodies may use, for the body editor's insert menu. */
+  components?: readonly ConsoleDocumentComponent[]
+  /** `singleton` for one document at a fixed path, which the editor opens without a list. */
+  kind?: "documents" | "singleton"
+  /** The id of the one document when `kind` is `singleton`. */
+  document?: string
+  /** `json` and `yaml` documents have fields only, without a Markdown body. */
+  format?: "markdown" | "json" | "yaml"
+}
+
+/** A Comark component that document bodies may use. It mirrors `ViteHubConsoleDocumentComponent`. */
+export interface ConsoleDocumentComponent {
+  description?: string
+  kind: "block" | "inline"
+  label: string
+  name: string
+  props: Record<string, { default?: unknown, type: "boolean" | "json" | "number" | "string" }>
+}
+
+const componentPropTypes = ["boolean", "json", "number", "string"] as const
+
+function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponent[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const component = record(entry)
+    if (!component || !text(component.name) || !/^[a-z][a-z0-9-]*$/.test(component.name)) return []
+    const props: ConsoleDocumentComponent["props"] = {}
+    for (const [name, prop] of Object.entries(record(component.props) ?? {})) {
+      const type = componentPropTypes.find(entry => entry === record(prop)?.type)
+      if (!type) continue
+      props[name] = record(prop)?.default === undefined ? { type } : { default: record(prop)?.default, type }
+    }
+    const parsed: ConsoleDocumentComponent = {
+      kind: component.kind === "inline" ? "inline" : "block",
+      label: text(component.label) ? component.label : component.name,
+      name: component.name,
+      props,
+    }
+    if (text(component.description)) parsed.description = component.description
+    return [parsed]
+  })
+}
+
+/** A view that the Console renders for a section page. It mirrors `ViteHubConsoleSectionPageView`. */
+export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "document-settings" } | { kind: "media-library" }
+
+/**
+ * A page next to the main view of a section. It mirrors `ViteHubConsoleSectionPage` after the host dropped the pages
+ * whose required sections the project does not enable.
+ */
+export interface ConsoleSectionPage {
+  group?: string
+  icon: string
+  id: string
+  /** The page opens at the section root. */
+  index?: boolean
+  label: string
+  view: ConsoleSectionPageView
+}
 
 /** Serializable descriptor of a Console section that an owner package contributes. */
 export interface ConsoleContributedSection {
@@ -38,12 +116,32 @@ export interface ConsoleContributedSection {
   icon: string
   id: string
   label: string
+  /** Pages next to the main view, in sidebar order. */
+  pages?: readonly ConsoleSectionPage[]
   view: ConsoleSectionView
 }
 
 export type ConsoleSectionContent =
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
+  | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
+
+/** A fix that the owner names for a feature the project lacks. It mirrors `ViteHubConsoleDocumentHint`. */
+export interface ConsoleDocumentHint {
+  /** Text in backticks shows as code. */
+  message: string
+  docs?: string
+}
+
+/** What the project lacks for some editor features. It mirrors `ViteHubConsoleDocumentSetup`. */
+export interface ConsoleDocumentSetup {
+  /** No user can read anything because the owner has no access policy. */
+  access?: ConsoleDocumentHint
+  /** Nothing runs scheduled publishes. */
+  schedule?: ConsoleDocumentHint
+  /** Live co-editing: the Realtime Definition whose rooms are `<collection>/<id>`, or why the host cannot run it. */
+  live?: { definition: string } | { unavailable: string }
+}
 
 /** Reads the records of one section on each Console request. It mirrors `ViteHubConsoleRuntimeRecordReader`. */
 export type ConsoleRuntimeRecordReader = () => readonly ConsoleRecord[] | Promise<readonly ConsoleRecord[]>
@@ -79,7 +177,7 @@ export function parseConsoleDefinitionFields(value: unknown): ConsoleDefinitionF
 function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined {
   const view = record(value)
   if (!text(view?.notice)) return undefined
-  if (view.kind === "definition-catalog") return { kind: "definition-catalog", notice: view.notice }
+  if (view.kind === "definition-catalog" || view.kind === "document-editor") return { kind: view.kind, notice: view.notice }
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
@@ -88,13 +186,36 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   return { columns, kind: "record-table", notice: view.notice }
 }
 
+const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "document-settings", "media-library"])
+const pageIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+/** Reads section pages from untrusted JSON. Pages with an unknown view, a repeated id, or a second index are dropped. */
+function parseConsoleSectionPages(value: unknown): ConsoleSectionPage[] {
+  if (!Array.isArray(value)) return []
+  const pages: ConsoleSectionPage[] = []
+  for (const entry of value) {
+    const page = record(entry)
+    const view = record(page?.view)
+    if (!page || !text(page.id) || !pageIdPattern.test(page.id) || !text(page.label) || !text(page.icon) || !pageViewKinds.has(view?.kind)) continue
+    if (pages.some(candidate => candidate.id === page.id)) continue
+    // SAFETY: `pageViewKinds` holds exactly the page view kinds.
+    const parsed: ConsoleSectionPage = { icon: page.icon, id: page.id, label: page.label, view: { kind: view!.kind as ConsoleSectionPageView["kind"] } }
+    if (page.index === true && !pages.some(candidate => candidate.index)) parsed.index = true
+    if (text(page.group) && page.group.trim()) parsed.group = page.group.trim()
+    pages.push(parsed)
+  }
+  return pages
+}
+
 /** Reads a contributed section descriptor from untrusted JSON. */
 export function parseConsoleContributedSection(value: unknown): ConsoleContributedSection | undefined {
   const section = record(value)
   const view = parseConsoleSectionView(section?.view)
-  return section && view && text(section.id) && text(section.label) && text(section.icon) && text(section.description)
-    ? { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
-    : undefined
+  if (!section || !view || !text(section.id) || !text(section.label) || !text(section.icon) || !text(section.description)) return undefined
+  const parsed: ConsoleContributedSection = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
+  const pages = parseConsoleSectionPages(section.pages)
+  if (pages.length) parsed.pages = pages
+  return parsed
 }
 
 export function parseConsoleDefinitionSummaries(value: unknown): ConsoleDefinitionSummary[] {
@@ -128,10 +249,66 @@ function parseConsoleRecords(value: unknown): ConsoleRecord[] {
   })
 }
 
+function parseConsoleDocumentHint(value: unknown): ConsoleDocumentHint | undefined {
+  const hint = record(value)
+  if (!text(hint?.message) || !hint.message.trim()) return undefined
+  // Only documentation links on the web; a hint never links to a script or another scheme.
+  return text(hint.docs) && /^https?:\/\//.test(hint.docs) ? { docs: hint.docs, message: hint.message } : { message: hint.message }
+}
+
+/** Reads the setup hints of a document editor from untrusted JSON, or undefined when it names none. */
+export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup | undefined {
+  const source = record(value)
+  const setup: ConsoleDocumentSetup = {}
+  for (const key of ["access", "schedule"] as const) {
+    const hint = parseConsoleDocumentHint(source?.[key])
+    if (hint) setup[key] = hint
+  }
+  const live = record(source?.live)
+  if (text(live?.definition) && live.definition) setup.live = { definition: live.definition }
+  else if (text(live?.unavailable) && live.unavailable) setup.live = { unavailable: live.unavailable }
+  return Object.keys(setup).length ? setup : undefined
+}
+
+/** Reads document collections from untrusted JSON. A collection without a name or schema is dropped. */
+export function parseConsoleDocumentCollections(value: unknown): ConsoleDocumentCollection[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const collection = record(entry)
+    const schema = record(collection?.schema)
+    const access = record(collection?.access)
+    if (!collection || !schema || !text(collection.name) || !text(collection.label) || !text(collection.path)) return []
+    const parsed: ConsoleDocumentCollection = {
+      access: { publish: access?.publish === true, read: access?.read === true, write: access?.write === true },
+      label: collection.label,
+      name: collection.name,
+      path: collection.path,
+      schema,
+    }
+    if (text(collection.titleField)) parsed.titleField = collection.titleField
+    if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
+    const components = parseConsoleDocumentComponents(collection.components)
+    if (components.length) parsed.components = components
+    if (collection.format === "markdown" || collection.format === "json" || collection.format === "yaml") parsed.format = collection.format
+    // A singleton needs its id. Without one, the editor lists the collection as before.
+    if (collection.kind === "singleton" && text(collection.document)) {
+      parsed.kind = "singleton"
+      parsed.document = collection.document
+    }
+    else if (collection.kind === "documents") parsed.kind = "documents"
+    return [parsed]
+  })
+}
+
 /** Reads `/api/_vitehub/console/definitions` content for one section, or returns undefined when it does not match. */
 export function parseConsoleSectionContent(value: unknown, section: string): ConsoleSectionContent | undefined {
   const source = record(value)
   if (source?.section !== section) return undefined
+  if (source.kind === "document-editor") {
+    if (!Array.isArray(source.collections)) return undefined
+    const setup = parseConsoleDocumentSetup(source.setup)
+    return setup ? { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor", setup } : { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor" }
+  }
   if (source.kind === "record-table") {
     return Array.isArray(source.records) ? { kind: "record-table", records: parseConsoleRecords(source.records) } : undefined
   }

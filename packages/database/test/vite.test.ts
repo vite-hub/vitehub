@@ -219,7 +219,9 @@ describe("hubDb", () => {
     expect(options.cloudflare?.wrangler?.hyperdrive).toEqual([{ binding: "APP_HYPERDRIVE", id: "hyperdrive-id" }])
     expect(options.cloudflare?.wrangler?.d1_databases).toBeUndefined()
     const handler = join(rootDir, ".vitehub/nitro/database/request-scope.mjs")
-    expect(options.handlers).toEqual([{ handler, middleware: true }])
+    const statsHandler = join(rootDir, ".vitehub/nitro/database/request-stats.mjs")
+    // The stats middleware comes first, so it also counts the calls of later middleware.
+    expect(options.handlers).toEqual([{ handler: statsHandler, middleware: true }, { handler, middleware: true }])
     const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
     const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
@@ -248,7 +250,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("keeps request scope middleware for opaque D1 read replication", async () => {
@@ -272,7 +277,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("keeps request scope middleware when a configured D1 readReplication is dynamic", async () => {
@@ -289,7 +297,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {

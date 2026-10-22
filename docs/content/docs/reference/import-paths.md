@@ -46,15 +46,15 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/auth/cloudflare-access` | Verify Cloudflare Access tokens for the Console guard. |
 | `vite-hub/console/auth/inline` | Build the Node-only inline GitHub Console Auth Definition. |
 | `vite-hub/console/blob` | Read-only Blob inspection registration for framework server integrations. |
-| `vite-hub/console/connections` | Connections management, connect, and callback route registration for framework server integrations. |
 | `vite-hub/console/database` | Read-only Database inspection registration for framework server integrations. |
+| `vite-hub/console/documents` | Content document editor registration for framework server integrations. |
 | `vite-hub/console/definitions` | Read-only Definition inspection registration for framework server integrations. |
 | `vite-hub/console/env` | Server Env declaration inventory registration for framework server integrations. |
 | `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. |
-| `vite-hub/content` and `vite-hub/content/client` | Comark Content definition, editable document collections, Source adaptation, generated runtime handler, and typed client. |
+| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/presets/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
@@ -62,6 +62,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()` and `createMultipartUploader()`. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
+| `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
 | `vite-hub/browser` | Browser Definitions, invocation-scoped Playwright sessions, and named Browser runs. |
 | `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
@@ -156,6 +157,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
+| `@vite-hub/blob/media` | Blob Package | Browser-safe media helpers for responsive images and variant URLs. |
 | `@vite-hub/blob/vue` | Blob Package | Vue upload composables. |
 | `@vite-hub/browser` | Browser Package | Browser Definitions, invocation-scoped sessions, and low-level Browser Client lifecycle. |
 | `@vite-hub/browser/actions` | Browser Package | ViteHub Browser actions backed by Cloudflare Browser Run. |
@@ -167,7 +169,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
-| `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, and typed client. |
+| `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
 | `@vite-hub/content/presets/cms` | Content Package | The `cms` preset that stores document collections on a contributed Workspace. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
@@ -224,6 +226,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
 | `@vite-hub/connections/vite` | Register Connection Definition discovery and the generated runtime module. |
+| `@vite-hub/content/vite` | Register the `vitehub content` commands, the Content inspector, and their dev-only endpoint. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Configure one built-in Email provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |

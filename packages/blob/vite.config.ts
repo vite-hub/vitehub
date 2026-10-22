@@ -38,7 +38,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "vue", "esbuild", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "esbuild", "sharp", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,
@@ -85,9 +85,12 @@ export default defineConfig({
       "src/drivers/vercel.ts",
       "src/drivers/vercel-bundled.ts",
       "src/index.ts",
+      "src/media.ts",
+      "src/reference.ts",
       "src/vite.ts",
       "src/runtime/dev.ts",
       "src/runtime/state.ts",
+      "src/served.ts",
       "src/virtual.ts",
       "src/vue.ts",
     ],

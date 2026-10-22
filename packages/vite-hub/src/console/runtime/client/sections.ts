@@ -10,15 +10,18 @@ export interface ConsoleNavigation {
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   projectName?: string
+  /** The access may use only some installed sections. The Console then does not call other sections "not enabled". */
+  scoped: boolean
   sections: ConsoleSectionId[]
 }
 
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
+const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, contributions?: unknown, projectName?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, contributions?: unknown, projectName?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -34,6 +37,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
       : {}),
+    scoped: response?.scoped === true,
     sections,
   }
 }
@@ -55,17 +59,24 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
   if (!request) {
     request = requestConsole(base)
       .then((value) => {
+        navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         navigationRequests.delete(base)
+        navigationErrors.set(base, error)
         return undefined
       })
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+/** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
+export function consoleNavigationError(base: string): unknown {
+  return navigationErrors.get(base)
 }
 
 export function subscribeConsoleNavigation(

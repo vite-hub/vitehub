@@ -61,6 +61,12 @@ type CloudflareR2Binding = {
   jurisdiction?: CloudflareR2Jurisdiction
 }
 
+/** The Worker `images` binding. ViteHub adds it only for an explicit `cloudflare-images` transformer, because Cloudflare bills transformations. */
+export function cloudflareImagesBinding(config: false | ResolvedBlobModuleOptions | undefined): { binding: string } | undefined {
+  if (!config || !config.images || config.images.transformer !== "cloudflare-images") return undefined
+  return { binding: config.images.binding ?? "IMAGES" }
+}
+
 export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined): CloudflareR2Binding[] | undefined {
   if (!config) {
     return undefined
@@ -134,10 +140,15 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  return pathname.split('/').map(segment => encodeURIComponent(segment)).join('/')",
           "}",
           "",
-          "function withServedBlobUrl(name, object) {",
+          "function servedBlobUrl(name, pathname) {",
           "  const serve = blobConfig?.serve",
-          "  if (!serve || serve.store !== name) return object",
-          "  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || \"/\", serve.route, encodeServedBlobPath(object.pathname)) }",
+          "  if (!serve || serve.store !== name) return undefined",
+          "  return joinServedBlobUrl(serve.publicBaseUrl || \"/\", serve.route, encodeServedBlobPath(pathname))",
+          "}",
+          "",
+          "function withServedBlobUrl(name, object) {",
+          "  const url = servedBlobUrl(name, object.pathname)",
+          "  return url ? { ...object, url } : object",
           "}",
           "",
           "function withServedMultipartUrl(name, upload) {",
@@ -169,7 +180,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "function createGeneratedBlobStorage(name = \"default\") {",
           "  const existing = blobStorages.get(name)",
           "  if (existing) return existing",
-          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name)",
+          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name, { images: blobConfig.images, url: pathname => servedBlobUrl(name, pathname) })",
           "  const runtimeStorage = {",
           "    ...storage,",
           "    async createMultipartUpload(pathname, options) {",

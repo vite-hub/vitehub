@@ -124,6 +124,8 @@ Replace native `TypeError` and `RangeError` checks for ViteHub-owned defects wit
 | `AGENT_CAPABILITY_DYNAMIC_UNSUPPORTED` | `AGENT_C0010` |
 | `AGENT_TOOL_POLICY_RETRYABLE` | `AGENT_R0003` |
 
+Content uses `AGENT_C0012` for invalid `content()` options, `AGENT_R1011` when the `content` primitive is not a Content runtime with collections, and `AGENT_R1012` for an unknown collection. See [Content capability](/docs/content/agent-capability).
+
 Forge uses `AGENT_C0011` for invalid options. Diagnostics `AGENT_R0941` through `AGENT_R0945` cover credentials, repository access, context, requests and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
 The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).

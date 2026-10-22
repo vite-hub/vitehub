@@ -412,6 +412,15 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     const state = await readGitHubBranchState({ branch: ref, repository: client, root: options.root })
     const actual = state.branchExists ? state.refSha : null
     if (actual !== commitOptions.ifHead) throw historyConflict(ref, commitOptions.ifHead, actual)
+    // GitHub stores refs as independent branches, so the cross-ref expectation
+    // cannot be included in the ref update itself. Recheck every expected ref
+    // immediately before constructing the commit rather than silently ignoring
+    // the assertion (which would allow pinned publishes to use stale drafts).
+    for (const [expectedRef, expectedHead] of Object.entries(commitOptions.ifHeads ?? {})) {
+      const expectedState = await readGitHubBranchState({ branch: normalizeHistoryRef(expectedRef), repository: client, root: options.root })
+      const currentHead = expectedState.branchExists ? expectedState.refSha : null
+      if (currentHead !== expectedHead) throw historyConflict(normalizeHistoryRef(expectedRef), expectedHead, currentHead)
+    }
     const updates: GitHubFileUpdate[] = []
     const deletes: string[] = []
     const desired = new Map<string, WorkspaceFile>()

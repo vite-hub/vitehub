@@ -76,6 +76,7 @@ Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at b
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
+`servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`: the browser keeps its copy and revalidates on each use, so the check still runs and an unchanged object answers `304` with no body. `no-store` downloads the full object on every visit.
 
@@ -141,6 +142,23 @@ const jsonSchema = cover["~standard"].jsonSchema.input({ target: "draft-2020-12"
 ```
 
 The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Zod 4 and Valibot object schemas accept only their own schema types, so these validators can't be fields inside `z.object()` or `v.object()`. Use them where a Standard Schema is read directly.
+
+## Media and image variants
+
+`blob.media` keeps a JSON record next to each object under `_vitehub/media/records/`: dimensions read from the file header, a SHA-256 hash, alt text, a caption, a focal point, a placeholder color, and named crops. Records work on every driver, including drivers without custom metadata.
+
+```ts
+import { blob, responsiveImage } from "@vite-hub/blob"
+
+const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
+await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+
+const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
+// image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
+```
+
+The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `@vite-hub/blob/media` exports the browser-safe helpers.
 
 ## Signed requests
 
@@ -248,7 +266,7 @@ blob: {
 
 ## CLI
 
-`hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, and `del <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
+`hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `del <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
 
 The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it uses the same Blob storage as the running app. `get` returns the raw bytes. `put` sends the file as base64 JSON, so it accepts files up to 8 MiB. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. `handleBlobDevRequest()` from `@vite-hub/blob/runtime/dev` is the Nitro handler; it is not a public runtime API.
 

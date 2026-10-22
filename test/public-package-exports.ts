@@ -39,6 +39,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
+  ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],

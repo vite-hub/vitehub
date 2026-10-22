@@ -14,10 +14,12 @@ icon: i-lucide-sliders-horizontal
 | --- | --- | --- |
 | `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
-| `collections` | `Record<string, documents(...)>` | Editable Markdown collections. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections). |
+| `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons, in Markdown, JSON, or YAML. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
 | `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
 | `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
 | Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
@@ -41,11 +43,11 @@ Use `contentSource(input, { prefix, schema })` to set Comark options for one Sou
 
 ## Document collections
 
-Use a collection when people or Agents edit the content at runtime. Sources stay read-only. A collection stores Markdown files in a Workspace, validates their frontmatter, keeps every save as a draft revision, and serves only what you publish.
+Use a collection when people or Agents edit the content at runtime. Sources stay read-only. A collection stores files in a Workspace, validates their fields, keeps every save as a draft revision, and serves only what you publish. Files are Markdown with frontmatter, or JSON or YAML data; see [Singletons and data files](#singletons-and-data-files).
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
+Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
@@ -60,7 +62,7 @@ export const content = defineContent({
 
 Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
 
-To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. A Workspace without retained history fails on first use with `CONTENT_R0007`.
+To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. Add `contentSessionsSchema` from `vite-hub/content/database` to the same Database for presence and edit leases. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
@@ -88,20 +90,92 @@ export const content = defineContent({
 
 | `documents()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string` | Workspace glob for the collection's Markdown files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. The folder before the first wildcard is the collection folder. |
+| `path` | `string` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
+| `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
+| `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
+| `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
+| `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, and sitemaps and canonical links use it. See [Document URLs](/docs/content/seo#document-urls). |
+| `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
 
 ### Fields
 
-`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject validators from other libraries, such as a Blob `image()`; a record of fields accepts any [Standard Schema](https://standardschema.dev).
+`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject validators from other libraries, such as `image()`; a record of fields accepts any [Standard Schema](https://standardschema.dev), as written.
+
+`vite-hub/content` exports every field helper: `image()` and `file()` for a [Blob reference](/docs/blob/server-api#blob-reference-schemas), `seo()`, and `optional()`. Blob owns `image()` and `file()`, and `vite-hub/blob` exports the same functions. The Workspace `file()` mount loader from `vite-hub/workspace` is a different helper; when one module needs both, rename one import, such as `import { file as fileField } from 'vite-hub/content'`.
 
 - **Typed data.** `data` takes each field's output type, so `date` is a `Date`. `save()` takes each field's input type.
 - **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
-- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`.
+- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`. Nested objects and lists are stored as YAML blocks, one value per line, so a diff shows the value that changed.
 - **Other keys.** Frontmatter keys without a field stay in the file and are left out of `data`.
+
+### Singletons and data files
+
+Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path. It lives in `collections` next to your collections, with the same drafts, publishing, history, validation, and access.
+
+```ts [server/content.ts]
+import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
+import { z } from 'zod'
+
+export const content = defineContent({
+  workspace: 'site',
+  collections: {
+    settings: singleton({
+      path: 'settings.json',
+      fields: {
+        title: z.string().min(1),
+        description: z.string().max(160).optional(),
+        socialImage: optional(image()),
+        social: z.array(z.url()).default([]),
+      },
+    }),
+    authors: documents({
+      path: 'authors/*.yaml',
+      fields: { name: z.string(), bio: z.string().optional() },
+    }),
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
+})
+```
+
+ViteHub does not own a settings schema. The fields above are an example: define the ones your site reads.
+
+| `singleton()` option | Type | Description |
+| --- | --- | --- |
+| `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`. No wildcards. The extension sets the [format](#data-files). |
+| `fields` | `Record<string, StandardSchema>` | One validator per field, as in `documents()`. |
+| `url` | `string \| ({ id, data }) => string \| null` | The public URL of the document, such as `'/'`. Omit it for data without a page, such as settings. |
+| `editing` | `{ lease?: boolean }` | As in `documents()`. |
+
+The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
+
+```ts
+const settings = content.collection('settings')
+
+await settings.get()                       // published settings, or null before the first publish
+const draft = await settings.save({ data: { title: 'ViteHub' } })
+await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
+await settings.status()                    // { state: 'published', ... }
+```
+
+`content.collection('settings')` has `kind: 'singleton'` and `id`; a collection has `kind: 'documents'`. Code that handles any collection, such as a tool, may pass the id like it does for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
+
+#### Data files
+
+The file extension sets the format of a collection or singleton:
+
+| Extension | Format | Stored as | Body |
+| --- | --- | --- | --- |
+| `.json` | `json` | One JSON object, indented by two spaces. | None. |
+| `.yaml`, `.yml` | `yaml` | One YAML mapping, in block style. | None. |
+| Any other, such as `.md` | `markdown` | YAML frontmatter above a Markdown body. | `body`. |
+
+A JSON or YAML document is its fields only. `body` is always empty, and `save()` rejects a non-empty one with `CONTENT_INVALID`. A file whose root is not one object, such as a JSON array, fails validation for every writer. Each save renders the whole file from the field values, in field definition order, so the same values always produce the same bytes, and each nested value is its own line.
+
+`/api/content` serves published data files like Markdown documents, at a path that follows the Workspace path: `settings.json` is `/api/content/get/settings`, and `authors/ada.yaml` is `/api/content/get/authors/ada`. Content installs Comark's JSON and YAML parsers for those collections.
 
 ### JSON Schema
 
@@ -112,18 +186,17 @@ A document id is the file path below the collection folder, without the extensio
 | `z.string().min(1)` | `{ type: 'string', minLength: 1 }` |
 | `z.coerce.date()` | `{ type: 'string', format: 'date-time' }` |
 | `z.iso.date()` | `{ type: 'string', format: 'date', pattern }` |
-| `toStandardJsonSchema(v.string())` | `{ type: 'string' }` |
-| `v.string()` | `{}` |
+| `v.pipe(v.string(), v.minLength(1))` | `{ type: 'string', minLength: 1 }` |
+| `v.pipe(v.string(), v.isoDate())` | `{ type: 'string', format: 'date' }` |
 
-Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none: wrap them in `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none, so Content converts them with `@valibot/to-json-schema`, as Agent tools do. Pass them as they are:
 
 ```ts [server/content.ts]
-import { toStandardJsonSchema } from '@valibot/to-json-schema'
 import * as v from 'valibot'
 
 const fields = {
-  title: toStandardJsonSchema(v.pipe(v.string(), v.minLength(1))),
-  day: toStandardJsonSchema(v.pipe(v.string(), v.isoDate())),
+  title: v.pipe(v.string(), v.minLength(1)),
+  day: v.optional(v.pipe(v.string(), v.isoDate())),
 }
 ```
 
@@ -144,7 +217,32 @@ Saves that touch different documents never conflict: when another save moves the
 
 ### Validation for every writer
 
-Content registers a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. Any writer that puts an invalid file there fails with `CONTENT_INVALID`: Workspace `fs` writes, Sessions, Agents, and history commits on any ref. `save()` also validates before it commits and reports each failing field.
+Content registers a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. What it accepts depends on where the file goes:
+
+| Where | Accepted |
+| --- | --- |
+| The `draft` ref | Work in progress. Fields may fail validation. A file that cannot be read as an object of fields is refused: invalid YAML or JSON, a root that is not one object, or a body on a JSON or YAML document. |
+| `published`, any other ref, and Workspace `fs` writes | Only documents whose fields validate. |
+
+Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`. The hook also checks the other writes at a document path:
+
+- **Deletes.** Deleting a document from the draft works like `remove()`. Deleting it from `published` fails with `CONTENT_R0013`: a document leaves the published site only when `publish()` publishes its deletion.
+- **Directories.** `mkdir` at a document path, such as `posts/hello.md`, fails with `CONTENT_INVALID`. Folders that hold documents, such as `posts/2026`, are allowed.
+- **Bytes.** Binary content must be UTF-8 text and a valid document for its ref. Other bytes fail with `CONTENT_INVALID`.
+
+### Drafts in progress
+
+`save()` stores fields that fail validation in the draft and returns them as `issues`, so an editor can autosave half-finished work. The stored values come back in `data` as written. `status()` counts the issues, and `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
+
+```ts
+const draft = await posts.save('hello', { data: { title: '' } })
+draft.issues // [{ field: 'title', path: [], message: 'Add a title.' }]
+await content.publish({ collection: 'posts' }) // CONTENT_INVALID naming posts/hello
+```
+
+`publish()` and `schedule()` validate every document they would publish. One with issues fails the whole call with `CONTENT_INVALID`, and `details.documents` names each invalid document with its issues. Nothing is published.
+
+`save()` still throws `CONTENT_INVALID` for input that cannot become a file: `data` that is not a plain object, values that do not survive a JSON round trip, a body that is not a string, or a body on a JSON or YAML document.
 
 The hook is installed when `server/content.ts` loads. The generated Content route and any import of `content` load it. `publish()` validates again, so a file written before the hook was installed cannot reach `published` unless it is valid.
 
@@ -154,7 +252,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ## Access
 
-`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The Console content editor and the Content Agent Capability use it.
+`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts]
 export const content = defineContent({
@@ -181,7 +279,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview).
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

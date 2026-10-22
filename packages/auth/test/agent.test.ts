@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { authenticated } from "../src/agent.ts"
+import { agentAuth, authenticated } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
 
 const serverMocks = vi.hoisted(() => ({
+  findUserById: vi.fn(),
   getAuthForRequest: vi.fn(),
   getSession: vi.fn(),
 }))
 
 vi.mock("../src/server.ts", () => ({
   getAuth: () => ({
+    $context: Promise.resolve({ internalAdapter: { findUserById: serverMocks.findUserById } }),
     api: {
       getSession: serverMocks.getSession,
     },
@@ -408,5 +410,63 @@ describe("authenticated", () => {
       }),
     }))).rejects.toThrow("[vitehub] authenticated({ map }) must return an Agent Invoker.")
   })
+})
 
+describe("agentAuth", () => {
+  beforeEach(() => {
+    serverMocks.findUserById.mockReset()
+  })
+
+  it("reads the Auth user an Actor stands for by its authUserId", async () => {
+    serverMocks.findUserById.mockResolvedValue({ email: "editor@example.com", id: "user_1", role: "editor" })
+
+    await expect(agentAuth.user({ id: "user_1", kind: "authUser", meta: { authUserId: "user_1" } }))
+      .resolves.toEqual({ email: "editor@example.com", id: "user_1", role: "editor" })
+    expect(serverMocks.findUserById).toHaveBeenCalledWith("user_1")
+  })
+
+  it("returns null for Actors without an Auth user and for deleted users", async () => {
+    await expect(agentAuth.user(undefined)).resolves.toBeNull()
+    await expect(agentAuth.user({ id: "anonymous:1", kind: "anonymous" })).resolves.toBeNull()
+    await expect(agentAuth.user({ id: "bot", meta: { authUserId: 42 } })).resolves.toBeNull()
+    expect(serverMocks.findUserById).not.toHaveBeenCalled()
+
+    serverMocks.findUserById.mockResolvedValue(null)
+    await expect(agentAuth.user({ id: "user_2", meta: { authUserId: "user_2" } })).resolves.toBeNull()
+  })
+
+  it("follows authenticated() from the chat request to the Auth user, and gives anonymous and Channel Actors null", async () => {
+    serverMocks.getAuthForRequest.mockReturnValue({ api: { getSession: serverMocks.getSession } })
+    serverMocks.findUserById.mockImplementation(async (id: string) => id === "user_1" ? { email: "editor@example.com", id, role: "editor" } : null)
+
+    // A signed-in chat request: the session becomes the Actor, and agentAuth reads its user again from the database.
+    serverMocks.getSession.mockResolvedValueOnce({ session: { id: "session_1" }, user: { email: "editor@example.com", id: "user_1" } })
+    const chat = new Request("https://example.com/api/_vitehub/agents/editor/chat", { headers: { cookie: "better-auth.session_token=token_1" } })
+    const actor = await resolve(authenticated({ required: false }), createContext({ request: chat }))
+    await expect(agentAuth.user(actor)).resolves.toEqual({ email: "editor@example.com", id: "user_1", role: "editor" })
+
+    // An anonymous chat request keeps the default Actor, which stands for no Auth user.
+    serverMocks.getSession.mockResolvedValueOnce(null)
+    const anonymous = new Request("https://example.com/api/_vitehub/agents/editor/chat")
+    await expect(resolve(authenticated({ required: false }), createContext({ request: anonymous }))).resolves.toBeUndefined()
+    await expect(agentAuth.user(defaultInvoker)).resolves.toBeNull()
+
+    // A Channel Actor names the platform user, not an Auth user, until the application maps it.
+    serverMocks.findUserById.mockClear()
+    await expect(agentAuth.user({ id: "discord:123", kind: "chat", meta: { id: "123", name: "Ana" } })).resolves.toBeNull()
+    expect(serverMocks.findUserById).not.toHaveBeenCalled()
+    await expect(agentAuth.user({ id: "discord:123", kind: "chat", meta: { authUserId: "user_1", id: "123" } }))
+      .resolves.toMatchObject({ id: "user_1" })
+  })
+
+  it("reports Auth database failures as provider errors", async () => {
+    const cause = new Error("database offline")
+    serverMocks.findUserById.mockRejectedValue(cause)
+
+    await expect(agentAuth.user({ id: "user_3", meta: { authUserId: "user_3" } })).rejects.toMatchObject({
+      cause,
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-user", provider: "better-auth" },
+    })
+  })
 })

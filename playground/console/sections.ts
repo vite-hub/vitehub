@@ -52,7 +52,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
-    icon: "i-ph-git-branch-light",
+    icon: "i-lucide-git-branch",
     id: "workflows",
     label: "Workflows",
     view: {
@@ -62,7 +62,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Queue Definitions and their source metadata.",
-    icon: "i-ph-tray-light",
+    icon: "i-lucide-inbox",
     id: "queues",
     label: "Queues",
     view: {

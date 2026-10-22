@@ -30,6 +30,7 @@ describe("@vite-hub/content package contract", () => {
       ".",
       "./client",
       "./collections",
+      "./database",
     ])
   })
 

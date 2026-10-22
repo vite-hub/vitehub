@@ -1,5 +1,8 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
+import json from "comark-content/plugins/json"
+import yaml from "comark-content/plugins/yaml"
 import { defineEventHandler } from "h3"
 
 import type {
@@ -14,11 +17,13 @@ import type {
 } from "comark-content"
 import type { H3Event } from "h3"
 import { createContentInstance } from "./content-source.ts"
-import { documentsRuntimeOf, isDocumentsDefinition } from "./documents.ts"
+import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
+import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
+  AnyContentCollection,
   ContentCollection,
   ContentDocument,
   ContentDocumentState,
@@ -35,37 +40,91 @@ import type {
   ContentRef,
   ContentRevisionsOptions,
   ContentRevisionsResult,
+  ContentSingleton,
 } from "./collections-types.ts"
 import type { ContentSourceInput } from "./content-source.ts"
-import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentCollectionDefinition, ContentFields, DocumentsDefinition, SingletonDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
-
-type ContentHistorySource = ComarkContentSource & { readonly loadedRevision?: string | null }
-interface ContentCollectionsRuntime {
-  readonly collections: ReadonlyMap<string, ContentCollection>
-  collection(name: string): ContentCollection
-  publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
-  revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
-  comarkSource(name: string): ContentHistorySource
-  onPublish(listener: (collections: string[]) => Promise<void> | void): void
-  head(ref: ContentRef): Promise<string | null>
-  dispose(): void
-}
+import type {
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
+import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
+import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
 export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
+export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
+export type {
+  ContentDocumentSchedule,
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduledDocument,
+  ContentScheduleFailure,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentScheduleStatus,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
+export { contentSessionTimeouts } from "./defaults.ts"
 export type {
+  ContentDocumentSessions,
+  ContentSession,
+  ContentSessionAcquireOptions,
+  ContentSessionOptions,
+  ContentSessionReleaseOptions,
+  ContentSessionReportOptions,
+  ContentSessions,
+  ContentSessionUser,
+} from "./sessions.ts"
+export { optional } from "./documents.ts"
+export { contentSeoLengths, seo } from "./seo.ts"
+// Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
+export { file, image } from "@vite-hub/blob/reference"
+export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
+export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
+export { contentHead, defaultContentImageUrl } from "./head.ts"
+export type {
+  ContentHead,
+  ContentHeadCollection,
+  ContentHeadDefaults,
+  ContentHeadDocument,
+  ContentHeadLink,
+  ContentHeadMeta,
+  ContentHeadOptions,
+  ContentHeadScript,
+  ContentHeadSite,
+} from "./head.ts"
+export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
+export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type {
+  ContentCollectionDefinition,
+  ContentDocumentUrl,
+  ContentEditingOptions,
   ContentField,
   ContentFieldIssue,
   ContentFields,
   ContentFieldsInput,
   ContentFieldsOutput,
+  ContentFormat,
+  ContentLabel,
+  DocumentComponent,
+  DocumentComponentProp,
+  SingletonDefinition,
+  SingletonOptions,
   DocumentsDefinition,
   DocumentsOptions,
 } from "./documents.ts"
 export type {
+  AnyContentCollection,
   ContentCollection,
   ContentDocument,
   ContentDocumentState,
@@ -84,6 +143,7 @@ export type {
   ContentRevisionsOptions,
   ContentRevisionsResult,
   ContentSaveInput,
+  ContentSingleton,
   ContentWriteOptions,
 } from "./collections-types.ts"
 
@@ -168,9 +228,13 @@ export type ContentCanContext<TCollection extends string = string> =
 export type ContentAuthorize<TCollection extends string = string> =
   (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
 
-type ContentCollections = Record<string, DocumentsDefinition<any>>
+type ContentCollections = Record<string, ContentCollectionDefinition<any>>
 type CollectionName<TCollections> = Extract<keyof TCollections, string>
-type FieldsOf<TDefinition> = TDefinition extends DocumentsDefinition<infer TFields> ? TFields : ContentFields
+/** The runtime of one `collections` entry: a collection for `documents()`, a singleton for `singleton()`. */
+type CollectionOf<TDefinition> =
+  TDefinition extends SingletonDefinition<infer TFields> ? ContentSingleton<TFields>
+    : TDefinition extends DocumentsDefinition<infer TFields> ? ContentCollection<TFields>
+      : AnyContentCollection
 
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
@@ -188,26 +252,85 @@ export type DefineContentOptions<
   extends?: ContentPresetSelection
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
-  /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
+  /**
+   * Editable collections, `documents()`, and singletons, `singleton()`. Each name becomes a Content instance that
+   * serves the `published` ref.
+   */
   collections?: TCollections
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
+  /**
+   * Live co-editing of Markdown documents through Realtime. `auto` (default) turns it on when Realtime is enabled and
+   * the host has a room authority, such as a Node server or Cloudflare Durable Objects; the room then holds the edit
+   * lease for everyone in it. Other hosts, and `false`, keep one editor at a time.
+   */
+  live?: "auto" | false
+  /**
+   * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
+   * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
+   */
+  seo?: DefineContentSeoOptions
 }
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
-  /** Every document collection in definition order, with its `name`, `path`, `fields`, and `schema`. Empty without `collections`. */
-  collections(): ContentCollection[]
-  /** Open one collection to list, read, save, remove, restore, and compare documents. */
-  collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
+  /**
+   * Every collection and singleton in definition order, with its `name`, `kind`, `format`, `path`, `fields`, and
+   * `schema`. Narrow an entry with `kind`. Empty without `collections`.
+   */
+  collections(): AnyContentCollection[]
+  /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
+  collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /**
+   * Publish exactly these reviewed drafts at a later time. The draft digests must match now. At its time,
+   * `publishDue()` calls `publish({ expect })`; a draft saved after scheduling makes the schedule `failed` instead.
+   */
+  schedule(options: ContentScheduleOptions): Promise<ContentSchedule>
+  /** Pending, overdue, and failed schedules, earliest first. Schedules that ran are removed; their publish revisions name them. */
+  schedules(options?: ContentSchedulesOptions): Promise<ContentSchedule[]>
+  /** Cancel a pending schedule, or dismiss a failed one. Throws `CONTENT_NOT_FOUND` when it already ran or is gone. */
+  unschedule(id: string, options?: ContentUnscheduleOptions): Promise<void>
+  /**
+   * Run every pending or overdue schedule whose time has come. Call it from a Schedule Definition, such as one that
+   * runs every minute. Runs are safe to overlap: each publish checks the reviewed digests, and each schedule settles once.
+   */
+  publishDue(options?: ContentPublishDueOptions): Promise<ContentPublishDueResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Revisions of a singleton defined with `singleton()`. */
+  revisions(collection: CollectionName<TCollections>, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /**
+   * Revisions that changed documents of any collection on one ref, newest first: saves, removes, and restores on
+   * `draft` (default), publishes on `published`. `metadata.content.documents` names the documents of each.
+   */
+  revisions(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /**
+   * Presence and edit leases: who has a document open, and which session may edit it. Kept in the Database of the
+   * Workspace history, which needs `contentSessionsSchema` from `vite-hub/content/database`.
+   */
+  readonly sessions: ContentSessions<CollectionName<TCollections>>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
+  /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
+  readonly live: "auto" | false
+  /**
+   * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
+   * as the Console show no collections.
+   */
+  readonly hasPolicy: boolean
+  /** `defineContent({ seo })`, or undefined. */
+  readonly seo: DefineContentSeoOptions | undefined
+  /**
+   * The sitemap entries: published documents of collections with a `url`, without `noindex` ones or ones whose
+   * canonical URL points elsewhere. `loc` is absolute when `site` is known.
+   */
+  sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
+  /** The robots.txt text for `defineContent({ seo: { robots } })`. */
+  robots(options?: ContentSitemapOptions): string
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -234,7 +357,11 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", ...sharedOptions } = options
+  if (live !== "auto" && live !== false) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
+  }
+  const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
@@ -248,8 +375,17 @@ export function defineContent<
   }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
-    if (!isDocumentsDefinition(definition) || !documentsRuntimeOf(definition)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() from @vite-hub/content/collections.` })
+    if (!isContentCollectionDefinition(definition) || !documentsRuntimeOf(definition)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton() from @vite-hub/content/collections.` })
+    }
+  }
+  for (let index = 0; index < collectionEntries.length; index++) {
+    const [name, definition] = collectionEntries[index]!
+    if (!isContentCollectionDefinition(definition)) continue
+    for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
+      if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
+        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} and ${JSON.stringify(otherName)} overlap.` })
+      }
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
@@ -265,18 +401,25 @@ export function defineContent<
   const documentsRuntime: ContentCollectionsRuntime | undefined = createCollections
     ? createCollections({
         workspace: workspace!,
-        // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+        // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
+        live,
       })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
-  for (const [name] of collectionEntries) {
+  for (const [name, definition] of collectionEntries) {
     if (Object.hasOwn(inputs, name)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.` })
     }
     const historySource = documentsRuntime!.comarkSource(name)
-    const instance = createContentInstance(name, historySource, { ...sharedOptions, basePath: "/api/content" })
+    // Comark parses Markdown by default. JSON and YAML collections get their parser first, so a configured plugin still wins.
+    const format = definition.format === "json" ? json() : definition.format === "yaml" ? yaml() : undefined
+    const configuredPlugins = sharedOptions.plugins ?? []
+    const plugins = format && !configuredPlugins.some(plugin => plugin.name === format.name)
+      ? [format, ...configuredPlugins]
+      : configuredPlugins
+    const instance = createContentInstance(name, historySource, { ...sharedOptions, plugins, basePath: "/api/content" })
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })
   }
@@ -355,13 +498,43 @@ export function defineContent<
     if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
     return instance.cache
   }
+  const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
+  const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
     preview,
+    seo,
+    live,
+    hasPolicy: authorize !== undefined,
+    sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
+      documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+    robots: (sitemapOptions?: ContentSitemapOptions) => {
+      const robots = seo?.robots
+      return renderContentRobots({
+        site: siteFor(sitemapOptions),
+        sitemap: seo?.sitemap === true,
+        disallow: robots !== null && Object(robots) === robots ? (robots as { disallow?: readonly string[] }).disallow : undefined,
+      })
+    },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
-    collection: (name: string) => requireDocuments().collection(name),
+    // SAFETY: Each method forwards its arguments unchanged, so the overloads of ContentSessions hold.
+    sessions: {
+      report: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.report, undefined, args),
+      acquire: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.acquire, undefined, args),
+      release: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.release, undefined, args),
+      list: (collection?: string) => requireDocuments().sessions.list(collection),
+    } as ContentSessions,
+    collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
-    revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
+    schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
+    unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
+    publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
+    revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
+      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      // Without a string id, the second argument is the options of a singleton.
+      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+    },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
@@ -435,61 +608,109 @@ export function defineContentHandler(
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (isRequestLike(event.req)) {
-      return await (content.preview
-        ? content.preview.run(event, () => content.handler(event.req))
-        : content.handler(event.req))
-    }
-
-    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-    const nodeRequest = event.node.req as NodeContentRequest
-    const method = event.method || nodeRequest.method || "GET"
-    const dispatch = async () => {
-    const headers = new Headers()
-    for (const [name, value] of Object.entries(nodeRequest.headers)) {
-      if (value === undefined) continue
-      if (Array.isArray(value)) {
-        for (const entry of value) headers.append(name, entry)
-      }
-      else headers.set(name, value)
-    }
-    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-      || headers.get("host")
-      || "localhost"
-    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-    let body: Uint8Array | undefined
-    if (method !== "GET" && method !== "HEAD") {
-      const chunks: Uint8Array[] = []
-      for await (const chunk of nodeRequest) {
-        const bytes = nodeBodyChunk(chunk)
-        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-        chunks.push(bytes)
-      }
-      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-      body = new Uint8Array(length)
-      let offset = 0
-      for (const chunk of chunks) {
-        body.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-    }
-    const abort = new AbortController()
-    if (nodeRequest.aborted) abort.abort()
-    else nodeRequest.once("aborted", () => abort.abort())
-
-    return await content.handler(new Request(url, {
-      body,
-      headers,
-      method,
-      signal: abort.signal,
-    }))
-    }
+    const dispatch = () => serveContent(content, event)
     return await (content.preview
       ? content.preview.run(event, dispatch)
       : dispatch())
   }) as ContentHandler
+}
+
+type SeoRuntime = Pick<ContentDocumentsRuntime, "robots" | "seo" | "sitemap">
+
+/**
+ * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
+ * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
+ */
+export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
+    const site = content.seo.site ?? requestUrl(event).origin
+    return new Response(renderContentSitemap(await content.sitemap({ site })), {
+      headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+    })
+  }) as ContentHandler
+}
+
+/**
+ * Serve `/robots.txt` from `content.robots()`. It names `/sitemap.xml` when the sitemap is on. ViteHub generates this
+ * route when `defineContent({ seo: { robots: true } })`.
+ */
+export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    const robots = content.seo?.robots
+    if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
+    return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  }) as ContentHandler
+}
+
+function nodeHeaders(nodeRequest: NodeContentRequest): Headers {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(nodeRequest.headers)) {
+    if (value === undefined) continue
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(name, entry)
+    }
+    else headers.set(name, value)
+  }
+  return headers
+}
+
+function nodeUrl(nodeRequest: NodeContentRequest, headers: Headers): URL {
+  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+    || headers.get("host")
+    || "localhost"
+  return new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+}
+
+/** The request URL of an H3 v2 Web event, or of an H3 v1 (Nitro 2) Node event. */
+function requestUrl(event: H3Event): URL {
+  if (isRequestLike(event.req)) return new URL(event.req.url)
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  return nodeUrl(nodeRequest, nodeHeaders(nodeRequest))
+}
+
+async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
+  if (isRequestLike(event.req)) return await content.handler(event.req)
+
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  const method = event.method || nodeRequest.method || "GET"
+  const headers = nodeHeaders(nodeRequest)
+  const url = nodeUrl(nodeRequest, headers)
+  let body: Uint8Array | undefined
+  if (method !== "GET" && method !== "HEAD") {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of nodeRequest) {
+      const bytes = nodeBodyChunk(chunk)
+      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+      chunks.push(bytes)
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+    body = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+  }
+  const abort = new AbortController()
+  if (nodeRequest.aborted) abort.abort()
+  else nodeRequest.once("aborted", () => abort.abort())
+
+  return await content.handler(new Request(url, {
+    body,
+    headers,
+    method,
+    signal: abort.signal,
+  }))
 }
 
 // Every Comark Content plugin field is optional, so a parse plugin type-checks in `plugins`, but Content never runs it there.
@@ -541,6 +762,7 @@ function isRequestLike(value: unknown): value is Request {
     const headersNativePrototype = typeof headersConstructor === "function" ? headersConstructor.prototype : undefined
     if (!headersNativePrototype || Object.getOwnPropertyDescriptor(headersNativePrototype, "get")?.value !== headersGet
       || Object.getOwnPropertyDescriptor(headersNativePrototype, "forEach")?.value !== headersForEach) return false
+    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return false
     Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
     Reflect.apply(headersForEach, headers, [() => {}])
     return typeof method === "string" && typeof url === "string"

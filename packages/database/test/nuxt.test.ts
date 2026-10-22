@@ -120,6 +120,7 @@ describe("Database Nuxt integration", () => {
     expect(nuxt.options.nitro).toMatchObject({
       cloudflare: {
         wrangler: {
+          compatibility_flags: ["nodejs_als"],
           d1_databases: [
             {
               binding: "EXISTING",
@@ -160,6 +161,7 @@ describe("Database Nuxt integration", () => {
       },
       cloudflare: {
         wrangler: {
+          compatibility_flags: ["nodejs_als"],
           d1_databases: [
             {
               binding: "DB",
@@ -171,6 +173,10 @@ describe("Database Nuxt integration", () => {
       },
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
+        {
+          handler: ".vitehub/nitro/database/request-stats.ts",
+          middleware: true,
+        },
         {
           handler: ".vitehub/nitro/database/middleware.ts",
           middleware: true,
@@ -191,6 +197,20 @@ describe("Database Nuxt integration", () => {
     const middleware = await readFile("/tmp/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts", "utf8")
     expect(middleware).toContain("setActiveCloudflareEnv")
     expect(middleware).toContain(".__env__ ?? vitehubEnv")
+  })
+
+  it("does not add Cloudflare async context flags to non-Cloudflare Nitro output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-provider-"))
+    try {
+      const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = { cloudflare: { wrangler: { compatibility_flags: ["existing"] } } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.cloudflare.wrangler.compatibility_flags).toEqual(["existing"])
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("merges split Cloudflare bindings with request-local precedence", async () => {

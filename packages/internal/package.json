@@ -290,6 +290,12 @@
       "require": "./dist/nitro-kit.js",
       "default": "./dist/nitro-kit.js"
     },
+    "./valibot": {
+      "types": "./dist/valibot.d.ts",
+      "import": "./dist/valibot.js",
+      "require": "./dist/valibot.js",
+      "default": "./dist/valibot.js"
+    },
     "./workspace-inventory": {
       "types": "./dist/workspace-inventory.d.ts",
       "import": "./dist/workspace-inventory.js",
@@ -334,9 +340,11 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
+    "@valibot/to-json-schema": "catalog:runtime",
     "exsolve": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },

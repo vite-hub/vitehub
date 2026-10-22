@@ -28,10 +28,11 @@ import {
   blobDevTokenServerHeader,
 } from "./dev.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { sanitizeMediaRecord } from "./media/records.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { BlobDevFileHeader, BlobDevOperation, BlobDevRequestBody } from "./dev.ts"
-import type { BlobDevDeleteResult, BlobDevHeadResult, BlobDevListResult, BlobDevObject, BlobDevPutResult } from "./runtime/dev.ts"
+import type { BlobDevDeleteResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/dev.ts"
 
 export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
 
@@ -105,6 +106,8 @@ const blobCommands: readonly BlobCommand[] = [
   { description: "Download one blob to a file, or to stdout without --output.", name: "get", options: ["output"], pathname: true },
   { description: "Upload one file as a blob.", file: true, name: "put", options: ["content-type"], pathname: true },
   { description: "Delete one blob.", name: "del", options: [], pathname: true },
+  { description: "Show the media record of one blob: size, dimensions, hash, alt text, focal point, and crops.", name: "media", options: [], pathname: true },
+  { description: "List the cached image variants of one blob and its crop replacements.", name: "variants", options: [], pathname: true },
 ]
 
 const optionUsage: Record<BlobCliOption, string> = {
@@ -276,11 +279,38 @@ function formatObject(object: BlobDevObject, store: string): string {
   return `${formatTable(present)}\n`
 }
 
+function formatMediaRecord({ record, store }: BlobDevMediaResult): string {
+  const crops = Object.entries(record.crops ?? {}).map(([name, crop]) => [
+    `${name} ${crop.aspect}`,
+    crop.focal ? `focal ${crop.focal.x},${crop.focal.y}` : undefined,
+    crop.replacement ? `replacement ${crop.replacement.pathname}${crop.replacement.width ? ` (${crop.replacement.width}x${crop.replacement.height})` : ""}` : undefined,
+  ].filter(Boolean).join(", "))
+  const rows: [string, string | undefined][] = [
+    ["Pathname", record.pathname],
+    ["Store", store],
+    ["Size", formatSize(record.size)],
+    ["Content type", record.contentType],
+    ["Dimensions", record.width && record.height ? `${record.width}x${record.height}` : undefined],
+    ["SHA-256", record.hash],
+    ["ETag", record.etag],
+    ["Alt", record.alt],
+    ["Caption", record.caption],
+    ["Focal point", record.focal ? `${record.focal.x},${record.focal.y}` : undefined],
+    ["Color", record.color],
+    ["URL", record.url],
+    ["Updated", record.updatedAt],
+    ...crops.map((crop, index): [string, string] => [index ? "" : "Crops", crop]),
+  ]
+  return `${formatTable(rows.filter((row): row is [string, string] => row[1] !== undefined))}\n`
+}
+
 type BlobCliResult =
   | { operation: "list", value: BlobDevListResult }
   | { operation: "head", value: BlobDevHeadResult }
   | { operation: "put", value: BlobDevPutResult }
   | { operation: "del", value: BlobDevDeleteResult }
+  | { operation: "media", value: BlobDevMediaResult }
+  | { operation: "variants", value: BlobDevVariantsResult }
 
 const blobObjectSchema = v.object({
   contentType: v.optional(v.string()), customMetadata: v.record(v.string(), v.unknown()), httpEtag: v.optional(v.string()),
@@ -292,6 +322,12 @@ const resultSchemas = {
   head: v.object({ object: blobObjectSchema, store: v.string() }),
   put: v.object({ created: v.boolean(), object: blobObjectSchema, store: v.string() }),
   del: v.object({ deleted: v.boolean(), pathname: v.string(), store: v.string() }),
+  media: v.object({ record: v.unknown(), store: v.string() }),
+  variants: v.object({
+    pathname: v.string(),
+    store: v.string(),
+    variants: v.array(v.object({ cachePathname: v.string(), contentType: v.optional(v.string()), key: v.optional(v.string()), size: v.number(), source: v.string() })),
+  }),
 }
 
 function parseResult(operation: Exclude<BlobDevOperation, "get">, value: unknown): BlobCliResult | undefined {
@@ -300,6 +336,12 @@ function parseResult(operation: Exclude<BlobDevOperation, "get">, value: unknown
     case "head": { const parsed = v.safeParse(resultSchemas.head, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "put": { const parsed = v.safeParse(resultSchemas.put, value); return parsed.success ? { operation, value: parsed.output } : undefined }
     case "del": { const parsed = v.safeParse(resultSchemas.del, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "media": {
+      const parsed = v.safeParse(resultSchemas.media, value)
+      const record = parsed.success ? sanitizeMediaRecord(parsed.output.record) : undefined
+      return parsed.success && record ? { operation, value: { record: { ...record, ...(v.is(v.object({ url: v.string() }), parsed.output.record) ? { url: parsed.output.record.url } : {}) }, store: parsed.output.store } } : undefined
+    }
+    case "variants": { const parsed = v.safeParse(resultSchemas.variants, value); return parsed.success ? { operation, value: parsed.output } : undefined }
   }
 }
 
@@ -329,6 +371,22 @@ function writeResult(result: BlobCliResult, context: BlobCliContext): void {
       const value = result.value
       const details = [formatSize(value.object.size), value.object.contentType].filter(Boolean).join(", ")
       context.stdout.write(`${value.created ? "Created" : "Replaced"} blob ${value.object.pathname} in store ${value.store} (${details}).\n`)
+      return
+    }
+    case "media": {
+      context.stdout.write(formatMediaRecord(result.value))
+      return
+    }
+    case "variants": {
+      const value = result.value
+      if (!value.variants.length) {
+        context.stdout.write(`No cached variants of ${value.pathname} in store ${value.store}.\n`)
+        return
+      }
+      context.stdout.write(`${formatTable([
+        ["KEY", "TYPE", "SIZE", "SOURCE"],
+        ...value.variants.map(variant => [variant.key ?? variant.cachePathname, variant.contentType ?? "-", formatSize(variant.size), variant.source]),
+      ])}\n`)
       return
     }
     case "del": {

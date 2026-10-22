@@ -47,6 +47,12 @@ icon: i-lucide-file-text
   })
   ```
 
+  ```bash [CLI]
+  pnpm vitehub content status
+  pnpm vitehub content diff posts hello
+  pnpm vitehub content publish --collection posts --id hello
+  ```
+
   ```ts [server/api/search.get.ts]
   import { defineEventHandler, getQuery } from 'h3'
   import { content } from '../content'
@@ -86,6 +92,22 @@ icon: i-lucide-file-text
   Add the full-text search plugin. It keeps its search index in SQLite.
   :::
 
+  :::product-feature-item{title="URLs, head tags, and a sitemap" icon="i-lucide-search-check" to="/docs/content/seo"}
+  `seo()` fields, `contentHead()` for any framework, and generated `/sitemap.xml` and `/robots.txt`.
+  :::
+
+  :::product-feature-item{title="Publish reviewed drafts on a schedule" icon="i-lucide-calendar-clock" to="/docs/content/scheduling"}
+  `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
+  :::
+
+  :::product-feature-item{title="One editor at a time, and everyone sees who" icon="i-lucide-users" to="/docs/content/editing-together"}
+  Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
+  :::
+
+  :::product-feature-item{title="Edit, publish, and schedule from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
+  `vitehub content` lists, edits, and diffs drafts, then publishes or schedules exactly what you reviewed through the running dev server.
+  :::
+
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
   `createContentClient()` reads the `/api/content` route that ViteHub adds for you.
   :::
@@ -96,6 +118,10 @@ icon: i-lucide-file-text
 
   :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/content/cms-preset"}
   `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
+  :::
+
+  :::product-feature-item{title="Let an Agent draft, publish, and schedule documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}
+  `content()` gives an Agent typed tools for each collection and singleton. Your `authorize` policy decides what it may read and change, and publishing asks for approval.
   :::
 
   :::product-feature-item{title="Check every field" icon="i-lucide-list-checks" to="/docs/content/configure#fields"}

@@ -32,6 +32,16 @@ export interface BlobDatabaseWorkspaceStoreOptions {
   prefix?: string
 }
 
+/**
+ * Where a Blob + Database Store keeps history. `database` lets owners that keep their own tables next to the history,
+ * such as Content edit sessions, use the same Database without a second setting.
+ */
+export interface BlobDatabaseWorkspaceStoreTarget {
+  provider: "blob-database"
+  workspace: string
+  database: RuntimeDrizzleDatabase<Record<string, unknown>>
+}
+
 export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
   history: WorkspaceStoreHistory
   /** Tombstone the identity and remove all file objects, including failed uploads. Safe to retry. */
@@ -77,8 +87,8 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     })
   }
 
-  [workspaceStoreTarget]() {
-    return { provider: "blob-database", workspace: this.options.workspace }
+  [workspaceStoreTarget](): BlobDatabaseWorkspaceStoreTarget {
+    return { provider: "blob-database", workspace: this.options.workspace, database: this.options.database }
   }
 
   history: WorkspaceStoreHistory = {
@@ -388,7 +398,15 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, ...headConditions, this.#active(workspace))).returning({ head: refs.head }),
+      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(
+        eq(refs.workspace, workspace),
+        eq(refs.ref, ref),
+        sql`${refs.head} is ${options.ifHead}`,
+        ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
+          ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
+          : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
+        this.#active(workspace),
+      )).returning({ head: refs.head }),
       this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {

@@ -83,7 +83,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
 
-function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
+export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
   const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }

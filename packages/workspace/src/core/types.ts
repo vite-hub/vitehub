@@ -70,6 +70,8 @@ export interface WorkspaceWriteInput {
   workspace: string
   operation: WorkspaceWriteOperation
   path: string
+  /** The history ref of a history commit, such as `draft`. Undefined for writes to the working tree. */
+  ref?: string
   content?: WorkspaceContent
   mediaType?: string
   metadata?: Record<string, unknown>
@@ -337,7 +339,7 @@ export interface WorkspaceHistoryChanges {
 export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   /** The expected head of `ref`. Use null for the first revision on the ref. */
   ifHead: string | null
-  /** Additional ref heads that must match atomically when this commit advances its ref. */
+  /** Expected heads of other refs that must remain unchanged for the commit. */
   ifHeads?: Record<string, string | null>
   message?: string
   metadata?: Record<string, unknown>

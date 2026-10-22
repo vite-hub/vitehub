@@ -153,6 +153,18 @@
       "require": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
+    "./media": {
+      "types": "./dist/media.d.ts",
+      "import": "./dist/media.js",
+      "require": "./dist/media.js",
+      "default": "./dist/media.js"
+    },
+    "./reference": {
+      "types": "./dist/reference.d.ts",
+      "import": "./dist/reference.js",
+      "require": "./dist/reference.js",
+      "default": "./dist/reference.js"
+    },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
       "import": "./dist/runtime/dev.js",
@@ -164,6 +176,12 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
+    },
+    "./served": {
+      "types": "./dist/served.d.ts",
+      "import": "./dist/served.js",
+      "require": "./dist/served.js",
+      "default": "./dist/served.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
@@ -213,6 +231,7 @@
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
+    "sharp": "0.35.5",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
@@ -233,6 +252,7 @@
     "box-typescript-sdk-gen": "catalog:storage",
     "dropbox": "catalog:storage",
     "google-auth-library": "catalog:storage",
+    "sharp": "^0.34.0 || ^0.35.0",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
@@ -275,6 +295,9 @@
       "optional": true
     },
     "google-auth-library": {
+      "optional": true
+    },
+    "sharp": {
       "optional": true
     },
     "uploadthing": {

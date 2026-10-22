@@ -459,6 +459,7 @@ export function defineCollection<
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
   const [load, definition] = typeof input === "function"
     ? [input, options] as const
     : sourceDefinition(input)
@@ -589,13 +590,15 @@ export function defineCollection<
   return collection
 }
 
+
 function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue, TCursorOutput extends CollectionCursorValue, TItem>(
   input: SourceCollectionOptions<CollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput>> & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ) {
   const { authorize, route, source, transform } = input
-  if (Object(source) !== source || !(typeof source.load === "function")) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection source loaders may come from another JavaScript realm.
+  if (Object(source) !== source || typeof source.load !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
   }
   const shared = {

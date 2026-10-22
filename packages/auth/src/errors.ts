@@ -1,7 +1,7 @@
 import { isViteHubError, ViteHubError } from "@vite-hub/runtime"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-type AuthenticationProviderOperation = "get-auth-for-request" | "get-session"
+type AuthenticationProviderOperation = "get-auth-for-request" | "get-session" | "get-user"
 
 interface AuthenticationProviderErrorOptions extends ErrorOptions {
   operation: AuthenticationProviderOperation
@@ -28,7 +28,7 @@ function readAuthenticationErrorOption(value: unknown, key: PropertyKey): unknow
 function createAuthenticationProviderError(options: AuthenticationProviderErrorOptions) {
   const cause = readAuthenticationErrorOption(options, "cause")
   const operation = readAuthenticationErrorOption(options, "operation")
-  if (operation !== "get-auth-for-request" && operation !== "get-session") invalidAuthenticationErrorOptions()
+  if (operation !== "get-auth-for-request" && operation !== "get-session" && operation !== "get-user") invalidAuthenticationErrorOptions()
   return new ViteHubError("AUTH_PROVIDER_OPERATION_FAILED", "[vitehub] Authentication provider operation failed.", {
     cause,
     details: { operation, provider: "better-auth" },
