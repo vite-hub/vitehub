@@ -29,6 +29,20 @@ describe("Rate Limit declarations", () => {
     }])
   })
 
+  it("collects checkRateLimit() calls like requireRateLimit() calls", () => {
+    expect(extractRateLimitDeclarations("server/api/og.ts", [
+      'import { checkRateLimit as check } from "vite-hub/rate-limit"',
+      'import * as rateLimit from "@vite-hub/rate-limit"',
+      "export default async (event) => {",
+      '  await check(event, "og-image", { limit: 20, window: "1m" })',
+      '  await rateLimit.checkRateLimit(event, "og-search", { limit: 5, window: "10s" })',
+      '  await checkRateLimit(event, "og-auto", { limit: 1, window: "1m" })',
+      "}",
+    ].join("\n")).map(declaration => declaration.name)).toEqual(["og-image", "og-search", "og-auto"])
+    expect(() => extractRateLimitDeclarations("args.ts", 'import { checkRateLimit } from "vite-hub/rate-limit"\ncheckRateLimit(event, "og")'))
+      .toThrow("`checkRateLimit()` requires an event, a stable ID, and a static options object.")
+  })
+
   it("collects framework auto-imported guards", () => {
     const source = [
       "export default defineEventHandler(async (event) => {",
