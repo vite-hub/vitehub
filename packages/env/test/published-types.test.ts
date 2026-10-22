@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -30,6 +30,14 @@ it("publishes Env error codes for the shared ViteHubError contract", async () =>
     await cp(join(runtimeRoot, "node_modules", "nostics"), join(root, "node_modules", "nostics"), { dereference: true, recursive: true })
 
     await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
+
+    // `@vite-hub/env/cli` is a Node entry point, so it is checked with Node types.
+    await writeFile(join(root, "tsconfig.cli.json"), JSON.stringify({
+      compilerOptions: { types: ["node"], typeRoots: [join(workspaceRoot, "node_modules/@types")] },
+      extends: "./tsconfig.json",
+      files: ["cli-consumer.ts"],
+    }))
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", join(root, "tsconfig.cli.json")])
   }
   finally {
     await rm(root, { force: true, recursive: true })

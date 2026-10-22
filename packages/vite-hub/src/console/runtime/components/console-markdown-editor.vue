@@ -61,6 +61,7 @@ let loaded = model.value;
 let canonical: string | undefined;
 let loading = 0;
 let pending: ReturnType<typeof setTimeout> | undefined;
+let flushVersion = 0;
 
 const components = computed(() => consoleEditorComponents(props.components));
 const definitions = new Map(components.value.map(component => [component.name, component]));
@@ -162,8 +163,10 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
 });
 
 async function flush(): Promise<void> {
+  const version = flushVersion;
   pending = undefined;
   const markdown = await getMarkdown();
+  if (version !== flushVersion || props.active === false) return;
   if (markdown === null) return;
   const next = markdown === canonical ? loaded : markdown;
   written = next;
@@ -282,7 +285,12 @@ watch(model, (value) => {
 });
 
 watch(() => props.active, (active) => {
-  if (active === false) return;
+  if (active === false) {
+    flushVersion++;
+    if (pending) clearTimeout(pending);
+    pending = undefined;
+    return;
+  }
   if (model.value !== loaded) void load(model.value);
 });
 

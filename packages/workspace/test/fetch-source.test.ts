@@ -207,6 +207,7 @@ describe("fetch sources", () => {
     const options = {
       marker: "original",
       url: "https://status.example.com/health",
+      workspacePath: "status",
     } as FetchSourceOptions<{ status: string }, string> & { marker: string }
     Object.defineProperty(options, "transform", {
       configurable: true,

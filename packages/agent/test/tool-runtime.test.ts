@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createExecutionBudget } from "@vite-hub/runtime"
-import { markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
+import { executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolExecutionBudget, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 
@@ -51,13 +51,23 @@ describe("tool execution budgets", () => {
   it("does not reuse ownership across different budgets", async () => {
     const ownedBudget = createExecutionBudget({ maxToolCalls: 10 })
     const activeBudget = createExecutionBudget({ maxToolCalls: 1 })
-    const tool = { name: "shell", execute: vi.fn(async (_input: unknown) => "ok") }
+    // A budget-owned executor charges its own budget, or the active budget that a reusing Invocation passes.
+    const tool = {
+      name: "shell",
+      execute: vi.fn(async (_input: unknown, context?: Record<PropertyKey, unknown>) => {
+        // SAFETY: tool-runtime passes the active ExecutionBudget under this internal key.
+        const override = context?.[executionBudgetOverride] as typeof activeBudget | undefined
+        ;(override ?? ownedBudget).recordToolCall()
+        return "ok"
+      }),
+    }
     markExecutionBudgetHandled(tool, ownedBudget)
 
     const tools = withAgentToolExecutionBudget({ shell: tool }, activeBudget)
     await expect(tools.shell.execute?.({})).resolves.toBe("ok")
     await expect(tools.shell.execute?.({})).rejects.toThrow("toolCalls")
     expect(activeBudget.snapshot().usage.toolCalls).toBe(1)
+    expect(ownedBudget.snapshot().usage.toolCalls).toBe(0)
   })
 })
 

@@ -122,6 +122,15 @@ const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependen
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
 
+function ownerPackageImportSpecifier(name: string): string {
+  const manifest: unknown = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve(`${name}/package.json`)), "utf8"))
+  const subpaths = Object.keys(Object(Reflect.get(Object(manifest), "exports")))
+  if (subpaths.includes(".")) return name
+  const subpath = subpaths.find(candidate => candidate.startsWith("./") && candidate !== "./package.json")
+  if (!subpath) throw new TypeError(`Expected ${name} to export an entry.`)
+  return `${name}/${subpath.slice(2)}`
+}
+
 // SAFETY: Resolver tests below do not read the Vite plugin context.
 const pluginContext = {} as never
 // SAFETY: Resolver tests below do not read the Vite resolve options.
@@ -134,8 +143,8 @@ function pluginNames(plugins: PluginOption[]): string[] {
 
 /** Names of the plugins that Vite keeps for an app without `server/content.ts`. */
 function appliedPluginNames(plugins: PluginOption[]): string[] {
-  // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
-  return (plugins as Plugin[]).filter(plugin => plugin.apply === undefined
+  // SAFETY: vitehub() returns concrete plugins, and the included Nitro plugins as one nested list.
+  return (plugins.flat() as Plugin[]).filter(plugin => !isIncludedNitroPlugin(plugin)).filter(plugin => plugin.apply === undefined
     || (plugin.apply instanceof Function ? plugin.apply({ root: "/vitehub-test-app-without-content" }, { command: "build", mode: "production" }) : plugin.apply === "build"))
     .map(plugin => plugin.name)
 }
@@ -610,6 +619,7 @@ describe("vitehub", () => {
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
+      "@vite-hub/content/vite",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
@@ -652,6 +662,7 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
+      "@vite-hub/content/vite",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
@@ -1031,10 +1042,12 @@ describe("vitehub", () => {
   })
 
   it.each(generatedOwnerPackageCases)("classifies generated import %s as %s", async (name, access) => {
+    // Owner packages such as @vite-hub/presets export only subpaths, so import the first public entry.
+    const specifier = ownerPackageImportSpecifier(name)
     // SAFETY: This resolver does not read the Vite plugin context or resolve options in these cases.
-    const resolved = await dependencyResolver().call(pluginContext, name, "\0#vitehub/env/server", pluginResolveOptions)
+    const resolved = await dependencyResolver().call(pluginContext, specifier, "\0#vitehub/env/server", pluginResolveOptions)
     if (access === "deny") expect(resolved).toBeUndefined()
-    else expect(resolved).toBe(fileURLToPath(import.meta.resolve(name)))
+    else expect(resolved).toBe(fileURLToPath(import.meta.resolve(specifier)))
   })
 
   it("keeps third-party driver fallbacks out of the global alias map", async () => {

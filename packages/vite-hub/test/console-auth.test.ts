@@ -12,6 +12,7 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { describe, expect, it, vi } from "vitest"
 import { build } from "esbuild"
 import { resolveConfig } from "vite"
+import type { PluginOption } from "vite"
 
 import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
@@ -322,8 +323,9 @@ describe("independent Console Auth", () => {
           root,
           configFile: false,
           plugins: [
-            envPlugin,
-            consoleVitePlugin({ console: { access: "auth", auth: {
+            // @vite-hub/env resolves another vite-plus-core copy, whose Plugin type TypeScript cannot compare with this one.
+            envPlugin as unknown as PluginOption,
+            consoleVitePlugin({ console: { auth: {
               provider: "github",
               allowedEmails: ["maintainer@example.com"],
               databasePath: join(root, "console.sqlite"),

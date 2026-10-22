@@ -458,7 +458,7 @@ describe("ViteHub CLI", () => {
 
     expect(await runViteHubCli({ args, cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledWith("/app", "serve")
-    expect(stdout.output()).toContain("  sandbox          Runtime commands.")
+    expect(stdout.output()).toContain("  sandbox      Runtime commands.")
     expect(stdout.output()).toContain("  blob         Blob commands.")
     expect(stdout.output()).toContain("  inspect")
     expect(stdout.output()).toContain("  provision")
