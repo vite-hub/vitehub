@@ -112,10 +112,13 @@ export default defineNuxtConfig({
   css: ["~/assets/main.css"],
   vite: {
     resolve: {
-      alias: {
-        debug: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)),
-        extend: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)),
-      },
+      alias: [
+        // Keep Shiki's WebAssembly in the Worker bundle; Cloudflare deployments do not ship node_modules.
+        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
+        { find: "debug", replacement: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)) },
+        { find: "extend", replacement: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)) },
+      ],
     },
   },
   icon: {
