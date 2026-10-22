@@ -2,6 +2,7 @@ import { sql, type SQL } from "drizzle-orm"
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteRaw } from "drizzle-orm/sqlite-core/query-builders/raw"
 import { useDatabase } from "@vite-hub/database/drizzle"
+import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "@vite-hub/agent/invocations/d1"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "@vite-hub/agent/invocations/d1"
@@ -80,7 +81,9 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
   const [first, ...rest] = queries
   if (!first) return []
   const statements = queries.map(query => sqliteDialect.sqlToQuery(query))
-  const client = d1Client(database.$client)
+  // `$client` is the raw binding or session, so count the batch in the request's database stats here.
+  const raw = d1Client(database.$client)
+  const client = raw && trackD1Database(raw)
   if (client) {
     const results = await client.batch(statements.map(statement => client.prepare(statement.sql).bind(...statement.params)))
     return results.map(result => {

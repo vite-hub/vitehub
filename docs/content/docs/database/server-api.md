@@ -61,3 +61,21 @@ export default defineEventHandler(() => {
   return db.select().from(schema.events)
 })
 ```
+
+## See database work on each request
+
+When the app registers the evlog Nitro module, through `vitehub({ observability })` or by itself, each request's wide event gets a `database` field:
+
+```json
+{ "path": "/api/notes", "status": 200, "database": { "calls": 9, "ms": 480, "maxConcurrent": 1 } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `calls` | Calls to a database. A batch is one call. |
+| `ms` | Milliseconds with at least one call in flight: how long the request waited for its databases. |
+| `maxConcurrent` | The most calls in flight at the same time. `1` means each call waited for the one before it. |
+
+A request with `calls: 9`, `maxConcurrent: 1` and a high `ms` makes its database calls one after another. Run independent queries together, with `Promise.all()` or `db.batch()`, to cut the wait.
+
+It counts every database of the app and every driver: a D1 binding, D1 over HTTP, libSQL, and Postgres. A request that makes no call gets no `database` field. A sub-request through the app, such as a server-rendered page's `$fetch('/api/…')`, gets its own event. It counts queries made through `db`. `db.$client` stays the app's own driver client, so a call made directly on it is not counted. Calls that run after the response, in `waitUntil()`, are not counted. Without evlog, nothing is measured.
