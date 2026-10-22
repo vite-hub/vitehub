@@ -202,6 +202,8 @@ export interface ContentRevisionsOptions {
   limit?: number
   /** `cursor` from the previous call. */
   cursor?: string
+  /** Internal upper bound for raw history entries inspected by this call. */
+  scanLimit?: number
 }
 
 export interface ContentRevisionsResult {
@@ -1039,12 +1041,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
     }
+    const scanLimit = revisionOptions.scanLimit ?? maxRevisionScan
+    if (!Number.isSafeInteger(scanLimit) || scanLimit < 1 || scanLimit > maxRevisionScan) {
+      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() scanLimit must be an integer from 1 to 1,000." })
+    }
     const retained = await history()
     const found: WorkspaceRevision[] = []
     let cursor = revisionOptions.cursor
     let scanned = 0
     do {
-      const page = await retained.list({ ref, limit: 100, cursor })
+      const page = await retained.list({ ref, limit: Math.min(100, scanLimit - scanned), cursor })
       for (const revision of page.revisions) {
         scanned++
         if (!revisionTouches(revision, runtime.name, id)) continue
@@ -1052,7 +1058,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (found.length === limit) return { revisions: found, cursor: revision.id, scanned }
       }
       cursor = page.cursor
-    } while (cursor && scanned < maxRevisionScan)
+    } while (cursor && scanned < scanLimit)
     return cursor ? { revisions: found, cursor, scanned } : { revisions: found, scanned }
   }
 

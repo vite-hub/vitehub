@@ -1,6 +1,7 @@
 export { ensureBlob } from "./ensure.ts"
 export { blob } from "./runtime/storage.ts"
 export { file, image } from "./reference.ts"
+export * from "./media.ts"
 export type {
   BlobReference,
   BlobReferenceHint,
@@ -20,6 +21,11 @@ export type {
   BlobEnsureOptions,
   BlobListOptions,
   BlobListResult,
+  BlobMedia,
+  BlobMediaListOptions,
+  BlobMediaListResult,
+  BlobMediaPutOptions,
+  BlobMediaUploadOptions,
   BlobModuleOptions,
   BlobMultipartEvent,
   BlobMultipartHandlerOptions,

@@ -105,6 +105,10 @@ icon: i-lucide-files
   `blob.sign()` makes a short-lived link to read or upload one private file.
   :::
 
+  :::product-feature-item{title="Images with alt text, crops, and variants" icon="i-lucide-image" to="/docs/blob/media"}
+  Media records, folders, `?w=640` variants, and `<picture>` art direction on every driver.
+  :::
+
   :::product-feature-item{title="Many storage services" icon="i-lucide-server" to="/docs/blob/configure#provider-options"}
   Use your disk, Cloudflare R2, Vercel Blob, Netlify Blobs, S3, and more. Your routes do not change.
   :::

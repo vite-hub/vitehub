@@ -194,6 +194,8 @@ export interface ContentRevisionsOptions {
   limit?: number
   /** `cursor` from the previous call. */
   cursor?: string
+  /** Internal upper bound for raw history entries inspected by this call. */
+  scanLimit?: number
 }
 
 export interface ContentRevisionsResult {
