@@ -110,6 +110,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/env": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
@@ -915,9 +916,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
-  // Content owns CMS preset discovery and its contributed Workspace/Database resources.
-  // Keep it in the direct Vite integration list so zero-config presets are actually applied.
-  plugins.push(hubContent())
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -1172,6 +1170,17 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
+  // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
+  // default Database. Inert without the preset.
+  plugins.push(hubContent({
+    imports: {
+      blob: "vite-hub/blob",
+      blobDatabase: "vite-hub/workspace/blob-database",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      workspace: "vite-hub/workspace",
+    },
+  }))
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({

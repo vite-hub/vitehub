@@ -27,7 +27,7 @@ export interface ForgeAccessResult { token: string, baseUrl?: string }
 export type ForgeAccess = (context: AgentCallbackContext, scope: ForgeAccessScope) => Promise<ForgeAccessResult | undefined>
 
 /** Private key of the forge access on a github() Channel and on the Agent runtime context. */
-export const forgeAccessKey = Symbol.for("vitehub.agent.forgeAccess")
+export const forgeAccessKey: unique symbol = Symbol.for("vitehub.agent.forgeAccess")
 
 type ForgeAccessCarrier = { [forgeAccessKey]?: unknown }
 

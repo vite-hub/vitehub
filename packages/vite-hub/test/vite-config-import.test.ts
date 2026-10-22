@@ -50,7 +50,8 @@ const config = {
 }
 const imported = [...loaded]
 await resolveConfig(config, "serve")
-process.stdout.write(JSON.stringify({ imported, resolved: loaded }))
+// The included Nitro starts its dev runner worker while the config resolves, and the probe never closes it.
+process.stdout.write(JSON.stringify({ imported, resolved: loaded }), () => process.exit(0))
 `
 
 function packageName(url: string): string | undefined {

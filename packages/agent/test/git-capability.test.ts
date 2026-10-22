@@ -317,7 +317,7 @@ describe("git capability", () => {
       stderr: "",
       stdout: command === "git" && args[0] === "remote" ? "origin\n" : "",
     }))
-    const access = vi.fn(async () => "installation-token")
+    const access = vi.fn(async () => ({ token: "installation-token" }))
     const { tools } = await capabilityTools(git({ mode: "write" }), session, {
       pullRequest: {
         pullRequest: {
@@ -351,7 +351,7 @@ describe("git capability", () => {
     { pullRequestRepository: "vite-hub/vitehub", pullRequestSourceRepository: "contributor/vitehub" },
   ])("scopes fetch credentials without a managed checkout: %j", async (context) => {
     const session = gitSession()
-    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "vite-hub/vitehub" ? "base-token" : "fork-token")
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => ({ token: scope.repository === "vite-hub/vitehub" ? "base-token" : "fork-token" }))
     const { tools } = await capabilityTools(git({ mode: "write" }), session, context, access)
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })

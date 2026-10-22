@@ -4,7 +4,6 @@ description: Configure provider origins, API key Connections, access rules, and 
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Provider origins
