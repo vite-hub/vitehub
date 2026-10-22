@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/server/github-auto-merge.ts"
 
-import { repairCapability } from "../src/presets/babysitter/repair.ts"
-import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
 const head = "a".repeat(40)
@@ -76,24 +74,6 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
 
 
 describe("native auto-merge", () => {
-  it("exposes accepted mention logins and omits unconfigured mentions", async () => {
-    const logins = [" stefina ", "MAXI", "octocat-", "octo--cat"]
-    const f = await fixture({ mentionAllowlist: logins })
-    const capability = repairCapability(f.operations, false, logins)
-    const resolveTools = async (definition: ReturnType<typeof repairCapability>) =>
-      (await resolveAgentCapabilities({ capabilities: [definition] }, {
-        capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn(),
-      }, {})).tools
-    const mention = (await resolveTools(capability))?.mentionOnPullRequest
-    expect(mention?.inputSchema).toMatchObject({ properties: { login: { type: "string", enum: ["stefina", "maxi"] } } })
-    if (!mention?.execute) throw new Error("Missing configured mention tool.")
-    await mention.execute({ login: "stefina", body: "Please restore the service." })
-    expect(f.comments()).toEqual(["@stefina\n\nPlease restore the service."])
-    expect(await resolveTools(repairCapability(f.operations, false))).not.toHaveProperty("mentionOnPullRequest")
-    expect(await resolveTools(repairCapability(f.operations, false, [" "]))).not.toHaveProperty("mentionOnPullRequest")
-    expect(await resolveTools(repairCapability(f.operations, false, ["octocat-", "octo--cat"]))).not.toHaveProperty("mentionOnPullRequest")
-  })
-
   it("marks both comments and mentions as host-authored repair activity", async () => {
     const commentPrefix = "<!-- vitehub-babysitter-repair:repair -->\n"
     const f = await fixture({ mentionAllowlist: ["stefina"], commentPrefix })

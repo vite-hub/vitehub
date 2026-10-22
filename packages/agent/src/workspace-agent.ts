@@ -461,6 +461,16 @@ function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boole
   }
 }
 
+/** Whether a Source is the `instructions.md` build Source that `withColocatedAgentInstructions` derives, not one the author declared. */
+export function isColocatedAgentInstructionsBuildSource(source: unknown): boolean {
+  return isRuntimeRecord(source)
+    && source.materialize === "build"
+    && source.mount === ""
+    && source.path === colocatedAgentInstructionsPath
+    && source.workspacePath === colocatedAgentInstructionsWorkspacePath
+    && source.content === undefined
+}
+
 function withColocatedAgentInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,

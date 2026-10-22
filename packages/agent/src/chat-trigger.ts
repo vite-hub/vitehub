@@ -248,11 +248,12 @@ const skipReplyToolName = "skip_reply"
 
 function chatFinalReply<TRuntimeConfig extends AgentRuntimeConfig>() {
   const effect = defineFinishEffect<TRuntimeConfig>(async (context) => {
-    const delivery = agentChannelDeliveryTracker(context.runtimeContext)
+    // The finish context spreads the Invocation runtime context, so it carries the delivery tracker.
+    const delivery = agentChannelDeliveryTracker(context)
     const persistedSkip = await delivery?.getMarker?.(silentReplyContextKey)
     if (
       silentReplies.has(context.context)
-      || context.input.get().context?.[silentReplyContextKey] !== undefined
+      || context.input.context?.[silentReplyContextKey] !== undefined
       || persistedSkip !== null && persistedSkip !== undefined
     ) return
     const text = context.text?.trim()
@@ -561,7 +562,7 @@ export function defineChatCapability<
             const reason = isRuntimeRecord(input) && hasRuntimeType(input.reason, "string") ? input.reason.trim() : ""
             if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
             silentReplies.set(context.context, reason)
-            await agentChannelDeliveryTracker(context.runtimeContext)?.setMarker?.(silentReplyContextKey, reason)
+            if (context.runtimeContext) await agentChannelDeliveryTracker(context.runtimeContext)?.setMarker?.(silentReplyContextKey, reason)
             const currentInput = context.input.get()
             context.input.set({
               ...currentInput,

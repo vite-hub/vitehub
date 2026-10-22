@@ -10,7 +10,6 @@ type DatabaseCatalogCode = keyof typeof databaseErrorDiagnostics
 describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {
     expectTypeOf<DatabaseCatalogCode>().toEqualTypeOf<
-      | "DATABASE_C0007"
       | "DATABASE_BINDING_CONFLICT"
       | "DATABASE_D1_INVALID_RESPONSE"
       | "DATABASE_D1_REQUEST_FAILED"
