@@ -67,6 +67,7 @@ export type {
   DocumentsDefinition,
   DocumentsOptions,
 } from "./documents.ts"
+export { documents } from "./collections.ts"
 export type {
   ContentCollection,
   ContentDocument,

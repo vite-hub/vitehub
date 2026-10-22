@@ -12,6 +12,7 @@ export default defineConfig({
         "vue",
         "vite",
         "#vitehub/auth/definition",
+        "#app",
         "#vitehub/env/server",
         "@vite-hub/auth/server",
         /^@vite-hub\/env(?:\/|$)/,
@@ -35,6 +36,7 @@ export default defineConfig({
       "src/index.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/nuxt.ts",
+      "src/runtime/vue-nuxt.ts",
       "src/server.ts",
       "src/nuxt.ts",
       "src/vue.ts",
@@ -43,7 +45,7 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
-          Object.entries(exports).filter(([key]) => !["./runtime/empty-definition", "./runtime/nuxt"].includes(key)),
+          Object.entries(exports).filter(([key]) => !["./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
         ))
       },
       inlinedDependencies: false,

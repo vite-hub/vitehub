@@ -35,6 +35,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
+| `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a discovered Database Definition does not enable Database. Without the `database` option, a build or `vite dev` that imports `vite-hub/database/drizzle` fails with `VITE_HUB_B0013`, and `vitehub db generate` and `vitehub db migrate` exit with an error. Add `database: true` or an options object to enable them. A directly composed `hubDb()` also provides Database.
 
@@ -69,6 +70,38 @@ export default defineDatabase({
 `schema` does not have to be an object literal. You can pass an imported schema object, a namespace import such as `import * as schema from './schema'`, or a spread that combines several schemas. Each time ViteHub writes generated artifacts, it loads the Definition and exports every Drizzle table and view in the evaluated schema, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated schema module already uses those export names.
 
 ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Definition still cannot load, for example because it imports a module that only a Vite plugin provides, `vite dev` and builds print a warning and fall back to the keys of a literal `schema: { ... }` object. `vitehub db generate` fails in that case, so a migration never silently omits a table.
+
+## Apply migrations
+
+`vitehub db generate` writes a Drizzle migration beside the Definition. `vitehub db migrate` applies the pending migrations with Drizzle Kit. Before it applies anything, it reads the Drizzle migrations table of each database and checks the SQL of each pending migration.
+
+```bash [commands/migrate]
+pnpm vitehub db migrate --dry-run
+pnpm vitehub db migrate
+```
+
+`--dry-run` prints each pending migration with its SQL and changes nothing. `vitehub db migrate` refuses pending migrations that lose data and names the statements with `DATABASE_MIGRATION_DATA_LOSS`. These statements lose data: `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. With `--dry-run`, the command exits with code 1 when a pending migration loses data, so CI can run it as a check.
+
+```txt
+[vitehub] Database "default" (local SQLite .vitehub/data/database/sqlite.db): 1 pending migration.
+
+  0001_drop_body
+    ALTER TABLE `notes` DROP COLUMN `body`;
+    ! Data loss: drops column "body" from "notes".
+```
+
+To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`. This flag also skips the check, for example when ViteHub cannot read the migrations table.
+
+The check reads the same database that Drizzle Kit migrates:
+
+| Database | Check |
+| --- | --- |
+| Local SQLite | Reads the file. A missing file has no applied migrations, and the dry run does not create it. |
+| Remote libSQL | Connects with `connection.url` and `connection.authToken`. |
+| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
+| Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
+
+Wrangler applies the migrations of a native D1 binding with `wrangler d1 migrations apply`, not `vitehub db migrate`. That path does not use this check.
 
 ## Tables from Nuxt layers
 
@@ -227,6 +260,7 @@ The factory context also has `rootDir`, the root that Database Definitions are d
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
+| `cloudflare.readReplication` | `boolean` | No | Reads from D1 read replicas. Inherits `database.readReplication`. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.

@@ -207,12 +207,14 @@ describe("ask Driver", () => {
     expect(askJev).not.toHaveBeenCalled()
   })
 
-  it("lets the Vercel provider run without an API key", async () => {
+  it("lets the Vercel provider use VERCEL_OIDC_TOKEN without an API key", async () => {
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
     mockServerEnv({ model: "typesafe-ai/jev", provider: "vercel" })
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledWith("Win money", expect.any(Object), { model: "typesafe-ai/jev", provider: "vercel", signal: undefined })
+    vi.unstubAllEnvs()
   })
 
   it("explains a missing Server Env group or API key", async () => {
