@@ -14,6 +14,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 /** Discovery roots that the host passes to owner section readers. */
 export interface ConsoleSectionDiscoveryContext {
+  contentImportBase?: string
   discoveryRoot: string
   /** Resolved Vite plugins. Owner packages read build-time contributions from them, for example contributed Workspaces. */
   plugins?: readonly unknown[]
@@ -97,6 +98,7 @@ function registerConsoleSection<TOptions>(
  */
 const registeredSections: readonly ConsoleRegisteredSection[] = [
   registerConsoleSection(contentConsoleSection, context => ({
+    contentImportBase: context.contentImportBase,
     projectRoot: context.projectRoot,
     schedules: context.scheduleDefinitions,
     serverDirs: context.serverDirs,

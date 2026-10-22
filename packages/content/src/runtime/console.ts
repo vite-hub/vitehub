@@ -278,7 +278,8 @@ function markdownUsesPathname(body: string, pathname: string): boolean {
       }
       labelIndex--
     }
-    if (labelIndex < 0 || (labelIndex > 0 && body[labelIndex - 1] !== "!")) continue
+    // Links and images both reference the object.
+    if (labelIndex < 0) continue
     let index = start + 2
     while (/\s/.test(body[index] ?? "")) index++
     let destination = ""
@@ -330,7 +331,9 @@ function markdownUsesPathname(body: string, pathname: string): boolean {
     }
     if (exact && body[index] === ")") return true
   }
-  return false
+  // Reference definitions such as `[cover]: images/a.png "Title"`.
+  const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`^\\s*\\[[^\\]]+\\]:\\s*(?:<${escaped}>|${escaped})(?:\\s+(?:["'][^"']*["']|\\([^)]*\\)))?\\s*$`, "m").test(body)
 }
 
 /** The Console user as sessions show them: a display name, and an image when the user has one. */
@@ -899,15 +902,21 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               }
               cursor = page.nextCursor ?? undefined
             } while (cursor)
-            // Bodies: search is only a candidate query (and may omit body from configured fields), so
-            // verify an exact Markdown link/image destination before reporting a reference.
+            // Bodies: collection search tokenizes values and can miss a pathname with spaces. Read each Markdown body
+            // and check for an exact link or image destination.
             if (collection.format !== "markdown") continue
-            for (const pathname of pathnames) {
-              const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
+            cursor = undefined
+            do {
+              const page = await collection.list(cursor ? { ref, limit: referencePageSize, cursor } : { ref, limit: referencePageSize })
               for (const item of page.items) {
-                if (typeof item.data.body === "string" && markdownUsesPathname(item.data.body, pathname)) add(pathname, item)
+                const document = await collection.get(item.id, { ref })
+                if (!document) continue
+                for (const pathname of pathnames) {
+                  if (markdownUsesPathname(document.body, pathname)) add(pathname, item)
+                }
               }
-            }
+              cursor = page.nextCursor ?? undefined
+            } while (cursor)
           }
           const ids = await readableIds(context, collection, [...local.values()].flatMap(documents => [...documents.keys()]))
           for (const [pathname, documents] of local) {

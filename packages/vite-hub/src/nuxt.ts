@@ -320,7 +320,7 @@ async function installConsole(
   observations: AgentInvocationsOptions["observations"] = undefined,
   invocationRootState?: ConsoleInvocationRootState,
   canDiscoverDefinitions: () => boolean = () => true,
-  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
+  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "contentImportBase" | "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   journal?: ConsoleJournal,
   independentAuth: ConsoleAuthMode | false = false,
   retention?: AgentRetentionPolicy,
@@ -467,6 +467,7 @@ async function installConsole(
       : sections.filter(section => section !== "databases" && !isConsoleContributedSectionId(section))
     const catalog = await discoverConsoleBuildCatalog({
       ...discoveryOptions,
+      contentImportBase: discoveryOptions.contentImportBase ?? "vite-hub/content",
       discoveryRoot,
       projectRoot,
       queueDiscoveryRoot,
@@ -1334,6 +1335,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(viteRoot)
       }
       const consoleCatalog = await discoverConsoleBuildCatalog({
+        contentImportBase: options.contentImportBase ?? "vite-hub/content",
         databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
           ? replayedDatabaseDiscoveryRoot
           : configuredDatabaseDiscoveryRoot,
@@ -1445,6 +1447,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleInvocationRootState,
       () => consoleWorkflowConfigResolved,
       {
+        contentImportBase: options.contentImportBase ?? "vite-hub/content",
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
         plugins: nuxt.options.vite?.plugins,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),

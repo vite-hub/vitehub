@@ -119,7 +119,7 @@ function mediaPath(value: unknown, name: string): string {
   if (!path) {
     throw failure(400, "MEDIA_INPUT", `${name} must be a canonical media pathname.`)
   }
-  if (isReservedPath(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  if (isReservedPath(path) || isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
   return path
 }
 
@@ -394,8 +394,10 @@ async function remove(context: MediaContext, input: Record<string, unknown>): Pr
   requireAccess(context, "manage")
   const removed: string[] = []
   const failed: BulkFailure[] = []
-  for (const raw of textList(input.pathnames, "pathnames")) {
-    const pathname = mediaPath(raw, "pathname")
+  // Validate the complete request before starting the partial-failure loop. An escaping or reserved pathname is
+  // invalid input, not an item-level Blob failure.
+  const pathnames = textList(input.pathnames, "pathnames").map(raw => mediaPath(raw, "pathname"))
+  for (const pathname of pathnames) {
     try {
       await blobCall(() => context.storage.media.remove(pathname))
       removed.push(pathname)
@@ -411,10 +413,14 @@ async function createFolder(context: MediaContext, input: Record<string, unknown
   requireAccess(context, "write")
   const rawParent = folderPath(optionalText(input.parent, "parent") ?? "")
   const parent = rawParent ? mediaPath(rawParent, "parent") : ""
-  const name = consoleMediaName(text(input.name, "name"))
+  const rawName = text(input.name, "name")
+  // Check the client pathname before URL-safe normalization, which otherwise strips a leading "../" and silently
+  // redirects the write into the root.
+  mediaPath(joinPath(parent, rawName), "name")
+  const name = consoleMediaName(rawName)
   if (!name) throw failure(400, "MEDIA_INPUT", "Name the folder with letters or digits.")
   const path = joinPath(parent, name)
-  if (isReservedPath(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
+  if (isReservedPath(path) || isHiddenFolder(path)) throw failure(400, "MEDIA_INPUT", `${name} is reserved for ViteHub.`)
   await blobCall(() => context.storage.media.createFolder(path))
   return { path }
 }

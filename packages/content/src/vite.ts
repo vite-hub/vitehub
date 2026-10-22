@@ -326,6 +326,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
 
 export interface ContentConsoleOptions {
   projectRoot: string
+  contentImportBase?: string
   /** Server directories to search, relative to `projectRoot`. Defaults to `server`. */
   serverDirs?: string[]
   /**
@@ -404,7 +405,7 @@ async function inspectContentSetup(options: ContentConsoleOptions): Promise<Vite
 async function findContentCollectionsEntry(options: ContentConsoleOptions): Promise<string | undefined> {
   const file = await findContentEntry(options)
   if (!file) return
-  return (await inspectContentEntry(file)).collections ? file : undefined
+  return (await inspectContentEntry(file, options.contentImportBase)).collections ? file : undefined
 }
 
 /**

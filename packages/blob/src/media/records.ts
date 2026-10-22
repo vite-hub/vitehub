@@ -290,6 +290,9 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     }
     catch (error) {
       if (!await driver.head(pathname)) throw error
+      const status = isRecord(error) ? error.status : undefined
+      const code = isRecord(error) ? error.code : undefined
+      if (status !== 409 && status !== 412 && code !== "BLOB_CONFLICT" && code !== "PRECONDITION_FAILED" && code !== "CONFLICT") throw error
       await driver.delete([pathname])
       await driver.put(pathname, body, { contentType: "application/json" })
     }
@@ -375,7 +378,18 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     await driver.delete([hashPath(hash)])
   }
 
-  async function removeReplacement(replacement: MediaCropReplacement): Promise<void> {
+  async function replacementIsReferenced(pathname: string, excluding?: string): Promise<boolean> {
+    const records = await listAll(mediaRecordsPrefix)
+    for (const object of records) {
+      const record = sanitizeMediaRecord(await readJson(object.pathname))
+      if (!record || (excluding && canonical(record.pathname) === canonical(excluding))) continue
+      if (Object.values(record.crops ?? {}).some(crop => crop.replacement && canonical(crop.replacement.pathname) === canonical(pathname))) return true
+    }
+    return false
+  }
+
+  async function removeReplacement(replacement: MediaCropReplacement, excluding?: string): Promise<void> {
+    if (await replacementIsReferenced(replacement.pathname, excluding)) return
     await driver.delete([replacement.pathname])
     await context.clearDerived(replacement.pathname)
   }
@@ -396,7 +410,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     const record = await readRecord(pathname)
     unwrap(await context.storage.del(pathname))
     for (const crop of Object.values(record?.crops ?? {})) {
-      if (crop.replacement) await removeReplacement(crop.replacement)
+      if (crop.replacement) await removeReplacement(crop.replacement, pathname)
     }
     await driver.delete([recordPath(pathname)])
     if (record?.hash) {
@@ -422,8 +436,15 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       }
       const path = await cropPath(moved.pathname, name, crop.replacement.hash, probeFormat(crop.replacement.contentType))
       const body = await driver.get(crop.replacement.pathname)
-      if (body) await driver.put(path, body, { contentType: crop.replacement.contentType })
-      crops[name] = { ...crop, replacement: { ...crop.replacement, pathname: path } }
+      if (body) {
+        await driver.put(path, body, { contentType: crop.replacement.contentType })
+        crops[name] = { ...crop, replacement: { ...crop.replacement, pathname: path } }
+      }
+      else {
+        // Do not preserve metadata for bytes that could not be copied. The named crop falls back to transforming
+        // the moved original.
+        crops[name] = { aspect: crop.aspect, ...(crop.focal ? { focal: crop.focal } : {}) }
+      }
     }
     const next: MediaRecord = { ...record, pathname: moved.pathname, size: moved.size ?? record.size, updatedAt: new Date().toISOString() }
     if (moved.httpEtag) next.etag = moved.httpEtag
@@ -441,7 +462,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     }
     unwrap(await context.storage.del(from))
     for (const crop of Object.values(record.crops ?? {})) {
-      if (crop.replacement) await removeReplacement(crop.replacement)
+      if (crop.replacement) await removeReplacement(crop.replacement, from)
     }
     await driver.delete([recordPath(from)])
     return next
@@ -508,6 +529,12 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     await writeRecord(record)
     if (!await readJson(hashPath(analysis.hash))) await writeJson(hashPath(analysis.hash), { pathname: record.pathname })
     for (const replacement of appliedCrops?.removed ?? []) await removeReplacement(replacement)
+    if (previous?.hash && previous.hash !== analysis.hash) {
+      const entry = await readJson(hashPath(previous.hash))
+      if (isRecord(entry) && isString(entry.pathname) && canonical(entry.pathname) === canonical(record.pathname)) {
+        await driver.delete([hashPath(previous.hash)])
+      }
+    }
     return record
   }
 
@@ -537,7 +564,8 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
         const records: MediaRecord[] = []
         for (const file of files) {
           const name = file.name.split(/[\\/]/).pop() || "file"
-          records.push(await withUrl(await putMedia(folder ? `${folder}/${name}` : name, file, { ...options.put, dedupe: options.dedupe ?? true })))
+          const pathname = normalizeTarget(folder ? `${folder}/${name}` : name)
+          records.push(await withUrl(await putMedia(pathname, file, { ...options.put, dedupe: options.dedupe ?? true })))
         }
         return records
       })
