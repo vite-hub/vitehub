@@ -17,7 +17,7 @@ icon: i-lucide-code-2
 | `withAuth` from `@vite-hub/auth/server` | Run a server handler only with an Auth Session. |
 | `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected configured access routes. |
 | `withAuthorization` from `@vite-hub/auth/server` | Run a resource handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
-| `useUserSession`, `useSession`, `createAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. |
+| `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. The client loads Better Auth on first use. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing authentication and provider failures by stable Auth code. |
 
@@ -33,7 +33,7 @@ import { useUserSession } from '@vite-hub/auth/vue'
 export const userSession = useUserSession()
 ```
 
-Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
+Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. The client loads Better Auth the first time you call it, so creating one up front adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
 
 Server code can read the discovered Auth instance or require a session for a request.
 

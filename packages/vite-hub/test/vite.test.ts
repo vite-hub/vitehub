@@ -614,6 +614,7 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/database-disabled",
       "vite-hub/dependencies",
+      "vite-hub/error-log",
       "@vite-hub/env/vite",
       "@vite-hub/connections/types-cleanup",
       "@vite-hub/email/optional-peer-resolver",
@@ -646,6 +647,7 @@ describe("vitehub", () => {
       "vite-hub/deployment-output",
       "vite-hub/public-url",
       "vite-hub/dependencies",
+      "vite-hub/error-log",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox-task/vite",
@@ -825,6 +827,13 @@ describe("vitehub", () => {
       provider: "cloudflare",
       scanDirs: ["rules"],
     })
+  })
+
+  it("keeps the request error logger when evlog is disabled", () => {
+    expect(pluginNames(vitehub({ preset: "node", observability: { service: "support", evlog: { enabled: false } } })))
+      .toContain("vite-hub/error-log")
+    expect(pluginNames(vitehub({ preset: "node", observability: { service: "support" } })))
+      .not.toContain("vite-hub/error-log")
   })
 
   it("passes configured Email drivers through the canonical integration", () => {
