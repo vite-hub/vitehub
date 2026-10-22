@@ -1024,7 +1024,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             })) } : {}),
           })
           }
-          draftExpectation = undefined
+          // Preserve the latest head for the atomic publish commit. An unrelated
+          // write is allowed, but a further write after this read must still
+          // invalidate the commit instead of publishing stale bytes.
+          draftExpectation = latestDraftHead ? { draft: latestDraftHead.id } : undefined
         }
         const revision = await retained.commit({
           ref: "published",
