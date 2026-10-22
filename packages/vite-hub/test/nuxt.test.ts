@@ -132,7 +132,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
-      else pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
+      else if (name === "pages:extend") pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
       alias: {

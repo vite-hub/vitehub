@@ -90,6 +90,7 @@ function loadQueuePlugin(source: string, imports: {
   drainInlineChatInvocations?: (options: { timeoutMs: number }) => Promise<unknown>
   process: unknown
   resumeWebhookQueues: (waitUntil: unknown, before: number) => () => Promise<unknown>
+  warmWebhookRoutes?: () => Promise<void>
   webhookQueueShutdown?: () => Promise<void>
 }, flags: { dev?: boolean } = {}): GeneratedPlugin {
   const body = source
@@ -98,8 +99,9 @@ function loadQueuePlugin(source: string, imports: {
     .replaceAll("import.meta.prerender", "false")
     .replace("export default ", "return ")
   // SAFETY: The generated plugin module returns its default export after the replacements above.
-  return new Function("resumeWebhookQueues", "drainInlineChatInvocations", "webhookQueueShutdown", "process", body)(
+  return new Function("resumeWebhookQueues", "warmWebhookRoutes", "drainInlineChatInvocations", "webhookQueueShutdown", "process", body)(
     imports.resumeWebhookQueues,
+    imports.warmWebhookRoutes ?? (async () => {}),
     imports.drainInlineChatInvocations,
     imports.webhookQueueShutdown,
     imports.process,

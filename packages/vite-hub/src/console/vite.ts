@@ -431,7 +431,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     invoke: boolean
     observations: typeof observations
     journal: typeof journal
-    consoleAuthMode: typeof consoleAuthMode
+    consoleAuthMode: true | "cloudflare-access" | false
     retention: typeof retention
     runtimeCapabilityImports: typeof options.runtimeCapabilityImports
     invocationBinding?: string
@@ -561,6 +561,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       // development, Env may run later and supply the project-scoped key.
       const canWriteInlineAuth = environment.command === "build"
         || !inlineConsoleAuthConfig
+        || !("provider" in inlineConsoleAuthConfig)
         || inlineConsoleAuthConfig.provider !== "github"
         || Boolean(developmentSecretEnvKey)
       consoleAuthHandlers = inlineConsoleAuthConfig && consoleAuthMode !== false && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined

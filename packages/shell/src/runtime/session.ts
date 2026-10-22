@@ -105,7 +105,7 @@ class RuntimeShellSession implements ShellSession {
         consume(chunk.length)
         if (chunk) callback(chunk)
       })
-    const signal = options.budget && options.signal
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
     const result = await this.provider.exec(command, {

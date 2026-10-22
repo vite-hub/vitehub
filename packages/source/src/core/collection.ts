@@ -180,6 +180,12 @@ export type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (opti
 
 type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
+/**
+ * A cursor the loader must not mutate. Only object cursors become readonly, so `AnyCollectionSource` keeps `any`
+ * instead of `Readonly<any>`, an index-signature object that rejects string and number cursors.
+ */
+type ReadonlyCursor<TCursorInput> = TCursorInput extends object ? Readonly<TCursorInput> : TCursorInput
+
 export interface CollectionOptions<
   TSourceItem,
   TQuery extends object,
@@ -188,7 +194,7 @@ export interface CollectionOptions<
 > {
   /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
   authorize?: AccessAuthorizeOption
-  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
+  cursor(item: NoInfer<TSourceItem>): ReadonlyCursor<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   defaultLimit?: number
   maxLimit?: number
@@ -224,7 +230,7 @@ export interface CursorCollectionSource<
   TCursorOutput extends CollectionCursorValue = TCursorInput,
   TQueryInput extends object = TQuery,
 > extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
-  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
+  cursor(item: NoInfer<TSourceItem>): ReadonlyCursor<TCursorInput>
   cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
   load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
   pagination?: undefined
@@ -261,11 +267,34 @@ type SourceQueryOf<TSource extends AnyCollectionSource> =
 type SourceQueryInputOf<TSource extends AnyCollectionSource> =
   TSource extends CollectionSource<any, any, any, any, infer TQueryInput> ? TQueryInput : never
 
+type LoadedItemOf<TSource> = TSource extends { load: (...args: any[]) => infer TResult }
+  ? Awaited<TResult> extends readonly (infer TItem)[]
+    ? TItem
+    : Awaited<TResult> extends { items: readonly (infer TItem)[] } ? TItem : never
+  : never
+
+type LoadOptionsOf<TSource> = TSource extends { load: (options: infer TOptions) => unknown } ? TOptions : never
+
+/**
+ * Ties a source's own parts to its loader. `AnyCollectionSource` only bounds each part, so without this a cursor,
+ * `get`, or query schema written for other rows or another query would pass.
+ */
+type SourceContract<TSource> =
+  & (TSource extends { cursor: (item: never) => unknown } ? { cursor: (item: LoadedItemOf<TSource>) => unknown } : unknown)
+  & (TSource extends { get: (key: string, options: never) => unknown }
+    ? { get: (key: string, options: { signal?: AbortSignal }) => Promise<LoadedItemOf<TSource> | null | undefined> }
+    : unknown)
+  & (TSource extends { querySchema: StandardSchemaV1<any, infer TQuery> }
+    ? [LoadOptionsOf<TSource>] extends [never]
+      ? unknown
+      : { load: (options: Omit<LoadOptionsOf<TSource>, "query"> & { query: TQuery }) => unknown }
+    : unknown)
+
 export interface SourceCollectionOptions<TSource extends AnyCollectionSource> {
   /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
   authorize?: AccessAuthorizeOption
   route?: false
-  source: TSource
+  source: TSource & SourceContract<TSource>
 }
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<

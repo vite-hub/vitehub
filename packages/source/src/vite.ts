@@ -13,7 +13,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { findExportNames } from "mlly"
 
 import { parseSync as parseJavaScript } from "vite"
-import type { Plugin } from "vite"
+import type { Plugin, UserConfig } from "vite"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles } from "./internal/collection-discovery.ts"
@@ -294,7 +294,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
     right?: AstNode
     body?: AstNode | AstNode[] | null
   }
-  type Write = { node: AstNode; fn?: AstNode; guards: Array<{ test: AstNode | undefined; truthy: boolean }> }
+  type Write = { node: AstNode; fn?: AstNode; guards: Array<{ test: AstNode | undefined; truthy: boolean }>; replayed?: boolean }
   type Binding = { init?: AstNode | null; writes?: Write[] }
   type Scope = { bindings: Map<string, Binding>, parent?: Scope }
   const moduleScope: Scope = { bindings: new Map() }
@@ -495,9 +495,12 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
     const previousPosition = readPosition
     let state: "known" | "unknown" = "known"
     for (const guard of write.guards) {
-      // Guards are evaluated when the helper is called. Rewinding to the
-      // guarded assignment's lexical position can observe later mutations of
-      // closed-over state and disagree with runtime call-time ordering.
+      // Helper guards are evaluated when the helper is called. Rewinding to
+      // the guarded assignment's lexical position can observe later mutations
+      // of closed-over state and disagree with runtime call-time ordering.
+      // Module-level guards run where they appear, so read them there: neither
+      // this write nor later ones in the guarded block can change the test.
+      if (!write.fn && !write.replayed) readPosition = guard.test?.start ?? write.node.start ?? readPosition
       const test = unwrap(guard.test)
       if (test?.type !== "Literal") state = "unknown"
       else if (Boolean(test.value) !== guard.truthy) {
@@ -775,7 +778,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
           if (write.node.left?.type !== "MemberExpression") continue
           const key = write.node.left.computed ? staticString(write.node.left.property) : write.node.left.property?.name
           if (key !== "route") continue
-          const replay = { ...write, fn: undefined }
+          const replay = { ...write, fn: undefined, replayed: true }
           ;(target.writes ??= []).push(replay)
           indexedWrites.push(replay)
         }
@@ -1441,7 +1444,9 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           configurationTransitionByRoot.delete(projectRoot)
         }
       }).catch(() => {})
-      return transition
+      // SAFETY: Vite merges the contribution into its user config. Its `nitro` key is Nitro's own config shape, which
+      // this package types loosely so it does not depend on Nitro's types.
+      return transition as Promise<Omit<UserConfig, "plugins"> | undefined>
     },
     async configResolved(config) {
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.

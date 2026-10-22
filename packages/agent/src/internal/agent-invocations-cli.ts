@@ -589,7 +589,7 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
 async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => void }> {
   const database = journalDatabase(parsed, context)
   if (database.path === undefined) {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, and export reads a local SQLite file. Use --url for a deployed app." })
+    throw agentDiagnostics.AGENT_R0931({ message: "--database for list, show, tail, export, and wait-idle reads a local SQLite file. Use --url for a deployed app." })
   }
   if (!existsSync(database.path)) throw agentDiagnostics.AGENT_R0931({ message: `No Agent Invocation journal exists at ${database.label}.` })
   const file = await openAgentInvocationJournalFile(database.path, parsed.tablePrefix)

@@ -138,21 +138,25 @@ function sourcePlugin() {
   })
 }
 
+type ConfigHookInput = {
+  base?: string
+  define?: Record<string, string>
+  nitro?: Record<string, unknown>
+  root?: string
+  [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
+  [VITEHUB_PROJECT_ROOT]?: string
+  [VITEHUB_SERVER_DIRS]?: string[]
+}
+
 function config(plugin: Plugin) {
   const hook = plugin.config instanceof Function ? plugin.config : plugin.config?.handler
   // SAFETY: This fixture invokes the documented Vite config hook signature.
-  return hook as (config: {
-    base?: string
-    define?: Record<string, string>
-    nitro?: Record<string, unknown>
-    root?: string
-    [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
-    [VITEHUB_PROJECT_ROOT]?: string
-    [VITEHUB_SERVER_DIRS]?: string[]
-  }) => Promise<{
+  const configHook = hook as (config: ConfigHookInput, env: { command: "build" | "serve", mode: string }) => Promise<{
     define?: Record<string, string>
     nitro?: Record<string, unknown>
   } | void>
+  // Vite always passes the config env; Source reads `command` since #2627.
+  return (viteConfig: ConfigHookInput) => configHook(viteConfig, { command: "serve", mode: "development" })
 }
 
 function buildStart(plugin: Plugin) {

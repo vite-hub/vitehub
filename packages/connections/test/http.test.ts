@@ -236,8 +236,8 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTIONS_INVALID_REQUEST",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        code: "CONNECTIONS_INVALID_STORED_DATA",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -258,8 +258,8 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTIONS_INVALID_REQUEST",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        code: "CONNECTIONS_INVALID_STORED_DATA",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
@@ -291,8 +291,8 @@ describe("createConnectionsHandler", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTIONS_INVALID_REQUEST",
-        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        code: "CONNECTIONS_INVALID_STORED_DATA",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_invalid_stored_data",
         fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
       },
@@ -364,7 +364,7 @@ describe("createConnectionsHandler", () => {
       error: {
         code: "CONNECTIONS_ORIGIN_REJECTED",
         details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
-        docs: "https://vitehub.dev/docs/connections/server-api#origin-checks",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#connections_origin_rejected",
         fix: expect.stringContaining("TLS-terminating proxy"),
         message: "The request Origin https://agent.example.com does not match the server origin http://agent.example.com.",
       },
@@ -466,7 +466,7 @@ describe("createConnectionsHandler", () => {
     });
     const response = await handler(post({ action: "inspect", name: "missing" }));
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_INVALID_REQUEST" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_NOT_FOUND" } });
     expect((await handler(post({ action: "approve", id: "approval_missing" }))).status).toBe(400);
   });
 
@@ -605,7 +605,7 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain("<h1>Connection cancelled</h1>");
       expect(html).toContain("Connect again and approve the access that the Connection asks for.");
       expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
-      expect(html).toContain('href="https://vitehub.dev/docs/connections/server-api#management-routes"');
+      expect(html).toContain('href="https://vitehub.dev/docs/connections/limits-and-errors#connections_authorization_cancelled"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
       // A failure waits for the user and never shows the provider's free text.
       expect(html).not.toContain("http-equiv");
