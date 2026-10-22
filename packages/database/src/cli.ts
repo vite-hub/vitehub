@@ -14,7 +14,6 @@ import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
-import { readMigrationPlan } from "./internal/migration-plan.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
@@ -163,6 +162,9 @@ async function checkPendingMigrations(
   context: ViteHubCliContext,
   { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
 ): Promise<number> {
+  // Keep the database driver and migration inspector out of config-time imports.
+  // The CLI contributor is loaded while Vite resolves the project config.
+  const { readMigrationPlan } = await import("./internal/migration-plan.ts")
   const [error, plan] = database
     ? await readMigrationPlan(database, { env: context.env ?? process.env, projectRoot })
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
