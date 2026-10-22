@@ -123,7 +123,7 @@ const sessionItems = computed<CommandPaletteItem[]>(() =>
     : sessionSearch.items.value.map((item) => ({
         description: itemDescription(item),
         disabled: !item.agentName,
-        icon: "i-ph-chat-text-light",
+        icon: "i-lucide-message-square-text",
         label: item.excerpt || (item.agentName ? `${item.agentName} session` : "Agent Invocation"),
         onSelect: () => selectSession(item),
       })),
@@ -156,7 +156,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         items: [{
           description: errorMessage(paletteError.value),
           disabled: true,
-          icon: "i-ph-cloud-slash-light",
+          icon: "i-lucide-cloud-off",
           label: "Could not load Console search",
         }],
         ignoreFilter: true,
@@ -170,7 +170,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     id: "go-to",
     items: [
       {
-        icon: "i-ph-squares-four-light",
+        icon: "i-lucide-layout-grid",
         kbds: [...consoleOverviewShortcut],
         label: "Overview",
         onSelect: () => selectPage("vitehub-console"),
@@ -231,7 +231,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "kv-status",
         ignoreFilter: true,
-        items: [{ disabled: true, icon: "i-ph-warning-light", label: "More matching keys may exist" }],
+        items: [{ disabled: true, icon: "i-lucide-triangle-alert", label: "More matching keys may exist" }],
         label: "KV status",
       }]
     : []),
@@ -486,7 +486,7 @@ onBeforeUnmount(() => {
     <template #empty="{ searchTerm: value }">
       <div class="grid justify-items-center gap-2 px-6 py-10 text-center">
         <UIcon
-          name="i-ph-magnifying-glass-minus-light"
+          name="i-lucide-search-x"
           class="size-6 text-dimmed"
         />
         <p class="text-sm font-medium text-highlighted">

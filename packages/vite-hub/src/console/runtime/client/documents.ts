@@ -1,4 +1,5 @@
 import { ConsoleRequestError, requestConsole } from "./request"
+import { dayLabel } from "./time"
 
 import type { ConsoleDocumentCollection } from "../definitions"
 
@@ -379,6 +380,204 @@ export function consoleDocumentStateLabel(state: ConsoleDocumentState): string {
 
 export function consoleDocumentStateColor(state: ConsoleDocumentState): "error" | "neutral" | "success" | "warning" {
   return ({ changed: "warning", deleted: "error", draft: "neutral", published: "success" } as const)[state]
+}
+
+/**
+ * `Posts` → `Post` and `Stories` → `Story`, for toasts such as `Post deleted`. Labels that are not a plain one-word plural
+ * become `Document`.
+ */
+export function consoleSingularLabel(label: string): string {
+  const word = label.trim()
+  if (/\s/.test(word) || !/s$/i.test(word) || /(ss|us|is|news|series)$/i.test(word)) return "Document"
+  if (/ies$/i.test(word)) return `${word.slice(0, -3)}y`
+  return word.slice(0, -1)
+}
+
+// Field validation copy: the field name and the constraint, such as `Name is required.` (Geist input).
+
+/**
+ * Rewrites a validator message as the field name plus the constraint. Messages from Standard Schema validators, such
+ * as `Invalid input: expected string, received undefined`, read as raw types; unknown messages keep their own words.
+ */
+export function consoleFieldIssueMessage(label: string, message: string): string {
+  const text = message.trim()
+  if (/received (undefined|null)\b|^required\b|\bis required\b|^invalid input$/i.test(text)) return `${label} is required.`
+  const bound = /(<=?|>=?)\s*(\d+(?:\.\d+)?)/.exec(text)
+  if (bound && /too big|too small|invalid (length|size|value)|maximum|minimum/i.test(text)) {
+    const unit = /\bstrings?\b|characters?/i.test(text) ? " characters" : /\barrays?\b|items?|elements?/i.test(text) ? " items" : ""
+    const limit = { "<": "less than", "<=": "at most", ">": "more than", ">=": "at least" }[bound[1]!]
+    return `${label} must be ${limit} ${bound[2]}${unit}.`
+  }
+  if (/\burl\b/i.test(text)) return `${label} must be a valid URL.`
+  if (/\bemail\b/i.test(text)) return `${label} must be a valid email address.`
+  if (/\b(date|datetime|iso)\b/i.test(text)) return `${label} must be a valid date.`
+  if (/invalid option|expected one of|invalid enum/i.test(text)) return `${label} must be one of the listed options.`
+  const type = /expected (string|number|boolean|array|object|integer)/i.exec(text)
+  if (type) {
+    const noun = { array: "a list", boolean: "on or off", integer: "a whole number", number: "a number", object: "a group of fields", string: "text" }[type[1]!.toLowerCase()]
+    return `${label} must be ${noun}.`
+  }
+  return /[.!?]$/.test(text) ? text : `${text}.`
+}
+
+/** Rewrites the message of each field issue with the label of the field it belongs to, such as `Author name is required.` */
+export function humanizeConsoleFieldIssues(fields: readonly ConsoleSchemaField[], issues: readonly ConsoleFieldIssue[]): ConsoleFieldIssue[] {
+  return issues.map((issue) => {
+    const path = [issue.field, ...issue.path.filter(segment => String(segment) === segment)].filter(segment => segment !== undefined)
+    let level: readonly ConsoleSchemaField[] | undefined = fields
+    const labels: string[] = []
+    for (const name of path) {
+      const field: ConsoleSchemaField | undefined = level?.find(entry => entry.name === name)
+      if (!field) break
+      labels.push(field.label)
+      level = field.fields
+    }
+    if (!labels.length) return issue
+    // A nested field names its parent too, so `Name` under Author reads `Author name`.
+    const label = labels.length > 1 ? `${labels.at(-2)} ${labels.at(-1)!.toLowerCase()}` : labels[0]!
+    return { ...issue, message: consoleFieldIssueMessage(label, issue.message) }
+  })
+}
+
+function emptyValue(value: unknown): boolean {
+  return value === undefined || value === null || (String(value) === value && !value.trim()) || (Array.isArray(value) && !value.length)
+}
+
+/**
+ * Checks one field value against the constraints the form can read from its JSON Schema, for validation on blur. The
+ * owner validators still run on save and stay the source of truth.
+ */
+export function consoleFieldValueIssue(field: ConsoleSchemaField, value: unknown): string | undefined {
+  if (field.kind === "object" || field.kind === "blob" || field.kind === "json") return undefined
+  if (emptyValue(value)) return field.required && field.kind !== "boolean" ? `${field.label} is required.` : undefined
+  if ((field.kind === "string" || field.kind === "text") && String(value) === value) {
+    if (field.maxLength !== undefined && value.length > field.maxLength) return `${field.label} must be at most ${field.maxLength} characters.`
+    const minLength = Number(field.schema.minLength)
+    if (Number.isFinite(minLength) && value.length < minLength) return `${field.label} must be at least ${minLength} characters.`
+    if (field.format === "uri" || field.format === "url") {
+      try {
+        new URL(value)
+      }
+      catch {
+        return `${field.label} must be a valid URL.`
+      }
+    }
+    if (field.format === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return `${field.label} must be a valid email address.`
+  }
+  if ((field.kind === "number" || field.kind === "integer") && Number(value) === value) {
+    if (field.kind === "integer" && !Number.isInteger(value)) return `${field.label} must be a whole number.`
+    if (field.minimum !== undefined && value < field.minimum) return `${field.label} must be at least ${field.minimum}.`
+    if (field.maximum !== undefined && value > field.maximum) return `${field.label} must be at most ${field.maximum}.`
+  }
+  return undefined
+}
+
+// List view state in the URL: `?q=launch&state=draft&sort=date:desc&filter.category=story`.
+
+export type ConsoleListState = ConsoleDocumentState | "all"
+
+export interface ConsoleListView {
+  filters: Record<string, string>
+  search: string
+  sort: string
+  state: ConsoleListState
+}
+
+const filterPrefix = "filter."
+
+function queryText(value: unknown): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value
+  return String(first) === first && first ? first : undefined
+}
+
+/** Reads the list view from a route query. Unknown states, sorts, and filter fields fall back to the defaults. */
+export function parseConsoleListQuery(
+  query: Readonly<Record<string, unknown>>,
+  options: { facets: readonly string[], sorts: readonly string[] },
+): ConsoleListView {
+  const state = queryText(query.state)
+  const sort = queryText(query.sort)
+  const filters: Record<string, string> = {}
+  for (const [key, value] of Object.entries(query)) {
+    const name = key.startsWith(filterPrefix) ? key.slice(filterPrefix.length) : undefined
+    const text = queryText(value)
+    if (name && text && options.facets.includes(name)) filters[name] = text
+  }
+  return {
+    filters,
+    search: queryText(query.q) ?? "",
+    sort: sort && options.sorts.includes(sort) ? sort : options.sorts[0] ?? "id:asc",
+    state: state && (consoleDocumentStates as readonly string[]).includes(state) ? state as ConsoleDocumentState : "all",
+  }
+}
+
+/** Writes the list view as a route query, leaving out defaults so a fresh list has a clean URL. */
+export function consoleListQuery(view: ConsoleListView, defaultSort: string): Record<string, string> {
+  const query: Record<string, string> = {}
+  if (view.search.trim()) query.q = view.search.trim()
+  if (view.state !== "all") query.state = view.state
+  if (view.sort !== defaultSort) query.sort = view.sort
+  for (const [name, value] of Object.entries(view.filters).sort(([left], [right]) => left.localeCompare(right))) {
+    if (value) query[`${filterPrefix}${name}`] = value
+  }
+  return query
+}
+
+// Frontmatter for comparisons: YAML-style lines, so nested fields diff line by line instead of as one JSON line.
+
+function frontmatterScalar(value: unknown): string {
+  if (String(value) !== value) return JSON.stringify(value)
+  // Plain text stays unquoted unless YAML would read it as another type or as syntax.
+  const plain = /^[\p{L}\p{N}][^:#\n]*$/u.test(value) && !/^(true|false|null|yes|no|~|[-+]?\d[\d._e+-]*)$/i.test(value) && value.trim() === value
+  return plain ? value : JSON.stringify(value)
+}
+
+function frontmatterLines(key: string, value: unknown, indent: string): string[] {
+  if (Array.isArray(value)) {
+    if (!value.length) return [`${indent}${key}: []`]
+    if (value.every(entry => !(entry instanceof Object))) return [`${indent}${key}: [${value.map(frontmatterScalar).join(", ")}]`]
+    return [`${indent}${key}:`, ...value.map(entry => `${indent}  - ${entry instanceof Object ? JSON.stringify(entry) : frontmatterScalar(entry)}`)]
+  }
+  const object = record(value)
+  if (object) {
+    const entries = Object.entries(object).sort(([left], [right]) => left.localeCompare(right))
+    if (!entries.length) return [`${indent}${key}: {}`]
+    return [`${indent}${key}:`, ...entries.flatMap(([child, entry]) => frontmatterLines(child, entry, `${indent}  `))]
+  }
+  return [`${indent}${key}: ${frontmatterScalar(value)}`]
+}
+
+/** Renders document fields as sorted YAML-style frontmatter lines, for the comparison view. */
+export function renderConsoleFrontmatter(data: Record<string, unknown>): string {
+  return Object.entries(data)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([key, value]) => frontmatterLines(key, value, ""))
+    .join("\n")
+}
+
+// The list keeps its view when someone opens a document and comes back.
+const listQueries = new Map<string, Record<string, string>>()
+
+/** Remembers the list query of a collection, so Back from the editor returns to the same tab, sort, and filters. */
+export function rememberConsoleListQuery(collection: string, query: Record<string, string>): void {
+  listQueries.set(collection, { ...query })
+}
+
+/** The last list query of a collection, or an empty query. */
+export function consoleListQueryFor(collection: string): Record<string, string> {
+  return { ...listQueries.get(collection) }
+}
+
+/** Groups revisions, newest first, under day labels such as `Today` and `Oct 12`. */
+export function groupConsoleRevisions(revisions: readonly ConsoleDocumentRevision[], now: number, timeZone?: string): Array<{ label: string, revisions: ConsoleDocumentRevision[] }> {
+  const groups: Array<{ label: string, revisions: ConsoleDocumentRevision[] }> = []
+  for (const revision of revisions) {
+    const label = dayLabel(revision.createdAt, now, timeZone) ?? "Unknown date"
+    const last = groups.at(-1)
+    if (last?.label === label) last.revisions.push(revision)
+    else groups.push({ label, revisions: [revision] })
+  }
+  return groups
 }
 
 export type { ConsoleDocumentCollection }

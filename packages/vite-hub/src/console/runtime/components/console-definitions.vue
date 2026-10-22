@@ -24,6 +24,10 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 interface ConsoleSectionEntry {
   detail: string;
   id: string;
@@ -208,7 +212,7 @@ onBeforeUnmount(() => request?.abort());
             <UButton
               aria-label="Refresh definitions"
               color="neutral"
-              icon="i-ph-arrows-clockwise-light"
+              icon="i-lucide-refresh-cw"
               size="xs"
               variant="ghost"
               :loading="loading"
@@ -218,14 +222,23 @@ onBeforeUnmount(() => request?.abort());
         </div>
         <div v-else class="flex justify-center">
           <UTooltip text="Refresh definitions">
-            <UButton aria-label="Refresh definitions" color="neutral" icon="i-ph-arrows-clockwise-light" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
+            <UButton aria-label="Refresh definitions" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
           </UTooltip>
         </div>
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed && error" class="px-3">
-          <ConsoleState compact :error="error" title="Could not load definitions" :retry="loadDefinitions" />
+        <div v-if="!collapsed && errorMessage(error)" class="px-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load definitions"
+            :description="errorMessage(error)"
+            :actions="[
+              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadDefinitions },
+            ]"
+          />
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -265,7 +278,7 @@ onBeforeUnmount(() => request?.abort());
           >
             <span class="grid min-w-0 gap-0.5 text-start">
               <span class="truncate font-mono text-xs">{{ entry.id }}</span>
-              <span class="truncate text-[11px] text-muted">{{ entry.detail }}</span>
+              <span class="truncate text-xs text-muted">{{ entry.detail }}</span>
             </span>
           </UButton>
         </nav>
@@ -302,7 +315,7 @@ onBeforeUnmount(() => request?.abort());
               <p class="truncate font-mono text-xs font-medium text-highlighted">
                 {{ selectedEntry?.id || sectionDetails.label }}
               </p>
-              <p v-if="selectedEntry?.detail" class="mt-0.5 truncate text-[11px] text-muted">
+              <p v-if="selectedEntry?.detail" class="mt-0.5 truncate text-xs text-muted">
                 {{ selectedEntry.detail }}
               </p>
             </span>
@@ -311,7 +324,7 @@ onBeforeUnmount(() => request?.abort());
             <UButton
               v-if="canRunSelected"
               color="neutral"
-              icon="i-ph-play-light"
+              icon="i-lucide-play"
               label="Run now"
               size="xs"
               variant="outline"
@@ -328,7 +341,7 @@ onBeforeUnmount(() => request?.abort());
         <UEmpty
           v-if="!selectedEntry && !loading"
           class="min-h-0 flex-1"
-          icon="i-ph-mouse-left-click-light"
+          icon="i-lucide-mouse-pointer-click"
           :title="catalogView ? 'Select a definition' : 'Select a record'"
           :description="catalogView ? 'Choose a discovered definition from the sidebar to inspect its metadata.' : 'Choose a record from the sidebar to inspect its fields.'"
         />
@@ -336,7 +349,7 @@ onBeforeUnmount(() => request?.abort());
           v-else-if="loading && !selectedEntry"
           class="flex min-h-0 flex-1 items-center justify-center"
         >
-          <UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted opacity-70" />
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted opacity-70" />
         </div>
         <main v-else-if="selectedDefinition" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <div class="mx-auto grid w-full max-w-5xl gap-4">
@@ -346,7 +359,7 @@ onBeforeUnmount(() => request?.abort());
               </div>
               <dl class="divide-y divide-default">
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs text-dimmed">
+                  <dt class="text-xs font-medium text-muted">
                     Name
                   </dt>
                   <dd class="break-all font-mono text-xs text-highlighted">
@@ -354,7 +367,7 @@ onBeforeUnmount(() => request?.abort());
                   </dd>
                 </div>
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs text-dimmed">
+                  <dt class="text-xs font-medium text-muted">
                     Source
                   </dt>
                   <dd class="text-xs text-highlighted">
@@ -362,7 +375,7 @@ onBeforeUnmount(() => request?.abort());
                   </dd>
                 </div>
                 <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs text-dimmed">
+                  <dt class="text-xs font-medium text-muted">
                     File
                   </dt>
                   <dd class="break-all font-mono text-xs text-highlighted">
@@ -374,7 +387,7 @@ onBeforeUnmount(() => request?.abort());
                   :key="field.label"
                   class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
                 >
-                  <dt class="text-xs text-dimmed">
+                  <dt class="text-xs font-medium text-muted">
                     {{ field.label }}
                   </dt>
                   <dd class="whitespace-pre-wrap break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
@@ -384,7 +397,7 @@ onBeforeUnmount(() => request?.abort());
             <UAlert
               v-if="selectedRun"
               :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
-              :icon="selectedRun.status === 'succeeded' ? 'i-ph-check-circle-light' : 'i-ph-warning-circle-light'"
+              :icon="selectedRun.status === 'succeeded' ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
               :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
               :description="consoleScheduleRunDescription(selectedRun)"
               variant="subtle"
@@ -392,7 +405,7 @@ onBeforeUnmount(() => request?.abort());
             <UAlert
               v-else
               color="neutral"
-              icon="i-ph-info-light"
+              icon="i-lucide-info"
               title="Definition metadata only"
               :description="sectionDetails.view.notice"
               variant="subtle"
@@ -408,7 +421,7 @@ onBeforeUnmount(() => request?.abort());
                     <th
                       v-for="column in recordColumns"
                       :key="column.key"
-                      class="h-10 px-3 text-xs text-dimmed"
+                      class="h-10 px-3 text-xs font-medium text-muted"
                       scope="col"
                     >
                       {{ column.label }}
@@ -441,7 +454,7 @@ onBeforeUnmount(() => request?.abort());
                   :key="field.label"
                   class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
                 >
-                  <dt class="text-xs text-dimmed">
+                  <dt class="text-xs font-medium text-muted">
                     {{ field.label }}
                   </dt>
                   <dd class="break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
@@ -451,7 +464,7 @@ onBeforeUnmount(() => request?.abort());
             <UAlert
               v-if="selectedRun"
               :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
-              :icon="selectedRun.status === 'succeeded' ? 'i-ph-check-circle-light' : 'i-ph-warning-circle-light'"
+              :icon="selectedRun.status === 'succeeded' ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
               :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
               :description="consoleScheduleRunDescription(selectedRun)"
               variant="subtle"
@@ -459,7 +472,7 @@ onBeforeUnmount(() => request?.abort());
             <UAlert
               v-else
               color="neutral"
-              icon="i-ph-info-light"
+              icon="i-lucide-info"
               title="Read-only records"
               :description="sectionDetails.view.notice"
               variant="subtle"

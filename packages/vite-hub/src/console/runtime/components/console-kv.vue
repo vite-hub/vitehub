@@ -45,6 +45,10 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 const route = useRoute();
 const router = useRouter();
 const stores = ref<string[]>([]);
@@ -349,7 +353,7 @@ onBeforeUnmount(() => {
               <UButton
                 aria-label="Refresh keys"
                 color="neutral"
-                icon="i-ph-arrows-clockwise-light"
+                icon="i-lucide-refresh-cw"
                 size="xs"
                 variant="ghost"
                 :loading="listLoading || valueLoading"
@@ -363,9 +367,18 @@ onBeforeUnmount(() => {
 
       <template #body>
         <main class="min-h-0 flex-1 overflow-y-auto">
-          <div v-if="listError" class="m-3">
-            <ConsoleState compact :error="listError" title="Could not load keys" :retry="refresh" />
-          </div>
+          <UAlert
+            v-if="errorMessage(listError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load keys"
+            :description="errorMessage(listError)"
+            :actions="[
+              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+            ]"
+          />
           <template v-else>
             <UTable
               :columns="columns"
@@ -381,12 +394,12 @@ onBeforeUnmount(() => {
             >
               <template #key-cell="{ row }">
                 <span class="flex min-w-0 items-center gap-2 font-mono text-xs text-highlighted">
-                  <UIcon name="i-ph-key-light" class="size-3.5 shrink-0 text-muted opacity-65" />
+                  <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-muted opacity-65" />
                   <span class="truncate">{{ row.original.key || "(empty key)" }}</span>
                 </span>
               </template>
               <template #store-cell="{ row }">
-                <span class="font-mono text-[11px] text-muted">{{ row.original.store }}</span>
+                <span class="font-mono text-xs text-muted">{{ row.original.store }}</span>
               </template>
               <template #empty>
                 <ConsoleState
@@ -412,19 +425,32 @@ onBeforeUnmount(() => {
 
           <div v-if="valueLoading && !selectedValue" class="flex h-24 items-center justify-center">
             <UIcon
-              name="i-ph-circle-notch-light"
+              name="i-lucide-loader-circle"
               class="size-4 animate-spin text-muted opacity-70"
             />
           </div>
-          <div v-else-if="valueError" class="m-3">
-            <ConsoleState compact :error="valueError" title="Could not load this value" :retry="() => loadValue()" />
-          </div>
+          <UAlert
+            v-else-if="errorMessage(valueError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load this value"
+            :description="errorMessage(valueError)"
+            :actions="[
+              {
+                label: 'Try again',
+                icon: 'i-lucide-refresh-cw',
+                onClick: () => loadValue(),
+              },
+            ]"
+          />
           <UAlert
             v-else-if="selectedValue && !selectedValue.found"
             class="m-3"
             color="warning"
             variant="subtle"
-            icon="i-ph-key-light"
+            icon="i-lucide-key-round"
             title="Key no longer exists"
             description="Refresh the table to load the current store contents."
           />
@@ -435,10 +461,10 @@ onBeforeUnmount(() => {
               <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <span class="text-xs text-dimmed">{{
+              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
                 selectedValue.type
               }}</span>
-              <span class="text-xs text-dimmed">{{
+              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
                 selectedValue.format
               }}</span>
               <UBadge

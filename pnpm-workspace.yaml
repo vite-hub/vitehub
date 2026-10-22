@@ -148,6 +148,8 @@ catalogs:
     vue-tsc: ^3.3.12
     yaml: ^2.9.1
   ui:
+    "@fontsource-variable/geist": ^5.3.0
+    "@fontsource-variable/geist-mono": ^5.3.0
     "@iconify-json/lucide": ^1.2.139
     "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.98
@@ -211,7 +213,5 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@pierre/trees@1.0.0-beta.6": patches/@pierre__trees@1.0.0-beta.6.patch
-  "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch
   nitro@3.0.260903-beta: patches/nitro@3.0.260903-beta.patch
-  nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

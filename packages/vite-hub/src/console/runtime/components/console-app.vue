@@ -74,6 +74,11 @@ const props = defineProps<{
   sectionsBase: string;
   usageBase: string;
 }>();
+
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
@@ -251,7 +256,7 @@ const searchActions = computed<CommandPaletteItem[]>(() =>
   newChatTargetName.value
     ? [{
         description: `Start a session with ${newChatTargetName.value}`,
-        icon: "i-ph-note-pencil-light",
+        icon: "i-lucide-square-pen",
         label: "New chat",
         onSelect: () => void startNewChat(),
       }]
@@ -964,7 +969,7 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="New chat"
               color="neutral"
-              icon="i-ph-note-pencil-light"
+              icon="i-lucide-square-pen"
               size="xs"
               square
               variant="ghost"
@@ -979,15 +984,15 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="Filter sessions"
               :color="activeFilterCount ? 'primary' : 'neutral'"
-              icon="i-ph-funnel-light"
+              icon="i-lucide-funnel"
               size="xs"
               square
               :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
               <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-                <UIcon name="i-ph-funnel-light" class="size-4 shrink-0 text-muted" />
-                <p class="min-w-0 flex-1 truncate text-xs text-dimmed">
+                <UIcon name="i-lucide-funnel" class="size-4 shrink-0 text-muted" />
+                <p class="min-w-0 flex-1 truncate text-xs font-medium text-muted">
                   Filter sessions
                 </p>
                 <UBadge
@@ -1059,8 +1064,17 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default>
-        <div v-if="!connectionUnavailable && agentsError" class="px-3 pb-3">
-          <ConsoleState compact :error="agentsError" title="Could not load Agents" :retry="loadAgents" />
+        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load agents"
+            :description="errorMessage(agentsError)"
+            :actions="[
+              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents },
+            ]"
+          />
         </div>
         <section v-if="hasMultipleAgents" class="vitehub-console__agents shrink-0 px-1.5 pb-2">
           <h2 class="m-0">
@@ -1122,11 +1136,23 @@ onBeforeUnmount(() => {
           v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
           class="px-3"
         >
-          <ConsoleState
-            compact
-            :error="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
+          <UAlert
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
             title="Could not load sessions"
-            :retry="!connectionUnavailable && list.error.value ? list.refresh : undefined"
+            :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
+            :actions="
+              !connectionUnavailable && list.error.value
+                ? [
+                    {
+                      label: 'Try again',
+                      icon: 'i-lucide-refresh-cw',
+                      onClick: list.refresh,
+                    },
+                  ]
+                : undefined
+            "
           />
           <UButton
             v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
@@ -1192,14 +1218,10 @@ onBeforeUnmount(() => {
             ><UEmpty
               v-if="activeFilterCount"
               class="px-4"
-              icon="i-ph-chat-dots-light"
-              title="No matching sessions"
-              :actions="[{ label: 'Clear filters', onClick: resetSessionFilters }]" /><ConsoleState
-              v-else
-              section="agents"
-              icon="i-ph-chat-dots-light"
-              title="No sessions yet"
-              description="Invoke an Agent from your app or from this Console. Its session appears here."
+              icon="i-lucide-message-square-more"
+              :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
+              :description="activeFilterCount ? undefined : 'The first Agent Invocation will appear here.'"
+              :actions="activeFilterCount ? [{ label: 'Clear filters', onClick: resetSessionFilters }] : undefined"
           /></template>
         </AgentInvocationList>
       </template>
@@ -1314,18 +1336,31 @@ onBeforeUnmount(() => {
                     />
                   </template>
                 </ConsoleSessionNavbar>
-                <div v-if="!connectionUnavailable && invocationView && detail.error.value" class="m-3 shrink-0">
-                  <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
-                </div>
+                <UAlert
+                  v-if="!connectionUnavailable && invocationView && errorMessage(detail.error.value)"
+                  class="m-3 shrink-0"
+                  color="error"
+                  variant="subtle"
+                  icon="i-lucide-cloud-off"
+                  title="Could not refresh this session"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+                  ]"
+                />
                 <ConsoleSessionLoading
                   v-if="(detail.isLoading.value || initialSessionLoading) && !invocationView"
                   class="min-h-0 flex-1"
                 />
-                <ConsoleState
-                  v-else-if="detail.error.value && !invocationView"
-                  :error="detail.error.value"
+                <UEmpty
+                  v-else-if="errorMessage(detail.error.value) && !invocationView"
+                  class="min-h-0 flex-1"
+                  icon="i-lucide-cloud-off"
                   title="Could not load this session"
-                  :retry="refresh"
+                  :description="errorMessage(detail.error.value)"
+                  :actions="[
+                    { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+                  ]"
                 />
                 <AgentInvocation
                   v-else-if="invocationView"
@@ -1412,20 +1447,33 @@ onBeforeUnmount(() => {
             </ConsoleSessionNavbar>
             <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
             <div v-else-if="!selectedInvocationId" class="min-h-0 flex-1" />
-            <ConsoleState
-              v-else-if="detail.error.value && !invocationView"
-              :error="detail.error.value"
+            <UEmpty
+              v-else-if="errorMessage(detail.error.value) && !invocationView"
+              class="min-h-0 flex-1"
+              icon="i-lucide-cloud-off"
               title="Could not load this session"
-              :retry="refresh"
+              :description="errorMessage(detail.error.value)"
+              :actions="[
+                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+              ]"
             />
             <ConsoleSessionLoading
               v-else-if="detail.isLoading.value && !invocationView"
               class="min-h-0 flex-1"
             />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
-              <div v-if="!connectionUnavailable && detail.error.value" class="m-3 shrink-0">
-                <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
-              </div>
+              <UAlert
+                v-if="!connectionUnavailable && errorMessage(detail.error.value)"
+                class="m-3 shrink-0"
+                color="error"
+                variant="subtle"
+                icon="i-lucide-cloud-off"
+                title="Could not refresh this session"
+                :description="errorMessage(detail.error.value)"
+                :actions="[
+                  { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+                ]"
+              />
               <AgentInvocation
                 :header="false"
                 :invocation="invocationView"
@@ -1553,7 +1601,7 @@ button.vitehub-console__section-label:hover {
 
 .vitehub-console__section-count {
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;

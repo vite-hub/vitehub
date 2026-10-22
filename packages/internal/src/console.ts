@@ -48,7 +48,7 @@ export interface ViteHubConsoleRecord {
 export interface ViteHubConsoleSectionDescriptor<TView extends ViteHubConsoleSectionView = ViteHubConsoleSectionView> {
   description: string
   /**
-   * Iconify class name, for example `i-ph-tray-light`. Use a collection that `vite-hub` installs (`lucide` or `ph`). The
+   * Iconify class name, for example `i-lucide-inbox`. The Console draws with Lucide; `ph` also resolves. The
    * Console build bundles the icon of every section in the `vite-hub` Console registry and fails if it cannot resolve one.
    */
   icon: string

@@ -118,7 +118,7 @@ onBeforeUnmount(() => request?.abort());
               ><UButton
                 aria-label="Refresh Connections"
                 color="neutral"
-                icon="i-ph-arrows-clockwise-light"
+                icon="i-lucide-refresh-cw"
                 size="xs"
                 variant="ghost"
                 :disabled="loading"
@@ -131,7 +131,7 @@ onBeforeUnmount(() => request?.abort());
             v-model="search"
             aria-label="Search Connections"
             placeholder="Search Connections…"
-            icon="i-ph-magnifying-glass-light"
+            icon="i-lucide-search"
             variant="none"
             class="min-w-40 flex-1"
           />
