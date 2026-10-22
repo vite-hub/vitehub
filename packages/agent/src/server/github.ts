@@ -25,15 +25,7 @@ export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from 
 export { createGitHubPullRequestOperations, normalizeGitHubMentionAllowlist } from './github-auto-merge.ts'
 export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
-export { GitHubDependencyConflictError, validateGitHubInstallInputs } from "./github-install-inputs.ts"
-export {
-  GitHubWorkspaceInstallError,
-  assertGitHubDependenciesCurrent,
-  createGitHubInstallSlots,
-  hasCurrentGitHubDependencies,
-  installGitHubPullRequestWorkspace,
-  isGitHubLockfileDefect,
-} from "./github-install.ts"
+export { validateGitHubInstallInputs } from "./github-install-inputs.ts"
 
 export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './github-required-checks.ts'
 export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadBranchRules, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './github-required-checks.ts'
