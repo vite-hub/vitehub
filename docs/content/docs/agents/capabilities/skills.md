@@ -1,6 +1,6 @@
 ---
 title: Skills
-description: Make a Workspace or external Source Skill available to an Agent.
+description: Make a Workspace or external Source Skill available to an Agent, and verify how the Agent loads and uses the Skill.
 navigation.title: Skills
 navigation.order: 160
 navigation.group: Capabilities

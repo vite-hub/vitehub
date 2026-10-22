@@ -1,7 +1,7 @@
 ---
 
 title: Send through your first Channel
-description: Send a local build notification and inspect the connector receipt.
+description: Define a named Channel, send a local build notification from server code, and inspect the connector receipt.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

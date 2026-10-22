@@ -1,7 +1,7 @@
 ---
 
 title: Send your first Email
-description: Send a welcome email with Resend and check the delivery result.
+description: Install Email, configure Resend with a secret, send a welcome email from server code, and check the delivery result.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

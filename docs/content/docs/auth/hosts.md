@@ -1,6 +1,6 @@
 ---
 title: Auth hosts
-description: See what Better Auth owns and what Auth generates for each host.
+description: See what Better Auth owns, what ViteHub Auth owns, and which Provider Output Auth generates for each supported host.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog

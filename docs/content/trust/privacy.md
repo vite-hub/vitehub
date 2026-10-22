@@ -3,8 +3,6 @@ title: ViteHub privacy
 description: Understand what the ViteHub documentation site handles and how that differs from applications built with ViteHub.
 ---
 
-# ViteHub privacy
-
 This notice covers the public documentation site at vitehub.dev. It does not cover applications that developers build with ViteHub. Those applications choose their own hosts, model providers, databases, telemetry, authentication, retention rules, and privacy terms. Installing a ViteHub package does not create a vitehub.dev account or route application data through a shared ViteHub service.
 
 ## Data handled by this site

@@ -1,6 +1,6 @@
 ---
 title: Rate Limit limits and errors
-description: Know the enforcement, identity, and provider limits of Rate Limit.
+description: Know the enforcement, identity, and provider limits of Rate Limit before you rely on it in a production deployment.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

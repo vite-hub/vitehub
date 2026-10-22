@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Add ViteHub UI to a Nuxt or Vue application.
+description: "Install ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup with server rendering."
 navigation.title: Installation
 navigation.order: 3
 navigation.group: Start

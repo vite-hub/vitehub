@@ -1,6 +1,6 @@
 import * as v from "valibot"
 import { randomUUID } from "node:crypto"
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -86,8 +86,14 @@ export interface EmailVitePluginAPI {
   prepareTypes: (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => Promise<Record<string, string>>
 }
 
+interface EmailNitroHost {
+  hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+  options: { output: { serverDir: string } }
+}
+
 export type EmailVitePlugin = Plugin & {
   api: EmailVitePluginAPI
+  nitro: { name: string, setup: (nitro: EmailNitroHost) => void }
   vitehub: NonNullable<ViteHubProviderImportContributor["vitehub"]> & ViteHubCliPluginMetadata
 }
 
@@ -271,13 +277,15 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function configureNitroCloudflareWorkers(config: Record<string, unknown>, email: boolean): void {
+/** Returns true when this call adds the `EMAIL` binding to the Nitro Wrangler config. */
+function configureNitroCloudflareWorkers(config: Record<string, unknown>, email: boolean): boolean {
   const nitro = isRecord(config.nitro) ? config.nitro : {}
   const rollupConfig = isRecord(nitro.rollupConfig) ? nitro.rollupConfig : {}
   const cloudflare = isRecord(nitro.cloudflare) ? nitro.cloudflare : {}
   const wrangler = isRecord(cloudflare.wrangler) ? cloudflare.wrangler : {}
   const sendEmail = Array.isArray(wrangler.send_email) ? [...wrangler.send_email] : []
-  if (email && !sendEmail.some(binding => isRecord(binding) && binding.name === "EMAIL")) sendEmail.push({ name: "EMAIL" })
+  const addsBinding = email && !sendEmail.some(binding => isRecord(binding) && binding.name === "EMAIL")
+  if (addsBinding) sendEmail.push({ name: "EMAIL" })
   config.nitro = {
     ...nitro,
     cloudflare: {
@@ -295,6 +303,33 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
         : mergeNitroExternal(rollupConfig.external, "cloudflare:workers"),
     },
   }
+  return addsBinding
+}
+
+/**
+ * Nitro merges the project's own Wrangler file into `wrangler.json` and concatenates arrays. When that file also
+ * declares `EMAIL`, remove the plain entry that ViteHub added and keep the project's entry.
+ */
+async function removeDuplicateEmailBinding(serverDir: string): Promise<void> {
+  const configFile = resolve(serverDir, "wrangler.json")
+  let source: string
+  try {
+    source = await readFile(configFile, "utf8")
+  }
+  catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+  const config: unknown = JSON.parse(source)
+  if (!isRecord(config) || !Array.isArray(config.send_email)) return
+  const bindings = config.send_email
+  const emailBindings = bindings.filter(binding => isRecord(binding) && binding.name === "EMAIL")
+  if (emailBindings.length < 2) return
+  const added = bindings.findIndex(binding => isRecord(binding) && binding.name === "EMAIL" && Object.keys(binding).length === 1)
+  if (added === -1) return
+  bindings.splice(added, 1)
+  await writeFile(configFile, JSON.stringify(config, null, 2), "utf8")
 }
 
 const emailTemplatePrefix = "#vitehub/emails/"
@@ -384,6 +419,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare-email"
+  let addedEmailBinding = false
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
   let templatesRoots = [resolve(process.cwd(), "server", "emails")]
@@ -424,6 +460,16 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     await prepareTypes({ materialize: (materializationRequested || cloudflare || vercel) && !materialized, projectRoot, serverDirs })
   }
 
+  const nitroModule: EmailVitePlugin["nitro"] = {
+    name: "@vite-hub/email/cloudflare-binding",
+    setup(nitro) {
+      // Nitro runs module hooks after the Cloudflare preset hook that writes `wrangler.json`.
+      nitro.hooks.hook("compiled", async () => {
+        if (addedEmailBinding) await removeDuplicateEmailBinding(nitro.options.output.serverDir)
+      })
+    },
+  }
+
   return {
     name: EMAIL_VITE_PLUGIN_NAME,
     enforce: "pre",
@@ -431,6 +477,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       getDefinition: () => definition,
       prepareTypes,
     },
+    nitro: nitroModule,
     vitehub: {
       cli: async () => {
         const { createEmailCliContributor } = await import(/* @vite-ignore */ "./cli.js")
@@ -462,7 +509,17 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         || internalOptions.workflowProvider === "vercel"
         || (isRecord(configRecord.workflow) && configRecord.workflow.provider === "vercel")
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
-      if (cloudflare) configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)
+      if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
+      if (isRecord(configRecord.nitro)) {
+        const modules = Array.isArray(configRecord.nitro.modules)
+          ? configRecord.nitro.modules
+          : configRecord.nitro.modules
+            ? [configRecord.nitro.modules]
+            : []
+        if (!modules.some(module => module === nitroModule || (isRecord(module) && module.name === nitroModule.name))) {
+          configRecord.nitro.modules = [...modules, nitroModule]
+        }
+      }
       if (command === "serve") {
         configRecord.nitro = await addNitroEmailDevHandler(configRecord.nitro, projectRoot, importBase, outbox !== undefined, outboxRuntimeId)
       }

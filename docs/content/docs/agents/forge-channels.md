@@ -1,6 +1,6 @@
 ---
 title: Forge Channels
-description: Run an Agent on GitLab, Forgejo, and Codeberg pull request events.
+description: Run an Agent on GitLab, Forgejo, and Codeberg pull request events, with the Server Env and webhook setup for each forge.
 navigation.order: 40.6
 navigation.group: Connect
 icon: i-lucide-git-pull-request

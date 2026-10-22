@@ -3,8 +3,6 @@ title: About ViteHub
 description: Learn what ViteHub builds, how the project works, and where its public source and documentation live.
 ---
 
-# About ViteHub
-
 ViteHub is an open-source project for Vite applications that need server behavior without tying application code to one framework or deployment provider. It supplies Server Primitives for storage, databases, queues, workflows, schedules, sandboxes, email, authentication, and other runtime needs. Developers can call those primitives directly from server code or compose them into Agent Definitions with explicit Capabilities, Workspaces, Sources, Triggers, and Channels.
 
 ## What the project is for

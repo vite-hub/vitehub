@@ -1,6 +1,6 @@
 ---
 title: Bubble
-description: "Frame message text in one of seven variants and attach reactions."
+description: "Frame message text in one of seven Bubble variants, align it to a side, group Bubbles, and attach reactions."
 navigation.order: 11
 navigation.group: Parts
 icon: i-ph-chat-circle-light
