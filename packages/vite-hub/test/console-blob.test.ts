@@ -52,14 +52,23 @@ function memoryBlob(stores: Record<string, BlobObject[]>): {
   writes: ReturnType<typeof vi.fn>
 } {
   const list = vi.fn(async (name: string, options: BlobListOptions = {}) => {
-    const matching = (stores[name] ?? []).filter(item => item.pathname.startsWith(options.prefix ?? ""))
+    const prefix = options.prefix ?? ""
+    const inPrefix = (stores[name] ?? []).filter(item => item.pathname.startsWith(prefix))
+    // A folded listing returns direct children and the folders under the prefix, as providers do.
+    const matching = options.folded ? inPrefix.filter(item => !item.pathname.slice(prefix.length).includes("/")) : inPrefix
     const start = options.cursor ? Number(options.cursor) : 0
     const limit = options.limit ?? matching.length
     const blobs = matching.slice(start, start + limit)
     const next = start + blobs.length
-    const page: { blobs: BlobObject[]; cursor?: string; hasMore: boolean } = {
+    const page: { blobs: BlobObject[]; cursor?: string; folders?: string[]; hasMore: boolean } = {
       blobs,
       hasMore: next < matching.length,
+    }
+    if (options.folded) {
+      page.folders = [...new Set(inPrefix.flatMap((item) => {
+        const rest = item.pathname.slice(prefix.length)
+        return rest.includes("/") ? [`${prefix}${rest.slice(0, rest.indexOf("/") + 1)}`] : []
+      }))]
     }
     if (next < matching.length) page.cursor = String(next)
     return success(page)
@@ -155,37 +164,46 @@ describe("Console Blob inspection", () => {
       blobs: [expect.objectContaining({ pathname: "old/report.pdf" })],
       store: "archive",
     })
-    expect(list).toHaveBeenCalledWith("default", { cursor: undefined, limit: 1, prefix: "logs/" })
+    expect(list).toHaveBeenCalledWith("default", { cursor: undefined, folded: false, limit: 1, prefix: "logs/" })
     expect(reads).not.toHaveBeenCalled()
     expect(writes).not.toHaveBeenCalled()
   })
 
-  it("hides ViteHub-owned objects unless the request asks for them", async () => {
-    const { list, storage } = memoryBlob({
+  it("lists folders for a folded listing and hides ViteHub-owned paths unless asked", async () => {
+    const { storage } = memoryBlob({
       default: [
-        object("_vitehub/console/attachments/a"),
-        object("_vitehub/workspace-history/b"),
-        object("_vitehub/workspace-history/c"),
-        object("first.txt"),
-        object("second.txt"),
-        object("third.txt"),
+        object("_vitehub/media/a.json"),
+        object("covers/a.png"),
+        object("covers/large/b.png"),
+        object("logo.svg"),
       ],
     })
     installConsoleBlob("/project", storage)
 
-    const page = await blobHandler(event("?limit=2"))
-    expect(page.blobs.map(blob => blob.pathname)).toEqual(["first.txt", "second.txt"])
-    expect(page).toMatchObject({ cursor: "5", hasMore: true, limit: 2 })
-    expect(list.mock.calls.map(([, options]) => options)).toEqual([
-      { cursor: undefined, limit: 2, prefix: "" },
-      { cursor: "2", limit: 2, prefix: "" },
-      { cursor: "4", limit: 1, prefix: "" },
-    ])
-    await expect(blobHandler(event("?limit=2&cursor=5"))).resolves.toMatchObject({ blobs: [expect.objectContaining({ pathname: "third.txt" })], hasMore: false })
+    const root = await blobHandler(event("?folded=true"))
+    expect(root.folders).toEqual(["covers"])
+    expect(root.blobs.map(blob => blob.pathname)).toEqual(["logo.svg"])
+    await expect(blobHandler(event("?folded=true&showVitehub=true"))).resolves.toMatchObject({ folders: ["_vitehub", "covers"] })
+    await expect(blobHandler(event("?folded=true&prefix=covers%2F"))).resolves.toMatchObject({
+      blobs: [expect.objectContaining({ pathname: "covers/a.png" })],
+      folders: ["covers/large"],
+    })
+    // A flat listing has no folders and still hides ViteHub-owned objects.
+    const flat = await blobHandler(event())
+    expect(flat.folders).toBeUndefined()
+    expect(flat.blobs.map(blob => blob.pathname)).toEqual(["covers/a.png", "covers/large/b.png", "logo.svg"])
+  })
 
-    const all = await blobHandler(event("?limit=2&showVitehub=true"))
-    expect(all.blobs.map(blob => blob.pathname)).toEqual(["_vitehub/console/attachments/a", "_vitehub/workspace-history/b"])
-    expect(all).toMatchObject({ cursor: "2", hasMore: true })
+  it("fills a page that hidden ViteHub-owned objects left short", async () => {
+    const { list, storage } = memoryBlob({
+      default: [object("_vitehub/a"), object("_vitehub/b"), object("c.txt"), object("d.txt")],
+    })
+    installConsoleBlob("/project", storage)
+
+    const page = await blobHandler(event("?limit=2"))
+    expect(page.blobs.map(blob => blob.pathname)).toEqual(["c.txt", "d.txt"])
+    expect(page.hasMore).toBe(false)
+    expect(list).toHaveBeenCalledTimes(2)
   })
 
   it("bounds provider calls when many ViteHub-owned objects come first", async () => {

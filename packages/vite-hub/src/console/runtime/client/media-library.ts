@@ -282,18 +282,6 @@ export function consoleMediaDate(value: string): string {
   return new Intl.DateTimeFormat("en", { day: "numeric", hour: "2-digit", hourCycle: "h23", minute: "2-digit", month: "short", year: "numeric" }).format(time)
 }
 
-export function consoleBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ["KB", "MB", "GB"]
-  let value = bytes / 1024
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit++
-  }
-  return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`
-}
-
 /** Parses `4:5`, `16/9`, or `1.91:1` to width divided by height. */
 export function consoleAspectRatio(aspect: string): number | undefined {
   const match = /^(\d{1,5}(?:\.\d{1,4})?)\s*[:/x]\s*(\d{1,5}(?:\.\d{1,4})?)$/.exec(aspect.trim())

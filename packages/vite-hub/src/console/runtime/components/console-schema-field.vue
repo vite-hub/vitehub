@@ -2,16 +2,16 @@
 import { CalendarDate, parseDate, Time } from "@internationalized/date";
 import { computed, ref, watch } from "vue";
 
-import { consoleFieldValueIssue, consoleValueSummary } from "../client/documents";
+import { consoleFieldValueIssue, consoleValueSummary } from "../client/schema-form";
 import ConsoleMediaField from "./console-media-field.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 
-import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/documents";
+import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/schema-form";
 
 defineOptions({ name: "ConsoleSchemaField" });
 
 /**
- * One document field as a property row. The control follows the JSON Schema of the field: text, long text, number,
+ * One schema form field as a property row. The control follows the JSON Schema of the field: text, long text, number,
  * switch, choice, date and time, tags, a nested object as a one-line summary that expands in place, a Blob reference
  * chosen from the media library, or JSON for any other shape.
  */

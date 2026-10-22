@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { consoleBytes } from "../client/media-library";
+import { consoleBytes } from "../client/format";
 
 import type { ConsoleMediaUploads } from "../client/media-uploads";
 

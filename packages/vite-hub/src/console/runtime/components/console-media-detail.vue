@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { consoleErrorMessage } from "../client/documents";
-import { consoleBytes, consoleMediaDate, consoleMediaFormat, consoleMediaTransformable, consoleMediaType, consoleMediaTypeIcons, consoleMediaUrl, consoleMediaVariantUrl } from "../client/media-library";
+import { consoleMediaDate, consoleMediaFormat, consoleMediaTransformable, consoleMediaType, consoleMediaTypeIcons, consoleMediaUrl, consoleMediaVariantUrl } from "../client/media-library";
+import { consoleBytes } from "../client/format";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";

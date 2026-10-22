@@ -2,10 +2,10 @@
 import type { RouteLocationRaw } from "vue-router";
 
 /**
- * The header of every page of a document editor section: the navigation toggle on small screens, an optional Back
- * button, the title after its ancestors, a quiet mono description such as a collection's glob, and the page actions on
- * the right. The Dashboard, a collection, Settings, Media, and the editor share it, so titles keep one weight, one
- * height, and one place for the next action.
+ * The header of every Console page: the navigation toggle on small screens, an optional Back button, the title after
+ * its ancestors, a quiet mono description such as a collection's glob or a store name, and the page actions on the
+ * right. Content, KV, Database, Blob, and the contributed sections share it, so titles keep one weight, one height, and
+ * one place for the next action.
  *
  * Ancestors hide on small screens; Back then leads one level up.
  */
@@ -17,11 +17,13 @@ withDefaults(defineProps<{
   title: string;
   /** Pages above this one, outermost first. */
   trail?: readonly { label: string, to: RouteLocationRaw }[];
-}>(), { trail: () => [] });
+  /** Show the button that opens the section sidebar on small screens. Pages without a sidebar turn it off. */
+  toggle?: boolean;
+}>(), { toggle: true, trail: () => [] });
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="{ 'aria-label': 'Open section navigation' }">
+  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="toggle ? { 'aria-label': 'Open section navigation' } : false">
     <template v-if="back" #leading>
       <UButton :to="back.to" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${back.label}`" />
     </template>

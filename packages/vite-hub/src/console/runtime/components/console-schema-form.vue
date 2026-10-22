@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-import { describeConsoleSchemaFields } from "../client/documents";
+import { describeConsoleSchemaFields } from "../client/schema-form";
 import ConsoleSchemaField from "./console-schema-field.vue";
 
 /**
- * The fields of a document as Notion-style property rows, generated from the object JSON Schema of the collection.
- * Optional fields without a value fold behind "Show N more", unless they have an issue or `unfolded` is set. Pass server
- * issues in `errors`, keyed by dotted field path. Rows before the fields, such as the id, go in the default slot.
+ * A form generated from an object JSON Schema, as Notion-style property rows. Content uses it for the fields of a
+ * document; any Console section with a JSON Schema can use it. Optional fields without a value fold behind "Show N
+ * more", unless they have an issue or `unfolded` is set. Pass server issues in `errors`, keyed by dotted field path. Rows
+ * before the fields, such as a document id, go in the default slot.
  */
 const props = defineProps<{
   disabled?: boolean;
@@ -15,7 +16,7 @@ const props = defineProps<{
   /** Fields the page shows elsewhere, such as the title. */
   exclude?: readonly string[];
   schema: Record<string, unknown>;
-  /** Show every field, for documents whose fields are the whole page, such as JSON and YAML data. */
+  /** Show every field, for forms that are the whole page, such as JSON and YAML documents. */
   unfolded?: boolean;
 }>();
 

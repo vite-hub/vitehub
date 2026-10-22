@@ -3,6 +3,7 @@ import { PromptInput } from "@vite-hub/ui";
 import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
+import { consoleBytes } from "../client/format";
 import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../client/invocation";
 import { ConsoleRequestError } from "../client/request";
 import ConsoleState from "./console-state.vue";
@@ -50,13 +51,15 @@ function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : "The Agent invocation could not be started.";
 }
 
+const maximumImageBytes = 10 * 1024 * 1024;
+
 function filterFiles(selected: readonly File[]): readonly File[] {
   const accepted = selected.filter(file => ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type));
   if (accepted.length !== selected.length) error.value = new Error("Use a PNG, JPEG, WebP, or GIF image. Other files are not supported by this Console input yet.");
-  if (accepted.some(file => file.size > 10 * 1024 * 1024)) {
-    error.value = new Error("Images must be at most 10 MiB.");
+  if (accepted.some(file => file.size > maximumImageBytes)) {
+    error.value = new Error(`Images must be at most ${consoleBytes(maximumImageBytes)}.`);
   }
-  return accepted.filter(file => file.size <= 10 * 1024 * 1024);
+  return accepted.filter(file => file.size <= maximumImageBytes);
 }
 
 async function submit(message: { text: string; files?: readonly FileUIPart[] }): Promise<void> {
@@ -149,7 +152,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
         </PromptInput>
       </div>
       <p class="px-3 text-center text-xs text-dimmed">
-        Enter sends · Shift+Enter adds a line · Images up to 10 MiB
+        Enter sends · Shift+Enter adds a line · Images up to {{ consoleBytes(maximumImageBytes) }}
       </p>
     </div>
   </div>

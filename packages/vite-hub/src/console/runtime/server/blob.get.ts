@@ -28,6 +28,8 @@ interface ConsoleBlobObject {
 interface ConsoleBlobPage {
   blobs: ConsoleBlobObject[]
   cursor?: string
+  /** Folders directly under `prefix`, without a trailing slash, when the request sets `folded=true`. */
+  folders?: string[]
   hasMore: boolean
   limit: number
   prefix: string
@@ -65,6 +67,14 @@ function selectStore(storage: BlobStorage, stores: readonly string[], requested:
   return { name, storage: name === "default" ? storage : storage.store(name) }
 }
 
+/**
+ * Whether ViteHub owns the pathname: Blob writes its own records under `_vitehub/`. The Console hides these paths unless
+ * the request sets `showVitehub=true`. #2420 moves this check to `@vite-hub/internal/owned-paths`.
+ */
+function isVitehubOwnedPath(pathname: string): boolean {
+  return pathname.replace(/^\/+/, "").split("/")[0]?.toLowerCase() === "_vitehub"
+}
+
 function serializeBlob(object: BlobObject): ConsoleBlobObject {
   const serialized: ConsoleBlobObject = {
     customMetadata: { ...object.customMetadata },
@@ -87,13 +97,17 @@ async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBl
   const prefix = optionalParameter(url.searchParams.get("prefix"), "prefix") ?? ""
   const cursor = optionalParameter(url.searchParams.get("cursor"), "cursor")
   const limit = limitParameter(url.searchParams.get("limit"))
+  const folded = url.searchParams.get("folded") === "true"
   const showVitehub = url.searchParams.get("showVitehub") === "true"
-  let page = unwrap(await selected.storage.list({ cursor, limit, prefix }))
-  const blobs = showVitehub ? page.blobs : page.blobs.filter(object => !isVitehubOwnedPath(object.pathname))
+  const visible = (pathname: string) => showVitehub || !isVitehubOwnedPath(pathname)
+  let page = unwrap(await selected.storage.list({ cursor, folded, limit, prefix }))
+  const blobs = page.blobs.filter(object => visible(object.pathname))
+  const folders = new Set((page.folders ?? []).filter(visible))
   // Hidden objects can leave a page short. Fill it without passing the requested limit.
   for (let pages = 1; !showVitehub && blobs.length < limit && page.hasMore && page.cursor && pages < maximumListPages; pages++) {
-    page = unwrap(await selected.storage.list({ cursor: page.cursor, limit: limit - blobs.length, prefix }))
-    blobs.push(...page.blobs.filter(object => !isVitehubOwnedPath(object.pathname)))
+    page = unwrap(await selected.storage.list({ cursor: page.cursor, folded, limit: limit - blobs.length, prefix }))
+    blobs.push(...page.blobs.filter(object => visible(object.pathname)))
+    for (const folder of page.folders ?? []) if (visible(folder)) folders.add(folder)
   }
   const result: ConsoleBlobPage = {
     blobs: blobs.map(serializeBlob),
@@ -103,6 +117,7 @@ async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBl
     store: selected.name,
     stores: inspection.stores,
   }
+  if (folded) result.folders = [...folders].map(folder => folder.replace(/\/+$/, "")).sort((left, right) => left.localeCompare(right))
   if (page.cursor) result.cursor = page.cursor
   return result
 }

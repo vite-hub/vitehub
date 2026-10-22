@@ -123,23 +123,3 @@ function updated(file: ConsoleMediaFile): void {
     </div>
   </div>
 </template>
-
-<style>
-/* The details sit next to the files on wide screens and cover them on narrow ones. */
-.vitehub-media-library__detail {
-  border-left: 1px solid var(--ui-border);
-  flex-shrink: 0;
-  width: 22.5rem;
-}
-
-@media (max-width: 1023px) {
-  .vitehub-media-library__detail {
-    background: var(--ui-bg);
-    border-left: 0;
-    inset: 0;
-    position: absolute;
-    width: auto;
-    z-index: 40;
-  }
-}
-</style>
