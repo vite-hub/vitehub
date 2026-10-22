@@ -56,7 +56,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. |
-| `vite-hub/content`, `vite-hub/content/client`, and `vite-hub/content/database` | Comark Content definition, editable document collections, Source adaptation, generated runtime handler, typed client, and the sessions table schema. |
+| `vite-hub/content`, `vite-hub/content/client`, and `vite-hub/content/database` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, and the sessions table schema. |
 | `vite-hub/content/presets/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |

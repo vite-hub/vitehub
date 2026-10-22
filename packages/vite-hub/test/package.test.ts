@@ -91,6 +91,7 @@ const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/
 // which the owner root keeps out because they need the optional Workspace peer.
 const consolidatedOwnerExports = new Set([
   "@vite-hub/blob/ensure",
+  "@vite-hub/blob/reference",
   "@vite-hub/content/collections",
   "@vite-hub/source/drizzle",
   "@vite-hub/workspace/ai",

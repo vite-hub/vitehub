@@ -159,6 +159,12 @@
       "require": "./dist/media.js",
       "default": "./dist/media.js"
     },
+    "./reference": {
+      "types": "./dist/reference.d.ts",
+      "import": "./dist/reference.js",
+      "require": "./dist/reference.js",
+      "default": "./dist/reference.js"
+    },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
       "import": "./dist/runtime/dev.js",

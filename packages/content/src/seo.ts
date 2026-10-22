@@ -1,4 +1,5 @@
 import { isStandardSchema, standardIssuePath, standardJsonSchema } from "@vite-hub/internal/standard-schema"
+import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -85,7 +86,7 @@ const seoKeys: ReadonlySet<string> = new Set(["title", "description", "image", "
  * Its JSON Schema carries `x-vitehub-seo` with recommended lengths, so the Console renders an SEO panel with counters
  * and search and social previews. Long titles and descriptions still validate; the lengths are guidance.
  *
- * It is a record of validators rather than a Zod or Valibot object, so it can hold a Blob `image()`.
+ * It is a record of validators rather than a Zod or Valibot object, so it can hold an `image()`.
  *
  * @example
  * fields: { title: z.string(), seo: seo({ image: image() }) }
@@ -93,9 +94,9 @@ const seoKeys: ReadonlySet<string> = new Set(["title", "description", "image", "
 export function seo<TImage extends StandardSchemaV1 | undefined = undefined>(options: ContentSeoOptions<TImage> = {}): ContentSeoField<TImage> {
   if (!isRecord(options)) throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] seo() options must be an object such as { image: image() }." })
   if (options.image !== undefined && !isStandardSchema(options.image)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] seo({ image }) must be a Standard Schema validator, such as image() from vite-hub/blob." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] seo({ image }) must be a Standard Schema validator, such as image() from vite-hub/content." })
   }
-  const image: StandardSchemaV1 = options.image ?? defaultImage
+  const image: StandardSchemaV1 = options.image ? withValibotJsonSchema(options.image) : defaultImage
 
   function validate(value: unknown): StandardSchemaV1.Result<unknown> | Promise<StandardSchemaV1.Result<unknown>> {
     if (value === undefined || value === null) return { value: undefined }

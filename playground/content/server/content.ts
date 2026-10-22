@@ -1,5 +1,4 @@
-import { image } from "vite-hub/blob"
-import { defineContent, documents, optional, seo, singleton } from "vite-hub/content"
+import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
 import { z } from "zod"
 
 import { roleOf } from "./roles"
