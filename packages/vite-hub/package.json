@@ -129,6 +129,18 @@
       "require": "./dist/_internal/blob/runtime/state.js",
       "default": "./dist/_internal/blob/runtime/state.js"
     },
+    "./_internal/content/runtime/console": {
+      "types": "./dist/_internal/content/runtime/console.d.ts",
+      "import": "./dist/_internal/content/runtime/console.js",
+      "require": "./dist/_internal/content/runtime/console.js",
+      "default": "./dist/_internal/content/runtime/console.js"
+    },
+    "./_internal/content/runtime/dev": {
+      "types": "./dist/_internal/content/runtime/dev.d.ts",
+      "import": "./dist/_internal/content/runtime/dev.js",
+      "require": "./dist/_internal/content/runtime/dev.js",
+      "default": "./dist/_internal/content/runtime/dev.js"
+    },
     "./_internal/database/runtime/state": {
       "types": "./dist/_internal/database/runtime/state.d.ts",
       "import": "./dist/_internal/database/runtime/state.js",
@@ -447,6 +459,12 @@
       "require": "./dist/blob/content-type.js",
       "default": "./dist/blob/content-type.js"
     },
+    "./blob/media": {
+      "types": "./dist/blob/media.d.ts",
+      "import": "./dist/blob/media.js",
+      "require": "./dist/blob/media.js",
+      "default": "./dist/blob/media.js"
+    },
     "./blob/vue": {
       "types": "./dist/blob/vue.d.ts",
       "import": "./dist/blob/vue.js",
@@ -561,11 +579,29 @@
       "require": "./dist/content/client.js",
       "default": "./dist/content/client.js"
     },
+    "./content/database": {
+      "types": "./dist/content/database.d.ts",
+      "import": "./dist/content/database.js",
+      "require": "./dist/content/database.js",
+      "default": "./dist/content/database.js"
+    },
+    "./content/editor": {
+      "types": "./dist/content/editor.d.ts",
+      "import": "./dist/content/editor.js",
+      "require": "./dist/content/editor.js",
+      "default": "./dist/content/editor.js"
+    },
     "./content/presets/cms": {
       "types": "./dist/content/presets/cms.d.ts",
       "import": "./dist/content/presets/cms.js",
       "require": "./dist/content/presets/cms.js",
       "default": "./dist/content/presets/cms.js"
+    },
+    "./content/realtime": {
+      "types": "./dist/content/realtime.d.ts",
+      "import": "./dist/content/realtime.js",
+      "require": "./dist/content/realtime.js",
+      "default": "./dist/content/realtime.js"
     },
     "./database": {
       "types": "./dist/database.d.ts",
@@ -1175,6 +1211,12 @@
       "import": "./dist/_internal/agent/invocations.js",
       "require": "./dist/_internal/agent/invocations.js",
       "default": "./dist/_internal/agent/invocations.js"
+    },
+    "./console/documents": {
+      "types": "./dist/console/runtime/server/documents.d.ts",
+      "import": "./dist/console/runtime/server/documents.js",
+      "require": "./dist/console/runtime/server/documents.js",
+      "default": "./dist/console/runtime/server/documents.js"
     }
   },
   "scripts": {
@@ -1213,6 +1255,7 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -1235,23 +1278,36 @@
     "ssh2": "^1.17.0",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow",
-    "@vite-hub/sandbox-task": "workspace:*"
+    "@internationalized/date": "^3.12.4",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extensions": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@tiptap/vue-3": "catalog:realtime",
+    "comark": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown"
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "catalog:storage",
-    "@aws-sdk/lib-storage": "catalog:storage",
-    "@aws-sdk/s3-presigned-post": "catalog:storage",
-    "@aws-sdk/s3-request-presigner": "catalog:storage",
-    "@azure/identity": "catalog:storage",
-    "@azure/storage-blob": "catalog:storage",
-    "@google-cloud/storage": "catalog:storage",
-    "@googleapis/drive": "catalog:storage",
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
+    "@internationalized/date": "^3.12.4",
     "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "catalog:nuxt",
     "@supabase/storage-js": "catalog:storage",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/extensions": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@tiptap/vue-3": "catalog:realtime",
     "ai": "catalog:ai",
     "box-typescript-sdk-gen": "catalog:storage",
     "dropbox": "catalog:storage",
@@ -1274,8 +1330,18 @@
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
     "vue-router": "^5.4.0",
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0"
+    "@aws-sdk/client-s3": "catalog:storage",
+    "@aws-sdk/lib-storage": "catalog:storage",
+    "@aws-sdk/s3-presigned-post": "catalog:storage",
+    "@aws-sdk/s3-request-presigner": "catalog:storage",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@tiptap/extension-collaboration": "catalog:realtime",
+    "@tiptap/extension-collaboration-caret": "catalog:realtime",
+    "@tiptap/y-tiptap": "catalog:realtime",
+    "yjs": "catalog:realtime"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.700.0",

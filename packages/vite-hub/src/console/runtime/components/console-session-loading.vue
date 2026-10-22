@@ -68,10 +68,17 @@ const emit = defineEmits<{
       </header>
       <ConsoleState
         v-if="props.error"
-        class="h-[calc(100%-3.25rem)]"
-        :error="props.error"
+        class="h-[calc(100%-3.25rem)] min-h-0"
+        icon="i-lucide-cloud-off"
         title="Could not load session details"
-        :retry="() => emit('retry')"
+        :error="props.error"
+        :actions="[
+          {
+            label: 'Try again',
+            icon: 'i-lucide-refresh-cw',
+            onClick: () => emit('retry'),
+          },
+        ]"
       />
       <div v-else class="grid gap-8 px-5 py-6">
         <section class="grid gap-3">

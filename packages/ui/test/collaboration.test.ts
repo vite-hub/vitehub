@@ -72,6 +72,7 @@ describe("ConnectionStatus", () => {
     await nextTick();
     expect(state()).toBe("reconnecting");
     expect(wrapper.get('[data-slot="connection-status-indicator"]').attributes("data-status")).toBe("reconnecting");
+    expect(wrapper.get('[data-slot="connection-status-label"]').attributes("data-status")).toBe("reconnecting");
 
     await wrapper.setProps({ status: "connected" });
     expect(state()).toBe("connected");
@@ -96,6 +97,7 @@ describe("SyncStatus", () => {
     const wrapper = mount(SyncStatus, { props: { status } });
     expect(wrapper.get('[data-slot="sync-status"]').attributes()).toMatchObject({ "data-status": status, role: "status" });
     expect(wrapper.get('[data-slot="sync-status-indicator"]').attributes("data-status")).toBe(status);
+    expect(wrapper.get('[data-slot="sync-status-label"]').attributes("data-status")).toBe(status);
     expect(wrapper.get('[data-slot="sync-status-label"]').text()).toBe(label);
   });
 

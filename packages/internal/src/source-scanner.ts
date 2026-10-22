@@ -1365,9 +1365,15 @@ function readObjectPropertyNamesWithContext(objectSource: string, controlFlowReg
 }
 
 function readObjectPropertyWithContext(objectSource: string, propertyName: string, controlFlowRegexes: ControlFlowRegexCache): string | undefined {
+  let result: string | undefined
   for (const member of readObjectMembers(objectSource, controlFlowRegexes)) {
+    if (member.name === undefined) {
+      if (result !== undefined) return undefined
+      continue
+    }
     if (member.name !== propertyName) continue
     const colon = skipWhitespaceAndComments(member.source, member.end)
-    if (member.source[colon] === ":") return stripBoundaryCommentsWithContext(member.source.slice(colon + 1), createControlFlowRegexCache(sourceSyntaxes.get(controlFlowRegexes)))
+    if (member.source[colon] === ":") result = stripBoundaryCommentsWithContext(member.source.slice(colon + 1), createControlFlowRegexCache(sourceSyntaxes.get(controlFlowRegexes)))
   }
+  return result
 }

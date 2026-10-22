@@ -13,7 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
-import { hubContent } from "@vite-hub/content/vite"
+import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -303,6 +303,8 @@ export interface ViteHubAgentOptions extends AgentModuleOptions {
 }
 
 export interface ViteHubOptions {
+  /** Module specifier used by the application's `defineContent` import. */
+  contentImportBase?: string
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
   preset: DeploymentPreset
@@ -994,6 +996,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
+      contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
       console: options.console,
       connections: options.connections,
@@ -1068,7 +1071,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/agent`,
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
-      runtimeCapabilityImports,
+      runtimeCapabilityImports: {
+        ...runtimeCapabilityImports,
+        // Present only with the Auth plugin. It reads users only for Actors that authenticated() resolved.
+        auth: "vite-hub/auth/agent",
+      },
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
@@ -1129,6 +1136,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
+      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
+      contribute: context => contributeContentRealtime({
+        ...context,
+        contentImport: "vite-hub/content/realtime",
+        realtimeImport: "vite-hub/realtime/server",
+        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+      }),
     }))
   }
   if (options.schedule) {
@@ -1171,16 +1185,18 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
           { serverDirs },
         ))
       : false,
-    contentImportBase: "vite-hub/content",
+    contentImportBase: options.contentImportBase ?? "vite-hub/content",
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
   // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset.
+  // default Database. Inert without the preset. It also adds the `vitehub content` commands and their dev endpoint.
   plugins.push(hubContent({
+    importBase: `${generatedImportBase}/content`,
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
+      contentDatabase: "vite-hub/content/database",
       database: "vite-hub/database/drizzle",
       databaseDefinition: "vite-hub/database",
       workspace: "vite-hub/workspace",

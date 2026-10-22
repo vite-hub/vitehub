@@ -13,10 +13,10 @@ import { createViteHubDevToken } from "@vite-hub/internal/dev-token"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
-import { relative, resolve } from "pathe"
+import { dirname, relative, resolve } from "pathe"
 
 import { blobDevRuntimeRoute, blobDevTokenNamespace, blobDevTokenServerHeader } from "./dev.ts"
-import { blobPackageName, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -119,9 +119,10 @@ function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, un
   const compatibilityFlags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
   if (!compatibilityFlags.includes("nodejs_compat")) compatibilityFlags.push("nodejs_compat")
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
+  const imagesBinding = cloudflareImagesBinding(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
   const baseNitro = {
     ...nitro,
-    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
+    cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags, ...(imagesBinding && !wrangler.images ? { images: imagesBinding } : {}) } },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
   }
   contributeCloudflareProviderOutput(providerOutput, { owner: "blob", ...(bindings ? { r2Buckets: bindings } : {}) })
@@ -178,21 +179,48 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, sharp = false): string {
   const cloudflareGlobals = cloudflare && workersModule
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
-    `import { ${cloudflareGlobals ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
+    // A literal import lets Nitro bundle or trace sharp for image variants.
+    sharp ? "import * as vitehubSharp from 'sharp'" : undefined,
+    `import { ${cloudflareGlobals ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig${sharp ? ", setBlobSharpModule" : ""} } from '${importBase}/runtime/state'`,
     "",
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
     cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    sharp ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
+}
+
+// Bundlers resolve through node_modules directories only. Node's NODE_PATH, which pnpm scripts set, would report a
+// sharp that the bundle cannot import.
+function isSharpInstalled(root: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(resolve(directory, "node_modules/sharp/package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
+}
+
+/**
+ * Whether the generated Nitro plugin imports sharp. Workers never do. `auto` imports it when the project can resolve
+ * it, and an explicit `sharp` transformer requires it.
+ */
+function resolveSharpImport(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): boolean {
+  if (!blob || blob.images === false || cloudflare || provider === "cloudflare") return false
+  const transformer = blob.images?.transformer ?? "auto"
+  if (transformer !== "auto" && transformer !== "sharp") return false
+  const installed = isSharpInstalled(root)
+  if (!installed && transformer === "sharp") {
+    throw blobErrorDiagnostics.BLOB_B0005({ message: "[vitehub] `blob.images.transformer` is \"sharp\", but the project cannot resolve sharp. Install it with: pnpm add sharp" })
+  }
+  return installed
 }
 
 function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
@@ -235,10 +263,10 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : undefined)
   return [
-    `import { blob } from '${importBase}'`,
+    `import { blob, parseImageVariant } from '${importBase}'`,
     ...(serve.authorize ? [`import { withAuthorization } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
-    `import { createError, ${serve.authorize ? "defineHandler, " : ""}getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    `import { createError, ${serve.authorize ? "defineHandler, " : ""}getQuery, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     ...(serve.authorize ? ["import type { H3Event } from 'h3'"] : []),
     "import { defineCachedHandler } from 'nitro/cache'",
     "",
@@ -248,11 +276,20 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     `${serve.authorize ? "const serveBlob =" : "export default"} defineCachedHandler(async (event) => {`,
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
+    "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
+    "  let options: { variant: NonNullable<ReturnType<typeof parseImageVariant>> } | undefined",
+    "  try {",
+    "    const variant = parseImageVariant(getQuery(event))",
+    "    if (variant) options = { variant }",
+    "  }",
+    "  catch (error) {",
+    "    throw createError({ cause: error, statusCode: 400, statusMessage: error instanceof Error ? error.message : 'Invalid image variant' })",
+    "  }",
     ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
     ...(headers
       ? [
           "  try {",
-          "    const [error, stream] = await blob.store(storeName).serve(event, pathname)",
+          "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
           "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
           "    if (error) throw error",
           "    return stream",
@@ -263,7 +300,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
           "  }",
         ]
       : [
-          "  const [error, stream] = await blob.store(storeName).serve(event, pathname)",
+          "  const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
           "  if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
           "  if (error) throw error",
           "  return stream",
@@ -366,7 +403,7 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, resolveSharpImport(root, blob, cloudflare, provider))),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined

@@ -60,7 +60,7 @@ Before a hosted deploy, run `pnpm vitehub provision run --provider cloudflare` o
 | --- | --- | --- |
 | Workspace | `content`, on the Blob + Database Store with workspace identity `content` | `vitehub inspect definitions` and the Console Workspaces section list it as contributed by `@vite-hub/content/vite`. The generated module is `.vitehub/content/workspace.mjs`. |
 | Database | Only when the app has no Database Definition: the `default` Database, from the generated `.vitehub/content/database.ts`. Its migrations go to `server/databases/migrations/`, where `server/databases/config.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Contributed by: @vite-hub/content/vite` and a `Reason` field naming the cms preset. |
-| Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database`, added to the Database named `default`, or to the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
+| Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the Database named `default`, or to the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
 | Features | `workspace`, `database`, and `blob` turn on when `vitehub()` leaves them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files are stored under `vitehub/workspace-history/` in that store. |
 | `defineContent()` | `workspace: 'content'` | `content.collection(name)` reads and writes that Workspace. |
@@ -113,7 +113,7 @@ export default defineDatabase({ schema: {} })
 
 If you followed the earlier setup, the app has a Database Definition that lists `workspaceHistorySchema` and a Workspace Definition on `createBlobDatabaseWorkspaceStore()`. Keep your existing history by pointing the preset at the same Database, Blob store, and Workspace identity:
 
-1. Remove `workspaceHistorySchema` from the Database Definition. The preset adds the same tables, and listing them twice fails with `DATABASE_B0010`.
+1. Remove `workspaceHistorySchema` and `contentSessionsSchema` from the Database Definition. The preset adds the same tables, and listing them twice fails with `DATABASE_B0010`.
 
    ```ts [server/databases/content/config.ts]
    import { defineDatabase } from 'vite-hub/database'

@@ -22,6 +22,7 @@ import {
 
 import type { BlobDevFileHeader, BlobDevRequestBody } from "../dev.ts"
 import type { BlobObject, BlobResult, BlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { MediaRecord, MediaVariantEntry } from "../media/types.ts"
 
 /** Store names and drivers that the Blob configuration of this runtime defines. `default` is first. */
 export interface BlobDevStore {
@@ -79,6 +80,17 @@ export interface BlobDevDeleteResult {
   deleted: boolean
   pathname: string
   store: string
+}
+
+export interface BlobDevMediaResult {
+  record: MediaRecord
+  store: string
+}
+
+export interface BlobDevVariantsResult {
+  pathname: string
+  store: string
+  variants: MediaVariantEntry[]
 }
 
 class BlobDevRequestError extends Error {
@@ -275,6 +287,19 @@ async function runOperation(body: BlobDevRequestBody, stores: readonly BlobDevSt
       const existed = await headOrUndefined(selected.storage, pathname)
       const object = unwrap(await selected.storage.put(pathname, bytes, body.contentType ? { contentType: body.contentType } : {}))
       const result: BlobDevPutResult = { created: !existed, object: serializeBlobDevObject(object), store: selected.name }
+      return json(result)
+    }
+    case "media": {
+      const pathname = requirePathname(body)
+      const record = unwrap(await selected.storage.media.get(pathname))
+      if (!record) throw notFound(pathname, selected.name)
+      const result: BlobDevMediaResult = { record, store: selected.name }
+      return json(result)
+    }
+    case "variants": {
+      const pathname = requirePathname(body)
+      if (!await headOrUndefined(selected.storage, pathname)) throw notFound(pathname, selected.name)
+      const result: BlobDevVariantsResult = { pathname, store: selected.name, variants: unwrap(await selected.storage.media.variants(pathname)) }
       return json(result)
     }
     case "del": {

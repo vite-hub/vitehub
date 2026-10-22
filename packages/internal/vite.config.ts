@@ -3,8 +3,9 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     deps: {
-      // The scanner uses the oxc parser that the consumer's Vite ships.
-      neverBundle: ["vite"],
+      // The scanner uses the oxc parser that the consumer's Vite ships. Packages that bundle
+      // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
+      neverBundle: ["vite", "@valibot/to-json-schema"],
     },
     dts: true,
     entry: [
@@ -30,6 +31,7 @@ export default defineConfig({
       "src/source-scanner.ts",
       "src/secret.ts",
       "src/standard-schema.ts",
+      "src/valibot.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",
       "src/build/client-output.ts",

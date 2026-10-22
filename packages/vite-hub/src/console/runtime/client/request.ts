@@ -8,6 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
+const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -32,10 +33,18 @@ export interface ConsoleErrorFields {
  */
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
+  /** Stable failure code of an owner action, such as `CONTENT_INVALID` or `WORKSPACE_CONFLICT`. */
+  readonly failureCode?: string
+  /** JSON details of an owner action failure, such as per-field issues. */
+  readonly details?: Record<string, unknown>
 
-  constructor(status: number, fields: ConsoleErrorFields | string = {}) {
+  /**
+   * `fields` is the diagnostic body, or only its message. `failure` carries the code and JSON details of an owner
+   * action failure, which forms read to show field issues and conflicts.
+   */
+  constructor(status: number, fields: ConsoleErrorFields | string = {}, failure: { code?: string, details?: Record<string, unknown> } = {}) {
     const body: ConsoleErrorFields = fields instanceof Object ? fields : { message: fields }
-    const code = body.code || consoleStatusDiagnosticCode(status)
+    const code = body.code || failure.code || consoleStatusDiagnosticCode(status)
     const known = isConsoleDiagnosticCode(code) ? consoleDiagnostic(code, body.message) : undefined
     super({
       code,
@@ -45,10 +54,18 @@ export class ConsoleRequestError extends Diagnostic {
     }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
+    if (failure.code !== undefined) this.failureCode = failure.code
+    if (failure.details !== undefined) this.details = failure.details
   }
 }
 
+/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+export function isConsoleSignInRequired(error: unknown): boolean {
+  return error instanceof ConsoleRequestError && error.status === 401
+}
+
 const textField = (value: unknown): string | undefined =>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined
 
 /** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
@@ -83,6 +100,14 @@ export async function consoleResponseError(response: Response, fallback: Console
     fix: fields.fix ?? fallback.fix,
     message: fields.message ?? fallback.message,
   })
+}
+
+/** The media upload route under the application mount of a Console API path. */
+export function consoleRpcUploadURL(path: string): string {
+  const url = new URL(path, "http://vitehub.local")
+  const marker = url.pathname.lastIndexOf(consoleApiMarker)
+  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
+  return `${appBase}${consoleRpcUploadPath}`
 }
 
 function consoleRpcCallURL(path: string): string {
@@ -139,6 +164,8 @@ export async function requestConsole(
   options: {
     body?: unknown
     method?: "GET" | "POST"
+    /** Let the request finish after the page unloads, such as a release sent on `pagehide`. */
+    keepalive?: boolean
     query?: Record<string, unknown>
     signal?: AbortSignal
   } = {},
@@ -167,6 +194,7 @@ export async function requestConsole(
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      ...(options.keepalive ? { keepalive: true } : {}),
       method: "POST",
       signal: options.signal,
     })
@@ -180,8 +208,15 @@ export async function requestConsole(
   if (!response.ok) throw await consoleResponseError(response)
   const result = record(await response.json().catch(() => undefined))
   if (result?.ok === true) return result.value
-  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : 502
-  throw new ConsoleRequestError(status, consoleErrorFields(result))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
+  const failure: { code?: string, details?: Record<string, unknown> } = {}
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  if (typeof result?.code === "string") failure.code = result.code
+  const details = record(result?.details)
+  if (details) failure.details = details
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  throw new ConsoleRequestError(status, consoleErrorFields(result), failure)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
@@ -193,7 +228,9 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function assertConsolePage(page: Record<string, unknown>): void {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const message = typeof page.error === "string" ? page.error : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const code = typeof page.errorCode === "string" ? page.errorCode : undefined
   if (!message && !code) return
   const error = viteHubErrorDiagnostics.VITE_HUB_R0041({ message: message ?? `Console request failed with error code ${code}.` })
@@ -222,6 +259,7 @@ export async function loadConsoleKVPages(
     if (!page) break
     assertConsolePage(page)
     pages.push(page)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const cursor = typeof page.cursor === "string" ? page.cursor : undefined
     if (cursor === undefined) {
       hasMore = false

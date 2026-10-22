@@ -1,9 +1,13 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { findContentEntry, inspectContentEntry, toRuntimeModuleSpecifier } from "@vite-hub/source/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { discoverContentDefinition } from "@vite-hub/source/vite"
+import { registerViteHubNitroDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { parseAst } from "vite"
 
 import {
@@ -16,10 +20,14 @@ import {
   resolveCmsPresetPlan,
   usesCmsPresetSync,
 } from "./cms-build.ts"
+import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "./dev.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
+import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./cms-build.ts"
 
 export { cmsPresetModules, readCmsPresetUsage, renderCmsDatabaseModule, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./cms-build.ts"
@@ -47,6 +55,8 @@ export interface ContentVitePluginOptions {
    * integration passes its own subpaths, so the module resolves from the app.
    */
   imports?: Partial<CmsWorkspaceImports>
+  /** Import prefix of the generated Nitro dev handler, for example `vite-hub/_internal/content`. Defaults to `@vite-hub/content`. */
+  importBase?: string
 }
 
 export interface ContentVitePluginAPI {
@@ -56,12 +66,14 @@ export interface ContentVitePluginAPI {
 
 export type ContentVitePlugin = Plugin & {
   api: ContentVitePluginAPI
-  /** Contributions that the Workspace and Database plugins collect. Empty without the `cms` preset. */
-  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory }
+  /**
+   * Contributions that the Workspace and Database plugins collect, empty without the `cms` preset, plus the
+   * `vitehub content` commands and the Content Definition inspector.
+   */
+  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
 
-interface ContentPluginConfig {
-  root?: string
+type ContentPluginConfig = UserConfig & {
   [VITEHUB_PROJECT_ROOT]?: string
   [VITEHUB_SERVER_DIRS]?: string[]
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
@@ -70,6 +82,7 @@ interface ContentPluginConfig {
 const defaultImports: CmsWorkspaceImports = {
   blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
+  contentDatabase: "@vite-hub/content/database",
   database: "@vite-hub/database/drizzle",
   databaseDefinition: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
@@ -140,10 +153,12 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let resolvedPlugins: readonly unknown[] | undefined
+  let resolved: ResolvedConfig | undefined
+  const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
 
   async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
-    const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs?.slice() })
+    const file = await findContentEntry({ projectRoot: root, serverDirs: input.serverDirs?.slice() })
     if (!file) return
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return
@@ -159,8 +174,33 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
 
   return {
     name: CONTENT_VITE_PLUGIN_NAME,
+    enforce: "post",
     api: { resolveCmsPreset },
     vitehub: {
+      cli: async () => {
+        if (!await discover()) return
+        const { createContentCliContributor } = await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./cli.ts" : "./cli.js")
+        return createContentCliContributor()
+      },
+      inspect: async () => {
+        const definition = await discover()
+        if (!definition) return
+        return {
+          definitions: [{
+            kind: "content",
+            label: "Content",
+            list: () => [{
+              fields: [
+                { label: "Route", value: "/api/content/**" },
+                { label: "Collections", value: "vitehub content collections" },
+              ],
+              file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),
+              name: "content",
+              source: "server-content",
+            }],
+          }],
+        }
+      },
       async workspaces(context: WorkspaceContributionContext) {
         const otherPlugins = await pluginsWithoutContent(context.plugins)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.root)
@@ -185,7 +225,12 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
-        const entries: DatabaseContributionEntry[] = [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]
+        const entries: DatabaseContributionEntry[] = [
+          { database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." },
+          ...(imports.contentDatabase
+            ? [{ database: plan.database, definition: { export: "contentSessionsSchema", module: imports.contentDatabase }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }]
+            : []),
+        ]
         if (plan.databaseReason !== "preset") return entries
         await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
         return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
@@ -193,18 +238,34 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     },
     config: {
       order: "pre",
-      handler(config) {
+      async handler(config, env) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as ContentPluginConfig
-        projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
+        const root = viteConfig[VITEHUB_PROJECT_ROOT]
           ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
           : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
+        projectRoot = root
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
+        if (env.command !== "serve") return
+        // `vitehub content` calls a dev-only Nitro handler that runs the app's Content runtime.
+        const handler = resolve(root, generatedNitroDevHandler)
+        const definition = await discover()
+        if (!definition) {
+          await rm(handler, { force: true })
+          return
+        }
+        await mkdir(dirname(handler), { recursive: true })
+        await writeFile(handler, renderContentDevHandler({ definition, importBase: options.importBase }), "utf8")
+        // Vite keeps the `nitro` key that the Nitro Vite plugin reads. The kit copies it and adds one handler.
+        const kit = createNitroServerKit(Reflect.get(config, "nitro"))
+        kit.addHandler({ handler, route: contentDevRuntimeRoute })
+        Reflect.set(config, "nitro", kit.config)
       },
     },
     async configResolved(config) {
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const viteConfig = config as ResolvedConfig & ContentPluginConfig
+      resolved = config
       resolvedPlugins = config.plugins
       projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice() ?? serverDirs
@@ -225,6 +286,15 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       }
     },
     configureServer(server) {
+      registerViteHubNitroDevEndpoint(server, {
+        header: contentDevHeader,
+        headerValue: contentDevHeaderValue,
+        label: "Content Dev",
+        nitroBaseURL: () => readNitroBaseURL(resolved),
+        route: contentDevRoute,
+        runtimeRoute: contentDevRuntimeRoute,
+        unavailable: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage },
+      })
       const root = projectRoot
       if (!root) return
       const directories = absoluteDirs(root, serverDirs) ?? [resolve(root, "server")]
@@ -252,4 +322,207 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       server.watcher.on("unlink", onChange)
     },
   }
+}
+
+export interface ContentConsoleOptions {
+  projectRoot: string
+  contentImportBase?: string
+  /** Server directories to search, relative to `projectRoot`. Defaults to `server`. */
+  serverDirs?: string[]
+  /**
+   * Files of the Schedule Definitions that the project runs, from Schedule discovery. Undefined when the project does
+   * not enable Schedule, so no Schedule Definition runs.
+   */
+  schedules?: readonly string[]
+}
+
+type AstNode = Record<string, unknown>
+
+function isAstNode(value: unknown): value is AstNode {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+/** Whether a parsed module calls a member named `publishDue`, such as `content.publishDue()`, anywhere. */
+function callsPublishDue(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(callsPublishDue)
+  if (!isAstNode(node)) return false
+  if (node.type === "CallExpression" && isAstNode(node.callee) && node.callee.type === "MemberExpression") {
+    const property = node.callee.property
+    const name = isAstNode(property) ? (node.callee.computed ? property.value : property.name) : undefined
+    if (name === "publishDue") return true
+  }
+  return Object.entries(node).some(([key, value]) => key !== "type" && Object(value) === value && callsPublishDue(value))
+}
+
+/**
+ * The Schedule Definition that runs scheduled Content publishes: the first file that calls `publishDue()`, such as
+ * `handler: () => content.publishDue()`. Discovery reads the files without running them, so the call must be in the
+ * Schedule Definition file itself. Returns undefined when no file calls it.
+ */
+export async function findContentPublishRunner(schedules: readonly string[]): Promise<string | undefined> {
+  // `vite` is an optional peer. Discovery runs inside Vite, so it is installed there.
+  const { parseAst } = await import("vite")
+  for (const file of schedules) {
+    let source: string
+    try {
+      source = await readFile(file, "utf8")
+    }
+    catch {
+      continue
+    }
+    // A file without the name cannot call it, so most files skip the parse.
+    if (!source.includes("publishDue")) continue
+    try {
+      if (callsPublishDue(parseAst(source, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }))) return file
+    }
+    catch {
+      // Schedule reports the syntax error.
+    }
+  }
+}
+
+/**
+ * What the Content editor lacks, read without running the app. Scheduled publishes need a Schedule Definition that calls
+ * `content.publishDue()`; without one, schedules never publish and only turn overdue.
+ */
+async function inspectContentSetup(options: ContentConsoleOptions): Promise<ViteHubConsoleDocumentSetup> {
+  if (options.schedules && await findContentPublishRunner(options.schedules)) return {}
+  return {
+    schedule: {
+      message: options.schedules
+        ? "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`."
+        : "Nothing publishes scheduled documents. Enable Schedule and add a Schedule Definition that calls `content.publishDue()`.",
+      docs: "https://vitehub.dev/docs/content/scheduling#run-due-schedules",
+    },
+  }
+}
+
+/**
+ * Finds the Content module of the project, but only when it may define document collections. Discovery reads the
+ * `defineContent()` call without running it; anything it cannot follow, such as options imported from another file,
+ * counts as maybe.
+ */
+async function findContentCollectionsEntry(options: ContentConsoleOptions): Promise<string | undefined> {
+  const file = await findContentEntry(options)
+  if (!file) return
+  return (await inspectContentEntry(file, options.contentImportBase)).collections ? file : undefined
+}
+
+/**
+ * Console section for Content. It edits the document collections of the `content` export of `server/content.ts`.
+ * Every action checks `content.can()` with the signed-in Console user. The Console shows the section only when
+ * `defineContent()` defines document collections; a Content file with only read-only Sources has nothing to edit.
+ */
+export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentConsoleOptions> = {
+  actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
+  description: "Edit, publish, and restore Content documents.",
+  entry: options => findContentCollectionsEntry(options),
+  inspect: options => inspectContentSetup(options),
+  icon: "i-lucide-file-pen-line",
+  id: "content",
+  label: "Content",
+  pages: [
+    { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+    { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Manage", view: { kind: "document-settings" } },
+    { id: "media", label: "Media", icon: "i-lucide-image", group: "Manage", requires: ["blob"], view: { kind: "media-library" } },
+  ],
+  view: {
+    kind: "document-editor",
+    notice: "Saves commit to the draft ref of the Content Workspace. Publishing copies documents to the published ref, which /api/content serves. content.can() decides what each user may read, write, and publish.",
+  },
+}
+
+/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room authority. */
+export interface ContentRealtimeContributionOptions {
+  /** The room authority: Durable Objects on Cloudflare, or one process. */
+  authority: "cloudflare" | "memory"
+  /** Directory for the generated files, such as `.vitehub/nitro/realtime`. */
+  directory: string
+  projectRoot: string
+  serverDirs?: string[]
+  /** Module that exports `contentRealtime` and `installContentLive`, such as `vite-hub/content/realtime`. */
+  contentImport: string
+  /** Module that exports `refreshRealtimeDocument`, such as `vite-hub/realtime/server`. */
+  realtimeImport: string
+  /** The identity and access of the Console, when the Console edits Content: a module and its `consoleRealtimeAccess` export. */
+  console?: { module: string, section: string }
+}
+
+/** The name of the Realtime Definition that serves Content documents. */
+export const contentRealtimeDefinitionName = "content"
+
+/**
+ * The Realtime Definition and Nitro plugin of Content live editing, when the project defines Content collections and
+ * does not set `live: false`. The definition serves rooms `<collection>/<id>` with `contentRealtime()`; the plugin
+ * installs live editing in each server process, so Content writes from outside a room refresh it and the Console
+ * knows to join rooms. Returns undefined when Content has nothing to edit live.
+ */
+export async function contributeContentRealtime(options: ContentRealtimeContributionOptions): Promise<{ definitions: Array<{ handler: string, name: string }>, plugins: string[] } | undefined> {
+  const file = await findContentEntry(options)
+  if (!file) return
+  const features = await inspectContentEntry(file)
+  if (!features.collections || !features.live) return
+  const definition = join(options.directory, "content.mjs")
+  const plugin = join(options.directory, "content-live.mjs")
+  const name = JSON.stringify(contentRealtimeDefinitionName)
+  await mkdir(options.directory, { recursive: true })
+  await Promise.all([
+    writeFile(definition, [
+      `import { content } from ${JSON.stringify(pathToFileURL(file).href)}`,
+      `import { contentRealtime } from ${JSON.stringify(options.contentImport)}`,
+      ...(options.console
+        ? [
+            `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
+            "",
+            "// The Console session names the people in a room, and Console section access gates it before content.can().",
+            `export default contentRealtime(content, consoleRealtimeAccess(${JSON.stringify(options.console.section)}))`,
+          ]
+        : ["", "export default contentRealtime(content)"]),
+      "",
+    ].join("\n")),
+    writeFile(plugin, [
+      `import { installContentLive } from ${JSON.stringify(options.contentImport)}`,
+      `import { refreshRealtimeDocument } from ${JSON.stringify(options.realtimeImport)}`,
+      ...(options.authority === "cloudflare"
+        ? [
+            'import { env } from "cloudflare:workers"',
+            "",
+            "export default function viteHubContentLive() {",
+            `  installContentLive({ definition: ${name}, refresh: documentId => refreshRealtimeDocument(${name}, documentId, { durableObjects: env.$DurableObject }) })`,
+            "}",
+          ]
+        : [
+            "",
+            "export default function viteHubContentLive() {",
+            `  installContentLive({ definition: ${name}, refresh: documentId => refreshRealtimeDocument(${name}, documentId) })`,
+            "}",
+          ]),
+      "",
+    ].join("\n")),
+  ])
+  return { definitions: [{ handler: definition, name: contentRealtimeDefinitionName }], plugins: [plugin] }
+}
+
+const contentPackageName = "@vite-hub/content"
+const generatedNitroDevHandler = ".vitehub/nitro/content/dev-handler.ts"
+
+/** Message that the Content dev endpoint returns when the host does not run Nitro in the Vite process. */
+export const contentDevRuntimeUnavailableMessage = "This Vite Development Server does not run Nitro in process, so it cannot reach the Content runtime. `vitehub content` commands need a Vite + Nitro host. Nuxt and plain Vite are not supported."
+
+/** Renders the dev-only Nitro handler that passes `vitehub content` requests to the app's Content runtime. */
+export function renderContentDevHandler(options: { definition: string, importBase?: string }): string {
+  return [
+    "import { defineEventHandler } from 'h3'",
+    `import { handleContentDevRequest } from ${JSON.stringify(`${options.importBase ?? contentPackageName}/runtime/dev`)}`,
+    `import * as definition from ${JSON.stringify(toRuntimeModuleSpecifier(options.definition))}`,
+    "",
+    "export default defineEventHandler(event => handleContentDevRequest(event.req, definition.content))",
+    "",
+  ].join("\n")
+}
+
+function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
+  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
+  const baseURL: unknown = nitro !== null && Object(nitro) === nitro ? Reflect.get(Object(nitro), "baseURL") : undefined
+  return String(baseURL) === baseURL ? baseURL : process.env.NITRO_APP_BASE_URL
 }

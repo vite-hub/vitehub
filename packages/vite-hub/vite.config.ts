@@ -240,6 +240,40 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/section.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/documents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-browser.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-crops.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-detail.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-field.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-focal.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-move.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-picker.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-uploads.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-seo-panel.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-setup-hint.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-presence-avatars.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
@@ -283,10 +317,22 @@ export default defineConfig({
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/env-management.ts",
       "src/console/runtime/client/connections-management.ts",
+      "src/console/runtime/client/blob-media.ts",
+      "src/console/runtime/client/documents.ts",
+      "src/console/runtime/client/format.ts",
+      "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
+      "src/console/runtime/client/live.ts",
+      "src/console/runtime/client/media.ts",
+      "src/console/runtime/client/media-library.ts",
+      "src/console/runtime/client/media-uploads.ts",
+      "src/console/runtime/client/presence.ts",
+      "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
+      "src/console/runtime/client/schema-form.ts",
       "src/console/runtime/client/time.ts",
+      "src/console/runtime/client/toast.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
@@ -296,6 +342,7 @@ export default defineConfig({
       "src/console/runtime/server/client.get.ts",
       "src/console/runtime/server/database.get.ts",
       "src/console/runtime/server/definitions.get.ts",
+      "src/console/runtime/server/documents.ts",
       "src/console/runtime/server/invocation-capabilities.get.ts",
       "src/console/runtime/server/rpc.ts",
       "src/console/runtime/server/invocation.get.ts",
@@ -323,10 +370,22 @@ export default defineConfig({
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/env-management"];
         delete exports["./console/runtime/client/connections-management"];
+        delete exports["./console/runtime/client/blob-media"];
+        delete exports["./console/runtime/client/documents"];
+        delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
+        delete exports["./console/runtime/client/format"];
+        delete exports["./console/runtime/client/live"];
+        delete exports["./console/runtime/client/media"];
+        delete exports["./console/runtime/client/media-library"];
+        delete exports["./console/runtime/client/media-uploads"];
+        delete exports["./console/runtime/client/presence"];
+        delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/schedule-run"];
+        delete exports["./console/runtime/client/schema-form"];
         delete exports["./console/runtime/client/time"];
+        delete exports["./console/runtime/client/toast"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
@@ -339,6 +398,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/database.get"];
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
+        delete exports["./console/runtime/server/documents"];
         delete exports["./console/runtime/server/invocation-capabilities.get"];
         delete exports["./console/runtime/server/rpc"];
         delete exports["./console/runtime/server/invocation.get"];
@@ -368,6 +428,7 @@ export default defineConfig({
           "./console/blob": "./dist/console/runtime/server/blob.js",
           "./console/database": "./dist/console/runtime/server/database.js",
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
+          "./console/documents": "./dist/console/runtime/server/documents.js",
           "./console/env": "./dist/console/runtime/server/env.js",
           "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",

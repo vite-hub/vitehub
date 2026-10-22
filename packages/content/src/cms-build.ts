@@ -331,6 +331,8 @@ export interface CmsWorkspaceImports {
   blob: string
   /** Exports `createBlobDatabaseWorkspaceStore` and `workspaceHistorySchema`. */
   blobDatabase: string
+  /** Exports `contentSessionsSchema`, the presence and edit lease table that the preset adds to its Database. */
+  contentDatabase?: string
   /** Exports `useDatabase`. */
   database: string
   /** Exports `defineDatabase`, for the Database Definition the preset adds when the app has none. */

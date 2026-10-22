@@ -176,6 +176,7 @@ describe("Console Go to shortcuts", () => {
     expect(consoleOverviewShortcut).toEqual(["g", "o"])
     expect(Object.fromEntries(Object.keys(consoleSectionShortcutKeys).map(section => [section, consoleSectionShortcut(section)?.join(" ")]))).toEqual({
       agents: "g a",
+      content: "g t",
       usage: "g u",
       databases: "g d",
       kv: "g k",

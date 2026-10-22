@@ -27,6 +27,7 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
     const migrationsDir = join(root, "server/databases/migrations")
     const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
     expect((await readFile(join(migrationsDir, migration), "utf8")).match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
+      "CREATE TABLE `vitehub_content_sessions`",
       "CREATE TABLE `workspace_history_metadata`",
       "CREATE TABLE `workspace_history_objects`",
       "CREATE TABLE `workspace_history_refs`",

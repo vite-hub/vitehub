@@ -1,0 +1,27 @@
+{
+  "name": "playground-content",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "db:generate": "vitehub db generate",
+    "db:migrate": "vitehub db migrate"
+  },
+  "dependencies": {
+    "@libsql/client": "catalog:database",
+    "comark-content": "catalog:markdown",
+    "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
+    "vite-hub": "workspace:*",
+    "zod": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@vite-hub/cli": "workspace:*",
+    "drizzle-kit": "catalog:database",
+    "vite": "catalog:vite"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

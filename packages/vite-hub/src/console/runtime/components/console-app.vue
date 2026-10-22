@@ -251,7 +251,7 @@ const searchActions = computed<CommandPaletteItem[]>(() =>
   newChatTargetName.value
     ? [{
         description: `Start a session with ${newChatTargetName.value}`,
-        icon: "i-ph-note-pencil-light",
+        icon: "i-lucide-square-pen",
         label: "New chat",
         onSelect: () => void startNewChat(),
       }]
@@ -964,7 +964,7 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="New chat"
               color="neutral"
-              icon="i-ph-note-pencil-light"
+              icon="i-lucide-square-pen"
               size="xs"
               square
               variant="ghost"
@@ -979,15 +979,15 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="Filter sessions"
               :color="activeFilterCount ? 'primary' : 'neutral'"
-              icon="i-ph-funnel-light"
+              icon="i-lucide-funnel"
               size="xs"
               square
               :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
               <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-                <UIcon name="i-ph-funnel-light" class="size-4 shrink-0 text-muted" />
-                <p class="min-w-0 flex-1 truncate text-xs text-dimmed">
+                <UIcon name="i-lucide-funnel" class="size-4 shrink-0 text-muted" />
+                <p class="min-w-0 flex-1 truncate text-xs font-medium text-muted">
                   Filter sessions
                 </p>
                 <UBadge
@@ -1192,12 +1192,12 @@ onBeforeUnmount(() => {
             ><UEmpty
               v-if="activeFilterCount"
               class="px-4"
-              icon="i-ph-chat-dots-light"
+              icon="i-lucide-message-square-more"
               title="No matching sessions"
               :actions="[{ label: 'Clear filters', onClick: resetSessionFilters }]" /><ConsoleState
               v-else
               section="agents"
-              icon="i-ph-chat-dots-light"
+              icon="i-lucide-message-square-more"
               title="No sessions yet"
               description="Invoke an Agent from your app or from this Console. Its session appears here."
           /></template>
@@ -1553,7 +1553,7 @@ button.vitehub-console__section-label:hover {
 
 .vitehub-console__section-count {
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;

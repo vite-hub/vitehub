@@ -230,17 +230,17 @@ describe("Blob response transforms", () => {
     await storage.serve(event(), "private/original", options)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     const path = cache!.blobs[0]!.pathname
-    for (const pathname of ["_vitehub", "_VITEHUB/", "%5Fvitehub", path, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
-      await expect(storage.put(pathname, "forged")).rejects.toThrow("reserved derived cache")
-      await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved derived cache")
-      await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toThrow("reserved derived cache")
+    for (const pathname of ["_vitehub", "_VITEHUB/", "%5Fvitehub", "_vitehub/media/records/forged", path, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
+      await expect(storage.put(pathname, "forged")).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.createMultipartUpload(pathname)).rejects.toThrow("reserved ViteHub namespace")
+      await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toThrow("reserved ViteHub namespace")
     }
     for (const pathname of ["elsewhere/../_vitehub", `elsewhere/../${path}`]) {
       await expect(storage.put(pathname, "forged")).rejects.toMatchObject({ code: "BLOB_R0034" })
       await expect(storage.createMultipartUpload(pathname)).rejects.toMatchObject({ code: "BLOB_R0034" })
       await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toMatchObject({ code: "BLOB_R0034" })
     }
-    await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved derived cache")
+    await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved ViteHub namespace")
     const [, body] = await storage.serve(event(), "private/original", options)
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)

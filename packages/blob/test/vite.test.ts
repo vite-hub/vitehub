@@ -919,7 +919,7 @@ describe("hubBlob", () => {
     expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
     expect(handler).toContain("setResponseHeaders(event, responseHeaders)")
-    expect(handler).toContain("blob.store(storeName).serve(event, pathname)")
+    expect(handler).toContain("blob.store(storeName).serve(event, pathname, options)")
     expect(handler).toContain("error?.code === 'BLOB_NOT_FOUND'")
     expect(handler).toContain("statusCode: 404")
     expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
@@ -927,7 +927,7 @@ describe("hubBlob", () => {
     expect(handler).toContain("headersOnly: true")
     expect(handler).toContain("maxAge: 0")
     expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
-      handler.indexOf("blob.store(storeName).serve(event, pathname)"),
+      handler.indexOf("blob.store(storeName).serve(event, pathname, options)"),
     )
   })
 
@@ -987,6 +987,7 @@ describe("hubBlob", () => {
             }))
             build.onLoad({ filter: /.*/, namespace: "blob-route-stub" }, () => ({
               contents: [
+                "export const parseImageVariant = () => undefined",
                 "export const blob = {",
                 "  store(name) {",
                 "    if (name !== 'default') throw new Error(`Unexpected store: ${name}`)",
@@ -1056,6 +1057,7 @@ describe("hubBlob", () => {
             }))
             build.onLoad({ filter: /^virtual:blob-test$/, namespace: "blob-authorize-route-stub" }, () => ({
               contents: [
+                "export const parseImageVariant = () => undefined",
                 "export const blob = {",
                 "  store() {",
                 "    return {",

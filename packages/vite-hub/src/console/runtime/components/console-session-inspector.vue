@@ -9,6 +9,7 @@ import ConsoleSessionTrace from "./console-session-trace.vue";
 import ConsoleState from "./console-state.vue";
 import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
+import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -752,7 +753,7 @@ function message(error: unknown) {
         <span v-if="workspace" :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
         <span v-else-if="file">{{ file.revision === "current" ? "Current mounted file" : file.revision }}</span>
         <span v-if="file?.provenance">From {{ file.provenance.source }}</span>
-        <span><template v-if="workspace">{{ workspace.paths.length }} files<span v-if="file"> · </span></template><template v-if="file">{{ file.size.toLocaleString() }} bytes</template></span>
+        <span><template v-if="workspace">{{ workspace.paths.length }} files<span v-if="file"> · </span></template><template v-if="file">{{ consoleBytes(file.size) }}</template></span>
       </footer>
     </div>
   </aside>

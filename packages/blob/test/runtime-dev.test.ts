@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { H3Event } from "h3"
+import sharp from "sharp"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -142,6 +144,19 @@ describe("Blob dev runtime handler", () => {
 
     const replaced = await run({ data: "", operation: "put", pathname: "files/raw.bin" })
     expect(replaced.body).toMatchObject({ created: false, object: { pathname: "files/raw.bin", size: 0 } })
+  })
+
+  it("shows media records and cached variants", async () => {
+    const png = await sharp({ create: { background: "#336699", channels: 3, height: 300, width: 600 } }).png().toBuffer()
+    expect(await blob.media.put("images/hero.png", png, { alt: "Hero" })).toMatchObject([null, { width: 600 }])
+    const media = await run({ operation: "media", pathname: "images/hero.png" })
+    expect(media).toMatchObject({ body: { record: { alt: "Hero", contentType: "image/png", height: 300, pathname: "images/hero.png", width: 600 }, store: "default" }, status: 200 })
+    expect(await run({ operation: "variants", pathname: "images/hero.png" })).toEqual({ body: { pathname: "images/hero.png", store: "default", variants: [] }, status: 200 })
+    await blob.serve(new H3Event(new Request("https://example.test/")), "images/hero.png", { variant: { width: 128 } })
+    const variants = await run({ operation: "variants", pathname: "images/hero.png" })
+    expect(variants.body.variants).toEqual([expect.objectContaining({ contentType: "image/webp", key: "image:v1;src=original;out=128x64;fmt=webp;q=75;engine=sharp", source: "images/hero.png" })])
+    expect(await run({ operation: "media", pathname: "images/missing.png" })).toMatchObject({ body: { error: { code: "BLOB_NOT_FOUND" } }, status: 404 })
+    expect(await run({ operation: "variants", pathname: "images/missing.png" })).toMatchObject({ status: 404 })
   })
 
   it("lists, reads metadata, and deletes blobs of a named store", async () => {

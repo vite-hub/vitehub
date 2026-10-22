@@ -27,6 +27,8 @@ const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-regist
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
+const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
+const contentRobotsEntry = ".vitehub/content/robots.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
@@ -65,6 +67,11 @@ export interface SourceVitePluginOptions {
   auth?: boolean | ((input: { configuredAuth?: boolean, projectRoot: string, serverDirs?: string[] }) => boolean)
   contentImportBase?: string
   importBase?: string
+}
+
+/** The discovered `server/content.ts` file. It exports the Content runtime as `content`. */
+export interface ContentDefinitionFile {
+  handler: string
 }
 
 export type GeneratedSourceHandlersListener = (handlers: GeneratedSourceHandler[]) => Promise<void> | void
@@ -127,6 +134,8 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
+    contentSitemapEntry,
+    contentRobotsEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -158,6 +167,8 @@ async function restoreGeneratedSourceArtifacts(
     collectionTypesPackageEntry,
     contentRouteEntry,
     contentPreviewEntry,
+    contentSitemapEntry,
+    contentRobotsEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -173,7 +184,7 @@ function methodsOverlap(left: string | undefined, right: string | undefined): bo
 }
 
 function generatedRouteOwner(handler: GeneratedSourceRoute): "Collection" | "Content" {
-  return handler.route === "/api/content/**" ? "Content" : "Collection"
+  return handler.route === "/api/content/**" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" ? "Content" : "Collection"
 }
 
 function generatedRouteDescription(handler: GeneratedSourceRoute): string {
@@ -830,7 +841,7 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
   return findRoute(exported?.init) ?? true
 }
 
-async function discoverCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
+async function discoverSourceCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -934,10 +945,10 @@ async function writeCollectionArtifacts(
 }
 
 /**
- * Find the Content Definition: one `content.{ts,js,mts,mjs,cts,cjs}` file in the server directories that exports
- * `content`. Returns undefined when the app defines no Content.
+ * Find the `server/content.{ts,js}` file that exports the application Content runtime as `content`. Returns undefined when
+ * the project has none. The generated `/api/content/**` route and the Console content editor import the same file.
  */
-export async function discoverContentDefinition(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
+export async function findContentEntry(options: Pick<SourceGenerationOptions, "projectRoot" | "serverDirs">): Promise<string | undefined> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
     : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
@@ -965,14 +976,170 @@ export async function discoverContentDefinition(options: Pick<SourceGenerationOp
   return file
 }
 
+/** What a Content module's `defineContent()` call may define, as far as reading the file without running it can tell. */
+export interface ContentEntryFeatures {
+  /** Editable `collections`. True when discovery cannot follow the options. */
+  collections: boolean
+  /** `seo: { sitemap }` that is not literally false. */
+  sitemap: boolean
+  /** `seo: { robots }` that is not literally false. */
+  robots: boolean
+  /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
+  live: boolean
+}
+
+type AstNode = Record<string, unknown> & { type?: unknown }
+
+const contentModules: ReadonlySet<string> = new Set(["vite-hub/content", "@vite-hub/content"])
+
+function isAstNode(value: unknown): value is AstNode {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+function astNodes(value: unknown): AstNode[] {
+  return Array.isArray(value) ? value.filter(isAstNode) : []
+}
+
+function astName(node: unknown): string | undefined {
+  if (!isAstNode(node)) return
+  if (node.type === "Identifier" && String(node.name) === node.name) return node.name
+  if (node.type === "Literal" && String(node.value) === node.value) return node.value
+}
+
+/** Drops `as`, `satisfies`, `!`, and parentheses around an expression. */
+function unwrapAst(node: unknown): unknown {
+  let current = node
+  while (isAstNode(current) && ["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "ParenthesizedExpression"].includes(String(current.type))) {
+    current = current.expression
+  }
+  return current
+}
+
+/**
+ * Read the `defineContent()` call that initializes the `content` export. Collections count as present unless the call
+ * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
+ * `sitemap` or `robots` that is not `false`, or a `seo` value that discovery cannot follow.
+ */
+export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
+  const maybe: ContentEntryFeatures = { collections: true, sitemap: false, robots: false, live: true }
+  const body = isAstNode(program) ? astNodes(program.body) : []
+  const constants = new Map<string, unknown>()
+  const defineContentNames = new Set<string>()
+  const defineContentNamespaces = new Set<string>()
+  const modules = contentImportBase ? new Set([...contentModules, contentImportBase]) : contentModules
+  let contentInit: unknown
+  let contentLocal: string | undefined
+  for (const statement of body) {
+    if (statement.type === "ImportDeclaration" && isAstNode(statement.source) && modules.has(String(statement.source.value))) {
+      for (const specifier of astNodes(statement.specifiers)) {
+        if (specifier.type === "ImportSpecifier" && astName(specifier.imported) === "defineContent") {
+          const local = astName(specifier.local)
+          if (local) defineContentNames.add(local)
+        }
+        if (specifier.type === "ImportNamespaceSpecifier") {
+          const local = astName(specifier.local)
+          if (local) defineContentNamespaces.add(local)
+        }
+      }
+    }
+    const exported = statement.type === "ExportNamedDeclaration"
+    const declaration = exported ? statement.declaration : statement
+    if (isAstNode(declaration) && declaration.type === "VariableDeclaration") {
+      for (const declarator of astNodes(declaration.declarations)) {
+        const local = astName(declarator.id)
+        if (!local) continue
+        if (declaration.kind === "const") constants.set(local, declarator.init)
+        if (exported && local === "content") contentInit = declarator.init
+      }
+    }
+    if (exported && !statement.source) {
+      for (const specifier of astNodes(statement.specifiers)) {
+        if (astName(specifier.exported) === "content") contentLocal = astName(specifier.local)
+      }
+    }
+  }
+  if (contentInit === undefined && contentLocal) contentInit = constants.get(contentLocal)
+  const resolveNode = (node: unknown): unknown => {
+    const value = unwrapAst(node)
+    const local = isAstNode(value) && value.type === "Identifier" ? astName(value) : undefined
+    return local && constants.has(local) ? unwrapAst(constants.get(local)) : value
+  }
+  const properties = (node: unknown): Map<string, unknown> | undefined => {
+    if (!isAstNode(node) || node.type !== "ObjectExpression") return
+    const result = new Map<string, unknown>()
+    for (const property of Array.isArray(node.properties) ? node.properties : []) {
+      if (!isAstNode(property)) return
+      if (property.type === "SpreadElement") {
+        const spread = properties(resolveNode(property.argument))
+        if (!spread) return
+        for (const [key, value] of spread) result.set(key, value)
+        continue
+      }
+      if (property.type !== "Property" || property.computed) return
+      const key = astName(property.key)
+      if (key) result.set(key, property.value)
+    }
+    return result
+  }
+
+  const call = unwrapAst(contentInit)
+  if (!isAstNode(call) || call.type !== "CallExpression") return maybe
+  const calleeNode = unwrapAst(call.callee)
+  const callee = astName(calleeNode)
+  const namespaceCall = isAstNode(calleeNode)
+    && calleeNode.type === "MemberExpression"
+    && !calleeNode.computed
+    && defineContentNamespaces.has(astName(calleeNode.object) ?? "")
+    && astName(calleeNode.property) === "defineContent"
+  if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
+  const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
+  if (argument === undefined) return { collections: false, sitemap: false, robots: false, live: true }
+  const options = rest.length ? undefined : properties(resolveNode(argument))
+  // Unknown option shapes may still enable SEO at runtime (for example via a spread).
+  // Keep generated handlers enabled rather than silently omitting valid routes.
+  if (!options) return { collections: true, sitemap: true, robots: true, live: true }
+
+  const live = unwrapAst(options.get("live"))
+  const features: ContentEntryFeatures = { collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  if (options.has("collections")) {
+    const value = resolveNode(options.get("collections"))
+    features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
+  }
+  if (options.has("seo")) {
+    const seo = properties(resolveNode(options.get("seo")))
+    if (!seo) return { ...features, sitemap: true, robots: true }
+    for (const key of ["sitemap", "robots"] as const) {
+      if (!seo.has(key)) continue
+      const value = unwrapAst(seo.get(key))
+      features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
+    }
+  }
+  return features
+}
+
+/** Read what the Content module defines without running it. A file that does not parse counts as defining everything. */
+export async function inspectContentEntry(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
+  // `vite` is an optional peer. Content discovery runs inside Vite, so it is installed there.
+  const { parseAst } = await import("vite")
+  try {
+    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+  }
+  catch {
+    // The runtime reports the syntax error.
+    return { collections: true, sitemap: false, robots: false, live: true }
+  }
+}
+
 async function writeContentArtifact(
   options: SourceGenerationOptions,
   file: string | undefined,
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, contentRouteEntry)
   const preview = resolve(options.projectRoot, contentPreviewEntry)
+  const sitemap = resolve(options.projectRoot, contentSitemapEntry)
+  const robots = resolve(options.projectRoot, contentRobotsEntry)
   if (!file) {
-    await Promise.all([rm(output, { force: true }), rm(preview, { force: true })])
+    await Promise.all([output, preview, sitemap, robots].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -992,19 +1159,44 @@ async function writeContentArtifact(
     "export default defineContentPreviewPlugin(content)",
     "",
   ].join("\n"))
-  return [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
+  const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
+  // `defineContent({ seo: { sitemap, robots } })` adds the site-wide SEO routes.
+  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  for (const [enabled, path, helper, route] of [
+    [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
+    [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],
+  ] as const) {
+    if (!enabled) {
+      await rm(path, { force: true })
+      continue
+    }
+    await writeFileIfChanged(path, [
+      `import { ${helper} } from ${importBase}`,
+      `import { content } from ${contentModule}`,
+      "",
+      `export default ${helper}(content)`,
+      "",
+    ].join("\n"))
+    handlers.push({ handler: path, method: "get", route })
+  }
+  return handlers
 }
 
-export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+async function prepareSourceArtifacts(options: SourceGenerationOptions): Promise<{ content?: ContentDefinitionFile, handlers: GeneratedSourceHandler[] }> {
   const [collections, content] = await Promise.all([
-    discoverCollections(options),
-    discoverContentDefinition(options),
+    discoverSourceCollections(options),
+    findContentEntry(options),
   ])
-  return [
+  const handlers = [
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
   // Plugins have no route and sort first.
   ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
+  return { handlers, ...(content ? { content: { handler: content } } : {}) }
+}
+
+export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+  return (await prepareSourceArtifacts(options)).handlers
 }
 
 function applicationBaseURL(base: string | undefined): string {
@@ -1054,6 +1246,8 @@ function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: str
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   api: {
+    /** The `server/content.ts` file found by the last preparation of `projectRoot` (default: the latest root). */
+    getContentDefinition: (projectRoot?: string) => ContentDefinitionFile | undefined
     onGeneratedHandlersChanged: (
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
@@ -1081,6 +1275,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     resume: () => void
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
+  const contentDefinitionByRoot = new Map<string, ContentDefinitionFile>()
+  const getContentDefinition = (projectRoot?: string) => {
+    const root = projectRoot ? resolve(projectRoot) : latestProjectRoot
+    return root ? contentDefinitionByRoot.get(root) : undefined
+  }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
   const generatedHandlersListeners = new Set<{
@@ -1102,11 +1301,15 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const auth = typeof options.auth === "function"
         ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
         : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
-      return prepareSourceGeneration({
+      return prepareSourceArtifacts({
         ...input,
         auth,
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
+      }).then(({ content, handlers }) => {
+        if (content) contentDefinitionByRoot.set(root, content)
+        else contentDefinitionByRoot.delete(root)
+        return handlers
       })
     }
     const preparation = previousPreparation.then(runPreparation, runPreparation)
@@ -1174,7 +1377,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   return {
     name: "@vite-hub/source/vite",
     enforce: "post",
-    api: { onGeneratedHandlersChanged, prepareSources },
+    api: { getContentDefinition, onGeneratedHandlersChanged, prepareSources },
     // glob() in a server build: calls with literal options become their files, bundled (internal/bundle-glob.ts).
     // The filters keep Rolldown from calling these hooks for every other module.
     resolveId: {

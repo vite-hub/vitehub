@@ -442,14 +442,57 @@ describe("vitehub blob", () => {
     }
     const unknown = context()
     await expect(runBlobCli(["sign"], unknown.context, { fetch })).resolves.toBe(1)
-    expect(unknown.stderr.output()).toBe("Unknown blob command: sign\nCommands: list, head, get, put, del\n")
+    expect(unknown.stderr.output()).toBe("Unknown blob command: sign\nCommands: list, head, get, put, del, media, variants\n")
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("prints media records and cached variants", async () => {
+    const record = {
+      alt: "Hero", color: "#336699", contentType: "image/png", createdAt: "2026-10-01T00:00:00.000Z",
+      crops: { mobile: { aspect: "4:5", focal: { x: 0.5, y: 0.2 }, replacement: { contentType: "image/png", hash: "f".repeat(64), height: 500, pathname: "_vitehub/media/crops/abc/mobile.ffffffffffff.png", size: 10, width: 400 } }, square: { aspect: "1:1" } },
+      focal: { x: 0.25, y: 0.75 }, hash: "a".repeat(64), height: 300, pathname: "images/hero.png", size: 2048, updatedAt: "2026-10-02T00:00:00.000Z", url: "/api/_vitehub/blob/images/hero.png", width: 600,
+    }
+    const human = context()
+    const fetch = devServer({ record, store: "default" })
+    await expect(runBlobCli(["media", "images/hero.png"], human.context, { fetch })).resolves.toBe(0)
+    expect(sentBody(fetch)).toEqual({ operation: "media", pathname: "images/hero.png" })
+    expect(human.stdout.output()).toBe([
+      "Pathname      images/hero.png",
+      "Store         default",
+      "Size          2048 B",
+      "Content type  image/png",
+      "Dimensions    600x300",
+      `SHA-256       ${"a".repeat(64)}`,
+      "Alt           Hero",
+      "Focal point   0.25,0.75",
+      "Color         #336699",
+      "URL           /api/_vitehub/blob/images/hero.png",
+      "Updated       2026-10-02T00:00:00.000Z",
+      "Crops         mobile 4:5, focal 0.5,0.2, replacement _vitehub/media/crops/abc/mobile.ffffffffffff.png (400x500)",
+      "              square 1:1",
+      "",
+    ].join("\n"))
+    const json = context()
+    await expect(runBlobCli(["media", "images/hero.png", "--json"], json.context, { fetch: devServer({ record, store: "default" }) })).resolves.toBe(0)
+    expect(JSON.parse(json.stdout.output())).toEqual({ record, store: "default" })
+
+    const variants = context()
+    const variant = { cachePathname: "_vitehub/derived/x/y", contentType: "image/webp", key: "image:v1;src=original;out=640x320;fmt=webp;q=75;engine=sharp", size: 4096, source: "images/hero.png" }
+    await expect(runBlobCli(["variants", "images/hero.png"], variants.context, { fetch: devServer({ pathname: "images/hero.png", store: "default", variants: [variant] }) })).resolves.toBe(0)
+    expect(variants.stdout.output()).toBe([
+      "KEY                                                           TYPE        SIZE    SOURCE",
+      "image:v1;src=original;out=640x320;fmt=webp;q=75;engine=sharp  image/webp  4096 B  images/hero.png",
+      "",
+    ].join("\n"))
+    const none = context()
+    await expect(runBlobCli(["variants", "images/hero.png"], none.context, { fetch: devServer({ pathname: "images/hero.png", store: "default", variants: [] }) })).resolves.toBe(0)
+    expect(none.stdout.output()).toBe("No cached variants of images/hero.png in store default.\n")
   })
 
   it("contributes one feature per command", () => {
     const [namespace] = createBlobCliNamespaces()
     expect(namespace?.name).toBe("blob")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "head", "get", "put", "del"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "head", "get", "put", "del", "media", "variants"])
     expect(namespace?.features.find(feature => feature.name === "put")?.usage).toBe(
       "vitehub blob put <pathname> <file> [--content-type <type>] [--store <name>] [--json] [--url <url>]",
     )

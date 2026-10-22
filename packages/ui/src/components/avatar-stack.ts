@@ -16,7 +16,8 @@ export type AvatarStackSize = "sm" | "default" | "lg";
 export type AvatarStackVariant = "default" | "outline";
 
 function initials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  // An email address names its local part, so `ana.lopez@vitehub.dev` becomes `AL`.
+  const words = name.replace(/@.*/, "").trim().split(/[\s._-]+/).filter(Boolean);
   // SAFETY: `words.at(-1)` exists when `words.length > 1`.
   return ((words[0]?.[0] ?? "") + (words.length > 1 ? words.at(-1)![0] : (words[0]?.[1] ?? ""))).toUpperCase() || "?";
 }
