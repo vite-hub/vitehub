@@ -98,6 +98,8 @@ export default defineAgent({
 });
 ```
 
+Jev requests retry up to two times on 408, 429, 5xx provider answers and network failures. A rejected key (401 or 403) fails with `AGENT_R1009` and status 503, and its `fix` names `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`. A provider that still fails after three attempts fails with `AGENT_R1010` and status 502. Both keep `providerStatus`, `requestId`, and the provider error as `cause`. With `typesafeEnv({ provider: "vercel" })` and no key outside Vercel, the Invocation fails with `AGENT_R0936` before any request.
+
 Jev reads Invocation `data` when a caller sets it, else the prompt text, else the latest user message. `ask.choice()`, `ask.switch()`, `ask.score()`, `ask.chance()`, and `ask.if()` return plain question objects. `driver.ask` also accepts a function that returns the questions for each Invocation.
 
 `ask.if()` accepts a finite threshold from `0` to `1`, inclusive. It defaults to `0.5`.
