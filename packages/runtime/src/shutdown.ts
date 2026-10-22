@@ -63,7 +63,7 @@ export interface ShutdownRuntime {
   off(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
   on(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
   release?: { name?: string }
-  stdout?: { write(chunk: string, callback: () => void): unknown }
+  stdout?: { write(chunk: string, callback: (error?: Error | null) => void): unknown }
 }
 
 /** Name of the variable that sets the shared drain budget in milliseconds. The default is 0. */
@@ -164,10 +164,27 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
         new Promise((resolve) => { setTimeout(resolve, closeMs).unref?.() }),
       ])
       state.status = "exited"
-      console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.exited", signal, timestamp: new Date().toISOString() }))
-      // Drain piped stdout before the explicit exit. A `setImmediate()` only yields to the
-      // event loop and can still leave console writes buffered when the process exits.
-      if (runtime.stdout) await new Promise<void>(resolve => runtime.stdout!.write("", resolve))
+      const exited = JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.exited", signal, timestamp: new Date().toISOString() })
+      // Write the final record through the stream itself, then wait for its callback. This
+      // preserves the record when stdout is piped, while the bound keeps a broken adapter
+      // from preventing termination.
+      if (runtime.stdout) {
+        await new Promise<void>(resolve => {
+          let settled = false
+          const finish = (error?: Error | null) => {
+            if (settled) return
+            settled = true
+            if (error) console.error("[vitehub] Failed to flush shutdown output.", error)
+            resolve()
+          }
+          const timer = setTimeout(finish, 1_000)
+          timer.unref?.()
+          runtime.stdout!.write(`[vitehub] ${exited}\n`, error => {
+            clearTimeout(timer)
+            finish(error)
+          })
+        })
+      } else console.info("[vitehub]", exited)
       runtime.exit(0)
     })().catch((error: unknown) => {
       console.error("[vitehub] Shutdown failed.", error)
