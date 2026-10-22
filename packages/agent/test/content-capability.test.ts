@@ -156,7 +156,7 @@ describe("content capability", () => {
     const save = all.content_save_draft!.inputSchema as any
     expect(save.type).toBe("object")
     expect(save.anyOf).toBeUndefined()
-    expect(save.required).toEqual(["collection", "id", "data", "body", "ifDigest"])
+    expect(save.required).toEqual(["body", "collection", "data", "id", "ifDigest"])
     expect(save.properties.collection.enum).toEqual(["posts", "pages"])
     expect(save.properties.data.anyOf.map((schema: any) => schema.title)).toEqual(["posts", "pages"])
     expect(save.properties.data.anyOf[0]).toMatchObject({
@@ -164,7 +164,7 @@ describe("content capability", () => {
       required: ["title", "date"],
       type: "object",
     })
-    expect((all.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "id", "digest"])
+    expect((all.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "digest", "id"])
     expect((all.content_schedule!.inputSchema as any).required).toEqual(["at", "documents"])
     expect((all.content_unschedule!.inputSchema as any).required).toEqual(["schedule"])
 
@@ -379,10 +379,10 @@ describe("content capability", () => {
     ])
     const save = editorTools.content_save_draft!.inputSchema as any
     expect(save.type).toBe("object")
-    expect(save.required).toEqual(["collection", "data", "ifDigest"])
-    expect(save.properties.body.description).toContain("Omit it for a JSON or YAML collection")
-    expect((editorTools.content_get_document!.inputSchema as any).required).toEqual(["collection"])
-    expect((editorTools.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "digest"])
+    expect(save.required).toEqual(["body", "collection", "data", "id", "ifDigest"])
+    expect(save.properties.body.description).toContain("Use null for a JSON or YAML collection")
+    expect((editorTools.content_get_document!.inputSchema as any).required).toEqual(["collection", "id"])
+    expect((editorTools.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "digest", "id"])
 
     // A singleton takes no id. Its own id works too; any other id is an input error.
     expect(await run(editorTools.content_save_draft, { collection: "settings", data: { title: "Site" }, body: "Text", ifDigest: null })).toMatchObject({
