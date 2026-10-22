@@ -1209,7 +1209,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       }), "utf8")
       await run("pnpm", ["exec", "tsc", "-p", "env-typecheck.json"], appDir)
 
-      // Nitro writes the Node server to .output/server and the browser build to .output/public (#2566).
+      // Nitro writes the Node server to .output/server (#2566).
       const nodeEmailSources = await readJavaScriptSources(join(appDir, ".output/server"))
       const nodeEmailOutput = Object.values(nodeEmailSources).join("\n")
       expect(nodeEmailOutput).toContain("RESEND_API_KEY")
@@ -1220,21 +1220,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         const help = await run("pnpm", ["exec", alias, "--help"], appDir)
         expect(help.stdout).toContain("Usage: vitehub")
       }
-
-      const client = await readJavaScript(join(appDir, ".output/public"))
-      expect(client).toContain("VITE_HUB_CONSUMER_CLIENT")
-      for (const forbidden of [
-        "VITE_HUB_SERVER_ONLY",
-        "node:fs",
-        "node:path",
-        "@vite-hub/agent",
-        "@vite-hub/workflow",
-        "@vite-hub/workspace",
-        "@cloudflare/",
-        "@vercel/",
-      ]) {
-        expect(client, `browser output contains server-only edge ${forbidden}`).not.toContain(forbidden)
-      }
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1242,9 +1227,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
   }, 3_600_000)
 
   // Skipped: these stages predate Nitro as the only host output (#2566). They read the removed dist/ layout
-  // (dist/app for Cloudflare, and dist/server through the fixture runtime smoke), and they never ran after that
-  // change because earlier stages of the consumer contract failed first. Re-enable them once they assert the
-  // .output, .vercel/output, and .netlify layouts that the builds write now.
+  // (dist/app for Cloudflare, dist/client, and dist/server through the fixture runtime smoke), and they never ran
+  // after that change because earlier stages of the consumer contract failed first. The fixture's second
+  // \`vite build --ssr server-entry.ts --outDir dist/server\` now writes into Nitro's .output/public instead.
+  // Re-enable them once the fixture and these stages use the .output, .vercel/output, and .netlify layouts.
   it.skip("builds Vercel, Cloudflare, and Netlify outputs from the packed fixture", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-consumer-"))
     const appDir = join(root, "app")
@@ -1499,6 +1485,21 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
 
       expect(workflowRegistry).toContain('"roundtrip"')
       await expect(readFile(join(appDir, ".vitehub/types/workspace.d.ts"), "utf8")).resolves.toContain('"docs"')
+
+      const client = await readJavaScript(join(appDir, "dist/client"))
+      expect(client).toContain("VITE_HUB_CONSUMER_CLIENT")
+      for (const forbidden of [
+        "VITE_HUB_SERVER_ONLY",
+        "node:fs",
+        "node:path",
+        "@vite-hub/agent",
+        "@vite-hub/workflow",
+        "@vite-hub/workspace",
+        "@cloudflare/",
+        "@vercel/",
+      ]) {
+        expect(client, `browser output contains server-only edge ${forbidden}`).not.toContain(forbidden)
+      }
     }
     finally {
       await rm(root, { force: true, recursive: true })
