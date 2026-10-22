@@ -39,6 +39,7 @@ import type {
   ContentReadOptions,
   ContentRef,
   ContentRevisionsOptions,
+  ContentRevision,
   ContentRevisionsResult,
   ContentSingleton,
 } from "./collections-types.ts"
@@ -141,6 +142,7 @@ export type {
   ContentReadOptions,
   ContentRef,
   ContentRevisionsOptions,
+  ContentRevision,
   ContentRevisionsResult,
   ContentSaveInput,
   ContentSingleton,
