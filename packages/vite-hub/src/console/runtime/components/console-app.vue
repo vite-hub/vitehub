@@ -74,6 +74,11 @@ const props = defineProps<{
   sectionsBase: string;
   usageBase: string;
 }>();
+
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);

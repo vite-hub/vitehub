@@ -54,7 +54,7 @@ interface ContentCollectionsRuntime {
 export { contentSource } from "./content-source.ts"
 // Keep the document collection builders available from the main Content entry
 // point as well as the dedicated `@vite-hub/content/collections` subpath.
-export { documents, optional } from "./collections.ts"
+export { documents, optional } from "./documents.ts"
 export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"

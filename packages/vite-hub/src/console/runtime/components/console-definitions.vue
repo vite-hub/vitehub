@@ -24,6 +24,10 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 interface ConsoleSectionEntry {
   detail: string;
   id: string;

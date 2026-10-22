@@ -45,6 +45,10 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+function errorMessage(value: unknown): string | undefined {
+  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
+}
+
 const route = useRoute();
 const router = useRouter();
 const stores = ref<string[]>([]);
