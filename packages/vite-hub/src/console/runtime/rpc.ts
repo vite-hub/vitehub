@@ -41,14 +41,11 @@ export interface ConsoleRpcInput {
   query?: Record<string, string | string[]>
 }
 
+/**
+ * One Console RPC result. A failure has the Console diagnostic fields: a stable `code`, `message` (the why),
+ * and `fix` and `docs` when the failure site has them. Owner action failures, such as `CONTENT_INVALID`, also carry
+ * JSON-safe `details`, such as per-field issues.
+ */
 export type ConsoleRpcResult =
   | { ok: true; value: unknown }
-  | {
-    /** A stable failure code from an owner action, such as `CONTENT_INVALID`. */
-    code?: string
-    /** JSON-safe failure details from an owner action, such as per-field issues. */
-    details?: Record<string, unknown>
-    message: string
-    ok: false
-    status: number
-  }
+  | { code: string; details?: Record<string, unknown>; docs?: string; fix?: string; message: string; ok: false; status: number }
