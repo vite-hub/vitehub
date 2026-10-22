@@ -568,11 +568,13 @@ async function runCapabilityCliWithTimeout(
 ): Promise<Response | AgentCapabilityCliExecutionResult> {
   const controller = new AbortController()
   const unlink = linkAbortSignal(controller, abortSignal)
-  // The timer below owns the CLI timeout. Passing `timeout` to the run would start a second, racing execution-budget
-  // deadline whose TimeoutError cannot be told apart from a nested operation's.
+  // A positive timeout belongs to the timer below. Passing it to the run too would start a second, racing execution-budget
+  // deadline whose TimeoutError cannot be told apart from a nested operation's. A non-positive one has no timer, so the run's
+  // budget keeps applying it.
   const run = runAgentInline(withCapabilityCliRun(agent, cli, execution) as never, context as never, {
     ...input,
     abortSignal: controller.signal,
+    ...(timeout <= 0 ? { timeout } : {}),
   }, { output: "raw" }) as Promise<Response | AgentCapabilityCliExecutionResult>
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined
