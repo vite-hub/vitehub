@@ -147,6 +147,7 @@ describe("Console section contributions", () => {
       label: "Widget Docs",
       pages: [
         { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+        { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Site", view: { kind: "document-settings" } },
         { id: "media", label: "Media", icon: "i-lucide-image", group: " Assets ", requires: ["blob"], view: { kind: "media-library" } },
       ],
       view: { kind: "document-editor", notice: "Documents live in the widget store." },
@@ -154,11 +155,12 @@ describe("Console section contributions", () => {
     const descriptor = describeViteHubConsoleSection(editor)
     expect(descriptor.pages).toEqual([
       { icon: "i-lucide-layout-dashboard", id: "dashboard", index: true, label: "Dashboard", view: { kind: "document-dashboard" } },
+      { group: "Site", icon: "i-lucide-settings-2", id: "settings", label: "Settings", view: { kind: "document-settings" } },
       { group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", requires: ["blob"], view: { kind: "media-library" } },
     ])
     // The host drops pages whose required sections the project does not enable, and keeps `requires` on the server.
-    expect(resolveViteHubConsoleSectionPages(descriptor, ["content"]).map(page => page.id)).toEqual(["dashboard"])
-    expect(resolveViteHubConsoleSectionPages(descriptor, ["content", "blob"])[1]).toEqual({ group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", view: { kind: "media-library" } })
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content"]).map(page => page.id)).toEqual(["dashboard", "settings"])
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content", "blob"])[2]).toEqual({ group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", view: { kind: "media-library" } })
     expect(resolveViteHubConsoleSectionPages(describeViteHubConsoleSection(table), [])).toEqual([])
 
     const page = editor.pages![0]!

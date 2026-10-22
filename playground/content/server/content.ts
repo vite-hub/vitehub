@@ -1,4 +1,5 @@
-import { defineContent, documents } from "vite-hub/content"
+import { image } from "vite-hub/blob"
+import { defineContent, documents, optional, singleton } from "vite-hub/content"
 import { z } from "zod"
 
 import { roleOf } from "./roles"
@@ -6,6 +7,16 @@ import { roleOf } from "./roles"
 export const content = defineContent({
   workspace: "site",
   collections: {
+    // One document for the whole site. The fields are this site's choice; ViteHub has no fixed settings schema.
+    settings: singleton({
+      path: "settings.json",
+      fields: {
+        title: z.string().min(1, "Add a site title."),
+        description: z.string().max(160, "Keep the description under 160 characters.").optional(),
+        socialImage: optional(image()),
+        social: z.array(z.url()).default([]),
+      },
+    }),
     posts: documents({
       path: "posts/**/*.md",
       fields: {

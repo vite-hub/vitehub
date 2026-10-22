@@ -334,7 +334,9 @@ function fieldKind(schema: Record<string, unknown>): ConsoleSchemaFieldKind {
   if (type === "array") {
     const items = record(schema.items)
     const itemTypes = items ? schemaTypes(items) : []
-    if (items && itemTypes.length === 1 && itemTypes[0] === "string" && !items.enum && !items.format) return "string-list"
+    // Tags edit plain text, so formats that are plain text too, such as URLs and emails, stay tags.
+    const textFormat = items?.format === undefined || ["email", "uri", "url"].includes(String(items.format))
+    if (items && itemTypes.length === 1 && itemTypes[0] === "string" && !items.enum && textFormat) return "string-list"
     return "json"
   }
   if (type === "object" && record(schema.properties)) return "object"
@@ -571,38 +573,6 @@ export function consoleListQuery(view: ConsoleListView, defaultSort: string): Re
   return query
 }
 
-// Frontmatter for comparisons: YAML-style lines, so nested fields diff line by line instead of as one JSON line.
-
-function frontmatterScalar(value: unknown): string {
-  if (String(value) !== value) return JSON.stringify(value)
-  // Plain text stays unquoted unless YAML would read it as another type or as syntax.
-  const plain = /^[\p{L}\p{N}][^:#\n]*$/u.test(value) && !/^(true|false|null|yes|no|~|[-+]?\d[\d._e+-]*)$/i.test(value) && value.trim() === value
-  return plain ? value : JSON.stringify(value)
-}
-
-function frontmatterLines(key: string, value: unknown, indent: string): string[] {
-  if (Array.isArray(value)) {
-    if (!value.length) return [`${indent}${key}: []`]
-    if (value.every(entry => !(entry instanceof Object))) return [`${indent}${key}: [${value.map(frontmatterScalar).join(", ")}]`]
-    return [`${indent}${key}:`, ...value.map(entry => `${indent}  - ${entry instanceof Object ? JSON.stringify(entry) : frontmatterScalar(entry)}`)]
-  }
-  const object = record(value)
-  if (object) {
-    const entries = Object.entries(object).sort(([left], [right]) => left.localeCompare(right))
-    if (!entries.length) return [`${indent}${key}: {}`]
-    return [`${indent}${key}:`, ...entries.flatMap(([child, entry]) => frontmatterLines(child, entry, `${indent}  `))]
-  }
-  return [`${indent}${key}: ${frontmatterScalar(value)}`]
-}
-
-/** Renders document fields as sorted YAML-style frontmatter lines, for the comparison view. */
-export function renderConsoleFrontmatter(data: Record<string, unknown>): string {
-  return Object.entries(data)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([key, value]) => frontmatterLines(key, value, ""))
-    .join("\n")
-}
-
 // The list keeps its view when someone opens a document and comes back.
 const listQueries = new Map<string, Record<string, string>>()
 
@@ -665,3 +635,69 @@ export function groupConsoleRevisionRuns(revisions: readonly ConsoleDocumentRevi
 }
 
 export type { ConsoleDocumentCollection }
+
+// Document files
+
+export type ConsoleDocumentFormat = "markdown" | "json" | "yaml"
+
+/** Whether documents of a collection have a Markdown body. JSON and YAML documents are fields only. */
+export function consoleDocumentHasBody(collection: Pick<ConsoleDocumentCollection, "format">): boolean {
+  return (collection.format ?? "markdown") === "markdown"
+}
+
+const ambiguousYamlScalar = /^(?:true|false|yes|no|on|off|y|n|null|~|[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[\da-f]+|0o[0-7]+|[-+]?\.inf|\.nan)$/i
+
+/** Whether a string can be written as a plain YAML scalar and read back as the same string. */
+function isPlainYamlString(value: string): boolean {
+  return Boolean(value)
+    && value.trim() === value
+    && !/^[-?:,[\]{}#&*!|>'"%@`]/.test(value)
+    && ![...value].some(character => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7F)
+    && !/: | #|:$/.test(value)
+    && !ambiguousYamlScalar.test(value)
+}
+
+/** A YAML scalar. Strings that would read back differently are quoted as JSON, which YAML also reads. */
+function yamlScalar(value: unknown): string {
+  if (value === null || value === undefined) return "null"
+  if (String(value) === value) return isPlainYamlString(value) ? value : JSON.stringify(value)
+  return JSON.stringify(value)
+}
+
+function yamlLines(value: unknown, indent: string): string[] {
+  if (Array.isArray(value)) {
+    if (!value.length) return [`${indent}[]`]
+    return value.flatMap((entry) => {
+      const nested = yamlBlock(entry, `${indent}  `)
+      if (!nested) return [`${indent}- ${yamlScalar(entry)}`]
+      // The first key of an object item shares the dash line.
+      return Array.isArray(entry) ? [`${indent}-`, ...nested] : [`${indent}- ${nested[0]!.trimStart()}`, ...nested.slice(1)]
+    })
+  }
+  const entries = Object.entries(record(value) ?? {})
+  if (!entries.length) return [`${indent}{}`]
+  return entries.flatMap(([key, entry]) => {
+    const nested = yamlBlock(entry, `${indent}  `)
+    return nested ? [`${indent}${yamlScalar(key)}:`, ...nested] : [`${indent}${yamlScalar(key)}: ${yamlScalar(entry)}`]
+  })
+}
+
+/** Block lines for a non-empty object or list, or undefined for a value that fits on its key's line. */
+function yamlBlock(value: unknown, indent: string): string[] | undefined {
+  if (Array.isArray(value)) return value.length ? yamlLines(value, indent) : undefined
+  const object = record(value)
+  return object && Object.keys(object).length ? yamlLines(object, indent) : undefined
+}
+
+/**
+ * The text of a document in its file format, for diffs: a Markdown file with YAML frontmatter, an indented JSON object,
+ * or a YAML mapping. Nested fields become nested YAML blocks, so a change to one nested value is one changed line.
+ */
+export function consoleDocumentText(version: { body: string, data: Record<string, unknown> }, format: ConsoleDocumentFormat = "markdown"): string {
+  if (format === "json") return `${JSON.stringify(version.data, null, 2)}\n`
+  const fields = Object.keys(version.data).length ? `${yamlLines(version.data, "").join("\n")}\n` : ""
+  if (format === "yaml") return fields || "{}\n"
+  // Compare bodies by content, not by a trailing newline that the rich editor drops.
+  const body = version.body.endsWith("\n") ? version.body : `${version.body}\n`
+  return `${fields ? `---\n${fields}---\n\n` : ""}${body}`
+}

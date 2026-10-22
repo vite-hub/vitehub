@@ -116,6 +116,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:rotate-cw",
   "lucide:search",
   "lucide:search-x",
+  "lucide:settings-2",
   "lucide:share-2",
   "lucide:shield-check",
   "lucide:square",
