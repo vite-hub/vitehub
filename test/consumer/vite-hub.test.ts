@@ -325,11 +325,13 @@ async function assertOptionalPackagesUnreachable(appDir: string) {
 }
 
 // Agent bundles @t3tools/provider-runtime, which is published only on pkg.pr.new, with the Effect copy it imports
-// (#2480). The packed Agent must load its provider entry from its own files, without the msgpackr native addon, and
-// must not name the runtime or Effect as installable dependencies.
+// (#2480). The packed Agent must load its provider entry from its own files and must not name the runtime or Effect
+// as installable dependencies. The bundle has no msgpackr, so there is no native addon fallback to exercise. If a
+// bundle starts to include msgpackr, this check fails and the pack and unpack round trip with
+// MSGPACKR_NATIVE_ACCELERATION_DISABLED must come back.
 async function assertProviderRuntimeLoads(appDir: string) {
   const script = [
-    "import { readFileSync } from \"node:fs\"",
+    "import { readdirSync, readFileSync } from \"node:fs\"",
     "import { createRequire } from \"node:module\"",
     "import { dirname, join } from \"node:path\"",
     "import { pathToFileURL } from \"node:url\"",
@@ -343,11 +345,12 @@ async function assertProviderRuntimeLoads(appDir: string) {
     "const entry = join(dirname(agentPackage), manifest.imports[\"#vitehub/agent/provider-agent\"].default)",
     "const providerAgent = await import(pathToFileURL(entry).href)",
     "if (typeof providerAgent.createProviderAgentAdapter !== \"function\") throw new Error(\"provider runtime did not load\")",
+    "const dist = join(dirname(agentPackage), \"dist\")",
+    "const msgpackrFiles = readdirSync(dist, { recursive: true }).map(String)",
+    "  .filter(file => file.endsWith(\".js\") && readFileSync(join(dist, file), \"utf8\").includes(\"msgpackr\"))",
+    "if (msgpackrFiles.length) throw new Error(`Agent bundles msgpackr in ${msgpackrFiles.join(\", \")}. Test its fallback without the native addon.`)",
   ].join("\n")
-  await run("node", ["--input-type=module", "--eval", script], appDir, {
-    ...process.env,
-    MSGPACKR_NATIVE_ACCELERATION_DISABLED: "true",
-  })
+  await run("node", ["--input-type=module", "--eval", script], appDir)
 }
 
 // Blob driver SDKs are optional peers. A vite-hub-only app must not install them.
