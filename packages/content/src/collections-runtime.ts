@@ -1535,4 +1535,3 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     dispose: plugin,
   }
 }
-

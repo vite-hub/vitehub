@@ -120,7 +120,7 @@ Each line is a [`status()` state](/docs/content/server-api#status), `collection/
 -title: Hello
 +title: Hello again
  ---
- 
+
  Hi.
 ```
 
