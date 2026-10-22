@@ -5,7 +5,7 @@ definePageMeta({ layout: "docs" });
 useSeoMeta({
   title: "Templates",
   ogTitle: "Templates · ViteHub",
-  description: "Start a ViteHub application from a published GitHub template.",
+  description: "Start a ViteHub application from a published GitHub template. Each template links to its source and the first file to open.",
 });
 </script>
 

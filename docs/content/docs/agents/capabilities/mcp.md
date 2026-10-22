@@ -1,6 +1,6 @@
 ---
 title: MCP
-description: Connect an Agent to external MCP server tools.
+description: Connect an Agent to tools from external MCP servers, authenticate through a Connection, and pin the tool definitions.
 navigation.title: MCP
 navigation.order: 220
 navigation.group: Capabilities

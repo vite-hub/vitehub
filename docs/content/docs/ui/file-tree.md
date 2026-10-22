@@ -1,6 +1,6 @@
 ---
 title: File Tree
-description: Render and control Pierre's path-first file tree from Vue.
+description: "Render Pierre's path-first file tree from Vue, control its expanded and selected state, and keep it accessible."
 navigation.order: 39
 navigation.group: Agent work
 icon: i-ph-tree-structure-light

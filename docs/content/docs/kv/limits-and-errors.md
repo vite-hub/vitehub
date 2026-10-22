@@ -1,6 +1,6 @@
 ---
 title: KV limits and errors
-description: Handle KV errors by code, and repair KV configuration errors.
+description: Handle KV errors by stable code, and repair KV configuration, runtime, provider, and tool errors before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

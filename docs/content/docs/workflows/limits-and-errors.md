@@ -1,6 +1,6 @@
 ---
 title: Workflows limits and errors
-description: Throw stable Workflow errors and check Workflows before production.
+description: Throw stable Workflow errors with structured codes, and check a Workflow and its provider before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

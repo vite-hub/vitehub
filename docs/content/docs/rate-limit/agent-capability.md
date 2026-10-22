@@ -1,6 +1,6 @@
 ---
 title: Rate Limit capability
-description: Consume a Rate Limiter before an Agent Invocation starts.
+description: Consume a Rate Limiter before an Agent Invocation starts, choose the identity to limit, and use a custom driver.
 navigation.title: Agent capability
 navigation.order: 5
 icon: i-lucide-gauge

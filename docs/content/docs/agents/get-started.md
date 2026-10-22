@@ -1,6 +1,6 @@
 ---
 title: Define your first Agent
-description: Build an offline greeting Agent and call it from a server route.
+description: Install Agents, build an offline greeting Agent that needs no API key, call it from a server route, and verify the response.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

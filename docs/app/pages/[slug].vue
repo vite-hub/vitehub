@@ -44,14 +44,8 @@ if (!landing && page.value) {
       }"
     />
 
-    <UPageBody prose class="trust-content !max-w-none !px-0 !pb-0 pt-10">
+    <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <ContentRenderer :value="page" />
     </UPageBody>
   </main>
 </template>
-
-<style scoped>
-.trust-content :deep(h1:first-of-type) {
-  display: none;
-}
-</style>
