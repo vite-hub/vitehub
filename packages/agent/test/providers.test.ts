@@ -767,9 +767,7 @@ describe("agent Vite plugin", () => {
         // SAFETY: hubAgent installs configResolved as an async Vite hook.
         const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
         await configResolved({ command: "serve", createResolver: () => async (id: string) => id, plugins, root })
-        // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-        const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
-        return await transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+        return await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       }
 
       const registry = await configure(hubAgent(), [sourcePlugin])
@@ -800,9 +798,7 @@ describe("agent Vite plugin", () => {
         // SAFETY: hubAgent installs configResolved as an async Vite hook.
         const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
         await configResolved({ command: "serve", createResolver: () => async (id: string) => id, plugins, root })
-        // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-        const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
-        return await transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+        return await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       }
 
       const registry = await configure([{ name: "@vite-hub/auth/vite" }])
