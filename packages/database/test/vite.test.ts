@@ -250,7 +250,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("keeps request scope middleware for opaque D1 read replication", async () => {
@@ -274,7 +277,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("keeps request scope middleware when a configured D1 readReplication is dynamic", async () => {
@@ -291,7 +297,10 @@ describe("hubDb", () => {
 
     await resolveConfigResolved(plugin)({ root: rootDir })
 
-    expect(options.handlers).toEqual([{ handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true }])
+    expect(options.handlers).toEqual([
+      { handler: join(rootDir, ".vitehub/nitro/database/request-stats.mjs"), middleware: true },
+      { handler: join(rootDir, ".vitehub/nitro/database/request-scope.mjs"), middleware: true },
+    ])
   })
 
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
