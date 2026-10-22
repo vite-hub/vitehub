@@ -296,7 +296,7 @@ export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pa
 }
 
 /**
- * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandboxes`, `sandbox-tasks`,
+ * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandbox-tasks`,
  * `workspaces`, `workflows`, `queues`, and `schedules`. `console/contributions.ts` maps each id to its owner.
  */
 export function resolveConsoleSectionIds(options: { env?: unknown; connections?: unknown; agent?: unknown; blob?: unknown; database?: unknown; email?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandboxTask?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {

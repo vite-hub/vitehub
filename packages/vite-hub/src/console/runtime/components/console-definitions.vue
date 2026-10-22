@@ -24,10 +24,6 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
-}
-
 interface ConsoleSectionEntry {
   detail: string;
   id: string;
@@ -228,17 +224,8 @@ onBeforeUnmount(() => request?.abort());
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed && errorMessage(error)" class="px-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Could not load definitions"
-            :description="errorMessage(error)"
-            :actions="[
-              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadDefinitions },
-            ]"
-          />
+        <div v-if="!collapsed && error" class="px-3">
+          <ConsoleState compact :error="error" title="Could not load definitions" :retry="loadDefinitions" />
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">

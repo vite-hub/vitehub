@@ -30,10 +30,6 @@ const props = defineProps<{
   view: "data" | "schema";
 }>();
 
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error ? value.message : value ? "The console could not load this data." : undefined;
-}
-
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
@@ -440,18 +436,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template #body>
-        <UAlert
-          v-if="errorMessage(error)"
-          class="m-3"
-          color="error"
-          variant="subtle"
-          icon="i-lucide-cloud-off"
-          title="Could not load database"
-          :description="errorMessage(error)"
-          :actions="[
-            { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadDatabase },
-          ]"
-        />
+        <ConsoleState v-if="error" :error="error" title="Could not load database" :retry="loadDatabase" />
         <div
           v-else-if="loading && !database"
           class="flex min-h-0 flex-1 items-center justify-center"
