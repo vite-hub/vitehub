@@ -15,13 +15,14 @@ const workflow = parse(object({ permissions: record(string(), string()), jobs: r
 })) }), parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
 const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
 const gate = workflow.jobs.ci!
+const fullSuite = "${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}"
 
-function runGate(results: Record<string, { result: string }>, event = "pull_request") {
+function runGate(results: Record<string, { result: string }>, event = "pull_request", repairMain = false) {
   const command = gate.steps.find(step => step.env?.CI_RESULTS)?.run
   if (!command) throw new Error("The ci check must inspect dependency job results")
   return spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
     encoding: "utf8",
-    env: { ...process.env, CI_RESULTS: JSON.stringify(results), GITHUB_EVENT_NAME: event },
+    env: { ...process.env, CI_RESULTS: JSON.stringify(results), GITHUB_EVENT_NAME: event, REPAIR_MAIN: String(repairMain) },
   })
 }
 
@@ -92,7 +93,7 @@ describe("CI merge gate", () => {
 
   it("runs docs workspace tests on pushes", () => {
     const docs = workflow.jobs.docs
-    expect(docs?.if).toBe("${{ github.event_name != 'pull_request' }}")
+    expect(docs?.if).toBe(fullSuite)
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
   })
 
@@ -134,6 +135,18 @@ describe("CI merge gate", () => {
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
+  it("rejects the push-only checks skipped on a repair-main pull request", () => {
+    // A repair that passed only the pull request checks merged and left main red.
+    const results = Object.fromEntries(jobNames.map(name => [name, {
+      result: pullRequestJobs.includes(name) ? "success" : "skipped",
+    }]))
+    expect(gate.steps.find(step => step.env?.CI_RESULTS)?.env?.REPAIR_MAIN).toBe("${{ startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository }}")
+    const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain("docs: skipped")
+    expect(result.stderr).not.toContain("docs-deploy")
+  })
+
   it.each(pullRequestJobs)("runs %s on pull requests and rejects a skipped result", (name) => {
     expect(workflow.jobs[name]?.if).toBeUndefined()
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
@@ -144,8 +157,8 @@ describe("CI merge gate", () => {
     expect(commands).toContain("node test/run-package-task.mjs test ${{ matrix.shard.args }} --affected \"$BASE_REF\" --list")
   })
 
-  it("keeps consumer contracts on push", () => {
-    expect(workflow.jobs["consumer-contracts"]?.if).toBe("${{ github.event_name != 'pull_request' }}")
+  it("keeps consumer contracts on push and repair-main pull requests", () => {
+    expect(workflow.jobs["consumer-contracts"]?.if).toBe(fullSuite)
   })
 
   it.each(jobNames)("rejects a failed or cancelled %s job", (name) => {

@@ -3,6 +3,7 @@ import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { isScheduleDate, validateScheduledAt } from "./date.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -151,13 +152,23 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   }
   const cron = normalizeCron(options.cron)
   const scheduledAt = validateScheduledAt(options.scheduledAt)
-  const runs: Array<Promise<unknown>> = []
+  const runs: Array<{ name: string, run: Promise<unknown> }> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
     if (!definition || normalizeCron(definition.cron) !== cron) continue
-    runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
+    runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
-  return await Promise.all(runs)
+  // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
+  const results = await Promise.allSettled(runs.map(({ run }) => run))
+  const failures: unknown[] = []
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") return
+    failures.push(result.reason)
+    console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+  })
+  if (failures.length === 1) throw failures[0]
+  if (failures.length) throw new AggregateError(failures, `[vitehub:schedule] ${failures.length} schedules failed for cron "${options.cron}".`)
+  return results.map(result => result.status === "fulfilled" ? result.value : undefined)
 }
 
 export async function executeCloudflareStaticSchedules(

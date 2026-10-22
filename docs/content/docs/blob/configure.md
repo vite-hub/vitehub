@@ -92,6 +92,8 @@ export default defineConfig({
 
 Use `serve.headers` for static cache and security policy. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 
+When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`. With `no-cache`, the browser keeps its copy and asks again on each use: your access check still runs on every request, and an unchanged object answers `304` with no body. With `no-store`, the browser keeps nothing and downloads the full object on every visit. Revalidation needs an `ETag` from the driver; an object without one downloads in full each time.
+
 The generated Nitro route maps `${route}/**` to the selected Blob Store and delegates streaming to `blob.store(storeName).serve(event, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
 Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL is absolute. Without it, the URL is route-relative so request-aware consumers can resolve it against their own origin.
