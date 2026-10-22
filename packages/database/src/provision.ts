@@ -19,6 +19,7 @@ interface PlannedDatabase {
   databaseName: string
   definitions: string[]
   nuxt: boolean
+  readReplication: boolean
 }
 
 function parseDatabases(value: unknown): CloudflareD1Database[] {
@@ -52,17 +53,25 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
     const cloudflare = config?.databases[definition]?.cloudflare
     const databaseName = resolveConfigValue(cloudflare?.databaseName)
     if (!databaseName) continue
+    const readReplication = cloudflare?.readReplication === true
     const matching = plannedByName.get(databaseName)
-    if (matching) matching.definitions.push(definition)
-    else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false })
+    if (matching) {
+      matching.definitions.push(definition)
+      matching.readReplication ||= readReplication
+    }
+    else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false, readReplication })
   }
   const integrationDatabaseName = options && options.driver === "d1" && nuxtHostResource
     ? resolveConfigValue(options.databaseName)
     : undefined
   if (integrationDatabaseName) {
+    const readReplication = options !== false && options?.readReplication === true
     const matching = plannedByName.get(integrationDatabaseName)
-    if (matching) matching.nuxt = true
-    else plannedByName.set(integrationDatabaseName, { databaseName: integrationDatabaseName, definitions: [], nuxt: true })
+    if (matching) {
+      matching.nuxt = true
+      matching.readReplication ||= readReplication
+    }
+    else plannedByName.set(integrationDatabaseName, { databaseName: integrationDatabaseName, definitions: [], nuxt: true, readReplication })
   }
   return [...plannedByName.values()]
 }
@@ -92,7 +101,7 @@ export function createDatabaseProvisionStep(
         .filter((database): database is { name: string, uuid: string } => Boolean(database.name && database.uuid))
         .map(database => [database.name, database.uuid]))
 
-      return planned.map(({ databaseName, definitions, nuxt }): ProvisionAction => {
+      return planned.map(({ databaseName, definitions, nuxt, readReplication }): ProvisionAction => {
         const existingId = idByName.get(databaseName)
         return {
           kind: "cloudflare-d1",
@@ -100,9 +109,14 @@ export function createDatabaseProvisionStep(
           exists: Boolean(existingId),
           apply: async () => {
             let id = existingId
+            // D1 places replicas itself. Reads use them only when the Definition sets `readReplication`.
+            const replication = readReplication ? { read_replication: { mode: "auto" } } : {}
             if (!id) {
-              const created = await request("/d1/database", { method: "POST", body: { name: databaseName }, parse: parseDatabase })
+              const created = await request("/d1/database", { method: "POST", body: { name: databaseName, ...replication }, parse: parseDatabase })
               id = created.result?.uuid
+            }
+            else if (readReplication) {
+              await request(`/d1/database/${encodeURIComponent(id)}`, { method: "PATCH", body: replication, parse: parseDatabase })
             }
             if (!id) return {}
             const definitionIds = Object.fromEntries(definitions.map(definition => [definition, id]))

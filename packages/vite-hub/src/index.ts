@@ -44,6 +44,7 @@ import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
+import { viteHubTaskPlugin } from "./task/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
@@ -1185,6 +1186,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
+  // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
+  plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({

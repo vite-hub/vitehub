@@ -311,6 +311,24 @@ describe("resolveDBViteConfig", () => {
     expect(resolved?.definitionDefaults.cloudflareProjections.default?.resource).toBe("opaque")
   })
 
+  it("projects dynamic read replication from an identifier-valued Cloudflare config", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "const cloudflare = { readReplication: process.env.READ_REPLICATION === 'true' }",
+      "export default defineDatabase({ cloudflare, schema: {} })",
+      "",
+    ].join("\n"))
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)
+
+    expect(resolved?.definitionDefaults.cloudflareProjections.default).toMatchObject({
+      readReplication: "opaque",
+    })
+  })
+
   it("does not treat an empty parsed Definition object as unresolvable Cloudflare configuration", async () => {
     const rootDir = await createTempProject()
     const file = join(rootDir, "server/databases/config.ts")
