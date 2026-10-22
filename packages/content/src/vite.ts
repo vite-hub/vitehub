@@ -158,7 +158,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
 
   async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
-    const file = await findContentEntry({ projectRoot: root, serverDirs: input.serverDirs })
+    const file = await findContentEntry({ projectRoot: root, serverDirs: input.serverDirs?.slice() })
     if (!file) return
     const usage = await readCmsPresetUsageFile(file, root, parseAst)
     if (!usage) return

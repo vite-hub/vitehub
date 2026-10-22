@@ -33,7 +33,7 @@ import type {
   ViteHubConsoleMediaAccess,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
-import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections-types.ts"
+import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions, ContentPage } from "../collections-types.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"
@@ -907,7 +907,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             if (collection.format !== "markdown") continue
             cursor = undefined
             do {
-              const page = await collection.list(cursor ? { ref, limit: referencePageSize, cursor } : { ref, limit: referencePageSize })
+              const page: ContentPage = await collection.list(cursor ? { ref, limit: referencePageSize, cursor } : { ref, limit: referencePageSize })
               for (const item of page.items) {
                 const document = await collection.get(item.id, { ref })
                 if (!document) continue

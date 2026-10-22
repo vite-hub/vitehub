@@ -762,6 +762,7 @@ function isRequestLike(value: unknown): value is Request {
     const headersNativePrototype = typeof headersConstructor === "function" ? headersConstructor.prototype : undefined
     if (!headersNativePrototype || Object.getOwnPropertyDescriptor(headersNativePrototype, "get")?.value !== headersGet
       || Object.getOwnPropertyDescriptor(headersNativePrototype, "forEach")?.value !== headersForEach) return false
+    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return false
     Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
     Reflect.apply(headersForEach, headers, [() => {}])
     return typeof method === "string" && typeof url === "string"

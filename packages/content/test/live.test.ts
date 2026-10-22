@@ -176,7 +176,8 @@ describe("contentDocument", { timeout: 30_000 }, () => {
 
 describe("contentRealtime", { timeout: 30_000 }, () => {
   function authorizeContext(documentId: string | null, mode: "read" | "write", user: { id: string, name?: string } | null): RealtimeAuthorizeContext {
-    return { definition: "content", documentId, event: undefined, mode, request: new Request("https://example.com"), user }
+    // SAFETY: contentRealtime() reads only the request and the user of this context, never the event.
+    return { definition: "content", documentId, event: {} as RealtimeAuthorizeContext["event"], mode, request: new Request("https://example.com"), user }
   }
 
   it("routes rooms to Markdown documents and singletons only", async () => {
