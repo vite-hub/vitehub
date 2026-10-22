@@ -15,6 +15,7 @@ icon: i-lucide-code-2
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read the `body`, `fields`, and `status` root types of a room document. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
+| `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server integration. The ViteHub integration generates this route for normal applications. |
 
@@ -246,6 +247,23 @@ Save and checkpoint requests send the client's Yjs state. The server answers
 `409` with `REALTIME_SYNC_PENDING` until it has received that state; the
 composable retries. A save or checkpoint that finds the stored document
 changed answers `409` with `REALTIME_SOURCE_CHANGED` after re-seeding the room.
+
+When the server changes a stored document itself, for example in a route
+that an Agent calls, call `refreshRealtimeDocument(definition, documentId)`
+after the write. The open room re-seeds and resets its clients at once, so
+people see the change without a `refresh()` from the browser:
+
+```ts [server/api/pages/[id].put.ts]
+import { refreshRealtimeDocument } from 'vite-hub/realtime/server'
+
+await db.pages.update(id, { body })
+await refreshRealtimeDocument('pages', id)
+```
+
+It resolves `true` when a room re-seeded and never throws. A room with unsaved
+edits finds the change at its next save, and a room that is not open loads the
+new copy when it opens. On Cloudflare it reaches the rooms through the Worker's
+`$DurableObject` binding; pass `{ durableObjects }` only to use another one.
 
 Listen for resets to tell people what happened and to recover text that the
 room never saved:

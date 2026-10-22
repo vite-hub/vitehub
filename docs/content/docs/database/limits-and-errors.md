@@ -38,6 +38,7 @@ export default defineEventHandler(async () => {
 | --- | --- |
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
+| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
 | `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
@@ -72,6 +73,18 @@ The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databa
 ### DATABASE_NOT_FOUND
 
 `useDatabase(name)` or `agentDb.database(name)` received a name that has no Database Definition. Run `vitehub inspect definitions --kind database` to see the discovered databases.
+
+## Migration errors
+
+`vitehub db migrate` reads the Drizzle migrations table of each database before it applies anything. It prints these errors, changes no database, and exits with code 1.
+
+### DATABASE_MIGRATION_CHECK_FAILED
+
+ViteHub cannot read which migrations the database has applied. `error.why` has the reason, for example missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or an invalid `meta/_journal.json`. Make the database reachable with the same connection that `vitehub db migrate` uses. To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.
+
+### DATABASE_MIGRATION_DATA_LOSS
+
+A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
 
 ## Definition errors
 
