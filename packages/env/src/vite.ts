@@ -1,6 +1,6 @@
 import { describeServerEnv } from "./server.ts"
 import { createHash, randomBytes } from "node:crypto"
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -419,42 +419,65 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
   const envKey = `VITEHUB_SECRET_${createHash("sha256").update(resolve(projectRoot)).digest("hex").slice(0, 16)}`
   if (configured) return { generated: false, secret: configured, envKey }
   const secretPath = resolve(projectRoot, ".vitehub", "env", "secret")
-  const lockPath = `${secretPath}.lock`
-  await mkdir(dirname(secretPath), { recursive: true })
-  let lockOwned = false
-  for (;;) {
-    try {
-      await mkdir(lockPath)
-      lockOwned = true
-      break
-    }
-    catch (error) {
-      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
+  let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+  if (!generatedSecretPattern.test(secret)) {
+    await mkdir(dirname(secretPath), { recursive: true })
+    const lockPath = `${secretPath}.lock`
+    let lock: Awaited<ReturnType<typeof open>> | undefined
+    for (let attempt = 0; attempt < 120 && !lock; attempt++) {
       try {
-        const lockAge = Date.now() - (await stat(lockPath)).mtimeMs
-        if (lockAge > 30_000) await rm(lockPath, { recursive: true, force: true })
+        lock = await open(lockPath, "wx", 0o600)
+        await lock.writeFile(`${process.pid}\n`)
       }
-      catch (statError) {
-        if (Reflect.get(Object(statError), "code") !== "ENOENT") throw statError
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+        try {
+          const lockStat = await stat(lockPath)
+          const owner = await readFile(lockPath, "utf8").catch(() => "")
+          let ownerAlive = false
+          const ownerPid = Number.parseInt(owner, 10)
+          if (Number.isInteger(ownerPid) && ownerPid > 0) {
+            try {
+              process.kill(ownerPid, 0)
+              ownerAlive = true
+            }
+            catch (error) {
+              ownerAlive = (error as NodeJS.ErrnoException).code !== "ESRCH"
+            }
+          }
+          if (!ownerAlive && Date.now() - lockStat.mtimeMs > 30_000) {
+            // Claim stale ownership by renaming the old inode. This prevents
+            // its eventual owner from removing a newer lock at the pathname.
+            const stalePath = `${lockPath}.${process.pid}.${Date.now()}.stale`
+            await rename(lockPath, stalePath).catch(() => {})
+            await unlink(stalePath).catch(() => {})
+          }
+        }
+        catch {}
+        await new Promise(resolve => setTimeout(resolve, 5))
       }
-      await new Promise(resolveDelay => setTimeout(resolveDelay, 25))
+    }
+    if (!lock) throw new Error(`Timed out waiting for generated secret lock: ${secretPath}`)
+    const replacementPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
+    try {
+      secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
+      if (!generatedSecretPattern.test(secret)) {
+        secret = randomBytes(32).toString("hex")
+        await writeFile(replacementPath, secret, { flag: "wx", mode: 0o600 })
+        await rename(replacementPath, secretPath)
+      }
+    }
+    finally {
+      const owned = await lock.stat().then(lockStat =>
+        stat(lockPath).then(pathStat => lockStat.dev === pathStat.dev && lockStat.ino === pathStat.ino, () => false),
+      )
+      await lock.close()
+      if (owned) await unlink(lockPath).catch(() => {})
+      await unlink(replacementPath).catch(() => {})
     }
   }
-  try {
-    // Another process may have created the file while we waited for ownership.
-    let secret = await readFile(secretPath, "utf8").then(value => value.trim(), () => "")
-    if (!generatedSecretPattern.test(secret)) {
-      secret = randomBytes(32).toString("hex")
-      const temporaryPath = `${secretPath}.${process.pid}.${Date.now()}.tmp`
-      await writeFile(temporaryPath, secret, { mode: 0o600 })
-      await chmod(temporaryPath, 0o600)
-      await rename(temporaryPath, secretPath)
-    }
-    return { generated: true, secret, envKey }
-  }
-  finally {
-    if (lockOwned) await rm(lockPath, { recursive: true, force: true })
-  }
+  await chmod(secretPath, 0o600)
+  return { generated: true, secret, envKey }
 }
 
 async function refreshEnvGeneratedFiles(

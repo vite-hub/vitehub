@@ -27,7 +27,7 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | Node or Docker | The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
 
 ::warning
-Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. A Static Schedule that sets a `timeZone` other than `UTC` fails the build when the build generates provider output. Runtime Schedules still need an existing Provider Wake or a long-running host to execute due schedules.
+Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. A Static Schedule that sets a `timeZone` other than `UTC` fails the build when the build generates provider output.
 ::
 
 ## Run and inspect Schedules during development
@@ -60,4 +60,4 @@ Memory stores lose runs when the runtime restarts. Configure a KV store to keep 
 
 Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
 
-Provider Wake output is UTC. Static Schedule Definitions can set `timeZone` only with the process driver. Runtime Schedules use UTC by default and can persist an IANA `timeZone` when local clock time must follow daylight-saving changes.
+Provider Wake output is UTC. Static Schedule Definitions can set `timeZone` only with the process driver.

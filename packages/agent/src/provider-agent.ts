@@ -1,4 +1,4 @@
-import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
@@ -511,7 +511,7 @@ const providerHostEnvironmentKeys = [
   "XDG_DATA_HOME",
 ] as const
 
-function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
+function providerEnvironment(env: Record<string, string | undefined> | undefined): Record<string, string> {
   const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
     return hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []
   }))
@@ -2981,7 +2981,7 @@ async function* runProvider<
   let claudeSandboxPromptFile: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
-  let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
+  let providerRuntimeEnvironment: Record<string, string> | undefined
   const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
     browserRuntimeEnvironment(context.context),
     providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
@@ -3415,7 +3415,7 @@ async function* runProvider<
       const fallbackInstructions = effectiveCodexInstructions ?? await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => "")
       const digestInput = codexDeveloperInstructions === undefined
         ? JSON.stringify([fallbackInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
-        : effectiveCodexInstructions
+        : codexDeveloperInstructions
       developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
     }
     // Codex renders developer instructions only when a thread starts. Resume a
@@ -4177,10 +4177,11 @@ export function createProviderAgentAdapter<
   const cwdLocks = new Map<string, Promise<void>>()
   const codexHomeRetention: CodexHomeRetentionSource | undefined = options.provider === "codex" && options.retention
     ? {
-        cursors: () => resumeCursors.values(),
+        // Since #2636 the map holds resume states; retention reads the provider cursor in each.
+        cursors: () => [...resumeCursors.values()].map(state => state.cursor),
         invalidate(threadIds) {
-          for (const [key, cursor] of resumeCursors) {
-            const threadId = providerNativeThreadId(cursor)?.toLowerCase()
+          for (const [key, state] of resumeCursors) {
+            const threadId = providerNativeThreadId(state.cursor)?.toLowerCase()
             if (threadId && threadIds.has(threadId)) resumeCursors.delete(key)
           }
         },
@@ -4199,7 +4200,7 @@ export function createProviderAgentAdapter<
       ? AbortSignal.any([context.input.abortSignal, invocationTimeoutSignal])
       : context.input.abortSignal || invocationTimeoutSignal
     const retryContext = retrySignal && retrySignal !== context.input.abortSignal
-      ? { ...context, input: { ...context.input, abortSignal: retrySignal } }
+      ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
     return retryProviderLaunch(
       () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, codexHomeRetention),

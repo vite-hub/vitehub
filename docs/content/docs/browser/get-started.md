@@ -3,7 +3,7 @@
 title: Run your first Browser Definition
 description: Read a page with Cloudflare Browser Run and return its rendered HTML.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

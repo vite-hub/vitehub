@@ -4,7 +4,6 @@ description: Document adapters, editor codecs, structured documents, identity, a
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports and generated output

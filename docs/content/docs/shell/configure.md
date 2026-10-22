@@ -4,7 +4,6 @@ description: Select a Shell provider and set runtime, session, and exec options.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Providers
