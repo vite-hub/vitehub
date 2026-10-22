@@ -697,7 +697,7 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('[{ id: "actions", items: props.actions, label: "Actions" }]');
+    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]');
     expect(consoleSearch).toContain('label: "Overview"');
     expect(consoleSearch).toContain('label: "Go to"');
     expect(consoleSearch).toContain("kbds: [...shortcut]");
@@ -716,6 +716,7 @@ describe("framework package contract", () => {
     searchTimer = undefined
     navigationRequest?.abort()
     sessionRequest?.abort()
+    documentRequest?.abort()
     return
   }`);
     expect(consoleSearch).toContain("if (!open.value) return");

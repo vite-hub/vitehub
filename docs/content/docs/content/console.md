@@ -10,6 +10,19 @@ The Console has a Content section for the [document collections](/docs/content/c
 
 The section appears when `server/content.ts` passes `collections` to `defineContent()`. A Content file with only read-only Sources has nothing to edit, so the Console leaves the section out. Discovery reads the file without running it: when it cannot follow the collections, such as an object imported from another file, it keeps the section and the editor lists what the runtime defines. The section lists every collection that the signed-in user may read.
 
+## Find your way around
+
+`/_vitehub/content` opens the dashboard:
+
+- Counts of drafts, changed, published, and deleted documents across the collections you may read.
+- **Needs publishing** lists every unpublished change, newest first. **Publish** in the header publishes all of them, exactly as the dashboard shows them. Writers see the list without the button.
+- **Recent activity** names who saved, deleted, restored, or published which document, and when.
+- **Collections** lists each collection with a **New** button when you may edit it.
+
+The sidebar lists the dashboard, every collection with its draft and changed counts, and Media when the project enables Blob. Media links to the Blob section for now; it does not upload or describe files yet. Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+
+<kbd>⌘</kbd> <kbd>K</kbd> searches the drafts of every collection by title, id, fields, and body. <kbd>Enter</kbd> opens a document, and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. The same search creates documents and reviews and publishes all changes. See [Search](/docs/development/console#search).
+
 ## What editors can do
 
 | Task | How |
@@ -19,7 +32,7 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 | Edit the body | A block editor over the Markdown. Select text for formatting, type <kbd>/</kbd> to insert blocks, images, and the collection's [components](/docs/content/configure#define-collections), and hover a block for ⋮⋮ (move, turn into, duplicate, copy link, delete) and + (insert below). |
 | See the file | **Source** (<kbd>⌘</kbd> <kbd>/</kbd>) shows the stored file: the frontmatter read-only and the Markdown body editable. |
 | Save | Drafts save one second after typing stops. <kbd>⌘</kbd> <kbd>S</kbd> saves at once. A new document saves when you choose **Create**, since its id names the file. |
-| Publish | **Publish** on a document, **Publish N changes** on a collection, or select documents and publish only those. |
+| Publish | **Publish** on a document, **Publish N changes** on a collection, **Publish** on the dashboard for every collection, or select documents and publish only those. |
 | Undo a change | **History** lists the saves and publishes of a document. Saves in a row by one person show as one entry, such as **Saved · 12 edits**, and expand to each save. Open one to compare its stored file with the saved draft, then restore it as a new draft. A version that no longer validates still opens. On wide screens the side panel shows History or the body's outline. |
 | Create and delete | **New** starts at the title. The id follows the title until you edit it. **Delete** removes the document from the draft. It stays published until you publish the deletion. |
 
@@ -124,8 +137,10 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 
 - The section loads `server/content.ts` on the first Content request, not at server start.
 - Document requests accept bodies up to 1 MiB.
-- The list reads every document of the collection in memory, the same as [`list()`](/docs/content/server-api).
+- The list reads every document of the collection in memory, the same as [`list()`](/docs/content/server-api). The dashboard and search read each collection's state once per request in the same way.
+- Recent activity shows the last 20 revisions. Content scans at most 1,000 revisions of each ref to find them.
+- Publishing from the dashboard or search publishes one collection at a time. When a draft moved after the page loaded, that collection publishes nothing and the Console asks you to refresh.
 - History shows the last 20 saves and the last 20 publishes of a document, then older saves on request. Content scans at most 1,000 revisions per page.
-- Media upload, a media library, and a live preview of the page are not available yet.
+- Media upload, a media library, single documents such as site settings, and a live preview of the page are not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
 - The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-tiptap` installed.

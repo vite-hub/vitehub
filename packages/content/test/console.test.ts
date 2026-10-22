@@ -232,6 +232,88 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     })
   })
 
+  it("summarizes the collections a user may read for the dashboard", async () => {
+    const workspace = await historyWorkspace()
+    const { actions } = await setup(workspace)
+    await actions.save(hello, editor)
+    await actions.save({ ...hello, id: "launch", data: { title: "Launch", date: "2026-10-01" } }, writer)
+    await publishAll(actions, editor)
+    const launch = await actions.get({ collection: "posts", id: "launch" }, editor)
+    await actions.save({ ...hello, id: "launch", data: { title: "Launch v2", date: "2026-10-01" }, ifDigest: launch!.digest }, writer)
+    await actions.save({ collection: "notes", id: "todo", data: {}, body: "Remember the milk", ifDigest: null }, writer)
+    const removed = await actions.get({ collection: "posts", id: "hello" }, editor)
+    await actions.remove({ collection: "posts", id: "hello", ifDigest: removed!.digest }, editor)
+
+    const overview = await actions.overview({}, reader)
+    expect(overview.collections).toEqual([
+      {
+        name: "posts",
+        states: { draft: 0, published: 0, changed: 1, deleted: 1 },
+        // Most recently changed first. A deleted document keeps its published title.
+        changes: [
+          { id: "launch", state: "changed", digest: expect.any(String), title: "Launch v2", updatedAt: expect.any(String) },
+          { id: "hello", state: "deleted", digest: null, title: "Hello", updatedAt: null },
+        ],
+      },
+      {
+        name: "notes",
+        states: { draft: 1, published: 0, changed: 0, deleted: 0 },
+        changes: [{ id: "todo", state: "draft", digest: expect.any(String), title: "todo", updatedAt: expect.any(String) }],
+      },
+    ])
+    expect(overview.activity[0]).toMatchObject({ action: "remove", ref: "draft", author: "Ada", documents: [{ collection: "posts", id: "hello", title: "Hello" }] })
+    expect(overview.activity.find(entry => entry.action === "publish")).toMatchObject({
+      ref: "published",
+      documents: expect.arrayContaining([{ collection: "posts", id: "hello", title: "Hello" }, { collection: "posts", id: "launch", title: "Launch v2" }]),
+    })
+    expect(overview.activity).toHaveLength(6)
+    expect((await actions.overview({ activity: 2 }, reader)).activity).toHaveLength(2)
+    expect((await actions.overview({ activity: 0 }, reader)).activity).toEqual([])
+    await expect(actions.overview({}, anonymous)).resolves.toEqual({ collections: [], activity: [] })
+    await expect(failure(actions.overview({ activity: 51 }, reader))).resolves.toMatchObject({ status: 400 })
+
+    // Collections the user may not read stay out of the counts and the activity.
+    const postsOnly = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
+        notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
+      },
+      authorize: ({ collection, action }) => collection === "posts" && action === "read",
+      logger: false,
+    })
+    cleanup.push(() => postsOnly.dispose())
+    const scoped = await createContentConsoleActions({ content: postsOnly }).overview({}, reader)
+    expect(scoped.collections.map(collection => collection.name)).toEqual(["posts"])
+    expect(scoped.activity.flatMap(entry => entry.documents.map(document => document.collection))).not.toContain("notes")
+  })
+
+  it("searches drafts across readable collections by title, id, fields, and body", async () => {
+    const { actions } = await setup()
+    await actions.save(hello, editor)
+    await actions.save({ ...hello, id: "2026/spring", data: { title: "Spring update", date: "2026-03-01" }, body: "Ship it\n" }, editor)
+    // The notes collection names a field `body`, so its search matches that field.
+    await actions.save({ collection: "notes", id: "todo", data: { body: "Say hello to the team" }, body: "", ifDigest: null }, editor)
+    await actions.save({ ...hello, id: "release", data: { title: "Release", date: "2026-04-01" }, body: "Hello from the release\n" }, editor)
+    await publishAll(actions, editor)
+    await actions.save({ ...hello, id: "draft-hello", data: { title: "Say Hello", date: "2026-10-02" } }, editor)
+
+    const results = await actions.search({ query: "hello" }, reader)
+    // Titles that start with the text lead, then titles that contain it, then other matches such as the body.
+    expect(results.items.map(item => [item.collection, item.id, item.title, item.state])).toEqual([
+      ["posts", "hello", "Hello", "published"],
+      ["posts", "draft-hello", "Say Hello", "draft"],
+      ["posts", "release", "Release", "published"],
+      ["notes", "todo", "todo", "draft"],
+    ])
+    expect((await actions.search({ query: "2026/" }, reader)).items.map(item => item.id)).toEqual(["2026/spring"])
+    expect((await actions.search({ query: "ship" }, reader)).items.map(item => item.id)).toEqual(["2026/spring"])
+    expect((await actions.search({ query: "hello", limit: 1 }, reader)).items).toHaveLength(1)
+    await expect(actions.search({ query: "hello" }, anonymous)).resolves.toEqual({ items: [] })
+    await expect(failure(actions.search({ query: " " }, reader))).resolves.toMatchObject({ status: 400 })
+    await expect(failure(actions.search({ query: "a", limit: 51 }, reader))).resolves.toMatchObject({ status: 400 })
+  })
+
   it("rejects malformed input without calling the runtime", async () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })
@@ -271,5 +353,10 @@ describe("Content Console section", () => {
     await expect(entryFor(`${imports}import { options } from "./options"\nexport const content = defineContent({ ...options })\n`)).resolves.toBe(true)
     await expect(entryFor(`import { createContent } from "./create"\nexport const content = createContent()\n`)).resolves.toBe(true)
     expect(contentConsoleSection).toMatchObject({ id: "content", view: { kind: "document-editor" }, actions: { module: "@vite-hub/content/runtime/console", export: "createContentConsoleActions" } })
+    // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
+    expect(contentConsoleSection.pages).toEqual([
+      { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+      { id: "media", label: "Media", icon: "i-lucide-image", group: "Assets", requires: ["blob"], view: { kind: "media-library" } },
+    ])
   })
 })

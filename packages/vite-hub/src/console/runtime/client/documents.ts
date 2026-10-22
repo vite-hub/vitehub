@@ -93,10 +93,49 @@ export interface ConsoleDocumentPublished {
   revision: string | null
 }
 
+/** One unpublished change with its title, for the dashboard. */
+export interface ConsoleDocumentPendingChange extends ConsoleDocumentChange {
+  title: string
+  updatedAt: string | null
+}
+
+export interface ConsoleDocumentOverviewCollection {
+  /** Every unpublished change, most recently changed first. */
+  changes: ConsoleDocumentPendingChange[]
+  name: string
+  states: Record<ConsoleDocumentState, number>
+}
+
+/** One recent revision that changed documents. */
+export interface ConsoleDocumentActivity {
+  action: string
+  author?: string
+  createdAt: string
+  documents: Array<{ collection: string, id: string, title: string }>
+  id: string
+  ref: string
+}
+
+/** Counts, unpublished changes, and recent activity of every readable collection. */
+export interface ConsoleDocumentOverview {
+  activity: ConsoleDocumentActivity[]
+  collections: ConsoleDocumentOverviewCollection[]
+}
+
+export interface ConsoleDocumentSearchResult {
+  collection: string
+  id: string
+  state: ConsoleDocumentState
+  title: string
+  updatedAt: string | null
+}
+
 /** The result of each owner document action. */
 interface ConsoleDocumentActionResults {
   get: ConsoleDocument | null
   list: ConsoleDocumentPage
+  overview: ConsoleDocumentOverview
+  search: { items: ConsoleDocumentSearchResult[] }
   publish: ConsoleDocumentPublished
   raw: ConsoleRawDocument | null
   remove: null
@@ -109,6 +148,10 @@ interface ConsoleDocumentActionResults {
 export interface ConsoleDocumentsClient {
   get(collection: string, id: string): Promise<ConsoleDocument | null>
   list(collection: string, query?: ConsoleDocumentListQuery): Promise<ConsoleDocumentPage>
+  /** Counts, unpublished changes, and recent activity of every readable collection, in one request. */
+  overview(options?: { activity?: number }): Promise<ConsoleDocumentOverview>
+  /** Finds drafts by title, id, fields, and body across every readable collection. */
+  search(query: string, options?: { limit?: number, signal?: AbortSignal }): Promise<ConsoleDocumentSearchResult[]>
   /** Publishes exactly these drafts. A draft saved after review fails with a conflict and nothing is published. */
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
@@ -121,13 +164,18 @@ export interface ConsoleDocumentsClient {
 
 /** Calls the owner document actions of one document editor section. */
 export function createConsoleDocumentsClient(base: string, section: string): ConsoleDocumentsClient {
-  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>): Promise<ConsoleDocumentActionResults[TAction]> {
-    const value = await requestConsole(base, { body, method: "POST", query: { action, section } })
+  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>, signal?: AbortSignal): Promise<ConsoleDocumentActionResults[TAction]> {
+    const options: Parameters<typeof requestConsole>[1] = { body, method: "POST", query: { action, section } }
+    if (signal) options.signal = signal
+    const value = await requestConsole(base, options)
     // SAFETY: The owner actions return the mirrored contract for this action. The editor renders fields as text and checks ids before use.
     return value as ConsoleDocumentActionResults[TAction]
   }
   return {
     list: (collection: string, query: ConsoleDocumentListQuery = {}) => call("list", { collection, ...query }),
+    overview: (options: { activity?: number } = {}) => call("overview", { ...options }),
+    search: async (query: string, options: { limit?: number, signal?: AbortSignal } = {}) =>
+      (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
     get: (collection: string, id: string) => call("get", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
     save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null }) =>

@@ -20,7 +20,7 @@ import {
   consoleMountBase,
   consoleMountPath,
 } from "../console-route";
-import { consoleSectionRouteName, isConsoleSectionId } from "../sections";
+import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { deferLucideIcons } from "./icons";
@@ -202,21 +202,30 @@ function addContributedRoutes(navigation) {
     const name = consoleSectionRouteName(section);
     if (!details || router.hasRoute(name)) continue;
     if (details.view.kind === "document-editor") {
-      router.addRoute({
-        component: ConsoleDocuments,
-        name,
-        path: `/${section}/:collection?/:document(.*)*`,
-        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
-        props: {
-          agentsBase: consolePath("/api/_vitehub/console/agents"),
-          definitionsBase: consolePath("/api/_vitehub/console/definitions"),
-          details,
-          documentsBase: consolePath("/api/_vitehub/console/documents"),
-          kvBase: consolePath("/api/_vitehub/console/kv"),
-          searchBase: consolePath("/api/_vitehub/console/search"),
-          sectionsBase,
-        },
-      });
+      const props = {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        details,
+        documentsBase: consolePath("/api/_vitehub/console/documents"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      };
+      // The main view and every page render the same component, so the section sidebar stays mounted between them.
+      for (const route of describeConsoleSectionRoutes(details)) {
+        if (route.redirect) {
+          router.addRoute({ name: route.name, path: route.path, redirect: route.redirect });
+          continue;
+        }
+        const page = details.pages?.find(entry => entry.id === route.page);
+        router.addRoute({
+          component: ConsoleDocuments,
+          name: route.name,
+          path: route.path,
+          meta: { consolePage: route.page, consoleSection: section, title: `${page ? `${page.label} · ` : ""}${details.label} · ViteHub Console` },
+          props,
+        });
+      }
       continue;
     }
     router.addRoute({

@@ -35,6 +35,54 @@ export interface ViteHubConsoleDocumentEditorView {
 
 export type ViteHubConsoleSectionView = ViteHubConsoleDefinitionCatalogView | ViteHubConsoleRecordTableView | ViteHubConsoleDocumentEditorView
 
+/**
+ * The overview of a document editor section: document counts by state, the changes that wait for a publish, recent
+ * activity, and a New button per collection. It reads the owner `overview` action.
+ */
+export interface ViteHubConsoleDocumentDashboardView {
+  kind: "document-dashboard"
+}
+
+/** The media library of a section. Until Blob media records exist, the Console shows where the files live. */
+export interface ViteHubConsoleMediaLibraryView {
+  kind: "media-library"
+}
+
+/** A view that the Console UI in `vite-hub` renders for a section page. */
+export type ViteHubConsoleSectionPageView = ViteHubConsoleDocumentDashboardView | ViteHubConsoleMediaLibraryView
+
+/**
+ * A page of a section next to its main view, such as the Content dashboard or media library. The section sidebar lists
+ * the pages, and each page has its own URL:
+ *
+ * - `/_vitehub/<section>` serves the `index` page, or the main view when the section has none.
+ * - `/_vitehub/<section>/-/<page>` serves every other page. The `-` segment keeps page URLs apart from the main view's
+ *   own segments, such as a collection name.
+ *
+ * Pages share the access of their section: `console.authorize` that allows the section allows every page of it.
+ */
+export interface ViteHubConsoleSectionPage {
+  /** Lowercase route segment, for example `media`. */
+  id: string
+  /** Display name, for example `Media`. */
+  label: string
+  /** Iconify class name, for example `i-lucide-image`. */
+  icon: string
+  view: ViteHubConsoleSectionPageView
+  /**
+   * Serve this page at the section root. At most one page sets it, and `/_vitehub/<section>/-/<id>` then redirects to
+   * the root.
+   */
+  index?: boolean
+  /**
+   * Sidebar heading, for example `Assets`. Pages without a group lead the sidebar, above the main view's navigation.
+   * Grouped pages follow it, in the order their group first appears.
+   */
+  group?: string
+  /** Section ids that the project must enable, such as `["blob"]`. The Console leaves the page out otherwise. */
+  requires?: readonly string[]
+}
+
 /** One serializable record row. Values are display strings. Do not put credentials in records. */
 export interface ViteHubConsoleRecord {
   cells: Readonly<Record<string, string>>
@@ -57,6 +105,8 @@ export interface ViteHubConsoleSectionDescriptor<TView extends ViteHubConsoleSec
   /** Plural display name, for example `Queues`. */
   label: string
   view: TView
+  /** Pages next to the main view, in sidebar order. Only document editor sections render pages today. */
+  pages?: readonly ViteHubConsoleSectionPage[]
 }
 
 export interface ViteHubConsoleDefinitionCatalogSection<TOptions = void> extends ViteHubConsoleSectionDescriptor<ViteHubConsoleDefinitionCatalogView> {
@@ -268,6 +318,60 @@ export interface ViteHubConsoleDocumentPublished {
   documents: Array<{ collection: string, id: string, change: "add" | "update" | "delete" }>
 }
 
+/** One unpublished change with what the dashboard shows of it. */
+export interface ViteHubConsoleDocumentPendingChange extends ViteHubConsoleDocumentChange {
+  /** Value of the collection `titleField`, or the id. */
+  title: string
+  /** When the draft last changed, or null when the owner cannot tell. A deleted document has the time of its deletion when known. */
+  updatedAt: string | null
+}
+
+/** Counts and unpublished changes of one collection that the user may read. */
+export interface ViteHubConsoleDocumentOverviewCollection {
+  name: string
+  states: Record<ViteHubConsoleDocumentState, number>
+  /** Every unpublished change, most recently changed first. "Publish" sends them back as `expect`. */
+  changes: ViteHubConsoleDocumentPendingChange[]
+}
+
+/** One recent revision that changed documents. */
+export interface ViteHubConsoleDocumentActivity {
+  /** Revision id. */
+  id: string
+  /** `draft` for saves, removes, and restores, `published` for publishes. */
+  ref: string
+  createdAt: string
+  /** `save`, `remove`, `restore`, or `publish`. */
+  action: string
+  /** Display name of the person or Agent that made the change, when recorded. */
+  author?: string
+  /** The documents the revision changed, in collections the user may read. */
+  documents: Array<{ collection: string, id: string, title: string }>
+}
+
+/** What the dashboard of a document editor section shows, in one request. */
+export interface ViteHubConsoleDocumentOverview {
+  collections: ViteHubConsoleDocumentOverviewCollection[]
+  /** Newest first. */
+  activity: ViteHubConsoleDocumentActivity[]
+}
+
+export interface ViteHubConsoleDocumentSearchInput {
+  /** Case-insensitive text that the owner matches against document ids and its search fields. */
+  query: string
+  /** Results to return across every collection, default 20, at most 50. */
+  limit?: number
+}
+
+/** One document that a search found, in a collection the user may read. */
+export interface ViteHubConsoleDocumentSearchResult {
+  collection: string
+  id: string
+  title: string
+  state: ViteHubConsoleDocumentState
+  updatedAt: string | null
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -295,11 +399,18 @@ export interface ViteHubConsoleDocumentActions {
   publish(input: { collection: string, expect: readonly ViteHubConsoleDocumentPublishExpectation[] }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPublished>
   revisions(input: { collection: string, id: string, cursor?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ revisions: ViteHubConsoleDocumentRevision[], cursor?: string }>
   restore(input: { collection: string, id: string, revision: string, ifDigest: string | null }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  /**
+   * Counts, unpublished changes, and recent activity of every collection the user may read, for the dashboard. Read
+   * each collection's state once: the dashboard makes one request, so the overview must not read per document.
+   */
+  overview(input: { activity?: number }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentOverview>
+  /** Finds draft documents across every collection the user may read, for Console search. */
+  search(input: ViteHubConsoleDocumentSearchInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ items: ViteHubConsoleDocumentSearchResult[] }>
 }
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "publish", "raw", "remove", "restore", "revisions", "save"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "search"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions
@@ -391,7 +502,50 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => ({ key: column.key, label: column.label })), kind: "record-table", notice: section.view.notice }
     : { kind: section.view.kind, notice: section.view.notice }
-  return { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
+  const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
+  if (section.pages?.length) descriptor.pages = describePages(section)
+  return descriptor
+}
+
+const sectionPageViewKinds: ReadonlySet<string> = new Set<ViteHubConsoleSectionPageView["kind"]>(["document-dashboard", "media-library"])
+
+function describePages(section: ViteHubConsoleSectionDescriptor): ViteHubConsoleSectionPage[] {
+  const name = JSON.stringify(section.id)
+  if (section.view.kind !== "document-editor") {
+    throw new TypeError(`[vitehub] Console section ${name} declares pages, but only document editor sections render pages.`)
+  }
+  const ids = new Set<string>()
+  const pages = (section.pages ?? []).map((page) => {
+    if (!isViteHubConsoleSectionId(page.id)) {
+      throw new TypeError(`[vitehub] Console section ${name} page id ${JSON.stringify(page.id)} must be a lowercase route segment.`)
+    }
+    if (ids.has(page.id)) throw new TypeError(`[vitehub] Console section ${name} declares the page ${JSON.stringify(page.id)} twice.`)
+    ids.add(page.id)
+    if (!sectionPageViewKinds.has(page.view.kind)) {
+      throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} has an unknown view ${JSON.stringify(page.view.kind)}.`)
+    }
+    const described: ViteHubConsoleSectionPage = { icon: page.icon, id: page.id, label: page.label, view: { kind: page.view.kind } }
+    if (page.index) described.index = true
+    const group = page.group?.trim()
+    if (group) described.group = group
+    if (page.requires?.length) {
+      if (!page.requires.every(isViteHubConsoleSectionId)) {
+        throw new TypeError(`[vitehub] Console section ${name} page ${JSON.stringify(page.id)} requires section ids.`)
+      }
+      described.requires = [...page.requires]
+    }
+    return described
+  })
+  if (pages.filter(page => page.index).length > 1) throw new TypeError(`[vitehub] Console section ${name} has more than one index page.`)
+  return pages
+}
+
+/**
+ * Returns the pages of a descriptor that the enabled sections allow, without `requires`. The host calls it once it knows
+ * which sections the project enables.
+ */
+export function resolveViteHubConsoleSectionPages(descriptor: ViteHubConsoleSectionDescriptor, enabledSections: readonly string[]): ViteHubConsoleSectionPage[] {
+  return (descriptor.pages ?? []).flatMap(({ requires, ...page }) => (requires ?? []).every(section => enabledSections.includes(section)) ? [page] : [])
 }
 
 /**

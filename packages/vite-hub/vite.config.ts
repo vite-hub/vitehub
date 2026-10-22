@@ -242,6 +242,8 @@ export default defineConfig({
       { from: "src/console/runtime/pages/section.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/documents.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
@@ -302,6 +304,7 @@ export default defineConfig({
       "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/media.ts",
+      "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
@@ -347,6 +350,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/media"];
+        delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];

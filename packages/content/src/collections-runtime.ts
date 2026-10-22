@@ -208,6 +208,8 @@ export interface ContentRevisionsResult {
   revisions: WorkspaceRevision[]
   /** Pass to the next call to continue. Absent when the history is exhausted. */
   cursor?: string
+  /** Number of raw history entries inspected to produce this page. */
+  scanned: number
 }
 
 /** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
@@ -1047,11 +1049,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         scanned++
         if (!revisionTouches(revision, runtime.name, id)) continue
         found.push(revision)
-        if (found.length === limit) return { revisions: found, cursor: revision.id }
+        if (found.length === limit) return { revisions: found, cursor: revision.id, scanned }
       }
       cursor = page.cursor
     } while (cursor && scanned < maxRevisionScan)
-    return cursor ? { revisions: found, cursor } : { revisions: found }
+    return cursor ? { revisions: found, cursor, scanned } : { revisions: found, scanned }
   }
 
   function comarkSource(name: string, ref: ContentRef = "published"): ContentHistorySource {
