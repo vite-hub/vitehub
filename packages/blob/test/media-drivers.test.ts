@@ -163,8 +163,8 @@ function createImagesBinding() {
         async output(output: { format: string, quality?: number }) {
           requests.push({ output, transform })
           let pipeline = sharp(new Uint8Array(await new Response(stream).arrayBuffer())).rotate()
-          const trim = transform.trim as { height: number, left: number, top: number, width: number } | undefined
-          if (trim) pipeline = pipeline.extract(trim)
+          const trim = transform.trim as { left: number, top: number, right: number, bottom: number } | undefined
+          if (trim) pipeline = pipeline.extract({ left: trim.left, top: trim.top, width: trim.right - trim.left, height: trim.bottom - trim.top })
           const bytes = await pipeline.resize(transform.width as number, transform.height as number, { fit: "cover" })
             .toFormat(output.format.replace("image/", "") as "webp", { quality: output.quality })
             .toBuffer()
@@ -194,7 +194,7 @@ describe("media on a Cloudflare R2 binding", () => {
     const [, body] = await storage.serve(event, "photos/wide.jpg", { variant: { crop: "mobile", format: "avif", quality: 50, width: 384 } })
     expect(images.requests[1]).toEqual({
       output: { format: "image/avif", quality: 50 },
-      transform: { fit: "cover", height: 480, trim: { height: 800, left: 0, top: 0, width: 640 }, width: 384 },
+      transform: { fit: "cover", height: 480, trim: { bottom: 800, left: 0, right: 640, top: 0 }, width: 384 },
     })
     expect(event.res.headers.get("content-type")).toBe("image/avif")
     expect(await sharp(new Uint8Array(await new Response(body).arrayBuffer())).metadata()).toMatchObject({ height: 480, width: 384 })
