@@ -4,7 +4,7 @@ title: Build your first Workspace
 description: Read a mounted Markdown file and write a draft with explicit Workspace access.
 layout: tutorial
 codePanel: true
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

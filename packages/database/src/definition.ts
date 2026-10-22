@@ -63,7 +63,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
 
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can pass non-string names; reject them at the definition boundary before trim and normalized-path validation.
   if (options.name !== undefined && typeof options.name !== "string") {
-    throw databaseErrorDiagnostics.DATABASE_C0007({ message: "`defineDatabase().name` must be a string." })
+    throw databaseErrorDiagnostics.DATABASE_INVALID_NAME()
   }
 
   const name = options.name?.trim() || "default"
