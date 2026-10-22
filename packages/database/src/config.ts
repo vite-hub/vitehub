@@ -210,6 +210,24 @@ function readStringExpression(expression: Expression | undefined): string | unde
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
+function resolveObjectLiteral(value: Expression | undefined, file: string): ObjectExpression | undefined {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  const seen = new Set<string>()
+  let expression = value && unwrapExpression(value)
+  while (expression?.type === "Identifier" && expression.name !== "undefined" && !seen.has(expression.name)) {
+    seen.add(expression.name)
+    expression = readModuleDeclaration(module, expression.name)
+  }
+  return objectLiteral(expression)
+}
+
+/** Whether a Database Definition's source sets `cloudflare.readReplication`. Undefined when it does not set it as a literal. */
+export function readDatabaseDefinitionReadReplication(file: string): boolean | undefined {
+  const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"), file)
+  const expression = readObjectPropertyValue(body, "readReplication")
+  return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
+}
+
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
 function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
