@@ -47,6 +47,11 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
+/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+export function isConsoleSignInRequired(error: unknown): boolean {
+  return error instanceof ConsoleRequestError && error.status === 401
+}
+
 const textField = (value: unknown): string | undefined =>
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined

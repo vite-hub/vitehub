@@ -95,8 +95,9 @@ Nuxt has `useHead()` built in; in a Vue app, install `@unhead/vue`. On a plain s
 | `site.locale` | `og:locale`, such as `en_US`. |
 | `defaults` | `{ title?, description?, image? }` fallbacks, often read from a [settings document](/docs/content/configure#singletons-and-data-files). ViteHub does not own a settings schema, so you map your fields. |
 | `titleTemplate` | `'%s \| Docs'`, a function, or `null` for no template. A document without its own title uses the default title as is. |
-| `field` | The field that holds `seo()` values. Defaults to `seo`. |
-| `resolveImage` | Turns an image value into a URL. Defaults to strings as they are, and a Blob reference to `/api/_vitehub/blob/<pathname>`, which needs [`blob: { serve: true }`](/docs/blob/configure). Pass your own for signed or CDN URLs. |
+| `collection` | The collection of the document, such as `content.collection('posts')`, or its JSON form with `schema`. `contentHead()` finds its `seo()` field by the field's marker, whatever its name, and names the page with its `titleField`. |
+| `field` | The field that holds `seo()` values. Defaults to the `seo()` field of `collection`, then to `seo`. |
+| `resolveImage` | Turns an image value into a URL. Defaults to strings as they are, and a Blob reference of the `default` store to the URL that [`blob.serve`](/docs/blob/configure) serves it at, with its `route` and `publicBaseUrl`. The default reads the generated Blob config, so it works on the server. In the browser, or for signed or CDN URLs, pass your own. |
 | `type` | `og:type`. Defaults to `article` for a document with a URL and `website` otherwise. |
 | `jsonLd` | `true` adds a generated `Article` or `WebPage` JSON-LD script, or pass your own object. `<` is escaped, so document text cannot close the script. |
 

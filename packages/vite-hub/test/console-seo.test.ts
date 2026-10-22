@@ -38,7 +38,8 @@ describe("Console SEO panel model", () => {
 
   it("previews images and long text as search results show them", () => {
     expect(consoleImageUrl("https://cdn.test/og.png")).toBe("https://cdn.test/og.png")
-    expect(consoleImageUrl({ pathname: "og/hello world.png" })).toBe("/api/_vitehub/blob/og/hello%20world.png")
+    // A Blob reference has no URL of its own; the media library resolves it with the served route of the project.
+    expect(consoleImageUrl({ pathname: "og/hello world.png" })).toBeUndefined()
     expect(consoleImageUrl({})).toBeUndefined()
     expect(consoleTruncate("Hello, Content: documents, drafts, and publishing", 30)).toBe("Hello, Content: documents,…")
     expect(consoleTruncate("Short", 30)).toBe("Short")

@@ -54,6 +54,16 @@ export interface DocumentsOptions<TFields extends ContentFields> {
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. A Markdown body is always `body`. */
   fields: TFields
   /**
+   * Display name, such as `Posts`. Pass `{ singular, plural }` when the plural is not the singular plus `s`, such as
+   * `{ singular: 'Person', plural: 'People' }`. Defaults to the collection name in title case.
+   */
+  label?: string | ContentLabel
+  /**
+   * The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`,
+   * `name`, `label`, and `heading` that is a string field, then to the first required string field.
+   */
+  titleField?: keyof TFields & string
+  /**
    * Field names that `list({ search })` matches as a case-insensitive substring. Defaults to every string field plus
    * the Markdown body.
    */
@@ -74,6 +84,14 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * presence still shows who is there, and `ifDigest` still guards each save.
    */
   editing?: ContentEditingOptions
+}
+
+/** The display names of a collection: one document, and the collection. */
+export interface ContentLabel {
+  /** Name of one document, such as `Person`. */
+  singular: string
+  /** Name of the collection, such as `People`. */
+  plural: string
 }
 
 /** How sessions of a collection edit documents together. */
@@ -108,6 +126,13 @@ export interface SingletonOptions<TFields extends ContentFields> {
   path: string
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. */
   fields: TFields
+  /** Display name, such as `Site settings`. Defaults to the collection name in title case. */
+  label?: string
+  /**
+   * The string field that names the document, such as for SEO fallbacks. Defaults like the `titleField` of
+   * `documents()`. Lists and the dashboard name a singleton by its `label`.
+   */
+  titleField?: keyof TFields & string
   /** The public URL of the document, such as `/` or `/about`. Omit it for data without a page, such as settings. */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
   /**
@@ -130,11 +155,17 @@ interface CollectionDefinitionBase<TFields extends ContentFields> {
   readonly url?: ContentDocumentUrl<any>
   /** Whether one session at a time holds the edit lease of a document. */
   readonly editing: { readonly lease: boolean }
+  /** Display name from `label`, when the definition sets one. */
+  readonly label?: string
+  /** `titleField` from the definition, when it sets one. */
+  readonly titleField?: string
 }
 
 /** A document collection definition created by `documents()`. */
 export interface DocumentsDefinition<TFields extends ContentFields = ContentFields> extends CollectionDefinitionBase<TFields> {
   readonly kind: "documents"
+  /** Name of one document from `label: { singular }`, when the definition sets one. */
+  readonly singularLabel?: string
   readonly search?: ReadonlyArray<string>
   readonly components?: Readonly<Record<string, DocumentComponent>>
 }
@@ -191,7 +222,30 @@ export function documents<const TFields extends ContentFields>(options: Document
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
   if (options.url !== undefined) definition.url = options.url
+  const label = labelOption("documents", options.path, options.label, true)
+  if (label?.plural) definition.label = label.plural
+  if (label?.singular) definition.singularLabel = label.singular
+  const titleField = titleFieldOption("documents", options.path, options.titleField, options.fields)
+  if (titleField) definition.titleField = titleField
   return definition
+}
+
+function labelOption(helper: string, path: string, value: unknown, plural: boolean): Partial<ContentLabel> | undefined {
+  if (value === undefined) return
+  const text = (entry: unknown) => String(entry) === entry && entry.trim() ? entry.trim() : undefined
+  if (text(value)) return { plural: text(value) }
+  const singular = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "singular")) : undefined
+  const many = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "plural")) : undefined
+  if (singular && many) return { singular, plural: many }
+  throw invalidDefinition(`${helper}(${JSON.stringify(path)}) label must be a non-empty string${plural ? " or { singular, plural }, such as { singular: 'Person', plural: 'People' }" : ""}.`)
+}
+
+function titleFieldOption(helper: string, path: string, value: unknown, fields: ContentFields): string | undefined {
+  if (value === undefined) return
+  if (String(value) !== value || !Object.hasOwn(fields, value)) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) titleField must name one of its fields, such as 'title'.`)
+  }
+  return value
 }
 
 const componentTag = /^[a-z][a-z0-9-]*$/
@@ -260,6 +314,10 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
     editing: editingOptions("singleton", options.path, options.editing),
   }
   if (options.url !== undefined) definition.url = options.url
+  const label = labelOption("singleton", options.path, options.label, false)
+  if (label?.plural) definition.label = label.plural
+  const titleField = titleFieldOption("singleton", options.path, options.titleField, options.fields)
+  if (titleField) definition.titleField = titleField
   return definition
 }
 

@@ -66,15 +66,8 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     const contributed = consoleContributedSections.get(section)
     if (contributed && !contributed.documents) content[section] = await contributed.read(options)
   }
-  const documents: Record<ConsoleSectionId, string> = {}
-  for (const section of consoleDocumentEditorSectionIds) {
-    const registered = consoleContributedSections.get(section)
-    const entry = await registered?.documents?.entry(options)
-    if (!registered || !entry) continue
-    documents[section] = entry
-    content[section] = await registered.read(options)
-  }
-  const manualSchedules = sections.includes("schedules")
+  // The Schedule Definitions that run, or none when the project does not enable Schedule.
+  const schedules = sections.includes("schedules")
     ? discoverScheduleDefinitions({
         contributions: await collectScheduleContributions(options.plugins, {
           projectRoot: options.scheduleDiscoveryRoot ?? projectRoot,
@@ -85,8 +78,19 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
         serverDirs,
         serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,
       })
-        .filter(definition => definition.manual === true)
-        .map(definition => ({ handler: definition.handler, name: definition.name }))
-    : []
+    : undefined
+  const documents: Record<ConsoleSectionId, string> = {}
+  for (const section of consoleDocumentEditorSectionIds) {
+    const registered = consoleContributedSections.get(section)
+    const entry = await registered?.documents?.entry(options)
+    if (!registered || !entry) continue
+    documents[section] = entry
+    const read = await registered.read(options)
+    const setup = await registered.documents?.inspect?.({ ...options, scheduleDefinitions: schedules?.map(definition => definition.handler) }, entry)
+    content[section] = read.kind === "document-editor" && setup && Object.keys(setup).length ? { ...read, setup } : read
+  }
+  const manualSchedules = (schedules ?? [])
+    .filter(definition => definition.manual === true)
+    .map(definition => ({ handler: definition.handler, name: definition.name }))
   return { agents, content, documents, manualSchedules }
 }

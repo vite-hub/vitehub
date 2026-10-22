@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  consoleDocumentScheduleHint,
+  consoleHintText,
   consoleDocumentScheduleLabel,
   consoleDocumentScheduleTone,
   consoleDocumentStateColor,
@@ -28,11 +30,14 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentSummary, ConsoleListState } from "../client/documents";
+import type { ConsoleDocumentSetup } from "../definitions";
 
 const props = defineProps<{
   changes: number;
   client: ConsoleDocumentsClient;
   collection: ConsoleDocumentCollection;
+  /** What the project lacks, such as a runner for scheduled publishes. */
+  setup?: ConsoleDocumentSetup;
 }>();
 
 const emit = defineEmits<{ changed: [] }>();
@@ -108,7 +113,7 @@ const emptyState = computed(() => {
   if (state.value === "changed") return { action: false, description: "Published documents with unpublished edits show here.", title: "No unpublished changes" };
   if (state.value === "deleted") return { action: false, description: "Documents deleted from the draft stay here until you publish the deletion.", title: "Nothing deleted" };
   if (state.value === "published") return { action: false, description: "Published documents are on the site.", title: "Nothing published yet" };
-  if (state.value === "scheduled") return { action: false, description: "Schedule a publish from the arrow next to Publish on a document.", title: "Nothing scheduled" };
+  if (state.value === "scheduled") return { action: false, description: props.setup?.schedule ? consoleHintText(props.setup.schedule.message) : "Schedule a publish from the arrow next to Publish on a document.", title: "Nothing scheduled" };
   return undefined;
 });
 
@@ -504,7 +509,7 @@ onBeforeUnmount(() => {
               <UTooltip v-if="item.issues" :text="consoleFixFieldsLabel(item.issues)" :content="{ side: 'top' }">
                 <ConsoleStatus tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
               </UTooltip>
-              <UTooltip v-if="item.schedule" :text="item.schedule.failure ?? `Publishes the reviewed draft at ${new Date(item.schedule.at).toLocaleString()}`" :content="{ side: 'top' }">
+              <UTooltip v-if="item.schedule" :text="consoleDocumentScheduleHint(item.schedule, setup)" :content="{ side: 'top' }">
                 <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
               </UTooltip>
             </span>

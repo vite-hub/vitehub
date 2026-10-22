@@ -171,6 +171,12 @@
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
     },
+    "./served": {
+      "types": "./dist/served.d.ts",
+      "import": "./dist/served.js",
+      "require": "./dist/served.js",
+      "default": "./dist/served.js"
+    },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js",

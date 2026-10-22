@@ -8,6 +8,7 @@ import { H3 } from "h3"
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { z } from "zod"
 
+import { setServedBlobRoute } from "@vite-hub/blob/served"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
@@ -184,7 +185,6 @@ describe("contentHead()", () => {
     expect(head.title).toBe("</script><script>alert(1)</script> | Docs")
     expect(head.meta).toContainEqual({ name: "robots", content: "noindex" })
     expect(head.meta).toContainEqual({ name: "description", content: "Server primitives for any host." })
-    expect(head.meta).toContainEqual({ property: "og:image", content: "https://vitehub.dev/api/_vitehub/blob/og/default.png" })
     expect(head.link).toEqual([{ rel: "canonical", href: "https://vitehub.dev/original" }])
     expect(head.script?.[0]?.innerHTML).not.toContain("</script>")
     expect(JSON.parse(head.script![0]!.innerHTML)).toMatchObject({ "@type": "WebPage", name: "</script><script>alert(1)</script>", url: "https://vitehub.dev/original" })
@@ -192,6 +192,41 @@ describe("contentHead()", () => {
     expect(contentHead(null, { site, defaults }).title).toBe("ViteHub")
     expect(contentHead({ data: { title: "Docs" } }, { titleTemplate: null }).title).toBe("Docs")
     expect(contentHead({ data: { seo: { image: { pathname: "x.png" } } } }, { resolveImage: value => `https://cdn.test/${(value as { pathname: string }).pathname}` }).meta).toContainEqual({ property: "og:image", content: "https://cdn.test/x.png" })
+  })
+
+  it("serves Blob images from the route of the generated Blob config, and only from it", () => {
+    const blobImage = { data: { seo: { image: { pathname: "og/a b.png" } } } }
+    const ogImage = (options: Parameters<typeof contentHead>[1] = {}) => contentHead(blobImage, options).meta.find(tag => tag.property === "og:image")?.content
+    cleanup.push(() => setServedBlobRoute(undefined))
+    // Without a loaded Blob config, as in the browser, a Blob reference has no URL to guess.
+    setServedBlobRoute(undefined)
+    expect(ogImage()).toBeUndefined()
+    setServedBlobRoute({ route: "/api/_vitehub/blob", store: "default" })
+    expect(ogImage({ site })).toBe("https://vitehub.dev/api/_vitehub/blob/og/a%20b.png")
+    setServedBlobRoute({ route: "/assets/", store: "default", publicBaseUrl: "https://cdn.vitehub.dev/" })
+    expect(ogImage()).toBe("https://cdn.vitehub.dev/assets/og/a%20b.png")
+    // `blob.serve` serves one store; references of the `default` store have no URL when another one is served.
+    setServedBlobRoute({ route: "/media", store: "media" })
+    expect(ogImage()).toBeUndefined()
+  })
+
+  it("finds the seo() field by its marker and names the page with the title field", async () => {
+    const post = { data: { headline: "Launch", meta: { title: "Launch day", description: "Everything that shipped." } } }
+    // Without the collection, a field not named `seo` is not SEO.
+    expect(contentHead(post).title).toBeUndefined()
+    const collection = { seo: "meta", titleField: "headline" }
+    expect(contentHead(post, { collection })).toMatchObject({ title: "Launch day", meta: expect.arrayContaining([{ name: "description", content: "Everything that shipped." }]) })
+    expect(contentHead({ data: { headline: "Launch" } }, { collection }).title).toBe("Launch")
+    // The JSON form of a collection, such as one sent to the browser, carries the marker in its schema.
+    const workspace = await historyWorkspace()
+    const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", titleField: "headline", fields: { headline: z.string(), meta: seo() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const posts = content.collection("posts")
+    expect(posts).toMatchObject({ seo: "meta", titleField: "headline" })
+    expect(contentHead(post, { collection: posts }).title).toBe("Launch day")
+    expect(contentHead(post, { collection: JSON.parse(JSON.stringify({ schema: posts.schema })) }).title).toBe("Launch day")
+    // `field` still names the field outright.
+    expect(contentHead({ data: { social: { title: "Social" } } }, { collection, field: "social" }).title).toBe("Social")
   })
 
   it("is available from the client entry without the server runtime", () => {

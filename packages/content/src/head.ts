@@ -1,3 +1,5 @@
+import { servedBlobUrl } from "@vite-hub/blob/served"
+
 /** Where the site lives and what it is called. */
 export interface ContentHeadSite {
   /** Public origin, such as `https://example.com`. Turns document URLs and image paths into absolute URLs. */
@@ -16,19 +18,38 @@ export interface ContentHeadDefaults {
   image?: unknown
 }
 
+/**
+ * What `contentHead()` reads from the collection of a document: a Content collection, such as
+ * `content.collection('posts')`, or its JSON form with `schema`.
+ */
+export interface ContentHeadCollection {
+  /** The name of the `seo()` field, as a Content collection reports it. */
+  seo?: string
+  /** The string field that names a document, such as `title`. */
+  titleField?: string
+  /** JSON Schema of the fields. The `seo()` field carries the `x-vitehub-seo` keyword. */
+  schema?: Record<string, unknown>
+}
+
 export interface ContentHeadOptions {
   site?: ContentHeadSite
   defaults?: ContentHeadDefaults
+  /**
+   * The collection of the document, such as `content.collection('posts')`. `contentHead()` finds its `seo()` field by
+   * the field's marker, whatever its name, and uses its `titleField` for the title.
+   */
+  collection?: ContentHeadCollection
   /**
    * Wraps the page title, such as `'%s · ViteHub'`, or a function. Defaults to `'%s · <site.name>'` when the site has a
    * name. The site's own title is not wrapped.
    */
   titleTemplate?: string | ((title: string) => string) | null
-  /** The document field that holds `seo()` values. Defaults to `seo`. */
+  /** The document field that holds `seo()` values. Defaults to the `seo()` field of `collection`, then to `seo`. */
   field?: string
   /**
-   * Turn an image value into a URL. Defaults to strings as they are, and a Blob reference `{ pathname }` to the Blob
-   * serve route, `/api/_vitehub/blob/<pathname>`, which needs `blob: { serve: true }`.
+   * Turn an image value into a URL. Defaults to strings as they are, and a Blob reference `{ pathname }` of the
+   * `default` Blob Store to the URL that `blob.serve` serves it at. The served route comes from the generated Blob config,
+   * so the default works on the server; in the browser, a Blob reference has no URL unless you pass this.
    */
   resolveImage?: (image: unknown) => string | null | undefined
   /** `og:type`. Defaults to `article` for a document with a URL and `website` otherwise. */
@@ -88,11 +109,21 @@ function firstText(data: Record<string, unknown>, fields: readonly string[]): st
   }
 }
 
-/** A Blob serve URL for a `{ pathname }` reference, or the string itself. */
+/**
+ * The string itself, or the URL that `blob.serve` serves a `{ pathname }` reference at, from the generated Blob config.
+ * Undefined when the `default` Blob Store is not served, or where the Blob config is not loaded, such as in the browser.
+ */
 export function defaultContentImageUrl(image: unknown): string | undefined {
   if (text(image)) return text(image)
   if (!isRecord(image) || !text(image.pathname)) return
-  return `/api/_vitehub/blob/${String(image.pathname).split("/").map(encodeURIComponent).join("/")}`
+  return servedBlobUrl(String(image.pathname))
+}
+
+/** The `seo()` field of a collection: its reported name, or the property whose JSON Schema has `x-vitehub-seo`. */
+function seoFieldOf(collection: ContentHeadCollection | undefined): string | undefined {
+  if (text(collection?.seo)) return collection!.seo
+  const properties = isRecord(collection?.schema) && isRecord(collection.schema.properties) ? collection.schema.properties : {}
+  return Object.keys(properties).find(name => isRecord(properties[name]) && isRecord(properties[name]["x-vitehub-seo"]))
 }
 
 function absolute(url: string | undefined, site: string | undefined): string | undefined {
@@ -120,13 +151,14 @@ function jsonLdScript(value: Record<string, unknown>): ContentHeadScript {
  */
 export function contentHead(document: ContentHeadDocument | null | undefined, options: ContentHeadOptions = {}): ContentHead {
   const data = isRecord(document?.data) ? document.data : {}
-  const seoValue = data[options.field ?? "seo"]
+  const seoValue = data[options.field ?? seoFieldOf(options.collection) ?? "seo"]
   const seo = isRecord(seoValue) ? seoValue : {}
   const site = options.site ?? {}
   const defaults = options.defaults ?? {}
   const resolveImage = options.resolveImage ?? defaultContentImageUrl
 
-  const pageTitle = text(seo.title) ?? firstText(data, titleFields)
+  const titleField = text(options.collection?.titleField)
+  const pageTitle = text(seo.title) ?? firstText(data, titleField ? [titleField, ...titleFields] : titleFields)
   const description = text(seo.description) ?? firstText(data, descriptionFields) ?? text(defaults.description)
   const imageValue = seo.image ?? defaults.image
   const image = absolute(imageValue === undefined || imageValue === null ? undefined : resolveImage(imageValue) ?? undefined, site.url)

@@ -76,6 +76,7 @@ Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at b
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
+`servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
 Use `serve.headers` for static cache and security headers. Blob metadata remains authoritative for content headers such as `Content-Type`, `Content-Length`, and `ETag`.
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`: the browser keeps its copy and revalidates on each use, so the check still runs and an unchanged object answers `304` with no body. `no-store` downloads the full object on every visit.
 

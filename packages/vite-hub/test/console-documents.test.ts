@@ -159,6 +159,17 @@ describe("Console document editor route", () => {
     })
   })
 
+  it("merges the build-time and runtime setup hints of the owner", async () => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/app", ["content"])
+    installConsoleDocuments("/app", { content: { actions: () => fakeActions({ collections: () => [], setup: () => ({ access: { message: "Add `authorize`.", docs: "https://vitehub.dev/docs/content/configure#access" } }) }), load: async () => ({}) } })
+    installConsoleDefinitions("/app", { content: { collections: [], kind: "document-editor", setup: { schedule: { message: "Add a runner." } } } }, [])
+    await expect(call(consoleRpcMethods.definitions, { query: { section: "content" } })).resolves.toMatchObject({
+      body: { ok: true, value: { collections: [], kind: "document-editor", section: "content", setup: { access: { message: "Add `authorize`.", docs: "https://vitehub.dev/docs/content/configure#access" }, schedule: { message: "Add a runner." } } } },
+      status: 200,
+    })
+  })
+
   it("returns owner failures with their code and details", async () => {
     installConsoleAccess({ mode: "open" })
     install(fakeActions({
@@ -247,9 +258,23 @@ describe("Console document editor discovery", () => {
     await writeFile(join(root, "server/content.ts"), `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["env", "kv"] })
     expect(catalog.documents).toEqual({ content: join(root, "server/content.ts") })
-    expect(catalog.content.content).toEqual({ collections: [], kind: "document-editor" })
+    // Without Schedule, nothing runs scheduled publishes, so Content names the fix.
+    expect(catalog.content.content).toEqual({ collections: [], kind: "document-editor", setup: { schedule: expect.objectContaining({ message: expect.stringContaining("Enable Schedule") }) } })
     expect(withConsoleDocumentEditorSections(["env", "kv"], catalog)).toEqual(["content", "env", "kv"])
     expect(consoleDocumentEditorSectionIds).toEqual(["content"])
+  })
+
+  it("reads whether a Schedule Definition runs scheduled Content publishes", async () => {
+    const root = await temporaryRoot()
+    await mkdir(join(root, "server/schedules"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    await writeFile(join(root, "server/schedules/cleanup.ts"), `import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 * * * *", handler: () => {} })\n`)
+    const without = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
+    expect(without.content.content).toMatchObject({ setup: { schedule: { message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`." } } })
+
+    await writeFile(join(root, "server/schedules/content-publish.ts"), `import { defineSchedule } from "vite-hub/schedule"\nimport { content } from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
+    const withRunner = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
+    expect(withRunner.content.content).toEqual({ collections: [], kind: "document-editor" })
   })
 
   it("leads its navigation group", () => {

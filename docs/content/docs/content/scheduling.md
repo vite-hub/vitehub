@@ -41,6 +41,8 @@ vitehub({ preset: 'cloudflare', schedule: true })
 
 Each run publishes every pending or overdue schedule whose time has come, earliest first, and returns `{ published, failed }`. `published` lists `{ schedule, revision, documents }` for each schedule that ran. Content does not wake on its own: without a runner, schedules stay pending and turn [overdue](#statuses).
 
+The Console reads the Schedule Definitions at build time, without running them. When Schedule is off, or no Schedule Definition file calls `publishDue()`, the editor turns off **Schedule…** and names this fix. Call `content.publishDue()` in the Schedule Definition file itself: discovery does not follow a helper in another file.
+
 | Host | What runs `publishDue()` | When a schedule publishes |
 | --- | --- | --- |
 | Cloudflare | A Cron Trigger from the Schedule Definition. | Within a minute of `at`. |
@@ -103,7 +105,7 @@ The runtime methods are trusted server API and do not call `authorize`. The [Con
 
 ## Console
 
-The arrow next to the editor's **Publish** button opens **Schedule…**. It saves pending edits first, then asks for a date and time in your browser's time zone, shown next to the inputs. A scheduled document shows **Scheduled · Oct 20, 09:00** in the header, **Overdue** when no run published it on time, or **Schedule failed** with the reason in its tooltip. The reason names no documents, because a schedule can hold documents that the user may not read. Saving the document again after scheduling shows a reminder: that run will publish nothing. The **…** menu cancels a schedule or dismisses a failed one.
+The arrow next to the editor's **Publish** button opens **Schedule…**. It saves pending edits first, then asks for a date and time in your browser's time zone, shown next to the inputs. A scheduled document shows **Scheduled · Oct 20, 09:00** in the header, **Overdue** when no run published it on time, or **Schedule failed** with the reason in its tooltip. The reason names no documents, because a schedule can hold documents that the user may not read. The **Overdue** tooltip names the fix: add a [runner](#run-due-schedules) when the app has none, or check that it runs on this host. Saving the document again after scheduling shows a reminder: that run will publish nothing. The **…** menu cancels a schedule or dismisses a failed one.
 
 The document list has a **Scheduled** tab while any document of the collection has a schedule, and the Content dashboard lists every scheduled publish, soonest first, under **Scheduled**. The Console owner action `overview` returns them as `collections[].scheduled`.
 

@@ -13,6 +13,7 @@ import {
   consolePublishMismatches,
   consoleSchemaDefaults,
   consoleSingularLabel,
+  consoleValueSummary,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
   groupConsoleRevisionRuns,
@@ -183,12 +184,41 @@ describe("Console schema form model", () => {
       ["Oct 2", "d"],
       ["Dec 30, 2025", "e"],
     ])
-    expect(consoleSingularLabel("Posts")).toBe("Post")
-    expect(consoleSingularLabel("Pages")).toBe("Page")
-    expect(consoleSingularLabel("Stories")).toBe("Story")
-    expect(consoleSingularLabel("News")).toBe("Document")
-    expect(consoleSingularLabel("Glass")).toBe("Document")
-    expect(consoleSingularLabel("Release notes")).toBe("Document")
+    expect(consoleSingularLabel({ label: "Posts" })).toBe("Post")
+    expect(consoleSingularLabel({ label: "Pages" })).toBe("Page")
+    expect(consoleSingularLabel({ label: "Stories" })).toBe("Story")
+    expect(consoleSingularLabel({ label: "News" })).toBe("Document")
+    expect(consoleSingularLabel({ label: "Glass" })).toBe("Document")
+    expect(consoleSingularLabel({ label: "Release notes" })).toBe("Document")
+    // The owner names irregular plurals, so People gets "New person" instead of "New document".
+    expect(consoleSingularLabel({ label: "People" })).toBe("Document")
+    expect(consoleSingularLabel({ label: "People", singularLabel: "Person" })).toBe("Person")
+  })
+
+  it("summarises nested objects in one line, never as JSON", () => {
+    const place = describeConsoleSchemaFields({
+      type: "object",
+      properties: {
+        location: {
+          type: "object",
+          properties: {
+            city: { type: "string" },
+            country: { type: "string" },
+            position: { type: "object", properties: { lat: { type: "number" }, lng: { type: "number" } } },
+            capital: { type: "boolean" },
+            photo: { type: "object", properties: { pathname: { type: "string" } }, "x-vitehub-blob": { kind: "image", store: "default" } },
+          },
+        },
+      },
+    })[0]!
+    expect(consoleValueSummary(place, { city: "London", country: "GB", position: { lat: 51.5, lng: -0.12 } })).toBe("London · GB · 51.5, -0.12")
+    // A switch that is on shows its label, and a Blob reference its file name.
+    expect(consoleValueSummary(place, { city: "London", capital: true, photo: { pathname: "places/london.jpg" } })).toBe("London · Capital · london.jpg")
+    expect(consoleValueSummary(place, { city: "Bath", capital: false, position: {} })).toBe("Bath")
+    // Values without a schema, such as extra keys of a JSON field, summarise by their values.
+    expect(consoleValueSummary(undefined, { tags: ["a", "b"], nested: { deep: { value: 1 } } })).toBe("a, b · 1")
+    expect(consoleValueSummary(place, undefined)).toBe("")
+    expect(consoleValueSummary(place, {})).toBe("")
   })
 
   it("collapses consecutive autosaves by one author into one History run", () => {

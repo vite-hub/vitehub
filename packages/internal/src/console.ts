@@ -171,6 +171,11 @@ export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extend
 export interface ViteHubConsoleDocumentEditorSection<TOptions = void> extends ViteHubConsoleSectionDescriptor<ViteHubConsoleDocumentEditorView> {
   /** Returns the absolute path of the application module, or `undefined` when the project has none. */
   entry: (options: TOptions) => MaybePromise<string | undefined>
+  /**
+   * Reads, at build time and without running the application, what the project lacks for some editor features, such as
+   * a runner for scheduled publishes. The Console merges it with the owner `setup` action on each request.
+   */
+  inspect?: (options: TOptions, entry: string) => MaybePromise<ViteHubConsoleDocumentSetup>
   /** Owner export that must be a {@link ViteHubConsoleDocumentActionsFactory}. */
   actions: ViteHubConsoleServerExport
 }
@@ -188,7 +193,7 @@ export type ViteHubConsoleSectionContribution<TOptions = void> =
 export type ViteHubConsoleSectionContent =
   | { definitions: readonly ViteHubDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ViteHubConsoleRecord[] }
-  | { collections: readonly ViteHubConsoleDocumentCollection[], kind: "document-editor" }
+  | { collections: readonly ViteHubConsoleDocumentCollection[], kind: "document-editor", setup?: ViteHubConsoleDocumentSetup }
 
 // Document editor contract. Every value crosses the Console RPC boundary as JSON.
 
@@ -199,11 +204,34 @@ export interface ViteHubConsoleDocumentAccess {
   publish: boolean
 }
 
+/** A fix that the owner names for a feature the project lacks, such as `Add authorize to defineContent().` */
+export interface ViteHubConsoleDocumentHint {
+  /** One sentence that names the fix. Text in backticks shows as code. */
+  message: string
+  /** Absolute URL of the documentation for the fix. */
+  docs?: string
+}
+
+/**
+ * What the project lacks for some editor features. The editor names each fix where the feature would be, instead of
+ * failing without a reason.
+ */
+export interface ViteHubConsoleDocumentSetup {
+  /** Present when no user can read anything because the owner has no access policy. */
+  access?: ViteHubConsoleDocumentHint
+  /**
+   * Present when nothing runs scheduled publishes. The editor disables Schedule, and overdue schedules name the fix.
+   */
+  schedule?: ViteHubConsoleDocumentHint
+}
+
 /** One editable collection. */
 export interface ViteHubConsoleDocumentCollection {
   name: string
   /** Display name, for example `Posts`. */
   label: string
+  /** Name of one document, for example `Post`. Defaults to `label` made singular, or `Document`. */
+  singularLabel?: string
   /** Where the documents live, for example `posts/**\/*.md`. */
   path: string
   /** JSON Schema of the document fields. The Console generates its form from it. */
@@ -572,6 +600,11 @@ export interface ViteHubConsoleDocumentActionContext {
  */
 export interface ViteHubConsoleDocumentActions {
   collections(context: ViteHubConsoleDocumentActionContext): MaybePromise<readonly ViteHubConsoleDocumentCollection[]>
+  /**
+   * What the runtime lacks for some editor features, for this user, such as an access policy. The Console calls it with
+   * `collections` and merges it with the build-time result of the section `inspect`.
+   */
+  setup?(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSetup>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
   /** Reads the draft. Returns null when the draft has no such document. */
   get(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
@@ -617,7 +650,7 @@ export interface ViteHubConsoleDocumentActions {
   mediaAccess(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleMediaAccess>
 }
 
-export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess">
+export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess" | "setup">
 
 export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 

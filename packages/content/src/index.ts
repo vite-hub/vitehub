@@ -93,6 +93,7 @@ export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } f
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export type {
   ContentHead,
+  ContentHeadCollection,
   ContentHeadDefaults,
   ContentHeadDocument,
   ContentHeadLink,
@@ -113,6 +114,7 @@ export type {
   ContentFieldsInput,
   ContentFieldsOutput,
   ContentFormat,
+  ContentLabel,
   DocumentComponent,
   DocumentComponentProp,
   SingletonDefinition,
@@ -306,6 +308,11 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
+  /**
+   * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
+   * as the Console show no collections.
+   */
+  readonly hasPolicy: boolean
   /** `defineContent({ seo })`, or undefined. */
   readonly seo: DefineContentSeoOptions | undefined
   /**
@@ -475,6 +482,7 @@ export function defineContent<
   const documentsApi = {
     preview,
     seo,
+    hasPolicy: authorize !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
     robots: (sitemapOptions?: ContentSitemapOptions) => {

@@ -1,7 +1,7 @@
 import { ConsoleRequestError, requestConsole } from "./request"
 import { dayLabel } from "./time"
 
-import type { ConsoleDocumentCollection } from "../definitions"
+import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions"
 
 // These types mirror the document editor contract in `@vite-hub/internal/console`.
 
@@ -523,6 +523,27 @@ export function compactConsoleFieldValues(fields: readonly ConsoleSchemaField[],
   return result
 }
 
+/**
+ * One line that summarises a field value, such as `London · GB · 51.5, -0.12` for a place with a nested position. Each
+ * child of an object joins with ` · `, a nested object or a list joins with `, `, a switch that is on shows its label,
+ * and a Blob reference shows its file name. Empty values are left out, and an empty result is `""`.
+ */
+export function consoleValueSummary(field: Pick<ConsoleSchemaField, "fields" | "kind" | "label"> | undefined, value: unknown, nested = false): string {
+  if (value === undefined || value === null) return ""
+  if (String(value) === value) return value.trim()
+  if (Number.isFinite(value)) return String(value)
+  if (value === true || value === false) return value && field ? field.label : value ? "Yes" : ""
+  if (Array.isArray(value)) return value.map(entry => consoleValueSummary(undefined, entry, true)).filter(Boolean).join(", ")
+  const object = record(value)
+  if (!object) return ""
+  const pathname = object.pathname
+  if (field?.kind === "blob" || (String(pathname) === pathname && pathname)) return String(pathname) === pathname ? pathname.slice(pathname.lastIndexOf("/") + 1) : ""
+  const parts = field?.fields
+    ? field.fields.map(child => consoleValueSummary(child, object[child.name], true))
+    : Object.values(object).map(entry => consoleValueSummary(undefined, entry, true))
+  return parts.filter(Boolean).join(nested ? ", " : " · ")
+}
+
 /** A document id from a title: lowercase words joined by dashes, such as `hello-world`. */
 export function consoleDocumentSlug(value: string): string {
   return value
@@ -562,6 +583,30 @@ export function consoleDocumentScheduleLabel(schedule: ConsoleDocumentSchedule, 
   return `${schedule.status === "overdue" ? "Overdue" : "Scheduled"} · ${when}`
 }
 
+/**
+ * Why a schedule shows its status, for tooltips: when it publishes, why it failed, or, for an overdue one, the fix. The
+ * owner names the fix in `setup.schedule` when nothing runs scheduled publishes.
+ */
+export function consoleDocumentScheduleHint(schedule: ConsoleDocumentSchedule, setup?: ConsoleDocumentSetup, locale?: string): string {
+  if (schedule.failure) return `${schedule.failure} Dismiss it from the menu, then schedule again.`
+  const when = new Date(schedule.at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" })
+  if (schedule.status === "overdue") {
+    const fix = setup?.schedule ? consoleHintText(setup.schedule.message) : "Check that the Schedule that publishes scheduled documents runs on this host."
+    return `Was due ${when}. No run has published it yet. ${fix}`
+  }
+  return `Publishes this draft ${when}. Saving it again before then makes the schedule fail.`
+}
+
+/** A setup hint as text and code parts: text in backticks, such as `defineContent()`, is code. */
+export function consoleHintParts(message: string): Array<{ code: boolean, text: string }> {
+  return message.split("`").map((text, index) => ({ code: index % 2 === 1, text })).filter(part => part.text)
+}
+
+/** A setup hint as plain text, for tooltips and menu descriptions. */
+export function consoleHintText(message: string): string {
+  return message.replaceAll("`", "")
+}
+
 /** The status dot of a schedule: a pending one is neutral, an overdue one a warning, and a failed one an error. */
 export function consoleDocumentScheduleTone(schedule: ConsoleDocumentSchedule): "error" | "neutral" | "warning" {
   return ({ failed: "error", overdue: "warning", pending: "neutral" } as const)[schedule.status]
@@ -584,11 +629,13 @@ export function consoleDocumentStateColor(state: ConsoleDocumentState): "error" 
 }
 
 /**
- * `Posts` → `Post` and `Stories` → `Story`, for toasts such as `Post deleted`. Labels that are not a plain one-word plural
- * become `Document`.
+ * The name of one document of a collection, for buttons and toasts such as `Post deleted`: the owner `singularLabel`, such
+ * as `Person` for People. Without it, `Posts` → `Post` and `Stories` → `Story`, and labels that are not a plain one-word
+ * plural become `Document`.
  */
-export function consoleSingularLabel(label: string): string {
-  const word = label.trim()
+export function consoleSingularLabel(collection: Pick<ConsoleDocumentCollection, "label" | "singularLabel">): string {
+  if (collection.singularLabel?.trim()) return collection.singularLabel.trim()
+  const word = collection.label.trim()
   if (/\s/.test(word) || !/s$/i.test(word) || /(ss|us|is|news|series)$/i.test(word)) return "Document"
   if (/ies$/i.test(word)) return `${word.slice(0, -3)}y`
   return word.slice(0, -1)
@@ -909,15 +956,11 @@ export function consoleSeoFallbacks(data: Record<string, unknown>, titleField: s
 }
 
 /**
- * A URL the Console can show for an image value: a URL as is, or the Blob serve route for a `{ pathname }` reference.
- * The serve route answers only with `blob: { serve: true }`, so the preview falls back to a placeholder.
+ * A URL the Console can show for an image value: a URL as is. A Blob reference `{ pathname }` has no URL of its own; the
+ * media library resolves it with the served Blob route of the project, and without one the preview shows a placeholder.
  */
 export function consoleImageUrl(image: unknown): string | undefined {
-  if (String(image) === image && image.trim()) return image
-  const reference = record(image)
-  const pathname = reference?.pathname
-  if (String(pathname) !== pathname || !pathname) return
-  return `/api/_vitehub/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`
+  return String(image) === image && image.trim() ? image : undefined
 }
 
 /** Text cut to a length on a word boundary with an ellipsis, as search results show it. */

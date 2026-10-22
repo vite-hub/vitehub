@@ -89,6 +89,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/runtime/dev.ts",
       "src/runtime/state.ts",
+      "src/served.ts",
       "src/virtual.ts",
       "src/vue.ts",
     ],

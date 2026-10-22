@@ -6,6 +6,7 @@ export type * from "comark-content/client"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export type {
   ContentHead,
+  ContentHeadCollection,
   ContentHeadDefaults,
   ContentHeadDocument,
   ContentHeadLink,

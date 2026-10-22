@@ -3,6 +3,8 @@ import { resolve } from "node:path"
 import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
+import { parseConsoleDocumentSetup } from "../definitions.ts"
+
 import type { ConsoleContributedSection, ConsoleDefinitionField, ConsoleRecord, ConsoleSectionCatalog, ConsoleSectionContent } from "../definitions.ts"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -12,7 +14,11 @@ function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitio
 }
 
 function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
-  if (content.kind === "document-editor") return { collections: [], kind: "document-editor" }
+  if (content.kind === "document-editor") {
+    // The build-time setup hints, such as a missing scheduled publish runner, stay; collections are read per request.
+    const setup = parseConsoleDocumentSetup(content.setup)
+    return setup ? { collections: [], kind: "document-editor", setup } : { collections: [], kind: "document-editor" }
+  }
   return content.kind === "definition-catalog"
     ? {
         definitions: content.definitions.map(definition => ({ ...definition, fields: copyFields(definition.fields) })),
