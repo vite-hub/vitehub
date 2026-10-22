@@ -91,7 +91,7 @@ icon: i-lucide-terminal-square
   :::
 ::
 
-::agent-only{skill="sandbox-task"}
+::agent-only{skill="sandbox-task" title="Sandbox Tasks"}
 Use a Sandbox Task to run a named project inside an isolated Cloudflare or Vercel Sandbox. A Sandbox Task run is an execution boundary, not a general-purpose local shell.
 
 Read [Get started](https://vitehub.dev/raw/docs/sandbox/get-started.md), [Configure](https://vitehub.dev/raw/docs/sandbox/configure.md), [Server API](https://vitehub.dev/raw/docs/sandbox/server-api.md), [Agent Capability](https://vitehub.dev/raw/docs/sandbox/agent-capability.md), or [Hosts](https://vitehub.dev/raw/docs/sandbox/hosts.md).

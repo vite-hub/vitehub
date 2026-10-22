@@ -4,7 +4,6 @@ description: Send messages, compose dynamic Markdown, and capture email in tests
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports

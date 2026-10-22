@@ -1924,15 +1924,14 @@ describe("agent message protocol", () => {
       events.push(event)
     }
 
+    // Since #2054 a stream ends at its first non-recoverable error, so the Driver's later finish is not read.
     expect(events).toEqual([
       { error: "stream failed", type: "error" },
-      { type: "finish" },
     ])
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",
       "agent.stream.error",
-      "agent.stream.finish",
-      "agent.invocation.finish",
+      "agent.invocation.error",
     ])
     expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
       { status: "failed" },
@@ -1955,9 +1954,9 @@ describe("agent message protocol", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
 
+    // Since #2054 a stream ends at its first non-recoverable error.
     expect(events).toEqual([
       { error: "stream failed", type: "error" },
-      { type: "finish" },
     ])
   })
 
