@@ -1,6 +1,6 @@
 ---
 title: Built for the Vue ecosystem
-description: "Use Vue components for chat, sessions, files, and Agent inspection."
+description: Use ViteHub UI Vue components for chat, sessions, files, and Agent inspection, then connect them to your own data.
 navigation.title: Built for the Vue ecosystem
 navigation.order: 3.5
 navigation.group: Start

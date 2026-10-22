@@ -1,6 +1,6 @@
 ---
 title: Instructions
-description: Write durable model-facing behavior and policy for an Agent.
+description: Write durable model-facing behavior and policy for an Agent in colocated documents, shared guidance, and trusted values.
 navigation.order: 31
 navigation.group: Configure
 icon: i-lucide-scroll-text

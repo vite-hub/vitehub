@@ -1,6 +1,6 @@
 ---
 title: Auth limits and errors
-description: Check Auth before production and handle Auth error codes.
+description: Check Auth before production, handle required authentication in routes, and read the stable Auth error codes.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

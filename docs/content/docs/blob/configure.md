@@ -1,6 +1,6 @@
 ---
 title: Blob configuration
-description: Configure Blob Stores, the opt-in serve route, and provider options.
+description: Configure Blob Stores, the opt-in route that serves blob-backed assets, and the options for each storage provider.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal

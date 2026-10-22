@@ -1,6 +1,6 @@
 ---
 title: Workflows hosts
-description: Select a Workflow Provider and its storage for each host.
+description: "Select a Workflow Provider and its storage for each host: Cloudflare Workflows, Vercel, or OpenWorkflow with Postgres or SQLite."
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog

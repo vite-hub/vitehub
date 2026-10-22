@@ -1,6 +1,6 @@
 ---
 title: Process a welcome job with Queue
-description: Submit a welcome job to Cloudflare Queues and verify its delivery.
+description: Define a welcome job, enqueue it from a route to Cloudflare Queues, and inspect the Queue Definition to verify delivery.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

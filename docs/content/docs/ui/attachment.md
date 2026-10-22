@@ -1,6 +1,6 @@
 ---
 title: Attachment
-description: "Show a file with its upload state as a row or a tile with actions."
+description: "Show a file with its upload state as a row or a tile, with an image preview, actions, sizes, and attachment groups."
 navigation.order: 13
 navigation.group: Parts
 icon: i-ph-paperclip-light

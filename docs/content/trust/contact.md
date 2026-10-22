@@ -3,8 +3,6 @@ title: Contact ViteHub
 description: Choose the right public or private channel for ViteHub support, bugs, security reports, and documentation changes.
 ---
 
-# Contact ViteHub
-
 ViteHub is maintained as an open-source project. It does not operate a sales desk, paid support queue, or hosted customer account system. Choose a channel based on what you need so maintainers and contributors receive enough context to act without moving sensitive information into a public thread.
 
 ## Questions and implementation help

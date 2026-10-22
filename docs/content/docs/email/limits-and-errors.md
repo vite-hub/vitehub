@@ -1,6 +1,6 @@
 ---
 title: Email limits and errors
-description: Handle Email delivery errors and troubleshoot common failures.
+description: Handle Email delivery errors by code, fix runtime, configuration, and build errors, and troubleshoot common failures.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

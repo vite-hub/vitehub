@@ -1,6 +1,6 @@
 ---
 title: Connections limits and errors
-description: Connections storage, security guarantees, and error codes.
+description: Know how Connections store and encrypt grants, how the OAuth connect flow is secured, and which error codes it returns.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
