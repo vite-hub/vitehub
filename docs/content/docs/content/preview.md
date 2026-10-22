@@ -2,7 +2,7 @@
 title: Content draft preview
 description: Render draft documents through your real pages for one browser with a signed preview cookie, while the public site keeps serving published content.
 navigation.title: Draft preview
-navigation.order: 5
+navigation.order: 8
 icon: i-lucide-eye
 ---
 
