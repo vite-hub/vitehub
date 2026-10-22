@@ -258,7 +258,9 @@ it.each(["marker audit", "state write", "marker write", "response body"] as cons
   if (stage === "marker write" || stage === "response body") expect(current).toEqual(original)
   else expect(JSON.parse(current!.value)).toEqual({ revoked: true })
   const count = test.provider.calls.length
-  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+  // A quarantined Connection must be connected again. A revoked one is not connected.
+  const code = stage === "marker write" || stage === "response body" ? "CONNECTIONS_NEEDS_RECONNECT" : "CONNECTIONS_NOT_CONNECTED"
+  await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code })
   expect(test.provider.calls).toHaveLength(count)
 })
 

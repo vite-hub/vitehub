@@ -4,7 +4,6 @@ description: Start, defer, inspect, cancel, and resume Workflow Runs from server
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports

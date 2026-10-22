@@ -47,6 +47,8 @@ function deploymentRuntimeModules(): Map<string, string> {
     ["@vite-hub/agent/server/internal", [
       `export { decodeColocatedAgentSkills, withColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      // The generated SQLite-state route builds its webhook warm-up at module load (#2628).
+      `export { createAgentWebhookWarmup } from ${JSON.stringify(join(import.meta.dirname, "../src/server/webhook-warmup.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,

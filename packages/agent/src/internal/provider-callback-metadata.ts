@@ -15,3 +15,10 @@ export function withProviderCallbackMetadata<T extends ProviderCallbackContext>(
 export function providerCallbackMetadata(context: ProviderCallbackContext): WorkspaceMetadata | undefined {
   return callbackMetadata.get(context)
 }
+
+/** Give a copied invocation context the Workspace metadata of the context it copies. */
+export function copyProviderCallbackMetadata<T extends ProviderCallbackContext>(source: ProviderCallbackContext, copy: T): T {
+  const metadata = callbackMetadata.get(source)
+  if (metadata) callbackMetadata.set(copy, metadata)
+  return copy
+}

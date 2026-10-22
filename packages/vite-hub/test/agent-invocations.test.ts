@@ -166,9 +166,12 @@ describe("Console journal", () => {
   })
 })
 
+/** The Agent Invocations plugin that Vite keeps for an app without the Content `cms` preset. */
 function agentInvocationsPlugin(options: Parameters<typeof vitehub>[0]): Plugin | undefined {
+  // vitehub() also lists the plugins of the cms preset case, whose `apply` drops them in other apps.
   return vitehub(options)
-    .find((candidate): candidate is Plugin => !!candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/agent-invocations")
+    .filter((candidate): candidate is Plugin => !!candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/agent-invocations")
+    .find(plugin => !(plugin.apply instanceof Function) || plugin.apply({ root: "/vitehub-test-app-without-content" }, { command: "build", mode: "production" }))
 }
 
 describe("vitehub({ agent: { invocations } })", () => {

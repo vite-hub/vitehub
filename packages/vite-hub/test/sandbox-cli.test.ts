@@ -175,7 +175,7 @@ describe("vitehub sandbox", () => {
       SSH_HOST_KEY: hostKey,
       VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS: "10000",
     });
-    let exitCode: number | undefined;
+    let exitCode: number | void = undefined;
     const running = Promise.resolve(feature("serve").run([], serve.context)).then((code) => {
       exitCode = code;
       return code;
