@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
+import { viteHubTaskPlugin } from "../src/task/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
@@ -74,6 +75,7 @@ describe("CLI documentation contract", () => {
       schedulePlugin,
       workflowPlugin,
       workspacePlugin,
+      viteHubTaskPlugin(),
       typesPlugin,
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });

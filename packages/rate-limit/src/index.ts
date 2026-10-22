@@ -1,7 +1,7 @@
 export { createRateLimiter } from "./limiter.ts"
 export { peekRateLimit, resetRateLimit } from "./counters.ts"
 export type { RateLimitCounterSnapshot, RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
-export { requireRateLimit } from "./guard.ts"
+export { checkRateLimit, requireRateLimit } from "./guard.ts"
 
 export type {
   CreateRateLimiterOptions,

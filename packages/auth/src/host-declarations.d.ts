@@ -11,3 +11,7 @@ declare global {
     [Symbol.toPrimitive](): number
   }
 }
+
+declare module "#app" {
+  export function tryUseNuxtApp(): unknown
+}

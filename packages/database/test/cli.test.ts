@@ -65,7 +65,7 @@ async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate
   const stderr = { write: vi.fn() }
   const contributor = createDbCliContributor(undefined, () => ({
     databaseNames: ["default"],
-    databases: { default: { connection: { url: "file:.vitehub/data/database/sqlite.db" } } },
+    databases: { default: { connection: { url: "file:.vitehub/data/database/sqlite.db" }, dialect: "sqlite", migrationsDir: join(rootDir, "migrations"), name: "default" } },
     generatedDrizzleConfigFile: join(rootDir, "drizzle.config.ts"),
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
@@ -247,7 +247,8 @@ describe("DB CLI contributor", () => {
     const contributor = createDbCliContributor(undefined, () => config)!
     const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
 
-    await expect(migrate.run([], cliContext(spawn))).resolves.toBe(0)
+    // `--allow-data-loss` skips the migration check, which needs a resolved Database, and is not passed to Drizzle Kit.
+    await expect(migrate.run(["--allow-data-loss"], cliContext(spawn))).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledOnce()
     expect(spawn).toHaveBeenCalledWith(process.execPath, [
@@ -314,7 +315,7 @@ describe("DB CLI contributor", () => {
     const contributor = createDbCliContributor()!
     const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
 
-    await expect(migrate.run([], cliContext(spawn, { DATABASE_URL: "file:dev.db", PATH: "/usr/bin" }))).resolves.toBe(0)
+    await expect(migrate.run(["--allow-data-loss"], cliContext(spawn, { DATABASE_URL: "file:dev.db", PATH: "/usr/bin" }))).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledWith(process.execPath, [
       drizzleKitBin,

@@ -48,6 +48,16 @@ describe("Cloudflare environment context", () => {
     expect(scope.__env__).toBe(requestEnv)
   })
 
+  it("uses the fallback when the ambient environment is explicitly undefined", () => {
+    const fallback = { BUCKET: "fallback-bucket" }
+    const scope = globalThis as { __env__?: Record<string, unknown> }
+    setActiveCloudflareEnv(fallback)
+    scope.__env__ = undefined
+
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+    expect(getActiveCloudflareBinding("BUCKET")).toBe("fallback-bucket")
+  })
+
   it("clears the installed environment and its bindings", async () => {
     setActiveCloudflareEnv({ BUCKET: "old-bucket" })
 

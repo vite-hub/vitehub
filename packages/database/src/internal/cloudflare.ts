@@ -16,6 +16,7 @@ export function cloudflareOptions(
   if (options.cloudflare?.http !== undefined) value.http = options.cloudflare.http
   if (options.migrationsTable !== undefined) value.migrationsTable = options.migrationsTable
   if (options.previewDatabaseId !== undefined) value.previewDatabaseId = options.previewDatabaseId
+  if (options.readReplication !== undefined) value.readReplication = options.readReplication
   return Object.keys(value).length ? value : undefined
 }
 
@@ -44,6 +45,7 @@ export function mergeCloudflareConfig(
       : definitionHttp
   }
   if (definition.migrationsTable !== undefined) value.migrationsTable = definition.migrationsTable
+  if (definition.readReplication !== undefined) value.readReplication = definition.readReplication
   if (ownsResource || definition.previewDatabaseId !== undefined) value.previewDatabaseId = definition.previewDatabaseId
   return value
 }

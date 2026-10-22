@@ -53,6 +53,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
   hubWorkflow: vi.fn(() => ({ name: "@vite-hub/workflow/vite" })),
   hubWorkspace: vi.fn(() => ({ name: "@vite-hub/workspace/vite" })),
+  viteHubTask: vi.fn(() => ({ name: "vite-hub/task" })),
   consoleSection: (id: string) => ({
     description: id,
     icon: "i-lucide-box",
@@ -108,6 +109,7 @@ vi.mock("@vite-hub/workflow/vite", () => ({
   workflowConsoleSection: integrationMocks.consoleSection("workflows"),
 }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace, workspaceConsoleSection: integrationMocks.consoleSection("workspaces") }))
+vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
@@ -614,12 +616,14 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/database-disabled",
       "vite-hub/dependencies",
+      "vite-hub/error-log",
       "@vite-hub/env/vite",
       "@vite-hub/connections/types-cleanup",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
@@ -646,6 +650,7 @@ describe("vitehub", () => {
       "vite-hub/deployment-output",
       "vite-hub/public-url",
       "vite-hub/dependencies",
+      "vite-hub/error-log",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox-task/vite",
@@ -663,6 +668,7 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
@@ -825,6 +831,13 @@ describe("vitehub", () => {
       provider: "cloudflare",
       scanDirs: ["rules"],
     })
+  })
+
+  it("keeps the request error logger when evlog is disabled", () => {
+    expect(pluginNames(vitehub({ preset: "node", observability: { service: "support", evlog: { enabled: false } } })))
+      .toContain("vite-hub/error-log")
+    expect(pluginNames(vitehub({ preset: "node", observability: { service: "support" } })))
+      .not.toContain("vite-hub/error-log")
   })
 
   it("passes configured Email drivers through the canonical integration", () => {

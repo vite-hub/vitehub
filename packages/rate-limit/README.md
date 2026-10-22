@@ -59,6 +59,7 @@ Direct Rate Limiters return a decision. Your code must stop the operation when `
 | Need                                                                                   | Use                                        |
 | -------------------------------------------------------------------------------------- | ------------------------------------------ |
 | Enforce a discovered Rate Limit in an H3 handler and let Nitro generate host bindings  | `requireRateLimit()` with `hubRateLimit()` |
+| The same managed limit, but answer a limited request yourself, such as with a fallback | `checkRateLimit()` with `hubRateLimit()`   |
 | Return a custom response, use another transport, or supply storage yourself            | `createRateLimiter()` with a direct driver |
 
 The managed path selects and configures a driver. The direct path gives your code the decision and leaves deployment integration to the application.
@@ -124,7 +125,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 
 | Import                                    | Purpose                                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------- |
-| `@vite-hub/rate-limit`                    | `requireRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
+| `@vite-hub/rate-limit`                    | `requireRateLimit()`, `checkRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
 | `@vite-hub/rate-limit/drivers/memory`     | Process-local fixed-window driver                                         |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
 | `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
