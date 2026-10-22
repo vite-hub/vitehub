@@ -30,6 +30,15 @@ describe("Jev provider errors", () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
+  it("retries a statusless fetch TypeError without a cause", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(answered())
+    vi.stubGlobal("fetch", fetch)
+    await expect(askJev({}, "state", questions)).resolves.toEqual({ accepted: true })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it("names a provider that keeps failing and keeps its response as the cause", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => failed(503))
     vi.stubGlobal("fetch", fetch)

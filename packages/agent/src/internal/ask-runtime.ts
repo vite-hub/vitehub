@@ -230,12 +230,11 @@ async function requestJevWithRetry(
         const env = options.provider === "vercel" ? "AI_GATEWAY_API_KEY" : "TYPESAFE_API_KEY"
         throw Object.assign(agentDiagnostics.AGENT_R1009({ provider, status, env, cause: error }), { ...details, status: 503 })
       }
-      // A failed fetch is surfaced as a TypeError without a status. Response
-      // decoding and validation can also throw TypeError, but those are
-      // deterministic failures and must not be retried. Fetch implementations
-      // attach the underlying transport error as `cause`.
+      // A failed fetch is surfaced as a statusless TypeError. The browser and
+      // SDK fetch implementations do not consistently attach a `cause`, so
+      // use the native error type as the transport signal here.
       const transient = status === undefined
-        ? error instanceof TypeError && isRuntimeRecord(error) && "cause" in error
+        ? error instanceof TypeError
         : retryableJevStatuses.has(status)
       if (!transient) throw error
       if (attempt + 1 >= jevAttempts) {
