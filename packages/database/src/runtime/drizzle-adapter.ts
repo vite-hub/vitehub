@@ -73,7 +73,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       const instance = keepOwnClient(drizzleD1(trackD1Database(client), {
         casing: config.drizzle.casing,
         schema,
-      }), d1Binding) as RuntimeDrizzleDatabase<TSchema>
+      }), client) as RuntimeDrizzleDatabase<TSchema>
       d1Instances.set(client, instance)
       return instance
     }
