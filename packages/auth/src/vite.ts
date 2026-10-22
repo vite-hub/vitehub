@@ -1,4 +1,4 @@
-import { resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
 
 import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -136,14 +136,24 @@ function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | unde
   ].join("\n")
 }
 
+/** A relative `import()` type specifier that resolves under NodeNext and bundler resolution: `auth.ts` becomes `auth.js`. */
+function typeImportSpecifier(from: string, file: string): string {
+  const path = relative(from, file).replaceAll("\\", "/").replace(/\.([cm]?)ts$/, ".$1js")
+  return path.startsWith(".") ? path : `./${path}`
+}
+
 function authAmbientTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthAmbientTypes(options: { definition?: string, importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   const importBase = options.importBase ?? authPackageName
   const serverImport = `${importBase}/server`
+  const registry = options.definition
+    ? [`interface AuthRegistry { definition: typeof import(${JSON.stringify(options.definition)}).default }`]
+    : []
   return [
+    // The ServerEnv import makes this file a module, so its global names need `declare global`.
     ...(options.serverEnv
       ? [
           `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
@@ -151,11 +161,14 @@ function renderAuthAmbientTypes(options: { importBase?: string, serverEnv: boole
           "declare global {",
           "  namespace ViteHub {",
           "    interface AuthRuntimeEnv extends ServerEnv {}",
+          ...registry.map(line => `    ${line}`),
           "  }",
           "}",
           "",
         ]
-      : []),
+      : registry.length
+        ? ["declare namespace ViteHub {", ...registry.map(line => `  ${line}`), "}", ""]
+        : []),
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
@@ -167,7 +180,11 @@ function renderAuthAmbientTypes(options: { importBase?: string, serverEnv: boole
 async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
   await Promise.all([
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config)),
-    writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({ importBase: options.importBase, serverEnv: Boolean(options.serverEnv) })),
+    writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
+      definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
+      importBase: options.importBase,
+      serverEnv: Boolean(options.serverEnv),
+    })),
     writeFileIfChanged(resolve(root, generatedAuthRouteHandler), renderAuthRouteHandler()),
   ])
 }

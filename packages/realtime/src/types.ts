@@ -1,5 +1,6 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
+import type { H3Event } from "h3"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -135,8 +136,8 @@ export type RealtimeReadOnlyReason = "access" | "document"
 
 export interface RealtimeRequestContext {
   definition: string
-  /** Server event from the host integration, for reading platform bindings. */
-  event: unknown
+  /** The H3 event of the WebSocket upgrade or HTTP request, for reading cookies, context, and platform bindings. */
+  event: H3Event
   request: Request
 }
 

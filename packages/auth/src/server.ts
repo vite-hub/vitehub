@@ -18,11 +18,13 @@ import type {
   AuthAuthorization,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
+  AuthFor,
   AuthGuardedHandler,
   AuthRequest,
   AuthRequestInput,
   AuthRuntimeOptions,
   AuthSignInConfiguration,
+  RegisteredAuth,
   ResolvedAuthAccessRoute,
   ViteHubAuth,
 } from "./types.ts"
@@ -267,9 +269,10 @@ export function createBetterAuthOptions(
 
   return resolveAuthOptions(definition, { runtimeOptions, env: envResolverFor(definition) }).providerOptions}
 
-function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
+function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
   try {
-    return betterAuth(options) as ViteHubAuth
+    // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
+    return betterAuth(options) as TAuth
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-auth-for-request")
@@ -315,34 +318,40 @@ export function createAuthHandler(
   return createAuth(definition, runtimeOptions).handler
 }
 
-export function getAuthForDefinition(
-  definition: AuthDefinition,
+export function getAuthForDefinition<TDefinition extends AuthDefinition>(
+  definition: TDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth {
+): AuthFor<TDefinition> {
   if (hasRuntimeOptions(runtimeOptions)) {
-    return createAuthenticationProvider(createBetterAuthOptions(definition, runtimeOptions))
+    return createAuthenticationProvider<AuthFor<TDefinition>>(createBetterAuthOptions(definition, runtimeOptions))
   }
 
+  return cachedAuth(definition)
+}
+
+function cachedAuth<TAuth>(definition: AuthDefinition): TAuth {
   const state = getAuthRuntimeState()
   if (!state.auth || state.definition !== definition) {
     state.auth = createAuthenticationProvider(createBetterAuthOptions(definition))
     state.definition = definition
   }
-  return state.auth
+  // SAFETY: state.auth is the instance of `definition`, the Auth Definition that TAuth is inferred from.
+  return state.auth as TAuth
 }
 
-export function getAuth(runtimeOptions?: AuthRuntimeOptions): ViteHubAuth {
-  return getAuthForDefinition(resolveDefaultDefinition(), runtimeOptions)
+export function getAuth(runtimeOptions?: AuthRuntimeOptions): RegisteredAuth {
+  return getAuthForDefinition(resolveDefaultDefinition(), runtimeOptions) as RegisteredAuth
 }
 
+/** Return the Better Auth instance of the app's Auth Definition, typed with its plugins by the generated types. */
 export function getAuthForRequest(
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
-): ViteHubAuth {
+): RegisteredAuth {
   const definition = resolveDefaultDefinition()
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
-    return getAuthForDefinition(definition)
+    return getAuthForDefinition(definition) as RegisteredAuth
   }
 
 
@@ -351,7 +360,7 @@ export function getAuthForRequest(
 export async function assertAuthOrigin(
   request: Pick<Request, "headers" | "url">,
   event?: unknown,
-): Promise<ViteHubAuth> {
+): Promise<RegisteredAuth> {
   const origin = request.headers.get("origin")
   if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
   const auth = getAuthForRequest(request, undefined, event)
@@ -858,4 +867,4 @@ export const auth = new Proxy({}, {
   ownKeys() {
     return Reflect.ownKeys(getAuth() as object)
   },
-}) as ViteHubAuth
+}) as RegisteredAuth

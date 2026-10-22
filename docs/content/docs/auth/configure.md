@@ -38,6 +38,10 @@ export default defineAuth({
 
 `baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback or put them under `runtime`, not as static top-level fields. `access.routes` must be static so the Vite Integration can register middleware.
 
+### Secret
+
+You do not need a Better Auth secret when the deployment sets [`VITEHUB_SECRET`](/docs/env/app-secret). Without `secret` or `secrets`, and without `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET` in the environment, Auth signs with `deriveSecret('vitehub:auth')`. Auth reads `VITEHUB_SECRET`, then `NUXT_APP_SECRET`, from the server's process environment and the Cloudflare bindings of the request. A configured Better Auth secret always wins. Without any secret, Better Auth applies its own rules: a development default, and an error in production. A root secret shorter than 32 characters throws `AUTH_R0016`. Rotating `VITEHUB_SECRET` signs out every session.
+
 ## Runtime options
 
 Use a Definition callback or the `runtime` field when values depend on the request, Server Env, provider credentials, or request origin. Declare the secrets in [Env](/docs/env) first.
