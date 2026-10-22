@@ -63,6 +63,7 @@ export interface ShutdownRuntime {
   off(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
   on(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
   release?: { name?: string }
+  stdout?: { write(chunk: string, callback: () => void): unknown }
 }
 
 /** Name of the variable that sets the shared drain budget in milliseconds. The default is 0. */
@@ -164,8 +165,9 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       ])
       state.status = "exited"
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.exited", signal, timestamp: new Date().toISOString() }))
-      // Let piped stdout flush before the explicit exit.
-      await new Promise<void>(resolve => setImmediate(resolve))
+      // Drain piped stdout before the explicit exit. A `setImmediate()` only yields to the
+      // event loop and can still leave console writes buffered when the process exits.
+      if (runtime.stdout) await new Promise<void>(resolve => runtime.stdout!.write("", resolve))
       runtime.exit(0)
     })().catch((error: unknown) => {
       console.error("[vitehub] Shutdown failed.", error)
