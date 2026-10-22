@@ -22,6 +22,7 @@ export interface EnvCliInspectInput {
   applicationRoot?: string
   env: NodeJS.ProcessEnv
   rootDir: string
+  stderr: ViteHubCliContext["stderr"]
   stage: string
 }
 
@@ -194,7 +195,7 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
     return 0
   }
 
-  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stage: parsed.stage ?? defaultEnvCliStage }
+  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stderr: context.stderr, stage: parsed.stage ?? defaultEnvCliStage }
   const inspection = options.inspect
     ? await options.inspect(input)
     : await inspectStage({ ...input, applicationRoot: context.cwd })
