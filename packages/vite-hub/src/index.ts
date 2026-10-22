@@ -976,8 +976,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // Before Env, so Env reads the PostHog key declaration.
     plugins.push(observabilityVitePlugin(options.observability, { agent: options.agent, hosting: plan.nitroPreset }))
   }
-  // evlog records request errors when observability is on.
-  else plugins.push(errorLogVitePlugin())
+  // evlog records request errors only when it is enabled. Keep the fallback logger
+  // when observability is configured with evlog explicitly disabled.
+  if (!options.observability || options.observability.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
