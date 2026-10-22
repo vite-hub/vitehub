@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { navigateTo, onMounted, ref, useHead, useRuntimeConfig } from "#imports";
 
-import { consoleErrorMessage } from "../client/documents";
 import { requestConsole } from "../client/request";
 import { isConsoleSectionId } from "../sections";
 import ConsoleKv from "../components/console-kv.vue";
@@ -48,15 +47,7 @@ onMounted(loadSections);
         :sections-base="sectionsBase"
       />
       <div v-else-if="loadError" class="flex h-dvh min-h-[32rem] items-center justify-center px-4">
-        <UAlert
-          class="max-w-md"
-          color="error"
-          variant="subtle"
-          icon="i-lucide-cloud-off"
-          title="Could not load the ViteHub Console"
-          :description="consoleErrorMessage(loadError)"
-          :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections }]"
-        />
+        <ConsoleState :error="loadError" title="Could not load the ViteHub Console" :retry="loadSections" />
       </div>
       <div v-else class="flex h-dvh min-h-[32rem] items-center justify-center text-sm text-muted">
         Loading ViteHub Console…
